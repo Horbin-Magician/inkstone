@@ -565,9 +565,16 @@ impl Workspace {
         let id = self.next_id;
         self.next_id += 1;
         let links = cx.subscribe_in(&pane, window, move |this, _, event, window, cx| {
-            let EditorEvent::FollowLink(target) = event;
             if let Some(tab) = this.tabs.iter().find(|t| t.id == id) {
-                this.follow_link(tab.path.clone(), target.clone(), window, cx);
+                let from = tab.path.clone();
+                match event {
+                    EditorEvent::FollowLink(target) => {
+                        this.follow_link(from, target.clone(), window, cx)
+                    }
+                    EditorEvent::FollowMarkdownLink(target) => {
+                        this.follow_markdown_link(from, target, window, cx)
+                    }
+                }
             }
         });
         let subscription = cx.subscribe(&editor, move |this, editor, event, cx| {
@@ -842,6 +849,37 @@ impl Workspace {
         tab.pane
             .update(cx, |pane, cx| pane.jump(offset, window, cx));
         self.pending_jump = None;
+    }
+    fn follow_markdown_link(
+        &mut self,
+        from: PathBuf,
+        href: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (resolution, heading) = self.index.resolve_markdown(&from, href);
+        match resolution {
+            Resolution::Found(path) => {
+                if let Some(h) = heading.and_then(|heading| {
+                    self.index
+                        .notes
+                        .get(&path)
+                        .and_then(|n| n.parsed.headings.iter().find(|h| h.title == heading))
+                }) {
+                    self.pending_jump = Some((path.clone(), h.offset));
+                }
+                self.open_note(path, window, cx);
+                self.apply_jump(window, cx);
+            }
+            Resolution::Missing(path) => {
+                self.status = format!(
+                    "本地 Markdown 链接目标不存在：{}。如需创建笔记，请使用双链。",
+                    path.display()
+                )
+            }
+            _ => self.status = "此本地链接不是有效的库内 Markdown 目标。".into(),
+        }
+        cx.notify();
     }
     fn follow_link(
         &mut self,
@@ -1298,6 +1336,36 @@ mod tests {
             .update(cx, |workspace, _, _| {
                 assert_eq!(workspace.search_results.len(), 1);
                 assert_eq!(workspace.search_results[0].path, PathBuf::from("来源.md"));
+            })
+            .unwrap();
+        handle
+            .update(cx, |workspace, _, cx| {
+                let pane = workspace.tabs[workspace.active.unwrap()].pane.clone();
+                pane.update(cx, |_, cx| {
+                    cx.emit(EditorEvent::FollowMarkdownLink("不会创建.md".into()))
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(!root.join("不会创建.md").exists());
+        handle
+            .update(cx, |workspace, _, cx| {
+                assert!(workspace.status.contains("目标不存在"));
+                let pane = workspace.tabs[workspace.active.unwrap()].pane.clone();
+                pane.update(cx, |_, cx| {
+                    cx.emit(EditorEvent::FollowMarkdownLink(
+                        "%E6%9D%A5%E6%BA%90.md".into(),
+                    ))
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |workspace, _, _| {
+                assert_eq!(
+                    workspace.tabs[workspace.active.unwrap()].path,
+                    PathBuf::from("来源.md")
+                );
                 workspace.watcher = None;
             })
             .unwrap();

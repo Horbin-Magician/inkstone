@@ -169,12 +169,41 @@ impl Index {
         Ok(())
     }
     pub fn resolve(&self, from: &Path, target: &str) -> Resolution {
-        let target = target
-            .split('#')
-            .next()
-            .unwrap_or("")
-            .trim()
-            .replace('\\', "/");
+        self.resolve_literal(from, target.split('#').next().unwrap_or(""))
+    }
+    /// Markdown destinations are relative to the containing document, unlike wiki paths.
+    /// Decode the path and fragment separately so an encoded '#' stays in the filename.
+    pub fn resolve_markdown(&self, from: &Path, href: &str) -> (Resolution, Option<String>) {
+        let (path, fragment) = href
+            .split_once('#')
+            .map_or((href, None), |(p, f)| (p, Some(f)));
+        let Ok(path) = percent_encoding::percent_decode_str(path).decode_utf8() else {
+            return (Resolution::Invalid, None);
+        };
+        let heading = match fragment.map(|f| percent_encoding::percent_decode_str(f).decode_utf8())
+        {
+            Some(Ok(text)) => Some(text.into_owned()),
+            Some(Err(_)) => return (Resolution::Invalid, None),
+            None => None,
+        };
+        if path.is_empty() {
+            return (Resolution::Found(from.into()), heading);
+        }
+        if Path::new(path.as_ref())
+            .extension()
+            .is_some_and(|e| !e.eq_ignore_ascii_case("md"))
+        {
+            return (Resolution::Invalid, heading);
+        }
+        let target = if path.starts_with('/') {
+            path.into_owned()
+        } else {
+            format!("./{path}")
+        };
+        (self.resolve_literal(from, &target), heading)
+    }
+    fn resolve_literal(&self, from: &Path, target: &str) -> Resolution {
+        let target = target.trim().replace('\\', "/");
         if target.is_empty() {
             return Resolution::Found(from.into());
         }
@@ -193,7 +222,9 @@ impl Index {
             .extension()
             .is_none_or(|e| !e.eq_ignore_ascii_case("md"))
         {
-            path.set_extension("md");
+            let mut name = path.into_os_string();
+            name.push(".md");
+            path = PathBuf::from(name);
         }
         let Some(path) = normalized(&path) else {
             return Resolution::Invalid;
@@ -287,6 +318,43 @@ pub fn reading_source(source: &str, parsed: &ParsedNote) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dotted_wiki_names_keep_their_entire_stem() {
+        let mut index = Index::default();
+        index.update("会议.2026.md".into(), String::new());
+        assert_eq!(
+            index.resolve(Path::new("来源.md"), "会议.2026"),
+            Resolution::Found("会议.2026.md".into())
+        );
+        assert_eq!(
+            index.resolve(Path::new("来源.md"), "项目/会议.2027"),
+            Resolution::Missing("项目/会议.2027.md".into())
+        );
+    }
+    #[test]
+    fn markdown_paths_are_relative_and_decode_path_separately_from_anchor() {
+        let mut index = Index::default();
+        index.update("目录/子目录/中文 空格#笔记.md".into(), "# 标题".into());
+        index.update("子目录/中文 空格#笔记.md".into(), String::new());
+        assert_eq!(index.resolve_markdown(Path::new("目录/来源.md"),"子目录/%E4%B8%AD%E6%96%87%20%E7%A9%BA%E6%A0%BC%23%E7%AC%94%E8%AE%B0.md#%E6%A0%87%E9%A2%98"),
+            (Resolution::Found("目录/子目录/中文 空格#笔记.md".into()),Some("标题".into())));
+        assert_eq!(
+            index
+                .resolve_markdown(Path::new("目录/来源.md"), "missing.md")
+                .0,
+            Resolution::Missing("目录/missing.md".into())
+        );
+        assert_eq!(
+            index.resolve_markdown(Path::new("来源.md"), "image.png").0,
+            Resolution::Invalid
+        );
+        assert_eq!(
+            index
+                .resolve_markdown(Path::new("来源.md"), "../outside.md")
+                .0,
+            Resolution::Invalid
+        );
+    }
     #[test]
     fn ast_links_headings_exclude_code_and_preserve_unicode_ranges() {
         let source = "# 中文😀\n**[[笔记|别名]]** `[[不是]]`\n\n```\n[[也不是]]\n```\n";

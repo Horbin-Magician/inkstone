@@ -12,6 +12,7 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 pub enum EditorEvent {
     FollowLink(String),
+    FollowMarkdownLink(String),
 }
 impl EventEmitter<EditorEvent> for EditorPane {}
 
@@ -224,7 +225,7 @@ impl Render for EditorPane {
                     } else if url.starts_with("https://") || url.starts_with("http://") {
                         cx.open_url(url);
                     } else {
-                        cx.emit(EditorEvent::FollowLink(url.to_string()));
+                        cx.emit(EditorEvent::FollowMarkdownLink(url.to_string()));
                     }
                 });
             });
