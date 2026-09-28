@@ -2505,8 +2505,13 @@ impl<M: InputModeKind> InputBaseState<M> {
         }
     }
 
+    /// Inkstone: reveal the active cursor after viewport reflow, preserving
+    /// the selection, its direction, and undo history.
+    pub fn reveal_cursor(&mut self, cx: &mut Context<Self>) {
+        self.scroll_to(self.cursor(), None, cx);
+    }
+
     /// Scroll to make the given offset visible.
-    ///
     /// If `direction` is Some, will keep edges at the same side.
     pub(crate) fn scroll_to(
         &mut self,
