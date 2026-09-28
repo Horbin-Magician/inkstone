@@ -194,6 +194,14 @@ impl Render for EditorPane {
         let image_dir = self.image_dir.clone();
         let weak = cx.entity().downgrade();
         let preview = TextView::new(&self.preview)
+            .style(
+                gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
+                    .with_table_head(
+                        StyleRefinement::default()
+                            .bg(rgb(0x283446))
+                            .text_color(rgb(0xe6edf6)),
+                    ),
+            )
             .scrollable(true)
             .selectable(true)
             .image_source(move |uri| {
