@@ -1498,6 +1498,65 @@ mod tests {
     }
 
     #[gpui::test]
+    fn recovery_opens_exact_draft_as_new_note_without_overwriting_original(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-recovery-ui-{stamp}"));
+        std::fs::create_dir(&root).unwrap();
+        let original = "# 原件\r\n磁盘版本 😀\r\n";
+        let draft = "# 原件\r\n本地草稿 👩‍💻 e\u{301} **保留格式**\r\n";
+        std::fs::write(root.join("原件.md"), original).unwrap();
+        let vault = Vault::open(root.clone(), app_dir().join("recovery")).unwrap();
+        let journal = vault
+            .journal(std::path::Path::new("原件.md"), Some(original), draft)
+            .unwrap();
+        drop(vault);
+
+        // A fresh workspace reads the durable journal, as it would after restart.
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |workspace, window, cx| {
+                workspace.load_vault(root.clone(), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |workspace, window, cx| {
+                assert_eq!(workspace.recoveries.len(), 1);
+                workspace.restore_draft(0, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let restored = handle
+            .update(cx, |workspace, _, cx| {
+                let tab = &workspace.tabs[workspace.active.unwrap()];
+                assert_ne!(tab.path, std::path::Path::new("原件.md"));
+                assert!(!tab.dirty && !tab.saving && tab.error.is_none());
+                assert_eq!(tab.pane.read(cx).editor.read(cx).value().as_ref(), draft);
+                let path = root.join(&tab.path);
+                workspace.watcher = None;
+                path
+            })
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(restored).unwrap(), draft);
+        assert_eq!(
+            std::fs::read_to_string(root.join("原件.md")).unwrap(),
+            original
+        );
+        assert!(
+            journal.exists(),
+            "restoring must preserve the original recovery journal"
+        );
+        std::fs::remove_file(journal).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn gpui_create_edit_save_reopen_and_external_conflict(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let stamp = std::time::SystemTime::now()

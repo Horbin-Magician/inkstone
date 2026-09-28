@@ -384,6 +384,54 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn ctrl_hover_click_emits_wiki_target_without_changing_source(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "中文😀 [[目录/笔记|标签]]";
+        let handle = cx.add_window(|window, cx| EditorPane::new(source, window, cx));
+        let targets = Rc::new(RefCell::new(Vec::new()));
+        let captured = targets.clone();
+        let _subscription = handle
+            .update(cx, |pane, _, cx| {
+                pane.editor.update(cx, |state, cx| {
+                    let offset = "中文😀 [[目".len();
+                    state.set_selected_range(offset..offset, cx);
+                });
+                cx.subscribe(&cx.entity(), move |_, _, event: &EditorEvent, _| {
+                    if let EditorEvent::FollowLink(target) = event {
+                        captured.borrow_mut().push(target.clone());
+                    }
+                })
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1100.), px(800.)));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let position = handle
+            .update(&mut visual, |pane, _, cx| {
+                let state = pane.editor.read(cx);
+                let (caret, _) = state.cursor_layout().unwrap();
+                caret.origin + state.scroll_offset() + point(px(1.), px(5.))
+            })
+            .unwrap();
+        let modifiers = Modifiers {
+            control: true,
+            ..Default::default()
+        };
+        visual.simulate_mouse_move(position, None, modifiers);
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.simulate_click(position, modifiers);
+        assert_eq!(targets.borrow().as_slice(), &["目录/笔记"]);
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn resize_keeps_visible_caret_and_selection_direction(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "中文 English 👩‍💻 e\u{301}".repeat(500);
