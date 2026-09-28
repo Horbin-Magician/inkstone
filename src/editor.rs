@@ -32,9 +32,18 @@ pub struct EditorPane {
     path_cache: PathCache,
     last_presentation: Option<(SharedString, std::ops::Range<usize>, bool)>,
     _subscription: Subscription,
+    last_geometry: Option<(Size<Pixels>, bool)>,
 }
 
 impl EditorPane {
+    pub fn focus_view(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.reading {
+            let handle = self.preview.read(cx).focus_handle().clone();
+            window.focus(&handle, cx);
+        } else {
+            self.editor.update(cx, |state, cx| state.focus(window, cx));
+        }
+    }
     pub fn set_paths(&mut self, paths: Arc<Vec<String>>) {
         *self.path_cache.borrow_mut() = paths;
     }
@@ -55,7 +64,27 @@ impl EditorPane {
         let decorations = editor.update(cx, |state, cx| {
             state.create_decorations_collection(vec![], cx)
         });
-        let subscription = cx.observe(&editor, |_, _, cx| cx.notify());
+        let subscription = cx.observe_in(&editor, window, |this, editor, window, cx| {
+            let state = editor.read(cx);
+            let visible = state.cursor_layout().is_some_and(|(mut caret, _)| {
+                caret.origin += state.scroll_offset();
+                state.input_bounds().intersects(&caret)
+            });
+            let size = state.input_bounds().size;
+            let previous = this.last_geometry.replace((size, visible));
+            if !this.reading
+                && state.focus_handle(cx).is_focused(window)
+                && previous.is_some_and(|(old, was_visible)| old != size && was_visible)
+            {
+                // Geometry notifications arrive after paint, so the new map is ready.
+                cx.on_next_frame(window, |this, window, cx| {
+                    if !this.reading && this.editor.read(cx).focus_handle(cx).is_focused(window) {
+                        this.editor.update(cx, |state, cx| state.reveal_cursor(cx));
+                    }
+                });
+            }
+            cx.notify();
+        });
         let preview = cx.new(|cx| TextViewState::markdown("", cx));
         let link_cache = Rc::new(RefCell::new((
             SharedString::default(),
@@ -95,6 +124,7 @@ impl EditorPane {
             path_cache,
             last_presentation: None,
             _subscription: subscription,
+            last_geometry: None,
         }
     }
 
@@ -181,7 +211,11 @@ impl EditorPane {
 }
 
 impl Render for EditorPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(feature = "metrics")]
+        if crate::metrics::needs_ready() {
+            cx.on_next_frame(_window, |_, _, _| crate::metrics::record_ready());
+        }
         self.update_presentation(cx);
         let state = self.editor.read(cx);
         let range = state.selected_range();
@@ -258,8 +292,9 @@ impl Render for EditorPane {
                             } else {
                                 "阅读预览"
                             })
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.reading = !this.reading;
+                                this.focus_view(window, cx);
                                 cx.notify();
                             })),
                     )
@@ -347,6 +382,42 @@ impl Render for EditorPane {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn resize_keeps_visible_caret_and_selection_direction(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "中文 English 👩‍💻 e\u{301}".repeat(500);
+        let handle = cx.add_window(|window, cx| EditorPane::new(&source, window, cx));
+        let editor = handle.update(cx, |pane, _, _| pane.editor.clone()).unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1100.), px(800.)));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-end shift-left");
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let before = editor.read_with(&visual, |state, _| (state.selected_range(), state.cursor()));
+        for width in [1900., 900.] {
+            visual.simulate_resize(size(px(width), px(800.)));
+            visual.run_until_parked();
+            visual.update(|window, cx| {
+                window.simulate_next_frame(cx);
+                window.draw(cx).clear(cx);
+            });
+            visual.run_until_parked();
+            visual.update(|window, cx| {
+                window.simulate_next_frame(cx);
+                window.draw(cx).clear(cx);
+            });
+            editor.read_with(&visual, |state, _| {
+                assert_eq!((state.selected_range(), state.cursor()), before);
+                let (mut caret, _) = state.cursor_layout().expect("caret should be laid out");
+                caret.origin += state.scroll_offset();
+                assert!(state.input_bounds().intersects(&caret),
+                    "caret should remain visible at width {width}: caret={caret:?}, input={:?}, scroll={:?}",state.input_bounds(),state.scroll_offset());
+                assert_eq!(state.value().as_ref(), source);
+            });
+        }
+    }
 
     #[gpui::test]
     fn keyboard_selection_and_delete_preserve_whole_graphemes(cx: &mut TestAppContext) {

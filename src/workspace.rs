@@ -4,6 +4,7 @@ use gpui_component::{
     button::*,
     input::{Input, InputEvent, InputState},
     list::ListItem,
+    scroll::ScrollableElement,
     tree::{Tree, TreeItem, TreeState},
 };
 use inkstone::index::{Index, Resolution, SearchHit};
@@ -65,6 +66,7 @@ pub struct Workspace {
     _name_subscription: Subscription,
     pending_jump: Option<(PathBuf, usize)>,
     backlinks: Vec<PathBuf>,
+    backlink_scroll: UniformListScrollHandle,
     completion_paths: Arc<Vec<String>>,
     tree: Entity<TreeState>,
     tree_files: Vec<PathBuf>,
@@ -88,6 +90,15 @@ fn app_dir() -> PathBuf {
 }
 impl Workspace {
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(feature = "metrics")]
+        crate::metrics::sample(
+            window,
+            self.files.len(),
+            self.active
+                .and_then(|i| self.tabs.get(i))
+                .map_or(0, |tab| tab.pane.read(cx).editor.read(cx).value().len()),
+            cx,
+        );
         if let Some(receiver) = &self.watch_events {
             for event in receiver.try_iter() {
                 match event {
@@ -392,6 +403,7 @@ impl Workspace {
             _name_subscription: name_subscription,
             pending_jump: None,
             backlinks: vec![],
+            backlink_scroll: UniformListScrollHandle::new(),
             completion_paths: Arc::new(vec![]),
             tree,
             tree_files: vec![],
@@ -503,9 +515,7 @@ impl Workspace {
         self.navigation_generation += 1;
         let navigation_generation = self.navigation_generation;
         if let Some(i) = self.tabs.iter().position(|t| t.path == path) {
-            self.active = Some(i);
-            self.run_search(cx);
-            cx.notify();
+            self.activate_tab(i, window, cx);
             return;
         }
         let Some(vault) = self.vault.clone() else {
@@ -525,8 +535,7 @@ impl Workspace {
                     return;
                 }
                 if let Some(i) = this.tabs.iter().position(|t| t.path == path) {
-                    this.active = Some(i);
-                    cx.notify();
+                    this.activate_tab(i, window, cx);
                     return;
                 }
                 match result {
@@ -744,7 +753,15 @@ impl Workspace {
         });
         cx.notify();
     }
-    fn close_tab(&mut self, cx: &mut Context<Self>) {
+    fn activate_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.active = Some(index);
+        self.tabs[index]
+            .pane
+            .update(cx, |pane, cx| pane.focus_view(window, cx));
+        self.run_search(cx);
+        cx.notify();
+    }
+    fn close_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(index) = self.active else {
             return;
         };
@@ -759,6 +776,11 @@ impl Workspace {
         } else {
             Some(index.min(self.tabs.len() - 1))
         };
+        if let Some(index) = self.active {
+            self.tabs[index]
+                .pane
+                .update(cx, |pane, cx| pane.focus_view(window, cx));
+        }
         self.run_search(cx);
         cx.notify();
     }
@@ -828,6 +850,9 @@ impl Workspace {
             let _ = this.update(cx, |this, cx| {
                 if this.search_revision == revision && this.generation == generation {
                     this.search_results = hits;
+                    if this.backlinks != backlinks {
+                        this.backlink_scroll.scroll_to_item(0, ScrollStrategy::Top);
+                    }
                     this.backlinks = backlinks;
                     cx.notify();
                 }
@@ -904,7 +929,7 @@ impl Workspace {
             }
             Resolution::Missing(path) => {
                 if let Some(i) = self.tabs.iter().position(|t| t.path == path) {
-                    self.active = Some(i);
+                    self.activate_tab(i, window, cx);
                 } else {
                     self.add_tab(path, None, true, window, cx);
                     self.save_all(window, cx);
@@ -954,6 +979,32 @@ impl Workspace {
 }
 impl Render for Workspace {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let active_id = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map_or(0, |tab| tab.id);
+        let backlink_list = uniform_list(
+            ("backlinks", active_id),
+            self.backlinks.len(),
+            cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
+                range
+                    .filter_map(|i| {
+                        this.backlinks.get(i).cloned().map(|path| {
+                            ListItem::new(("backlink", i))
+                                .h(px(28.))
+                                .accessibility_label(path.display().to_string())
+                                .child(div().truncate().child(path.display().to_string()))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.open_note(path.clone(), window, cx)
+                                }))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .track_scroll(&self.backlink_scroll)
+        .h(px(self.backlinks.len().min(4) as f32 * 28.))
+        .w_full();
         let weak = cx.entity().downgrade();
         let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
             let path = PathBuf::from(entry.item().id.as_ref());
@@ -998,7 +1049,7 @@ impl Render for Workspace {
                 cx.listener(|this, _: &FullSearch, window, cx| this.focus_search(true, window, cx)),
             )
             .on_action(cx.listener(|this, _: &NewNote, window, cx| this.focus_new(window, cx)))
-            .on_action(cx.listener(|this, _: &CloseTab, _, cx| this.close_tab(cx)))
+            .on_action(cx.listener(|this, _: &CloseTab, window, cx| this.close_tab(window, cx)))
             .on_action(cx.listener(|this, _: &CommandPalette, _, cx| {
                 this.command_open = !this.command_open;
                 cx.notify();
@@ -1044,9 +1095,9 @@ impl Render for Workspace {
                                 })),
                         )
                         .child(Button::new("cmd-close").label("关闭标签 Ctrl+W").on_click(
-                            cx.listener(|this, _, _, cx| {
+                            cx.listener(|this, _, window, cx| {
                                 this.command_open = false;
-                                this.close_tab(cx);
+                                this.close_tab(window, cx);
                             }),
                         )),
                 )
@@ -1193,22 +1244,16 @@ impl Render for Workspace {
                             .child(
                                 div()
                                     .flex()
-                                    .flex_wrap()
+                                    .flex_col()
                                     .p_2()
                                     .gap_2()
-                                    .child("反向链接")
-                                    .children(self.backlinks.iter().enumerate().map(
-                                        |(i, path)| {
-                                            let path = path.clone();
-                                            Button::new(("backlink", i))
-                                                .label(path.display().to_string())
-                                                .on_click(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        this.open_note(path.clone(), window, cx)
-                                                    },
-                                                ))
-                                        },
-                                    )),
+                                    .child(format!("反向链接（{}）", self.backlinks.len()))
+                                    .child(
+                                        div()
+                                            .relative()
+                                            .child(backlink_list)
+                                            .vertical_scrollbar(&self.backlink_scroll),
+                                    ),
                             )
                             .child(div().flex().flex_wrap().gap_1().p_2().children(
                                 self.tabs.iter().enumerate().map(|(i, tab)| {
@@ -1221,10 +1266,8 @@ impl Render for Workspace {
                                     };
                                     Button::new(("tab", tab.id))
                                         .label(format!("{}{suffix}", tab.path.display()))
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.active = Some(i);
-                                            this.run_search(cx);
-                                            cx.notify();
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.activate_tab(i, window, cx)
                                         }))
                                 }),
                             ))
@@ -1293,6 +1336,88 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn reopening_existing_tab_moves_keyboard_focus(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |workspace, window, cx| {
+                workspace.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                workspace.add_tab("b.md".into(), Some("B".into()), false, window, cx);
+                assert!(
+                    workspace.tabs[1]
+                        .pane
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .focus_handle(cx)
+                        .is_focused(window)
+                );
+                workspace.open_note("a.md".into(), window, cx);
+                assert!(
+                    workspace.tabs[0]
+                        .pane
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .focus_handle(cx)
+                        .is_focused(window)
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn ten_thousand_backlinks_leave_the_editor_visible(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "中文正文 😀 e\u{301}\n".repeat(400);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |workspace, window, cx| {
+                workspace.add_tab("目标.md".into(), Some(source.clone()), false, window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let editor = handle
+            .update(cx, |workspace, _, cx| {
+                workspace.tabs[0].pane.read(cx).editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1200.), px(820.)));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-end shift-left");
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let before = editor.read_with(&visual, |state, _| (state.selected_range(), state.cursor()));
+        handle
+            .update(&mut visual, |workspace, _, cx| {
+                workspace.backlinks = (0..10000)
+                    .map(|i| PathBuf::from(format!("{i:05}.md")))
+                    .collect();
+                cx.notify();
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| {
+            window.simulate_next_frame(cx);
+            window.draw(cx).clear(cx);
+        });
+        editor.read_with(&visual, |state, _| {
+            assert!(state.input_bounds().size.height > px(200.));
+            assert_eq!(state.value().as_ref(), source);
+            assert_eq!((state.selected_range(), state.cursor()), before);
+            let (mut caret, _) = state.cursor_layout().unwrap();
+            caret.origin += state.scroll_offset();
+            assert!(state.input_bounds().intersects(&caret));
+        });
+        handle
+            .update(&mut visual, |workspace, _, _| {
+                assert_eq!(workspace.backlinks.len(), 10000)
+            })
+            .unwrap();
+    }
 
     #[gpui::test]
     fn missing_link_creation_backlinks_and_search(cx: &mut TestAppContext) {
