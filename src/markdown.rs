@@ -52,7 +52,7 @@ pub fn spans(text: &str) -> Vec<Span> {
                 kind: Kind::Heading,
                 source: base..base + body.len(),
                 content: base + hashes + 1..base + body.len(),
-                markers: vec![base..base + hashes + 1],
+                markers: std::iter::once(base..base + hashes + 1).collect(),
             });
         }
         let mut i = 0;
