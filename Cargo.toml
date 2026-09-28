@@ -9,7 +9,7 @@ gpui = { package = "gpui-pre", version = "=0.3.7" }
 gpui-component = "=0.7.0"
 gpui-base = "=0.7.0"
 gpui-kit = "=0.7.0"
-unicode-segmentation = "=1.12.0"
+unicode-segmentation = "=1.13.3"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 notify = "=7.0.0"
@@ -26,4 +26,8 @@ debug = 1
 
 [dev-dependencies]
 gpui = { package = "gpui-pre", version = "=0.3.7", features = ["test-support"] }
+ropey = "=2.0.0-beta.1"
+
+[patch.crates-io]
+gpui-base = { path = "vendor/gpui-base" }
 

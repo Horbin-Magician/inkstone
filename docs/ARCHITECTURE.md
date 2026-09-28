@@ -7,7 +7,7 @@
 - GPUI Component / Base / Kit `=0.7.0`，共同使用 `gpui-pre =0.3.7`。
 - `Cargo.lock` 提交版本控制；`cargo tree -i gpui-pre --locked` 确认只有一个 GPUI 版本，测试支持也复用它。
 - 上述主要 UI crate 采用 Apache-2.0；没有引入或复制 Zed GPL editor crate。
-- 当前完全通过公开接口扩展，未维护组件分支或修改组件内部实现。
+- 笔记功能通过公开接口扩展。实测发现 Unicode 边界问题后，对 gpui-base 0.7.0 维护六个文件的受控补丁，详见 [补丁说明](EDITOR_PATCH.md)；所有调用仍共用同一 Base 和 GPUI 类型。
 
 参考：[官方仓库](https://github.com/longbridge/gpui-kit)、[发布索引](https://index.crates.io/gp/ui/gpui-component)、[编辑接口](https://docs.rs/gpui-component/0.7.0/gpui_component/input/index.html)。下载的组件对应上游提交 `0c830f4d257e69fdd17200650533ab4ca9a40cc0`。
 
@@ -29,8 +29,8 @@ Markdown 文件是已保存正文事实来源。索引只在内存，可从文�
 
 比较三个方向：
 
-1. 公开接口扩展：复用 IME、软换行、文本选择和历史；TextDecorationCollection 提供实时样式，DefinitionProvider / CompletionProvider 提供双链交互。当前采用。
-2. 受控组件分支：可以消除隐藏标记宽度，但需维护布局、命中、IME bounds、选区和软换行的完整映射。当前尚未修改。
+1. 公开接口扩展：复用 IME、文本选择和历史；TextDecorationCollection 提供实时样式，DefinitionProvider / CompletionProvider 提供双链交互。
+2. 受控组件分支：当前仅修复软换行和光标的字素边界，不消除隐藏语法宽度。需要维护跨块 Unicode 回归与原生几何测试。
 3. 独立编辑器：自由度最高，需要重新实现输入、撤销、选择和平台接口，首版成本与风险更高。
 
 当前隐藏仅改变标记透明度，保留占位，因此显示布局使用同一源码坐标。标题使用粗体与颜色，不改变字号。该方案确实在原文编辑中提供实时样式，但不等同于消除语法宽度的紧凑实时预览。
@@ -61,4 +61,4 @@ Markdown 文件是已保存正文事实来源。索引只在内存，可从文�
 
 ## 当前 GPUI 判断
 
-公开接口已足以实现本轮功能，Windows 原型确实运行过，微软拼音基础组词与自动化 IME 测试有证据。继续使用 GPUI 是合理的工程选择；当前还不足以宣称编辑体验达到 Obsidian 或生产使用质量。是否需要分支，应由长文档、实际补全点击、多 DPI 和候选框回归结果决定。
+原生笔记闭环、阅读、搜索和基础输入有运行证据。长段落测试发现了组件原生的字素拆分问题，现已采用受控补丁，并承担后续升级回归成本。可以继续使用 GPUI 推进 MVP；多 DPI、完整原生光标回归和交互性能完成前，不能宣称生产级编辑体验。

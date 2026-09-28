@@ -58,7 +58,7 @@ macOS / Linux 保留条件编译代码，尚未构建或验收。
 | Ctrl+Enter | 跳转光标所在双链 |
 | Ctrl+Z / Ctrl+Y | 撤销 / 重做 |
 
-补全候选由组件提供键盘选择。Ctrl+点击、补全菜单操作与上述快捷键的最新界面桌面回归尚未全部完成。
+补全候选由组件提供键盘选择；原生方向键选择与 Enter 应用已验证，并修复了多余闭合括号。Ctrl+点击及部分快捷键桌面回归仍待完成。
 
 ## 双链规则
 
@@ -84,6 +84,6 @@ Windows 应用数据在 `%LOCALAPPDATA%\Inkstone`。`recovery` 保存 JSON 恢�
 
 ## 验证与限制
 
-见 [测试记录](docs/TESTING.md)、[架构说明](docs/ARCHITECTURE.md)、[进度与待办](docs/PROGRESS.md)、[已知限制](docs/LIMITATIONS.md)。
+见 [测试记录](docs/TESTING.md)、[架构说明](docs/ARCHITECTURE.md)、[编辑器补丁](docs/EDITOR_PATCH.md)、[进度与待办](docs/PROGRESS.md)、[已知限制](docs/LIMITATIONS.md)。
 
 核心安全测试通过不等于所有存储设备的断电保证；桌面输入、滚动、DPI、多图片、性能验收仍有未验证项。保留这些待办，不以已实现代码代替验收。

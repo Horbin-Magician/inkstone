@@ -349,6 +349,41 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn keyboard_selection_and_delete_preserve_whole_graphemes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "A👩‍💻e\u{301}";
+        let handle = cx.add_window(|window, cx| EditorPane::new(source, window, cx));
+        let editor = handle
+            .update(cx, |pane, _, cx| {
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(source.len()..source.len(), cx)
+                });
+                pane.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.simulate_keystrokes("shift-left");
+        editor.read_with(&visual, |state, _| {
+            assert_eq!(state.selected_range(), 12..15)
+        });
+        visual.simulate_keystrokes("shift-left");
+        editor.read_with(&visual, |state, _| {
+            assert_eq!(state.selected_range(), 1..15)
+        });
+        visual.simulate_keystrokes("backspace");
+        editor.read_with(&visual, |state, _| assert_eq!(state.value().as_ref(), "A"));
+        visual.simulate_keystrokes(if cfg!(target_os = "macos") {
+            "cmd-z"
+        } else {
+            "ctrl-z"
+        });
+        editor.read_with(&visual, |state, _| {
+            assert_eq!(state.value().as_ref(), source)
+        });
+    }
+
+    #[gpui::test]
     fn newer_parse_wins_and_reading_keeps_source(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle =

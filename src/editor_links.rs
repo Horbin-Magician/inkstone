@@ -87,11 +87,14 @@ impl CompletionProvider for WikiCompletions {
             if typed.contains([']', '\n', '\r', '|']) {
                 return Ok(lsp_types::CompletionResponse::Array(vec![]));
             }
-            let end = if source[offset..].starts_with("]]") {
-                offset + 2
-            } else {
-                offset
-            };
+            // GPUI may have auto-closed only the first '['. Absorb either one
+            // or two immediate closers before installing the complete wiki link.
+            let end = offset
+                + source[offset..]
+                    .bytes()
+                    .take(2)
+                    .take_while(|b| *b == b']')
+                    .count();
             let query = typed.to_lowercase();
             let range = lsp_types::Range::new(
                 text.offset_to_position(start + 2),
@@ -147,6 +150,48 @@ mod tests {
 mod provider_tests {
     use super::*;
     use gpui::TestAppContext;
+
+    #[gpui::test]
+    async fn completion_reuses_zero_one_or_two_auto_closers(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|window, cx| crate::editor::EditorPane::new("", window, cx));
+        for suffix in ["", "]", "]]"] {
+            let prefix = "中文😀 [[";
+            let source = format!("{prefix}{suffix}");
+            let provider =
+                WikiCompletions(Rc::new(RefCell::new(Arc::new(vec!["/欢迎".into()]))), None);
+            let task = handle
+                .update(cx, |pane, window, cx| {
+                    pane.editor
+                        .update(cx, |state, cx| state.set_value(source.clone(), window, cx));
+                    provider.completions(
+                        &Rope::from(source.clone()),
+                        prefix.len(),
+                        lsp_types::CompletionContext {
+                            trigger_kind: lsp_types::CompletionTriggerKind::INVOKED,
+                            trigger_character: None,
+                        },
+                        window,
+                        cx,
+                    )
+                })
+                .unwrap();
+            let lsp_types::CompletionResponse::Array(items) = task.await.unwrap() else {
+                panic!("expected array")
+            };
+            let Some(lsp_types::CompletionTextEdit::Edit(edit)) = items[0].text_edit.clone() else {
+                panic!("expected text edit")
+            };
+            handle
+                .update(cx, |pane, window, cx| {
+                    pane.editor.update(cx, |state, cx| {
+                        state.apply_lsp_edits(&vec![edit], window, cx)
+                    });
+                    assert_eq!(pane.editor.read(cx).value().as_ref(), "中文😀 [[/欢迎]]");
+                })
+                .unwrap();
+        }
+    }
 
     #[gpui::test]
     async fn stale_completion_result_is_discarded(cx: &mut TestAppContext) {
