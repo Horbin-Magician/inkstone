@@ -2533,6 +2533,98 @@ mod tests {
     }
 
     #[gpui::test]
+    fn multiple_carets_pair_symmetric_markers_and_code_fences(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (source, offset, typed, paired, inserted) in [
+            ("\n", 0, "*", "**\n**", "*x*\n*x*"),
+            ("\n", 0, "_", "__\n__", "_x_\n_x_"),
+            ("\n", 0, "'", "''\n''", "'x'\n'x'"),
+            ("\n", 0, "\"", "\"\"\n\"\"", "\"x\"\n\"x\""),
+            ("\n", 0, "`", "``\n``", "`x`\n`x`"),
+            (
+                "``\n``",
+                2,
+                "`",
+                "```\n```\n```\n```",
+                "```x\n```\n```x\n```",
+            ),
+            (
+                "> ``\r\n> ``",
+                4,
+                "`",
+                "> ```\r\n> ```\r\n> ```\r\n> ```",
+                "> ```x\r\n> ```\r\n> ```x\r\n> ```",
+            ),
+        ] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            let editor = handle
+                .update(cx, |p, w, cx| {
+                    p.set_auto_pairing(true, true, cx);
+                    p.editor.update(cx, |s, cx| {
+                        s.set_selected_range(offset..offset, cx);
+                        s.focus(w, cx);
+                    });
+                    p.editor.clone()
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.simulate_keystrokes("ctrl-alt-down");
+            handle
+                .update(&mut visual, |_, w, cx| {
+                    editor.update(cx, |s, cx| {
+                        s.replace_text_in_range(None, typed, w, cx);
+                        assert_eq!(s.value(), paired);
+                        s.replace_text_in_range(None, "x", w, cx);
+                        assert_eq!(s.value(), inserted);
+                    });
+                })
+                .unwrap();
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| assert_eq!(s.value(), paired));
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), source);
+                assert!(s.has_multiple_selections());
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn symmetric_pairing_can_skip_and_insert_in_one_batch(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("\n", w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.set_auto_pairing(true, true, cx);
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(0..0, cx);
+                    s.replace_text_in_range(None, "*", w, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-alt-down");
+        for _ in 0..2 {
+            handle
+                .update(&mut visual, |_, w, cx| {
+                    editor.update(cx, |s, cx| {
+                        s.replace_text_in_range(None, "*", w, cx);
+                        assert_eq!(s.value(), "**\n**");
+                        s.replace_text_in_range(None, "x", w, cx);
+                        assert_eq!(s.value(), "**x\n*x*");
+                    });
+                })
+                .unwrap();
+            visual.simulate_keystrokes("ctrl-z ctrl-z");
+            editor.read_with(&visual, |s, _| assert_eq!(s.value(), "**\n"));
+        }
+    }
+
+    #[gpui::test]
     fn multiple_carets_insert_and_skip_pairs_without_extra_undo(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(|w, cx| EditorPane::new("\n", w, cx));
@@ -2584,10 +2676,13 @@ mod tests {
         cx: &mut TestAppContext,
     ) {
         cx.update(gpui_kit::init);
-        for (source, select, enabled, expected) in [
-            ("中文\n", true, true, "(中文)\n()"),
-            ("\nx", false, true, "(\n(x"),
-            ("\n", false, false, "(\n("),
+        for (source, select, enabled, typed, expected) in [
+            ("中文\n", true, true, "(", "(中文)\n()"),
+            ("\nx", false, true, "(", "(\n(x"),
+            ("\n", false, false, "(", "(\n("),
+            ("中文\n", true, true, "*", "*中文*\n**"),
+            ("中文\n", true, true, "\"", "\"中文\"\n\"\""),
+            ("x\n", false, true, "*", "*x\n*"),
         ] {
             let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
             let editor = handle
@@ -2609,7 +2704,7 @@ mod tests {
             handle
                 .update(&mut visual, |_, w, cx| {
                     editor.update(cx, |s, cx| {
-                        s.replace_text_in_range(None, "(", w, cx);
+                        s.replace_text_in_range(None, typed, w, cx);
                         assert_eq!(s.value(), expected);
                         assert!(s.has_multiple_selections());
                     });

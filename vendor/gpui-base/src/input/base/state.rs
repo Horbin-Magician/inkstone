@@ -2066,8 +2066,8 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.pause_blink_cursor(cx);
     }
 
-    /// Surround selections and insert asymmetric pairs at multiple empty
-    /// carets in one transaction, retaining selection IDs and direction.
+    /// Plan pairing for all selections before editing, retaining selection
+    /// IDs and direction even when insertion and skip-over are mixed.
     fn surround_selections(
         &mut self,
         typed: &str,
@@ -2102,15 +2102,33 @@ impl<M: InputModeKind> InputBaseState<M> {
         let mut edits = Vec::with_capacity(ordered.len());
         let mut after = before.clone();
         let mut pairs = Vec::with_capacity(ordered.len());
+        let mut consumed = Vec::new();
         let mut delta = 0isize;
         for (index, mut selection) in ordered {
             let range = selection.start..selection.end;
-            if range.is_empty()
-                && (typed == closer || self.auto_close_target(&range, typed).is_none())
-            {
-                // Validate all carets before applying anything. Symmetric
-                // delimiters need their own context and repeated-marker rules.
-                return false;
+            let start = (range.start as isize + delta) as usize;
+            if range.is_empty() {
+                if let Some(target) = self.skip_over_target(range.start, typed) {
+                    consumed.push(range.start);
+                    selection.place_at((target as isize + delta) as usize, None);
+                    after[index] = selection;
+                    continue;
+                }
+                let Some((open_len, close)) = self.auto_close_target(&range, typed) else {
+                    return false;
+                };
+                let padding = self.auto_close_padding(range.start, &close);
+                let replacement = format!("{typed}{padding}{close}");
+                let cursor = start + typed.len();
+                pairs.push((
+                    cursor - open_len..cursor,
+                    cursor + padding.len()..cursor + padding.len() + close.len(),
+                ));
+                selection.place_at(cursor, None);
+                delta += replacement.len() as isize;
+                edits.push((range, replacement));
+                after[index] = selection;
+                continue;
             }
             // Inline brackets/emphasis replace selections crossing lines;
             // backticks can surround a multiline code selection.
@@ -2123,7 +2141,6 @@ impl<M: InputModeKind> InputBaseState<M> {
                 String::new()
             };
             let replacement = format!("{typed}{body}{closer}");
-            let start = (range.start as isize + delta) as usize;
             selection.start = start + typed.len();
             selection.end = selection.start + body.len();
             selection.column_anchor = None;
@@ -2135,19 +2152,40 @@ impl<M: InputModeKind> InputBaseState<M> {
             edits.push((range, replacement));
             after[index] = selection;
         }
-        self.undo_manager.begin_transaction_with(EditIntent::Atomic);
-        self.undo_manager.set_pending_intent(EditIntent::Atomic);
-        self.replace_text_in_ranges(&edits, window, cx);
+        let changes = !edits.is_empty();
+        if changes {
+            self.undo_manager.begin_transaction_with(EditIntent::Atomic);
+            self.undo_manager.set_pending_intent(EditIntent::Atomic);
+            let original_pairs = self.mode.auto_closed_pairs().clone();
+            self.undo_manager
+                .record_auto_closed_pairs(original_pairs.clone(), original_pairs);
+            self.undo_manager
+                .record_selections(before.clone(), before.clone());
+        }
+        if self
+            .mode
+            .language_config()
+            .is_some_and(|rules| rules.skip_only_generated)
+        {
+            for offset in consumed {
+                self.mode.consume_closer(offset);
+            }
+        }
+        if changes {
+            self.replace_text_in_ranges(&edits, window, cx);
+        }
         for (open, close) in pairs {
             self.mode.track_auto_closed_pair(open, close);
         }
-        self.undo_manager
-            .record_auto_closed_pairs_after(self.mode.auto_closed_pairs().clone());
         // Keep the active cursor and original ordering as well as offsets.
         self.selections.replace_all(after);
-        self.undo_manager
-            .record_selections(before, self.selections.iter().copied().collect());
-        self.undo_manager.commit_transaction();
+        if changes {
+            self.undo_manager
+                .record_auto_closed_pairs_after(self.mode.auto_closed_pairs().clone());
+            self.undo_manager
+                .record_selections(before, self.selections.iter().copied().collect());
+            self.undo_manager.commit_transaction();
+        }
         self.update_preferred_column();
         cx.notify();
         true
@@ -2198,6 +2236,43 @@ impl<M: InputModeKind> InputBaseState<M> {
             return Some((open.len(), close.into()));
         }
         None
+    }
+
+    fn auto_close_padding(&self, offset: usize, closer: &str) -> String {
+        let Some(rules) = self.mode.language_config() else {
+            return String::new();
+        };
+        if !rules
+            .newline_closers
+            .iter()
+            .any(|value| value.as_ref() == closer)
+        {
+            return String::new();
+        }
+        let row = self.text.offset_to_point(offset).row;
+        let line = self.text.slice_line(row).to_string();
+        let prefix = rules
+            .continuation_prefix
+            .as_ref()
+            .and_then(|re| re.captures(&line))
+            .map(|captures| {
+                format!(
+                    "{}{}",
+                    captures.get(1).map_or("", |part| part.as_str()),
+                    " ".repeat(
+                        captures
+                            .get(2)
+                            .map_or(0, |part| part.as_str().chars().count())
+                    )
+                )
+            })
+            .unwrap_or_default();
+        let newline = if self.text.to_string().contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        format!("{newline}{prefix}")
     }
 
     fn text_before_matches(&self, offset: usize, text: &str) -> bool {
@@ -4708,37 +4783,7 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                     .filter(|_| self.active_selection().is_empty() && range.start == self.cursor())
                 {
                     // One edit keeps the pair atomic even at undo coalescing limits.
-                    let padding =
-                        self.mode
-                            .language_config()
-                            .and_then(|rules| {
-                                if !rules.newline_closers.contains(&closer) {
-                                    return None;
-                                }
-                                let row = self.text.offset_to_point(range.start).row;
-                                let line = self.text.slice_line(row).to_string();
-                                let prefix = rules
-                                    .continuation_prefix
-                                    .as_ref()
-                                    .and_then(|re| re.captures(&line))
-                                    .map(|captures| {
-                                        format!(
-                                            "{}{}",
-                                            captures.get(1).map_or("", |part| part.as_str()),
-                                            " ".repeat(captures.get(2).map_or(0, |part| {
-                                                part.as_str().chars().count()
-                                            }))
-                                        )
-                                    })
-                                    .unwrap_or_default();
-                                let newline = if self.text.to_string().contains("\r\n") {
-                                    "\r\n"
-                                } else {
-                                    "\n"
-                                };
-                                Some(format!("{newline}{prefix}"))
-                            })
-                            .unwrap_or_default();
+                    let padding = self.auto_close_padding(range.start, &closer);
                     let replacement = format!("{new_text}{padding}{closer}");
                     self.replace_text_in_ranges(&[(range.clone(), replacement)], window, cx);
                     let cursor = range.start + new_text.len();
