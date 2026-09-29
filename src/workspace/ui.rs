@@ -1,0 +1,2816 @@
+use super::*;
+use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
+use gpui_component::{
+    Disableable, Icon, TitleBar,
+    button::*,
+    list::ListItem,
+    resizable::{h_resizable, resizable_panel},
+    tree::Tree,
+};
+use inkstone::file_order::SortBy;
+use inkstone::preferences::{Navigation, Preferences};
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum NameMode {
+    New,
+    Rename,
+    Folder,
+    RenameFolder,
+}
+
+#[derive(PartialEq)]
+pub(super) struct TabScrollKey {
+    selected: Option<usize>,
+    order: Vec<usize>,
+    widths: [u32; 3],
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ClosedTab {
+    pub view: inkstone::preferences::ViewState,
+}
+impl From<&str> for ClosedTab {
+    fn from(path: &str) -> Self {
+        Self {
+            view: inkstone::preferences::ViewState {
+                path: path.into(),
+                ..Default::default()
+            },
+        }
+    }
+}
+impl PartialEq<PathBuf> for ClosedTab {
+    fn eq(&self, path: &PathBuf) -> bool {
+        &self.view.path == path
+    }
+}
+
+pub(super) struct UiState {
+    pub prefs: Preferences,
+    pub history: Navigation,
+    pub closed: Vec<ClosedTab>,
+    pub close_pending: std::collections::BTreeSet<usize>,
+    pub window_close_requested: bool,
+    pub pending_file_writes: usize,
+    pub file_operation: bool,
+    pub link_update: Option<LinkEdits>,
+    pub link_update_scroll: UniformListScrollHandle,
+    pub left_mode: usize,
+    pub right_mode: usize,
+    pub quick_open: bool,
+    pub template_mode: bool,
+    pub name_mode: Option<NameMode>,
+    pub folder_target: Option<PathBuf>,
+    pub settings: bool,
+    pub settings_tab: usize,
+    pub hotkey_recording: Option<usize>,
+    pub hotkey_message: String,
+    pub hotkey_filter: Entity<InputState>,
+    _hotkey_subscription: Subscription,
+    _hotkey_filter_subscription: Subscription,
+    pub note_folder_input: Entity<InputState>,
+    pub attachment_folder_input: Entity<InputState>,
+    _location_subscriptions: Vec<Subscription>,
+    pub property_open: bool,
+    pub property_key: Entity<InputState>,
+    pub property_value: Entity<InputState>,
+    pub more: bool,
+    pub trash_open: bool,
+    pub trash: Vec<inkstone::vault::TrashEntry>,
+    pub command: Entity<InputState>,
+    pub selected: usize,
+    pub modal_scroll: ScrollHandle,
+    pub tab_scroll: ScrollHandle,
+    pub tab_scroll_key: Option<TabScrollKey>,
+    pub last_revealed_file: Option<(u64, PathBuf)>,
+    pub middle_pressed_tab: Option<usize>,
+    pub inline_title: Option<super::inline_title::InlineTitle>,
+    pub modal_focus: FocusHandle,
+    pub workspace_focus: FocusHandle,
+    pub pending_command: Option<(PathBuf, usize)>,
+    pub last_persisted: String,
+    pub persisting: bool,
+    pub folders: Vec<PathBuf>,
+    pub tree_folders: Vec<PathBuf>,
+    _command_subscription: Subscription,
+}
+impl UiState {
+    pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
+        apply_theme(false, cx);
+        let workspace_focus = cx.focus_handle();
+        window.focus(&workspace_focus, cx);
+        let property_key = cx
+            .new(|cx| InputState::new(window, cx).placeholder("属性名，如 tags、aliases、status"));
+        let property_value =
+            cx.new(|cx| InputState::new(window, cx).placeholder("属性值；标签与别名使用逗号分隔"));
+        let command = cx.new(|cx| InputState::new(window, cx).placeholder("输入命令…"));
+        let note_folder_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("笔记文件夹，如 收件箱"));
+        let attachment_folder_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("附件文件夹，如 附件"));
+        let location_subscriptions = [
+            (&note_folder_input, false),
+            (&attachment_folder_input, true),
+        ]
+        .into_iter()
+        .map(|(input, attachment)| {
+            cx.subscribe(input, move |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let value = input.read(cx).value().to_string();
+                    if attachment {
+                        this.ui.prefs.locations.attachment_folder = value;
+                    } else {
+                        this.ui.prefs.locations.note_folder = value;
+                    }
+                    this.persist_workspace(cx);
+                    cx.notify();
+                }
+            })
+        })
+        .collect();
+        let hotkey_filter = cx.new(|cx| InputState::new(window, cx).placeholder("搜索快捷键命令…"));
+        let hotkey_filter_subscription = cx.observe(&hotkey_filter, |_, _, cx| cx.notify());
+        let weak = cx.entity().downgrade();
+        let window_id = window.window_handle().window_id();
+        let hotkey_subscription = cx.intercept_keystrokes(move |event, window, cx| {
+            if window.window_handle().window_id() == window_id {
+                let _ = weak.update(cx, |this, cx| this.handle_hotkey(event, window, cx));
+            }
+        });
+        let subscription =
+            cx.subscribe_in(&command, window, |this, _, event, window, cx| match event {
+                InputEvent::Change => {
+                    this.ui.selected = 0;
+                    cx.notify();
+                }
+                InputEvent::PressEnter { .. } => {
+                    if let Some((id, _, _)) =
+                        this.filtered_commands(cx).get(this.ui.selected).copied()
+                    {
+                        this.execute_command(id, window, cx);
+                    }
+                }
+                _ => (),
+            });
+        Self {
+            prefs: Preferences::default(),
+            history: Navigation::default(),
+            closed: vec![],
+            close_pending: Default::default(),
+            window_close_requested: false,
+            pending_file_writes: 0,
+            file_operation: false,
+            link_update: None,
+            link_update_scroll: UniformListScrollHandle::new(),
+            left_mode: 0,
+            right_mode: 0,
+            quick_open: false,
+            template_mode: false,
+            name_mode: None,
+            folder_target: None,
+            settings: false,
+            settings_tab: 0,
+            hotkey_recording: None,
+            hotkey_message: String::new(),
+            hotkey_filter,
+            _hotkey_subscription: hotkey_subscription,
+            _hotkey_filter_subscription: hotkey_filter_subscription,
+            note_folder_input,
+            attachment_folder_input,
+            _location_subscriptions: location_subscriptions,
+            property_open: false,
+            property_key,
+            property_value,
+            more: false,
+            trash_open: false,
+            trash: vec![],
+            command,
+            selected: 0,
+            modal_scroll: ScrollHandle::new(),
+            tab_scroll: ScrollHandle::new(),
+            tab_scroll_key: None,
+            last_revealed_file: None,
+            middle_pressed_tab: None,
+            inline_title: None,
+            modal_focus: cx.focus_handle(),
+            workspace_focus,
+            pending_command: None,
+            last_persisted: String::new(),
+            persisting: false,
+            folders: vec![],
+            tree_folders: vec![],
+            _command_subscription: subscription,
+        }
+    }
+}
+
+pub(super) fn apply_theme(light: bool, cx: &mut App) {
+    use gpui_component::{Theme, ThemeMode};
+    Theme::change(
+        if light {
+            ThemeMode::Light
+        } else {
+            ThemeMode::Dark
+        },
+        None,
+        cx,
+    );
+    Theme::update(cx, |theme| {
+        let bg = rgb(if light { 0xffffff } else { 0x262626 }).into();
+        let side = rgb(if light { 0xf6f6f6 } else { 0x202020 }).into();
+        let hover = rgb(if light { 0xe8e8e8 } else { 0x333333 }).into();
+        let fg = rgb(if light { 0x222222 } else { 0xdadada }).into();
+        let muted = rgb(if light { 0x777777 } else { 0x999999 }).into();
+        let border = rgb(if light { 0xe0e0e0 } else { 0x363636 }).into();
+        theme.font_size = px(14.);
+        theme.radius = px(5.);
+        theme.background = bg;
+        theme.foreground = fg;
+        theme.border = border;
+        theme.input = side;
+        theme.colors.list = side;
+        theme.list_hover = hover;
+        theme.list_active = hover;
+        theme.list_active_border = hover;
+        theme.muted = side;
+        theme.muted_foreground = muted;
+        theme.sidebar = side;
+        theme.sidebar_foreground = fg;
+        theme.title_bar = side;
+        theme.title_bar_border = border;
+        theme.popover = bg;
+        theme.popover_foreground = fg;
+        theme.secondary = hover;
+        theme.secondary_hover = hover;
+        theme.secondary_foreground = fg;
+        theme.button = hover;
+        theme.button_hover = hover;
+        theme.button_foreground = fg;
+        theme.accent = hover;
+        theme.accent_foreground = fg;
+        theme.primary = rgb(0x8b6cef).into();
+        theme.ring = rgb(0x8b6cef).into();
+        theme.selection = rgba(0x7860b866).into();
+        theme.scrollbar_thumb = rgb(if light { 0xcccccc } else { 0x484848 }).into();
+    });
+}
+fn icon(name: &str) -> Icon {
+    let shape = match name {
+        "x" => Some("M6 6l12 12M18 6 6 18"),
+        "file-plus" => Some(
+            "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 11v7M8.5 14.5h7",
+        ),
+        "folder-plus" => Some("M3 7V4h6l2 3h10v13H3zM12 10v7M8.5 13.5h7"),
+        "bookmark" => Some("M6 3h12v18l-6-4-6 4z"),
+        "network" => Some("M5 5h4v4H5zM16 15h4v4h-4zM3 17h4v4H3zM9 8l7 7M7 9l-2 8M7 19l9-2"),
+        "arrow-up-down" => Some("M8 3v18M4 7l4-4 4 4M16 21V3M12 17l4 4 4-4"),
+        "locate" => Some("M12 2v4M12 18v4M2 12h4M18 12h4M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0"),
+        "fold-vertical" => Some("M4 12h16M8 3l4 4 4-4M12 1v6M8 21l4-4 4 4M12 17v6"),
+        "list" => Some("M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"),
+        "link" | "links" => Some(
+            "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2",
+        ),
+        "tags" => Some("M3 3h8l10 10-8 8L3 11zM7 7h.01"),
+        "pencil" => Some("M16 3l5 5-13 13H3v-5zM13 6l5 5"),
+        _ => None,
+    };
+    if let Some(shape) = shape {
+        return Icon::default().data(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{shape}"/></svg>"#).as_bytes()).size(px(17.));
+    }
+    Icon::default()
+        .path(format!("icons/{name}.svg"))
+        .size(px(17.))
+}
+fn tool(id: &'static str, name: &str, tip: &'static str) -> Button {
+    Button::new(id)
+        .ghost()
+        .compact()
+        .icon(icon(name))
+        .tooltip(tip)
+        .w(px(30.))
+        .h(px(28.))
+}
+pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
+    (0, "新建笔记", "Ctrl+N"),
+    (1, "打开另一个笔记库", "Ctrl+Shift+O"),
+    (2, "快速切换", "Ctrl+O"),
+    (3, "搜索所有文件", "Ctrl+Shift+F"),
+    (4, "保存当前更改", "Ctrl+S"),
+    (5, "关闭当前标签页", "Ctrl+W"),
+    (6, "切换阅读视图", "Ctrl+E"),
+    (7, "切换源码模式", ""),
+    (8, "重命名文件 / 移动文件", "F2"),
+    (9, "创建文件夹", ""),
+    (10, "删除当前文件", ""),
+    (11, "另存为副本", ""),
+    (12, "切换左侧栏", "Ctrl+Shift+L"),
+    (13, "切换右侧栏", "Ctrl+Shift+R"),
+    (14, "打开设置", "Ctrl+,"),
+    (15, "为当前文件添加 / 移除书签", ""),
+    (16, "查看回收站", ""),
+    (17, "重新打开已关闭标签页", "Ctrl+Shift+T"),
+    (18, "在文件管理器中显示", ""),
+    (19, "复制文件路径", ""),
+    (20, "返回", "Alt+Left"),
+    (21, "前进", "Alt+Right"),
+    (22, "切换浅色 / 深色主题", ""),
+    (23, "查找并替换", "Ctrl+H"),
+    (24, "切换粗体", "Ctrl+B"),
+    (25, "切换斜体", "Ctrl+I"),
+    (26, "插入内部链接", ""),
+    (27, "固定 / 取消固定标签页", ""),
+    (28, "打开今天的日记", ""),
+    (29, "插入模板", ""),
+    (30, "插入附件", ""),
+    (31, "向右分屏", "Ctrl+\\"),
+    (32, "向下分屏", ""),
+    (33, "关闭分屏", ""),
+    (34, "新建标签页", "Ctrl+T"),
+    (35, "切换任务状态", "Ctrl+L"),
+    (36, "折叠 / 展开当前标题或列表", ""),
+    (37, "折叠所有标题和列表", ""),
+    (38, "展开所有标题和列表", ""),
+    (39, "打开命令面板", "Ctrl+P"),
+    (40, "下一个标签页", "Ctrl+Tab"),
+    (41, "上一个标签页", "Ctrl+Shift+Tab"),
+    (42, "复制当前笔记", ""),
+    (43, "打开关系图谱", ""),
+    (44, "打开当前笔记的局部关系图", ""),
+    (45, "切换删除线", ""),
+    (46, "切换高亮", ""),
+    (47, "切换行内代码", ""),
+    (48, "切换引用", ""),
+    (49, "切换无序列表", ""),
+    (50, "切换有序列表", ""),
+    (51, "插入代码块", ""),
+    (52, "设为正文", ""),
+    (53, "设为一级标题", ""),
+    (54, "设为二级标题", ""),
+    (55, "设为三级标题", ""),
+    (56, "设为四级标题", ""),
+    (57, "设为五级标题", ""),
+    (58, "设为六级标题", ""),
+    (59, "插入 Markdown 链接", "Ctrl+K"),
+    (60, "插入表格", ""),
+    (61, "表格：在下方插入行", ""),
+    (62, "表格：删除当前行", ""),
+    (63, "表格：在右侧插入列", ""),
+    (64, "表格：删除当前列", ""),
+    (65, "表格：当前列左对齐", ""),
+    (66, "表格：当前列居中", ""),
+    (67, "表格：当前列右对齐", ""),
+    (68, "关闭其他标签页", ""),
+    (69, "关闭右侧标签页", ""),
+    (70, "关闭所有未固定标签页", ""),
+    (71, "插入 Callout 提示块", ""),
+    (72, "插入脚注", ""),
+    (73, "编辑光标处的脚注", ""),
+    (74, "在文件列表中显示当前文件", ""),
+];
+
+#[derive(Clone)]
+struct DraggedTab {
+    id: usize,
+    label: String,
+}
+impl Render for DraggedTab {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .p_2()
+            .rounded(px(6.))
+            .bg(rgb(0x333333))
+            .text_color(rgb(0xdddddd))
+            .child(self.label.clone())
+    }
+}
+
+impl Workspace {
+    fn bg(&self) -> Rgba {
+        rgb(if self.ui.prefs.light {
+            0xffffff
+        } else {
+            0x262626
+        })
+    }
+    pub(super) fn side(&self) -> Rgba {
+        rgb(if self.ui.prefs.light {
+            0xf6f6f6
+        } else {
+            0x202020
+        })
+    }
+    fn fg(&self) -> Rgba {
+        rgb(if self.ui.prefs.light {
+            0x222222
+        } else {
+            0xdadada
+        })
+    }
+    pub(super) fn border(&self) -> Rgba {
+        rgb(if self.ui.prefs.light {
+            0xe0e0e0
+        } else {
+            0x363636
+        })
+    }
+    pub(super) fn persist_workspace(&mut self, cx: &mut Context<Self>) {
+        if self.loading {
+            return;
+        }
+        self.snapshot_views(cx);
+        let Some(vault) = &self.vault else {
+            return;
+        };
+        if self.loading || self.ui.persisting {
+            return;
+        }
+        self.ui.prefs.open_paths = self.tabs.iter().map(|t| t.path.clone()).collect();
+        self.ui.prefs.active_path = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map(|t| t.path.clone());
+        self.ui.prefs.active_tab_index = self.active;
+        let Ok(serialized) = serde_json::to_string(&self.ui.prefs) else {
+            return;
+        };
+        if serialized == self.ui.last_persisted {
+            return;
+        }
+        self.ui.persisting = true;
+        let prefs = self.ui.prefs.clone();
+        let path = vault.root.join(".inkstone-workspace.json");
+        let generation = self.generation;
+        let task = cx
+            .background_executor()
+            .spawn(async move { prefs.save(&path) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.ui.persisting = false;
+                if this.generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(()) => {
+                        this.ui.last_persisted = serialized;
+                        if this.ui.window_close_requested {
+                            this.persist_workspace(cx);
+                        }
+                    }
+                    Err(e) => {
+                        this.status = format!("无法保存工作区设置：{e}");
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+    pub(super) fn apply_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let p = self.ui.prefs.clone();
+        if let Some(graph) = &self.graph {
+            graph.update(cx, |g, cx| g.set_index(self.index.clone(), p.light, cx));
+        }
+        let panes: Vec<_> = self
+            .tabs
+            .iter()
+            .map(|t| t.pane.clone())
+            .chain(self.views.split.iter().map(|s| s.pane.clone()))
+            .collect();
+        for pane in panes {
+            pane.update(cx, |pane, cx| {
+                pane.font_size = p.font_size;
+                pane.readable_width = p.readable_width;
+                pane.light = p.light;
+                pane.editor.update(cx, |editor, cx| {
+                    editor.set_line_number(p.line_numbers, window, cx)
+                });
+                cx.notify();
+            });
+        }
+        self.persist_workspace(cx);
+        cx.notify();
+    }
+    fn filtered_commands(&self, cx: &App) -> Vec<(usize, &'static str, &'static str)> {
+        let query = self.ui.command.read(cx).value().to_lowercase();
+        COMMANDS
+            .iter()
+            .copied()
+            .filter(|(_, text, shortcut)| {
+                text.to_lowercase().contains(&query) || shortcut.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+    fn open_commands(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.command_open = true;
+        self.ui.more = false;
+        self.ui.selected = 0;
+        self.ui.command.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+    fn prompt_name(&mut self, mut mode: NameMode, window: &mut Window, cx: &mut Context<Self>) {
+        if mode == NameMode::Rename
+            && self
+                .active
+                .and_then(|i| self.tabs.get(i))
+                .is_some_and(|t| t.path.as_os_str().is_empty())
+        {
+            mode = NameMode::New;
+        }
+        self.ui.name_mode = Some(mode);
+        self.ui.more = false;
+        let name = if mode == NameMode::Rename {
+            self.active
+                .and_then(|i| self.tabs.get(i))
+                .map(|t| t.path.to_string_lossy().to_string())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        self.name.update(cx, |s, cx| {
+            s.set_value(name, window, cx);
+            s.focus(window, cx);
+            s.select_all(window, cx);
+        });
+        cx.notify();
+    }
+    pub(super) fn submit_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ui.file_operation || self.ui.link_update.is_some() {
+            return;
+        }
+        match self.ui.name_mode.take().unwrap_or(NameMode::New) {
+            NameMode::New => self.create_note(window, cx),
+            NameMode::Rename => self.manage_note(false, window, cx),
+            NameMode::RenameFolder => {
+                if let Some(old) = self.ui.folder_target.take() {
+                    let new = PathBuf::from(self.name.read(cx).value().as_ref());
+                    self.manage_folder(old, Some(new), window, cx);
+                }
+            }
+            NameMode::Folder => {
+                let Some(vault) = self.vault.clone() else {
+                    return;
+                };
+                let name = self.name.read(cx).value().to_string();
+                let generation = self.generation;
+                self.ui.pending_file_writes += 1;
+                let task = cx
+                    .background_executor()
+                    .spawn(async move { vault.create_folder(std::path::Path::new(&name)) });
+                cx.spawn(async move |this, cx| {
+                    let result = task.await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                        if this.generation != generation {
+                            return;
+                        }
+                        this.status = match result {
+                            Ok(()) => "文件夹已创建".into(),
+                            Err(e) => e.to_string(),
+                        };
+                        this.refresh_requested = true;
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+        }
+        self.focus_after_link_update(window, cx);
+        cx.notify();
+    }
+    fn navigate(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let path = if forward {
+            self.ui.history.forward()
+        } else {
+            self.ui.history.back()
+        };
+        if let Some(path) = path {
+            self.open_note(path, window, cx);
+        }
+    }
+    fn cycle_tab(&mut self, backwards: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let n = self.tabs.len();
+        let i = self.active.unwrap_or(0);
+        self.activate_tab((i + if backwards { n - 1 } else { 1 }) % n, window, cx);
+    }
+    fn wrap_selection(
+        &mut self,
+        left: &str,
+        right: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ui.name_mode.is_some()
+            || self.ui.quick_open
+            || self.ui.settings
+            || self.ui.property_open
+        {
+            return;
+        }
+        if !self.ensure_active_note(window, cx) {
+            return;
+        }
+        let Some(pane) = self.current_pane() else {
+            return;
+        };
+        pane.update(cx, |pane, cx| {
+            pane.reading = false;
+            pane.editor.update(cx, |state, cx| {
+                let range = state.selected_range();
+                let text = state.value();
+                if let Some(edit) =
+                    inkstone::markdown_edit::inline_format(&text, range, left, right)
+                {
+                    state.apply_source_edit(
+                        edit.range,
+                        &edit.replacement,
+                        edit.selection,
+                        window,
+                        cx,
+                    );
+                }
+                state.focus(window, cx);
+            });
+            cx.notify();
+        });
+    }
+    fn format_block(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ui.name_mode.is_some()
+            || self.ui.quick_open
+            || self.ui.settings
+            || self.ui.property_open
+            || !self.ensure_active_note(window, cx)
+        {
+            return;
+        }
+        use inkstone::markdown_edit::BlockFormat;
+        let format = match id {
+            48 => BlockFormat::Quote,
+            49 => BlockFormat::Bullet,
+            50 => BlockFormat::Numbered,
+            51 => BlockFormat::Code,
+            52 => BlockFormat::Heading(0),
+            71 => BlockFormat::Callout,
+            _ => BlockFormat::Heading((id - 52) as u8),
+        };
+        if let Some(pane) = self.current_pane() {
+            pane.update(cx, |p, cx| {
+                p.reading = false;
+                p.editor.update(cx, |s, cx| {
+                    if let Some(edit) = inkstone::markdown_edit::block_format(
+                        &s.value(),
+                        s.selected_range(),
+                        format,
+                    ) {
+                        s.apply_source_edit(
+                            edit.range,
+                            &edit.replacement,
+                            edit.selection,
+                            window,
+                            cx,
+                        );
+                        s.focus(window, cx);
+                    }
+                });
+                cx.notify();
+            });
+        }
+    }
+    fn insert_footnote(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ui.name_mode.is_some()
+            || self.ui.quick_open
+            || self.ui.settings
+            || self.ui.property_open
+            || !self.ensure_active_note(window, cx)
+        {
+            return;
+        }
+        if let Some(pane) = self.current_pane() {
+            pane.update(cx, |p, cx| {
+                let mut inserted = false;
+                p.editor.update(cx, |s, cx| {
+                    if let Some(edit) =
+                        inkstone::markdown_edit::insert_footnote(&s.value(), s.selected_range())
+                        && s.apply_source_edit(
+                            edit.range,
+                            &edit.replacement,
+                            edit.selection,
+                            window,
+                            cx,
+                        )
+                    {
+                        p.reading = false;
+                        inserted = true;
+                        s.focus(window, cx);
+                    }
+                });
+                if inserted {
+                    p.open_new_footnote(window, cx);
+                }
+                cx.notify();
+            });
+        }
+    }
+    fn insert_link(&mut self, wiki: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ui.name_mode.is_some()
+            || self.ui.quick_open
+            || self.ui.settings
+            || self.ui.property_open
+            || !self.ensure_active_note(window, cx)
+        {
+            return;
+        }
+        if let Some(pane) = self.current_pane() {
+            pane.update(cx, |p, cx| {
+                p.reading = false;
+                p.editor.update(cx, |s, cx| {
+                    if let Some(edit) =
+                        inkstone::markdown_edit::insert_link(&s.value(), s.selected_range(), wiki)
+                    {
+                        let applied = s.apply_source_edit(
+                            edit.range,
+                            &edit.replacement,
+                            edit.selection,
+                            window,
+                            cx,
+                        );
+                        if applied && wiki {
+                            s.request_completions(window, cx);
+                        }
+                        s.focus(window, cx);
+                    }
+                });
+                cx.notify();
+            });
+        }
+    }
+    fn edit_table(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ui.name_mode.is_some()
+            || self.ui.quick_open
+            || self.ui.settings
+            || self.ui.property_open
+        {
+            return;
+        }
+        if id == 60 && !self.ensure_active_note(window, cx) {
+            return;
+        }
+        use inkstone::tables::Operation;
+        let operation = match id {
+            60 => Operation::Insert,
+            61 => Operation::AddRow,
+            62 => Operation::RemoveRow,
+            63 => Operation::AddColumn,
+            64 => Operation::RemoveColumn,
+            65 => Operation::Left,
+            66 => Operation::Center,
+            _ => Operation::Right,
+        };
+        let mut applied = false;
+        if let Some(pane) = self.current_pane() {
+            pane.update(cx, |p, cx| {
+                p.editor.update(cx, |s, cx| {
+                    if let Some(edit) =
+                        inkstone::tables::edit(&s.value(), s.selected_range(), operation)
+                    {
+                        applied = s.apply_source_edit(
+                            edit.range,
+                            &edit.replacement,
+                            edit.selection,
+                            window,
+                            cx,
+                        );
+                        s.focus(window, cx);
+                    }
+                });
+                if applied {
+                    p.reading = false;
+                }
+                cx.notify();
+            });
+        }
+        if !applied {
+            self.status =
+                "请在独立表格的单元格中操作，并完成输入法组词；结构编辑暂支持最多 10 万个单元格。"
+                    .into();
+        }
+    }
+    pub(super) fn execute_command(
+        &mut self,
+        id: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73) {
+            self.graph_open = false;
+        }
+        self.command_open = false;
+        self.ui.more = false;
+        match id {
+            0 => self.focus_new(window, cx),
+            1 => self.choose_vault(window, cx),
+            2 => self.focus_search(false, window, cx),
+            3 => self.focus_search(true, window, cx),
+            4 => self.save_all(window, cx),
+            5 => self.close_tab(window, cx),
+            6 | 7 => {
+                if let Some(pane) = self.current_pane() {
+                    pane.update(cx, |pane, cx| {
+                        if id == 6 {
+                            pane.reading = !pane.reading;
+                        } else {
+                            pane.reading = false;
+                            pane.live = !pane.live;
+                        }
+                        pane.focus_view(window, cx);
+                        cx.notify();
+                    });
+                }
+            }
+            8 => self.prompt_name(NameMode::Rename, window, cx),
+            9 => self.prompt_name(NameMode::Folder, window, cx),
+            10 => self.manage_note(true, window, cx),
+            11 => self.save_copy(window, cx),
+            12 => self.ui.prefs.left_open = !self.ui.prefs.left_open,
+            13 => self.ui.prefs.right_open = !self.ui.prefs.right_open,
+            14 => {
+                self.prepare_file_settings(window, cx);
+                self.ui.settings = true;
+                window.focus(&self.ui.modal_focus, cx);
+            }
+            15 => {
+                if let Some(path) = self
+                    .active
+                    .and_then(|i| self.tabs.get(i))
+                    .map(|t| t.path.clone())
+                {
+                    if self.ui.prefs.bookmarks.contains(&path) {
+                        self.ui.prefs.bookmarks.retain(|p| p != &path);
+                    } else {
+                        self.ui.prefs.bookmarks.push(path);
+                    }
+                }
+            }
+            16 => {
+                self.ui.trash_open = true;
+                window.focus(&self.ui.modal_focus, cx);
+                self.refresh_trash(cx);
+            }
+            17 => {
+                if let Some(closed) = self.ui.closed.pop() {
+                    self.open_note_with_view(
+                        closed.view.path.clone(),
+                        Some(closed.view),
+                        window,
+                        cx,
+                    );
+                }
+            }
+            18 => {
+                if let Some(v) = &self.vault {
+                    let path = self
+                        .active
+                        .and_then(|i| self.tabs.get(i))
+                        .map(|t| v.root.join(&t.path))
+                        .unwrap_or(v.root.clone());
+                    cx.reveal_path(&path);
+                }
+            }
+            19 => {
+                if let Some(t) = self.active.and_then(|i| self.tabs.get(i)) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(
+                        t.path.to_string_lossy().to_string(),
+                    ));
+                }
+            }
+            20 => self.navigate(false, window, cx),
+            21 => self.navigate(true, window, cx),
+            22 => {
+                self.ui.prefs.light = !self.ui.prefs.light;
+                apply_theme(self.ui.prefs.light, cx);
+                self.apply_editor_preferences(window, cx);
+            }
+            23 => {
+                if let Some(t) = self.active.and_then(|i| self.tabs.get(i)) {
+                    t.pane.read(cx).editor.clone().update(cx, |s, cx| {
+                        s.open_search(true, cx);
+                        s.focus(window, cx);
+                    });
+                }
+            }
+            24 => self.wrap_selection("**", "**", window, cx),
+            25 => self.wrap_selection("*", "*", window, cx),
+            26 => self.insert_link(true, window, cx),
+            27 => {
+                if let Some(tab) = self.active.and_then(|i| self.tabs.get(i)) {
+                    if self.ui.prefs.pinned_paths.contains(&tab.path) {
+                        self.ui.prefs.pinned_paths.retain(|p| p != &tab.path);
+                    } else {
+                        self.ui.prefs.pinned_paths.push(tab.path.clone());
+                    }
+                }
+            }
+            28 => self.open_daily(window, cx),
+            29 => {
+                self.focus_search(false, window, cx);
+                self.ui.template_mode = true;
+            }
+            30 => self.choose_attachments(window, cx),
+            31 => self.split_active(false, window, cx),
+            32 => self.split_active(true, window, cx),
+            33 => self.close_split(window, cx),
+            34 => self.new_blank(window, cx),
+            35 => {
+                if self.ui.name_mode.is_none()
+                    && !self.ui.quick_open
+                    && !self.ui.settings
+                    && !self.ui.property_open
+                    && self.ensure_active_note(window, cx)
+                    && let Some(pane) = self.current_pane()
+                {
+                    pane.update(cx, |p, cx| p.toggle_task_line(window, cx));
+                }
+            }
+            36..=38 => {
+                if let Some(pane) = self.current_pane() {
+                    pane.update(cx, |p, cx| {
+                        p.fold_sections(
+                            match id {
+                                37 => Some(true),
+                                38 => Some(false),
+                                _ => None,
+                            },
+                            window,
+                            cx,
+                        )
+                    });
+                }
+            }
+            39 => self.open_commands(window, cx),
+            40 => self.cycle_tab(false, window, cx),
+            41 => self.cycle_tab(true, window, cx),
+            42 => self.duplicate_current(window, cx),
+            43 => self.open_graph(false, window, cx),
+            44 => self.open_graph(true, window, cx),
+            45 => self.wrap_selection("~~", "~~", window, cx),
+            46 => self.wrap_selection("==", "==", window, cx),
+            47 => self.wrap_selection("`", "`", window, cx),
+            48..=58 => self.format_block(id, window, cx),
+            59 => self.insert_link(false, window, cx),
+            60..=67 => self.edit_table(id, window, cx),
+            68..=70 => self.close_tab_group(
+                self.active.and_then(|i| self.tabs.get(i)).map(|t| t.id),
+                id - 68,
+                window,
+                cx,
+            ),
+            71 => self.format_block(id, window, cx),
+            72 => self.insert_footnote(window, cx),
+            73 => {
+                if let Some(pane) = self.current_pane() {
+                    pane.update(cx, |p, cx| {
+                        p.open_footnote(window, cx);
+                    });
+                }
+            }
+            74 => {
+                self.ui.prefs.left_open = true;
+                self.ui.left_mode = 0;
+                self.reveal_current_file(cx);
+            }
+            _ => (),
+        }
+        self.persist_workspace(cx);
+        cx.notify();
+    }
+    fn refresh_trash(&mut self, cx: &mut Context<Self>) {
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        let generation = self.generation;
+        let task = cx
+            .background_executor()
+            .spawn(async move { vault.trash_entries() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(entries) => this.ui.trash = entries,
+                    Err(e) => this.status = e.to_string(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    fn restore_deleted(&mut self, i: usize, cx: &mut Context<Self>) {
+        if self.ui.file_operation {
+            return;
+        }
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        let Some(entry) = self.ui.trash.get(i).cloned() else {
+            return;
+        };
+        let generation = self.generation;
+        self.ui.pending_file_writes += 1;
+        let task = cx
+            .background_executor()
+            .spawn(async move { vault.restore_trash(&entry) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                if this.generation != generation {
+                    return;
+                }
+                this.status = match result {
+                    Ok(()) => "文件已恢复到原目录".into(),
+                    Err(e) => e.to_string(),
+                };
+                this.refresh_requested = true;
+                this.refresh_trash(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    pub(super) fn close_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ui.link_update.take().is_some() {
+            self.status = "文件已移动，链接保持原样。".into();
+            self.focus_after_link_update(window, cx);
+            cx.notify();
+            return;
+        }
+        self.command_open = false;
+        self.ui.quick_open = false;
+        self.ui.template_mode = false;
+        self.ui.name_mode = None;
+        self.ui.settings = false;
+        self.ui.hotkey_recording = None;
+        self.ui.property_open = false;
+        self.ui.more = false;
+        self.ui.trash_open = false;
+        if let Some(pane) = self.current_pane() {
+            pane.update(cx, |p, cx| p.focus_view(window, cx));
+        } else {
+            window.focus(&self.ui.workspace_focus, cx);
+        }
+        cx.notify();
+    }
+
+    fn left_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .h(px(40.))
+            .px_2()
+            .gap_1()
+            .border_b_1()
+            .border_color(self.border())
+            .child(
+                tool("files", "folder-closed", "文件列表").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.ui.left_mode = 0;
+                        cx.notify();
+                    },
+                )),
+            )
+            .child(
+                tool("search", "search", "搜索")
+                    .on_click(cx.listener(|this, _, w, cx| this.focus_search(true, w, cx))),
+            )
+            .child(
+                tool("bookmarks", "bookmark", "书签").on_click(cx.listener(|this, _, _, cx| {
+                    this.ui.left_mode = 2;
+                    cx.notify();
+                })),
+            )
+            .child(
+                tool("open-graph", "network", "关系图谱")
+                    .on_click(cx.listener(|this, _, w, cx| this.open_graph(false, w, cx))),
+            )
+            .child(div().flex_1())
+            .child(
+                tool("left-hide", "panel-left-close", "收起左侧栏")
+                    .on_click(cx.listener(|this, _, w, cx| this.execute_command(12, w, cx))),
+            )
+            .into_any_element()
+    }
+    fn right_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .h(px(40.))
+            .px_1()
+            .gap_0()
+            .border_b_1()
+            .border_color(self.border())
+            .children(
+                [
+                    ("list", "大纲"),
+                    ("links", "反向链接"),
+                    ("link", "出链"),
+                    ("tags", "标签"),
+                    ("inbox", "属性"),
+                ]
+                .iter()
+                .enumerate()
+                .map(|(i, (ico, label))| {
+                    Button::new(("right-mode", i))
+                        .ghost()
+                        .compact()
+                        .icon(icon(ico))
+                        .tooltip(*label)
+                        .w(px(24.))
+                        .h(px(28.))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.ui.right_mode = i;
+                            cx.notify();
+                        }))
+                }),
+            )
+            .into_any_element()
+    }
+    fn tab_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let menu_tabs: Vec<_> = self
+            .tabs
+            .iter()
+            .map(|tab| {
+                let name = if tab.path.as_os_str().is_empty() {
+                    "新标签页".into()
+                } else {
+                    tab.path.to_string_lossy().replace('\\', "/")
+                };
+                (
+                    tab.id,
+                    format!("{name}{}", if tab.dirty { " •" } else { "" }),
+                    self.ui.prefs.pinned_paths.contains(&tab.path),
+                )
+            })
+            .collect();
+        let selected = self
+            .main_tab()
+            .and_then(|i| self.tabs.get(i))
+            .map(|tab| tab.id);
+        let weak = cx.entity().downgrade();
+        div()
+            .flex()
+            .w_full()
+            .min_w_0()
+            .h(px(40.))
+            .items_center()
+            .bg(self.side())
+            .border_b_1()
+            .border_color(self.border())
+            .when(!self.ui.prefs.left_open, |s| {
+                s.child(
+                    tool("show-left", "panel-left", "展开左侧栏")
+                        .on_click(cx.listener(|this, _, w, cx| this.execute_command(12, w, cx))),
+                )
+            })
+            .child(
+                div()
+                    .id("tabs")
+                    .flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .overflow_x_scroll()
+                    .track_scroll(&self.ui.tab_scroll)
+                    .items_end()
+                    .px_1()
+                    .gap_1()
+                    .children(self.tabs.iter().enumerate().map(|(i, t)| {
+                        let tab_id = t.id;
+                        let menu_weak = cx.entity().downgrade();
+                        let selected = self.main_tab() == Some(i);
+                        let pinned = self.ui.prefs.pinned_paths.contains(&t.path);
+                        div()
+                            .id(("tab", t.id))
+                            .occlude()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_mouse_down(
+                                MouseButton::Middle,
+                                cx.listener(move |this, _, window, cx| {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                    this.ui.middle_pressed_tab = Some(tab_id);
+                                }),
+                            )
+                            .on_mouse_up_out(
+                                MouseButton::Middle,
+                                cx.listener(move |this, _, _, _| {
+                                    if this.ui.middle_pressed_tab == Some(tab_id) {
+                                        this.ui.middle_pressed_tab = None;
+                                    }
+                                }),
+                            )
+                            .on_mouse_up(
+                                MouseButton::Middle,
+                                cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    if this.ui.middle_pressed_tab.take() == Some(tab_id)
+                                        && let Some(index) =
+                                            this.tabs.iter().position(|tab| tab.id == tab_id)
+                                    {
+                                        this.close_tab_at(index, window, cx);
+                                    }
+                                }),
+                            )
+                            .on_drag(
+                                DraggedTab {
+                                    id: t.id,
+                                    label: t
+                                        .path
+                                        .file_stem()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string(),
+                                },
+                                |drag, _, _, cx| {
+                                    cx.stop_propagation();
+                                    cx.new(|_| drag.clone())
+                                },
+                            )
+                            .on_drop(cx.listener(move |this, drag: &DraggedTab, _, cx| {
+                                if let Some(from) = this.tabs.iter().position(|t| t.id == drag.id) {
+                                    let active_id =
+                                        this.active.and_then(|i| this.tabs.get(i)).map(|t| t.id);
+                                    let tab = this.tabs.remove(from);
+                                    this.tabs.insert(i.min(this.tabs.len()), tab);
+                                    this.active = active_id
+                                        .and_then(|id| this.tabs.iter().position(|t| t.id == id));
+                                    this.persist_workspace(cx);
+                                    cx.notify();
+                                }
+                            }))
+                            .flex()
+                            .items_center()
+                            .h(px(34.))
+                            .min_w(px(100.))
+                            .max_w(px(210.))
+                            .px_2()
+                            .gap_2()
+                            .rounded_t(px(6.))
+                            .cursor_pointer()
+                            .when(selected, |s| {
+                                s.bg(self.bg())
+                                    .border_1()
+                                    .border_b_0()
+                                    .border_color(self.border())
+                            })
+                            .child(icon(if pinned { "bookmark" } else { "file-text" }))
+                            .child(div().truncate().flex_1().text_size(px(13.)).child(format!(
+                                "{}{}",
+                                if t.path.as_os_str().is_empty() {
+                                    "新标签页".into()
+                                } else {
+                                    t.path.file_stem().unwrap_or_default().to_string_lossy()
+                                },
+                                if t.conflict || t.error.is_some() {
+                                    " ⚠"
+                                } else if t.dirty {
+                                    " •"
+                                } else {
+                                    ""
+                                }
+                            )))
+                            .child(
+                                Button::new(("close-tab", t.id))
+                                    .ghost()
+                                    .compact()
+                                    .icon(icon("x"))
+                                    .w(px(22.))
+                                    .h(px(22.))
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        cx.stop_propagation();
+                                        this.close_tab_at(i, w, cx);
+                                    })),
+                            )
+                            .on_click(
+                                cx.listener(move |this, _, w, cx| this.focus_primary(i, w, cx)),
+                            )
+                            .context_menu(move |mut menu, _, _| {
+                                for (mode, label) in [
+                                    (0, "关闭其他标签页"),
+                                    (1, "关闭右侧标签页"),
+                                    (2, "关闭所有未固定标签页"),
+                                ] {
+                                    let weak = menu_weak.clone();
+                                    menu = menu.item(PopupMenuItem::new(label).on_click(
+                                        move |_, w, cx| {
+                                            let _ = weak.update(cx, |this, cx| {
+                                                this.close_tab_group(Some(tab_id), mode, w, cx)
+                                            });
+                                        },
+                                    ));
+                                }
+                                menu
+                            })
+                    })),
+            )
+            .child(
+                tool("add-tab", "plus", "新建标签页 Ctrl+T")
+                    .on_click(cx.listener(|this, _, w, cx| this.new_blank(w, cx))),
+            )
+            .child(
+                tool("list-tabs", "chevron-down", "显示所有标签页").dropdown_menu(
+                    move |mut menu, _, _| {
+                        for (id, label, pinned) in &menu_tabs {
+                            let id = *id;
+                            let weak = weak.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(label.clone())
+                                    .when(*pinned, |item| item.icon(icon("pin")))
+                                    .checked(selected == Some(id))
+                                    .on_click(move |_, window, cx| {
+                                        let _ = weak.update(cx, |this, cx| {
+                                            if let Some(index) =
+                                                this.tabs.iter().position(|tab| tab.id == id)
+                                            {
+                                                this.focus_primary(index, window, cx);
+                                            }
+                                        });
+                                    }),
+                            );
+                        }
+                        menu
+                    },
+                ),
+            )
+            .when(true, |s| {
+                s.child(
+                    tool("show-right", "panel-right", "展开右侧栏")
+                        .on_click(cx.listener(|this, _, w, cx| this.execute_command(13, w, cx))),
+                )
+            })
+            .into_any_element()
+    }
+    pub(super) fn reveal_current_file(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(path) = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map(|t| t.path.clone())
+            .filter(|p| !p.as_os_str().is_empty())
+        else {
+            return false;
+        };
+        let tree_path: PathBuf = path.components().collect();
+        let id: SharedString = tree_path.to_string_lossy().to_string().into();
+        let found = self.tree.update(cx, |tree, cx| {
+            tree.reveal_item(&id, ScrollStrategy::Center, cx);
+            if let Some(index) = tree.index_of(&id) {
+                tree.set_selected_index(Some(index), cx);
+                true
+            } else {
+                false
+            }
+        });
+        if found {
+            self.ui.last_revealed_file = Some((self.generation, path));
+        }
+        found
+    }
+    fn left_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let weak = cx.entity().downgrade();
+        let menu_weak = cx.entity().downgrade();
+        let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
+            let path = PathBuf::from(entry.item().id.as_ref());
+            let folder = entry.is_folder();
+            let weak = weak.clone();
+            ListItem::new(i)
+                .h(px(28.))
+                .accessibility_label(entry.item().label.clone())
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .pl(px(entry.depth() as f32 * 14.))
+                        .child(if folder {
+                            icon(if entry.is_expanded() {
+                                "chevron-down"
+                            } else {
+                                "chevron-right"
+                            })
+                        } else {
+                            Icon::default().size(px(17.))
+                        })
+                        .child(div().truncate().child(if folder {
+                            entry.item().label.to_string()
+                        } else {
+                            entry.item().label.trim_end_matches(".md").to_owned()
+                        })),
+                )
+                .on_click(move |_, window, cx| {
+                    if !folder {
+                        let _ =
+                            weak.update(cx, |this, cx| this.open_note(path.clone(), window, cx));
+                    }
+                })
+        })
+        .context_menu(move |_, entry, mut menu, _, _| {
+            use gpui_component::menu::PopupMenuItem;
+            if entry.is_folder() {
+                let path = entry.item().id.to_string();
+                let weak = menu_weak.clone();
+                menu = menu.item(PopupMenuItem::new("新建笔记").on_click(move |_, w, cx| {
+                    let _ = weak.update(cx, |this, cx| {
+                        this.prompt_name(NameMode::New, w, cx);
+                        this.name
+                            .update(cx, |s, cx| s.set_value(format!("{path}/未命名.md"), w, cx));
+                    });
+                }));
+                let path = PathBuf::from(entry.item().id.as_ref());
+                let weak = menu_weak.clone();
+                menu = menu.item(PopupMenuItem::new("重命名文件夹 / 移动文件夹").on_click(
+                    move |_, w, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.ui.folder_target = Some(path.clone());
+                            this.prompt_name(NameMode::RenameFolder, w, cx);
+                            this.name.update(cx, |s, cx| {
+                                s.set_value(path.to_string_lossy().to_string(), w, cx)
+                            });
+                        });
+                    },
+                ));
+                let path = PathBuf::from(entry.item().id.as_ref());
+                let weak = menu_weak.clone();
+                return menu.item(PopupMenuItem::new("将文件夹移入回收站").on_click(
+                    move |_, w, cx| {
+                        let _ = weak
+                            .update(cx, |this, cx| this.manage_folder(path.clone(), None, w, cx));
+                    },
+                ));
+            }
+
+            for id in [8, 42, 15, 27, 11, 18, 19, 10] {
+                let path = PathBuf::from(entry.item().id.as_ref());
+                let weak = menu_weak.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(COMMANDS[id].1).on_click(move |_, w, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.ui.pending_command = Some((path.clone(), id));
+                            this.open_note(path.clone(), w, cx);
+                        });
+                    }),
+                );
+            }
+            menu
+        });
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .min_h_0()
+            .bg(self.side())
+            .when(self.ui.left_mode == 0, |s| {
+                s.child(
+                    div()
+                        .flex()
+                        .h(px(38.))
+                        .items_center()
+                        .px_2()
+                        .gap_1()
+                        .child(
+                            tool("new-file", "file-plus", "新建笔记")
+                                .on_click(cx.listener(|this, _, w, cx| this.focus_new(w, cx))),
+                        )
+                        .child(tool("new-folder", "folder-plus", "新建文件夹").on_click(
+                            cx.listener(|this, _, w, cx| this.prompt_name(NameMode::Folder, w, cx)),
+                        ))
+                        .child({
+                            let weak = cx.entity().downgrade();
+                            let selected = (self.ui.prefs.sort_by, self.ui.prefs.sort_descending);
+                            tool("sort", "arrow-up-down", "更改排序方式").dropdown_menu(
+                                move |mut menu, _, _| {
+                                    for (label, by, descending) in [
+                                        ("文件名：A → Z", SortBy::Name, false),
+                                        ("文件名：Z → A", SortBy::Name, true),
+                                        ("修改时间：从新到旧", SortBy::Modified, true),
+                                        ("修改时间：从旧到新", SortBy::Modified, false),
+                                        ("创建时间：从新到旧", SortBy::Created, true),
+                                        ("创建时间：从旧到新", SortBy::Created, false),
+                                    ] {
+                                        let weak = weak.clone();
+                                        menu = menu.item(
+                                            PopupMenuItem::new(label)
+                                                .checked(selected == (by, descending))
+                                                .on_click(move |_, _, cx| {
+                                                    let _ = weak.update(cx, |this, cx| {
+                                                        this.ui.prefs.sort_by = by;
+                                                        this.ui.prefs.sort_descending = descending;
+                                                        this.rebuild_sorted_tree(cx);
+                                                        this.persist_workspace(cx);
+                                                    });
+                                                }),
+                                        );
+                                    }
+                                    menu
+                                },
+                            )
+                        })
+                        .child(
+                            tool("reveal", "locate", "自动显示当前文件")
+                                .when(self.ui.prefs.auto_reveal_file, |s| s.bg(self.bg()))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.ui.prefs.auto_reveal_file =
+                                        !this.ui.prefs.auto_reveal_file;
+                                    this.ui.last_revealed_file = None;
+                                    if this.ui.prefs.auto_reveal_file {
+                                        this.reveal_current_file(cx);
+                                    }
+                                    this.persist_workspace(cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            tool("collapse", "fold-vertical", "折叠所有文件夹").on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.ui.prefs.expanded_folders.clear();
+                                    this.rebuild_sorted_tree(cx);
+                                }),
+                            ),
+                        ),
+                )
+                .child(div().flex_1().min_h_0().px_1().child(file_tree))
+            })
+            .when(self.ui.left_mode == 1, |s| {
+                s.when(!self.ui.quick_open, |s| {
+                    s.child(div().p_3().child(Input::new(&self.search).cleanable(true)))
+                })
+                .child(
+                    div()
+                        .px_3()
+                        .text_xs()
+                        .text_color(rgb(0x999999))
+                        .child(format!("{} 个结果", self.search_results.len())),
+                )
+                .child(self.search_list(false, cx))
+            })
+            .when(self.ui.left_mode == 2, |s| {
+                s.child(
+                    div()
+                        .id("bookmark-list")
+                        .flex_1()
+                        .overflow_y_scroll()
+                        .p_2()
+                        .child(div().p_2().text_sm().child("书签"))
+                        .when(self.ui.prefs.bookmarks.is_empty(), |s| {
+                            s.child(
+                                div()
+                                    .p_2()
+                                    .text_color(rgb(0x888888))
+                                    .child("使用文件菜单添加书签"),
+                            )
+                        })
+                        .children(self.ui.prefs.bookmarks.iter().enumerate().map(|(i, p)| {
+                            let path = p.clone();
+                            div()
+                                .id(("bookmark", i))
+                                .p_2()
+                                .cursor_pointer()
+                                .child(
+                                    p.file_stem()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string(),
+                                )
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    this.open_note(path.clone(), w, cx)
+                                }))
+                        })),
+                )
+            })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(38.))
+                    .px_2()
+                    .border_t_1()
+                    .border_color(self.border())
+                    .child(
+                        Button::new("vault-switch")
+                            .ghost()
+                            .compact()
+                            .label(
+                                self.vault
+                                    .as_ref()
+                                    .map(|v| {
+                                        v.root
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .to_string()
+                                    })
+                                    .unwrap_or("打开笔记库".into()),
+                            )
+                            .on_click(cx.listener(|this, _, w, cx| this.choose_vault(w, cx))),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        tool("settings", "settings", "设置").on_click(
+                            cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
+                        ),
+                    ),
+            )
+            .into_any_element()
+    }
+    pub(super) fn rebuild_sorted_tree(&mut self, cx: &mut Context<Self>) {
+        let mut paths = self.tree_files.clone();
+        paths.extend(self.ui.folders.iter().cloned());
+        let mut items = make_tree(&paths);
+        fn apply(
+            items: &mut [TreeItem],
+            folders: &[PathBuf],
+            expanded: &[PathBuf],
+            index: &Index,
+            by: SortBy,
+            descending: bool,
+        ) {
+            for item in items.iter_mut() {
+                let folder = item.is_folder()
+                    || folders
+                        .iter()
+                        .any(|p| p == std::path::Path::new(item.id.as_ref()));
+                let open = expanded
+                    .iter()
+                    .any(|p| p == std::path::Path::new(item.id.as_ref()));
+                *item = item.clone().folder(folder).expanded(open);
+                apply(&mut item.children, folders, expanded, index, by, descending);
+            }
+            items.sort_by(|a, b| {
+                let times = |item: &TreeItem| {
+                    index
+                        .notes
+                        .get(std::path::Path::new(item.id.as_ref()))
+                        .map(|n| n.times)
+                        .unwrap_or_default()
+                };
+                inkstone::file_order::compare(
+                    (&a.label, a.is_folder(), times(a)),
+                    (&b.label, b.is_folder(), times(b)),
+                    by,
+                    descending,
+                )
+            });
+        }
+        apply(
+            &mut items,
+            &self.ui.folders,
+            &self.ui.prefs.expanded_folders,
+            &self.index,
+            self.ui.prefs.sort_by,
+            self.ui.prefs.sort_descending,
+        );
+        self.tree.update(cx, |tree, cx| {
+            let selected = tree.selected_item().cloned();
+            tree.set_items(items, cx);
+            tree.set_selected_item(selected.as_ref(), cx);
+        });
+        cx.notify();
+    }
+    pub(super) fn open_selected_result(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        let hit = if self.search.read(cx).value().is_empty() && self.ui.quick_open {
+            self.files.get(self.ui.selected).map(|p| (p.clone(), 0))
+        } else {
+            self.search_results
+                .get(self.ui.selected)
+                .map(|h| (h.path.clone(), h.offset))
+        };
+        if let Some((path, offset)) = hit {
+            if self.ui.template_mode {
+                self.insert_template(&path, w, cx);
+                return;
+            }
+            self.pending_jump = Some((path.clone(), offset));
+            self.open_note(path, w, cx);
+            self.apply_jump(w, cx);
+        }
+    }
+    fn search_list(&self, modal: bool, cx: &mut Context<Self>) -> AnyElement {
+        let hits: Vec<_> = if modal && self.search.read(cx).value().is_empty() {
+            self.files
+                .iter()
+                .take(100)
+                .map(|p| SearchHit {
+                    path: p.clone(),
+                    offset: 0,
+                    line: 1,
+                    excerpt: String::new(),
+                })
+                .collect()
+        } else {
+            self.search_results.clone()
+        };
+        div()
+            .id(if modal {
+                "quick-results"
+            } else {
+                "search-results"
+            })
+            .when(modal, |s| s.track_scroll(&self.ui.modal_scroll))
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .p_2()
+            .children(hits.into_iter().enumerate().map(|(i, hit)| {
+                let path = hit.path;
+                let offset = hit.offset;
+                div()
+                    .id(("result", i))
+                    .when(modal && self.ui.selected == i, |s| s.bg(rgba(0x88888822)))
+                    .p_2()
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgba(0x88888822)))
+                    .child(
+                        div().text_sm().child(
+                            path.file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string(),
+                        ),
+                    )
+                    .child(div().text_xs().text_color(rgb(0x888888)).truncate().child(
+                        if hit.excerpt.is_empty() {
+                            path.to_string_lossy().to_string()
+                        } else {
+                            format!("{}: {}", hit.line, hit.excerpt)
+                        },
+                    ))
+                    .on_click(cx.listener(move |this, _, w, cx| {
+                        if this.ui.template_mode {
+                            this.insert_template(&path, w, cx);
+                            return;
+                        }
+                        this.pending_jump = Some((path.clone(), offset));
+                        this.open_note(path.clone(), w, cx);
+                        this.apply_jump(w, cx);
+                    }))
+            }))
+            .into_any_element()
+    }
+
+    fn right_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let pane = self.current_pane();
+        let headings = pane
+            .as_ref()
+            .map(|p| p.read(cx).parsed.headings.clone())
+            .unwrap_or_default();
+        let links = pane
+            .as_ref()
+            .map(|p| p.read(cx).parsed.links.clone())
+            .unwrap_or_default();
+        let properties = pane
+            .as_ref()
+            .map(|p| inkstone::properties::parse(&p.read(cx).editor.read(cx).value()))
+            .unwrap_or_default();
+        let tab_path = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map(|t| t.path.clone());
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(self.side())
+            .child(
+                div()
+                    .id("right-content")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_3()
+                    .when(self.ui.right_mode == 0, |s| {
+                        s.child(div().pb_3().text_color(rgb(0x999999)).child("大纲"))
+                            .when(headings.is_empty(), |s| {
+                                s.child(div().text_color(rgb(0x777777)).child("未找到小标题行。"))
+                            })
+                            .children(headings.into_iter().enumerate().map(|(i, h)| {
+                                let pane = pane.clone();
+                                div()
+                                    .id(("outline", i))
+                                    .py_1()
+                                    .pl(px((h.level - 1) as f32 * 12.))
+                                    .cursor_pointer()
+                                    .child(h.title)
+                                    .on_click(cx.listener(move |_, _, w, cx| {
+                                        if let Some(pane) = &pane {
+                                            pane.update(cx, |p, cx| p.jump(h.offset, w, cx));
+                                        }
+                                    }))
+                            }))
+                    })
+                    .when(self.ui.right_mode == 1, |s| {
+                        s.child(
+                            div()
+                                .pb_3()
+                                .text_color(rgb(0x999999))
+                                .child(format!("链接提及  {}", self.backlinks.len())),
+                        )
+                        .child(
+                            uniform_list(
+                                "sidebar-backlinks",
+                                self.backlinks.len(),
+                                cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
+                                    range
+                                        .filter_map(|i| {
+                                            this.backlinks.get(i).cloned().map(|path| {
+                                                ListItem::new(("backlink", i))
+                                                    .h(px(28.))
+                                                    .child(
+                                                        div().truncate().child(
+                                                            path.to_string_lossy().to_string(),
+                                                        ),
+                                                    )
+                                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                                        this.open_note(path.clone(), w, cx)
+                                                    }))
+                                            })
+                                        })
+                                        .collect::<Vec<_>>()
+                                }),
+                            )
+                            .track_scroll(&self.backlink_scroll)
+                            .h(px(400.))
+                            .w_full(),
+                        )
+                    })
+                    .when(self.ui.right_mode == 2, |s| {
+                        s.child(div().pb_3().text_color(rgb(0x999999)).child("出链"))
+                            .children(links.into_iter().enumerate().map(|(i, link)| {
+                                let from = tab_path.clone();
+                                div()
+                                    .id(("outlink", i))
+                                    .py_1()
+                                    .text_color(rgb(0xa88bfa))
+                                    .cursor_pointer()
+                                    .child(link.label)
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        if let Some(from) = &from {
+                                            this.follow_link(
+                                                from.clone(),
+                                                link.target.clone(),
+                                                w,
+                                                cx,
+                                            );
+                                        }
+                                    }))
+                            }))
+                    })
+                    .when(self.ui.right_mode == 4, |s| {
+                        s.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .pb_3()
+                                .child("属性")
+                                .child(tool("new-property", "plus", "添加属性").on_click(
+                                    cx.listener(|this, _, w, cx| this.edit_property("", "", w, cx)),
+                                )),
+                        )
+                        .children(properties.iter().enumerate().map(|(i, p)| {
+                            let name = p.name.clone();
+                            let value = p.value.clone();
+                            div()
+                                .id(("property", i))
+                                .p_2()
+                                .cursor_pointer()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0x999999))
+                                        .child(name.clone()),
+                                )
+                                .child(div().truncate().child(value.clone()))
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    this.edit_property(&name, &value, w, cx)
+                                }))
+                        }))
+                    })
+                    .when(self.ui.right_mode == 3, |s| {
+                        let mut tags = std::collections::BTreeMap::<String, usize>::new();
+                        for note in self.index.notes.values() {
+                            for tag in &note.parsed.tags {
+                                *tags.entry(tag.clone()).or_default() += 1;
+                            }
+                        }
+                        s.child(div().pb_3().text_color(rgb(0x999999)).child("标签"))
+                            .children(tags.into_iter().enumerate().map(|(i, (tag, count))| {
+                                div()
+                                    .id(("tag", i))
+                                    .py_1()
+                                    .cursor_pointer()
+                                    .child(format!("#{tag}  {count}"))
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.search.update(cx, |s, cx| {
+                                            s.set_value(format!("tag:{tag}"), w, cx)
+                                        });
+                                        this.focus_search(true, w, cx);
+                                    }))
+                            }))
+                    }),
+            )
+            .into_any_element()
+    }
+}
+
+impl Workspace {
+    fn editor_group(
+        &self,
+        index: Option<usize>,
+        pane: Option<Entity<EditorPane>>,
+        secondary: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let active = index
+            .and_then(|i| self.tabs.get(i))
+            .filter(|t| !t.path.as_os_str().is_empty());
+        let pane = if active.is_some() { pane } else { None };
+        let title = active
+            .map(|t| {
+                t.path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .unwrap_or("新标签页".into());
+        let breadcrumb = active
+            .map(|t| {
+                t.path
+                    .to_string_lossy()
+                    .replace('\\', " / ")
+                    .trim_end_matches(".md")
+                    .to_string()
+            })
+            .unwrap_or_default();
+        let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
+        let title_tab_id = active.map(|tab| tab.id);
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .min_h_0()
+            .bg(self.bg())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(40.))
+                    .px_3()
+                    .gap_1()
+                    .child(
+                        tool("back", "arrow-left", "返回 Alt+Left")
+                            .disabled(self.ui.history.cursor == 0)
+                            .on_click(cx.listener(|this, _, w, cx| this.navigate(false, w, cx))),
+                    )
+                    .child(
+                        tool("forward", "arrow-right", "前进 Alt+Right")
+                            .disabled(self.ui.history.cursor + 1 >= self.ui.history.entries.len())
+                            .on_click(cx.listener(|this, _, w, cx| this.navigate(true, w, cx))),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_center()
+                            .text_size(px(13.))
+                            .text_color(rgb(0x999999))
+                            .child(breadcrumb),
+                    )
+                    .child(
+                        tool(
+                            "read-mode",
+                            if reading { "pencil" } else { "book-open" },
+                            "切换阅读视图 Ctrl+E",
+                        )
+                        .on_click(cx.listener(|this, _, w, cx| this.execute_command(6, w, cx))),
+                    )
+                    .child(
+                        tool(
+                            if secondary {
+                                "secondary-file-menu"
+                            } else {
+                                "file-menu"
+                            },
+                            "ellipsis-vertical",
+                            "更多选项",
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.ui.more = !this.ui.more;
+                            cx.notify();
+                        })),
+                    ),
+            )
+            .when(pane.is_some() && self.ui.prefs.show_inline_title, |s| {
+                s.child(div().px(px(48.)).pt(px(12.)).child(
+                    if let Some(edit) = self.ui.inline_title.as_ref().filter(|edit| {
+                        active.is_some_and(|tab| tab.id == edit.id) && edit.secondary == secondary
+                    }) {
+                        div()
+                            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                                if event.keystroke.key == "escape" {
+                                    this.cancel_inline_title(window, cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .child(
+                                Input::new(&edit.input)
+                                    .readonly(self.ui.file_operation)
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .text_size(px(self.ui.prefs.font_size
+                                        * inkstone::markdown::HEADING_SCALES[0]))
+                                    .font_weight(FontWeight::BOLD)
+                                    .line_height(relative(1.2))
+                                    .h(px(self.ui.prefs.font_size
+                                        * inkstone::markdown::HEADING_SCALES[0]
+                                        * 1.2
+                                        + 8.)),
+                            )
+                            .into_any_element()
+                    } else {
+                        div()
+                            .id(if secondary {
+                                "secondary-inline-title"
+                            } else {
+                                "inline-title"
+                            })
+                            .cursor_text()
+                            .text_size(px(
+                                self.ui.prefs.font_size * inkstone::markdown::HEADING_SCALES[0]
+                            ))
+                            .line_height(relative(1.2))
+                            .font_weight(FontWeight::BOLD)
+                            .child(title)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                if let Some(index) = this
+                                    .tabs
+                                    .iter()
+                                    .position(|tab| Some(tab.id) == title_tab_id)
+                                {
+                                    this.begin_inline_title(index, secondary, window, cx);
+                                }
+                            }))
+                            .into_any_element()
+                    },
+                ))
+            })
+            .child(div().flex_1().min_h_0().children(pane))
+            .when(active.is_none(), |s| {
+                s.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap_2()
+                        .child(
+                            Button::new("empty-new")
+                                .ghost()
+                                .label("创建新文件 (Ctrl + N)")
+                                .on_click(cx.listener(|this, _, w, cx| this.focus_new(w, cx))),
+                        )
+                        .child(
+                            Button::new("empty-open")
+                                .ghost()
+                                .label("打开文件 (Ctrl + O)")
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.focus_search(false, w, cx)),
+                                ),
+                        )
+                        .child(
+                            Button::new("empty-vault")
+                                .ghost()
+                                .label("打开笔记库")
+                                .on_click(cx.listener(|this, _, w, cx| this.choose_vault(w, cx))),
+                        ),
+                )
+            })
+            .relative()
+            .id(if secondary {
+                "secondary-editor-group"
+            } else {
+                "primary-editor-group"
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    if secondary {
+                        this.focus_secondary(cx);
+                    } else if let Some(index) = index {
+                        this.views.secondary_focused = false;
+                        this.views.main = Some(this.tabs[index].id);
+                        this.active = Some(index);
+                        this.run_search(cx);
+                        cx.notify();
+                    }
+                }),
+            )
+            .into_any_element()
+    }
+}
+
+impl Render for Workspace {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.ui.prefs.auto_reveal_file && self.ui.prefs.left_open && self.ui.left_mode == 0 {
+            let key = self
+                .active
+                .and_then(|i| self.tabs.get(i))
+                .filter(|t| !t.path.as_os_str().is_empty())
+                .map(|t| (self.generation, t.path.clone()));
+            if key.is_none() {
+                self.ui.last_revealed_file = None;
+            } else if self.ui.last_revealed_file != key {
+                cx.defer_in(_window, |this, _, cx| {
+                    if this.ui.prefs.auto_reveal_file
+                        && this.ui.prefs.left_open
+                        && this.ui.left_mode == 0
+                    {
+                        this.reveal_current_file(cx);
+                    }
+                });
+            }
+        } else {
+            self.ui.last_revealed_file = None;
+        }
+        let selected_tab = self.main_tab();
+        let scroll_key = TabScrollKey {
+            selected: selected_tab.and_then(|i| self.tabs.get(i)).map(|t| t.id),
+            order: self.tabs.iter().map(|t| t.id).collect(),
+            widths: [
+                f32::from(_window.viewport_size().width).to_bits(),
+                if self.ui.prefs.left_open {
+                    self.ui.prefs.left_width.to_bits()
+                } else {
+                    0
+                },
+                if self.ui.prefs.right_open {
+                    self.ui.prefs.right_width.to_bits()
+                } else {
+                    0
+                },
+            ],
+        };
+        if self.ui.tab_scroll_key.as_ref() != Some(&scroll_key) {
+            self.ui.tab_scroll_key = Some(scroll_key);
+            if let Some(i) = selected_tab {
+                self.ui.tab_scroll.scroll_to_item(i);
+            }
+            cx.defer_in(_window, |this, _, cx| {
+                if let Some(i) = this.main_tab() {
+                    this.ui.tab_scroll.scroll_to_item(i);
+                }
+                cx.notify();
+            });
+        }
+        if self.ui.link_update.is_some() && !self.ui.modal_focus.contains_focused(_window, cx) {
+            _window.focus(&self.ui.modal_focus, cx);
+        }
+        let active = self.active.and_then(|i| self.tabs.get(i));
+        let title = active
+            .filter(|tab| !tab.path.as_os_str().is_empty())
+            .map(|t| {
+                t.path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .unwrap_or("新标签页".into());
+        let pane = self.current_pane();
+        let count = pane
+            .as_ref()
+            .map(|p| {
+                let text = p.read(cx).editor.read(cx).value();
+                format!(
+                    "{} 词  {} 字符",
+                    text.split_whitespace().count(),
+                    text.chars().count()
+                )
+            })
+            .unwrap_or_default();
+        let error = active.and_then(|t| t.error.clone());
+        _window.set_window_title(&format!(
+            "{} - 砚台",
+            if self.graph_open {
+                "关系图谱"
+            } else {
+                &title
+            }
+        ));
+        let main_index = self.main_tab();
+        let main_pane = main_index
+            .and_then(|i| self.tabs.get(i))
+            .map(|t| t.pane.clone());
+        let primary = self.editor_group(main_index, main_pane, false, cx);
+        let center = if let Some(split) = &self.views.split {
+            let secondary = self.editor_group(
+                self.tabs.iter().position(|t| t.id == split.source),
+                Some(split.pane.clone()),
+                true,
+                cx,
+            );
+            gpui_component::resizable::ResizablePanelGroup::new((
+                "split-editors",
+                usize::from(self.views.vertical),
+            ))
+            .axis(if self.views.vertical {
+                Axis::Vertical
+            } else {
+                Axis::Horizontal
+            })
+            .child(
+                resizable_panel()
+                    .size_range(px(150.)..px(10000.))
+                    .child(primary),
+            )
+            .child(
+                resizable_panel()
+                    .size_range(px(150.)..px(10000.))
+                    .child(secondary),
+            )
+            .into_any_element()
+        } else {
+            primary
+        };
+        let center = if self.graph_open {
+            div()
+                .size_full()
+                .children(self.graph.clone())
+                .into_any_element()
+        } else {
+            center
+        };
+        let weak = cx.entity().downgrade();
+        let left_open = self.ui.prefs.left_open;
+        let right_open = self.ui.prefs.right_open;
+        let panels = h_resizable((
+            "workspace-panels",
+            usize::from(left_open) + 2 * usize::from(right_open),
+        ))
+        .when(left_open, |s| {
+            s.child(
+                resizable_panel()
+                    .size(px(self.ui.prefs.left_width))
+                    .size_range(px(180.)..px(500.))
+                    .child(self.left_panel(cx)),
+            )
+        })
+        .child(
+            resizable_panel()
+                .size_range(px(260.)..px(10000.))
+                .child(center),
+        )
+        .when(right_open, |s| {
+            s.child(
+                resizable_panel()
+                    .size(px(self.ui.prefs.right_width))
+                    .size_range(px(180.)..px(500.))
+                    .child(self.right_panel(cx)),
+            )
+        })
+        .on_resize(move |state, _, cx| {
+            let sizes = state.read(cx).sizes().clone();
+            let _ = weak.update(cx, |this, cx| {
+                if left_open && let Some(size) = sizes.first() {
+                    this.ui.prefs.left_width = f32::from(*size);
+                }
+                if right_open && let Some(size) = sizes.last() {
+                    this.ui.prefs.right_width = f32::from(*size);
+                }
+                this.persist_workspace(cx);
+            });
+        });
+        div()
+            .id("workspace")
+            .track_focus(&self.ui.workspace_focus)
+            .relative()
+            .flex()
+            .flex_col()
+            .size_full()
+            .bg(self.bg())
+            .text_color(self.fg())
+            .text_size(px(14.))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, w, cx| {
+                this.import_files(paths.paths().to_vec(), w, cx)
+            }))
+            .on_action(cx.listener(|this, _: &NewTab, w, cx| this.new_blank(w, cx)))
+            .on_action(cx.listener(|this, _: &SplitRight, w, cx| this.split_active(false, w, cx)))
+            .on_action(cx.listener(|this, _: &SplitDown, w, cx| this.split_active(true, w, cx)))
+            .on_action(
+                cx.listener(|this, _: &ToggleTaskLine, w, cx| this.execute_command(35, w, cx)),
+            )
+            .on_action(cx.listener(|this, _: &Save, w, cx| this.save_all(w, cx)))
+            .on_action(cx.listener(|this, _: &OpenVault, w, cx| this.choose_vault(w, cx)))
+            .on_action(cx.listener(|this, _: &QuickOpen, w, cx| this.focus_search(false, w, cx)))
+            .on_action(cx.listener(|this, _: &FullSearch, w, cx| this.focus_search(true, w, cx)))
+            .on_action(cx.listener(|this, _: &NewNote, w, cx| this.focus_new(w, cx)))
+            .on_action(cx.listener(|this, _: &CloseTab, w, cx| this.close_tab(w, cx)))
+            .on_action(cx.listener(|this, _: &CommandPalette, w, cx| this.open_commands(w, cx)))
+            .on_action(cx.listener(|this, _: &ClosePalette, w, cx| this.close_overlays(w, cx)))
+            .on_action(cx.listener(|this, _: &ToggleLeft, w, cx| this.execute_command(12, w, cx)))
+            .on_action(cx.listener(|this, _: &ToggleRight, w, cx| this.execute_command(13, w, cx)))
+            .on_action(cx.listener(|this, _: &Settings, w, cx| this.execute_command(14, w, cx)))
+            .on_action(cx.listener(|this, _: &NavigateBack, w, cx| this.navigate(false, w, cx)))
+            .on_action(cx.listener(|this, _: &NavigateForward, w, cx| this.navigate(true, w, cx)))
+            .on_action(cx.listener(|this, _: &NextTab, w, cx| this.cycle_tab(false, w, cx)))
+            .on_action(cx.listener(|this, _: &PreviousTab, w, cx| this.cycle_tab(true, w, cx)))
+            .on_action(cx.listener(|this, _: &ReopenTab, w, cx| this.execute_command(17, w, cx)))
+            .on_action(cx.listener(|this, _: &ToggleReading, w, cx| this.execute_command(6, w, cx)))
+            .on_action(cx.listener(|this, _: &RenameNote, w, cx| this.execute_command(8, w, cx)))
+            .on_action(cx.listener(|this, _: &Bold, w, cx| this.execute_command(24, w, cx)))
+            .on_action(cx.listener(|this, _: &Italic, w, cx| this.execute_command(25, w, cx)))
+            .on_action(cx.listener(|this, _: &InsertLink, w, cx| this.execute_command(59, w, cx)))
+            .child(
+                TitleBar::new()
+                    .h(px(40.))
+                    .pl_0()
+                    .bg(self.side())
+                    .when(left_open, |s| {
+                        s.child(
+                            div()
+                                .w(px(self.ui.prefs.left_width))
+                                .flex_shrink_0()
+                                .child(self.left_header(cx)),
+                        )
+                    })
+                    .child(div().flex_1().min_w_0().child(self.tab_header(cx)))
+                    .when(right_open, |s| {
+                        s.child(
+                            div()
+                                .w(px((self.ui.prefs.right_width - 102.).max(148.)))
+                                .flex_shrink_0()
+                                .child(self.right_header(cx)),
+                        )
+                    }),
+            )
+            .child(div().flex_1().min_h_0().child(panels))
+            .when(error.is_some(), |s| {
+                s.child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .text_color(rgb(0xe4a66a))
+                        .children(error),
+                )
+            })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(24.))
+                    .px_3()
+                    .gap_4()
+                    .bg(self.bg())
+                    .text_size(px(11.))
+                    .text_color(rgb(0x888888))
+                    .child(div().flex_1().truncate().child(self.status.clone()))
+                    .child(count),
+            )
+            .when(
+                self.command_open
+                    || self.ui.quick_open
+                    || self.ui.name_mode.is_some()
+                    || self.ui.property_open
+                    || self.ui.settings
+                    || self.ui.trash_open
+                    || self.ui.link_update.is_some(),
+                |s| s.child(self.modal(_window, cx)),
+            )
+            .when(self.ui.more, |s| {
+                s.child(
+                    div()
+                        .absolute()
+                        .right(px(if right_open {
+                            self.ui.prefs.right_width + 12.
+                        } else {
+                            12.
+                        }))
+                        .top(px(112.))
+                        .w(px(250.))
+                        .p_2()
+                        .rounded(px(8.))
+                        .bg(self.bg())
+                        .border_1()
+                        .border_color(self.border())
+                        .shadow_lg()
+                        .children([6, 7, 8, 15, 11, 18, 19, 10, 16].into_iter().map(|id| {
+                            let (_, label, _) = COMMANDS[id];
+                            div()
+                                .id(("menu-item", id))
+                                .p_2()
+                                .cursor_pointer()
+                                .rounded(px(4.))
+                                .hover(|s| s.bg(rgba(0x88888822)))
+                                .child(label)
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    this.execute_command(id, w, cx)
+                                }))
+                        })),
+                )
+            })
+    }
+}
+
+impl Workspace {
+    fn modal(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let top = px(100.)
+            .min(window.viewport_size().height * 0.15)
+            .max(px(16.));
+        let available_height = (window.viewport_size().height - top - px(16.)).max(px(100.));
+        if self.ui.link_update.is_some() {
+            return div()
+                .absolute()
+                .inset_0()
+                .occlude()
+                .bg(rgba(0x00000066))
+                .flex()
+                .items_start()
+                .justify_center()
+                .pt(px(100.))
+                .child(
+                    div()
+                        .id("link-update-dialog")
+                        .track_focus(&self.ui.modal_focus)
+                        .w(px(580.))
+                        .p_3()
+                        .gap_3()
+                        .flex()
+                        .flex_col()
+                        .rounded(px(12.))
+                        .bg(self.bg())
+                        .border_1()
+                        .border_color(self.border())
+                        .shadow_lg()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            div()
+                                .flex()
+                                .justify_between()
+                                .items_center()
+                                .child("更新内部链接")
+                                .child(
+                                    tool("close-links", "x", "不更新链接").on_click(
+                                        cx.listener(|s, _, w, cx| s.close_overlays(w, cx)),
+                                    ),
+                                ),
+                        )
+                        .child(self.link_update_panel(cx)),
+                )
+                .into_any_element();
+        }
+        let content = div()
+            .id("modal-body")
+            .track_focus(&self.ui.modal_focus)
+            .flex()
+            .flex_col()
+            .w(px(if self.ui.settings { 700. } else { 580. }))
+            .max_h(px(650.).min(available_height))
+            .p_3()
+            .gap_2()
+            .rounded(px(12.))
+            .bg(self.bg())
+            .border_1()
+            .border_color(self.border())
+            .shadow_lg()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
+                if !this.command_open && !this.ui.quick_open {
+                    return;
+                }
+                let key = event.keystroke.key.as_str();
+                let n = if this.command_open {
+                    this.filtered_commands(cx).len()
+                } else if this.search.read(cx).value().is_empty() {
+                    this.files.len().min(100)
+                } else {
+                    this.search_results.len()
+                };
+                if key == "down" || key == "up" {
+                    if n > 0 {
+                        this.ui.selected = if key == "down" {
+                            (this.ui.selected + 1).min(n - 1)
+                        } else {
+                            this.ui.selected.saturating_sub(1)
+                        };
+                    }
+                    this.ui.modal_scroll.scroll_to_item(this.ui.selected);
+                    cx.stop_propagation();
+                    cx.notify();
+                } else if key == "enter" {
+                    if this.command_open {
+                        if let Some((id, _, _)) =
+                            this.filtered_commands(cx).get(this.ui.selected).copied()
+                        {
+                            this.execute_command(id, w, cx);
+                        }
+                    } else {
+                        this.open_selected_result(w, cx);
+                    }
+                    cx.stop_propagation();
+                }
+            }))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .pb_1()
+                    .child(if self.command_open {
+                        "命令面板"
+                    } else if self.ui.quick_open {
+                        if self.ui.template_mode {
+                            "插入模板"
+                        } else {
+                            "快速切换"
+                        }
+                    } else if self.ui.property_open {
+                        "编辑属性"
+                    } else if self.ui.link_update.is_some() {
+                        "更新内部链接"
+                    } else if self.ui.settings {
+                        "设置"
+                    } else if self.ui.trash_open {
+                        "文件恢复"
+                    } else {
+                        match self.ui.name_mode {
+                            Some(NameMode::Rename) => "重命名或移动文件",
+                            Some(NameMode::Folder) => "新建文件夹",
+                            Some(NameMode::RenameFolder) => "重命名文件夹",
+                            _ => "新建笔记",
+                        }
+                    })
+                    .child(
+                        tool("close-modal", "x", "关闭 Esc")
+                            .on_click(cx.listener(|this, _, w, cx| this.close_overlays(w, cx))),
+                    ),
+            )
+            .when(self.command_open, |s| {
+                s.child(Input::new(&self.ui.command)).child(
+                    div()
+                        .id("commands-list")
+                        .track_scroll(&self.ui.modal_scroll)
+                        .overflow_y_scroll()
+                        .max_h(px(450.))
+                        .children(self.filtered_commands(cx).into_iter().enumerate().map(
+                            |(i, (id, label, _))| {
+                                div()
+                                    .id(("command", id))
+                                    .flex()
+                                    .justify_between()
+                                    .p_2()
+                                    .rounded(px(4.))
+                                    .cursor_pointer()
+                                    .when(self.ui.selected == i, |s| s.bg(rgba(0x88888822)))
+                                    .hover(|s| s.bg(rgba(0x88888822)))
+                                    .child(label)
+                                    .child(
+                                        div()
+                                            .text_color(rgb(0x888888))
+                                            .child(self.hotkey_label(id)),
+                                    )
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.execute_command(id, w, cx)
+                                    }))
+                            },
+                        )),
+                )
+            })
+            .when(self.ui.quick_open, |s| {
+                s.child(Input::new(&self.search)).child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .min_h_0()
+                        .overflow_hidden()
+                        .h(px(360.).min((available_height - px(100.)).max(px(40.))))
+                        .child(self.search_list(true, cx)),
+                )
+            })
+            .when(self.ui.name_mode.is_some(), |s| {
+                s.child(Input::new(&self.name))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x999999))
+                            .child("使用 / 指定文件夹路径，Enter 确认"),
+                    )
+                    .child(
+                        Button::new("submit-name")
+                            .primary()
+                            .label("确认")
+                            .on_click(cx.listener(|this, _, w, cx| this.submit_name(w, cx))),
+                    )
+            })
+            .when(self.ui.property_open, |s| {
+                s.child(Input::new(&self.ui.property_key))
+                    .child(Input::new(&self.ui.property_value))
+                    .child(
+                        Button::new("save-property")
+                            .primary()
+                            .label("保存属性")
+                            .on_click(cx.listener(|this, _, w, cx| this.save_property(w, cx))),
+                    )
+            })
+            .when(self.ui.settings, |s| s.child(self.settings_panel(cx)))
+            .when(self.ui.trash_open, |s| {
+                s.child(
+                    div()
+                        .id("trash-items")
+                        .max_h(px(450.))
+                        .overflow_y_scroll()
+                        .child(
+                            div()
+                                .p_2()
+                                .text_color(rgb(0x999999))
+                                .child("回收站 · 恢复到原目录"),
+                        )
+                        .when(self.ui.trash.is_empty(), |s| {
+                            s.child(div().p_2().child("回收站为空"))
+                        })
+                        .children(self.ui.trash.iter().enumerate().map(|(i, e)| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .p_2()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .truncate()
+                                        .child(e.original.to_string_lossy().to_string()),
+                                )
+                                .child(
+                                    Button::new(("restore-trash", i))
+                                        .compact()
+                                        .label("恢复")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.restore_deleted(i, cx)
+                                        })),
+                                )
+                        }))
+                        .child(
+                            div()
+                                .p_2()
+                                .text_color(rgb(0x999999))
+                                .child("未保存草稿 · 恢复为新笔记"),
+                        )
+                        .children(self.recoveries.iter().enumerate().map(|(i, e)| {
+                            Button::new(("restore-draft", i))
+                                .ghost()
+                                .label(e.record.relative.to_string_lossy().to_string())
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    this.ui.trash_open = false;
+                                    this.restore_draft(i, w, cx);
+                                }))
+                        })),
+                )
+            });
+        div()
+            .absolute()
+            .inset_0()
+            .bg(rgba(0x00000066))
+            .occlude()
+            .flex()
+            .items_start()
+            .justify_center()
+            .pt(top)
+            .child(content)
+            .into_any_element()
+    }
+    fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.ui.settings_tab == 2 {
+            return self.file_settings_panel(cx);
+        }
+        if self.ui.settings_tab == 1 {
+            return self.hotkey_settings_panel(cx);
+        }
+        let theme = Button::new("theme-setting")
+            .label(if self.ui.prefs.light {
+                "浅色"
+            } else {
+                "深色"
+            })
+            .on_click(cx.listener(|this, _, w, cx| this.execute_command(22, w, cx)));
+        let minus = Button::new("font-minus")
+            .label("−")
+            .on_click(cx.listener(|this, _, w, cx| {
+                this.ui.prefs.font_size = (this.ui.prefs.font_size - 1.).max(12.);
+                this.apply_editor_preferences(w, cx);
+            }));
+        let plus = Button::new("font-plus")
+            .label("+")
+            .on_click(cx.listener(|this, _, w, cx| {
+                this.ui.prefs.font_size = (this.ui.prefs.font_size + 1.).min(30.);
+                this.apply_editor_preferences(w, cx);
+            }));
+        let numbers = Button::new("line-number-setting")
+            .label(if self.ui.prefs.line_numbers {
+                "开启"
+            } else {
+                "关闭"
+            })
+            .on_click(cx.listener(|this, _, w, cx| {
+                this.ui.prefs.line_numbers = !this.ui.prefs.line_numbers;
+                this.apply_editor_preferences(w, cx);
+            }));
+        let width = Button::new("width-setting")
+            .label(if self.ui.prefs.readable_width {
+                "开启"
+            } else {
+                "关闭"
+            })
+            .on_click(cx.listener(|this, _, w, cx| {
+                this.ui.prefs.readable_width = !this.ui.prefs.readable_width;
+                this.apply_editor_preferences(w, cx);
+            }));
+        div()
+            .flex()
+            .gap_4()
+            .min_h(px(330.))
+            .child(self.settings_nav(cx))
+            .child(
+                div()
+                    .flex_1()
+                    .p_3()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("基础主题")
+                            .child(theme),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child(format!("正文字号  {}", self.ui.prefs.font_size))
+                            .child(div().flex().gap_2().child(minus).child(plus)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("显示行号")
+                            .child(numbers),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("缩减栏宽")
+                            .child(width),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("显示页内标题")
+                            .child(
+                                gpui_component::switch::Switch::new("inline-title-setting")
+                                    .checked(self.ui.prefs.show_inline_title)
+                                    .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                                        this.ui.prefs.show_inline_title = *enabled;
+                                        this.persist_workspace(cx);
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        Button::new("settings-recovery")
+                            .ghost()
+                            .label("管理文件恢复")
+                            .on_click(cx.listener(|this, _, w, cx| {
+                                this.ui.settings = false;
+                                this.execute_command(16, w, cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+}

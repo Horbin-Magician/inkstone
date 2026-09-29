@@ -1,4 +1,13 @@
 pub mod document;
+pub mod file_order;
+pub mod graph;
 pub mod index;
+pub mod locations;
 pub mod markdown;
+pub mod markdown_edit;
+pub mod preferences;
+pub mod properties;
+pub mod rendering;
+pub mod search;
+pub mod tables;
 pub mod vault;

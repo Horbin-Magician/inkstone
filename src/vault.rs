@@ -91,6 +91,13 @@ pub struct RecoveryEntry {
     pub record: Recovery,
 }
 
+#[derive(Clone, Debug)]
+pub struct TrashEntry {
+    pub stored: PathBuf,
+    pub original: PathBuf,
+    pub directory: bool,
+}
+
 fn is_reparse(meta: &fs::Metadata) -> bool {
     if meta.file_type().is_symlink() {
         return true;
@@ -121,6 +128,265 @@ fn write_new_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 impl Vault {
+    /// Duplicate the supplied editor snapshot beside its source without replacing any file.
+    pub fn duplicate_note(
+        &self,
+        source: &Path,
+        text: &str,
+        reserved: &[PathBuf],
+    ) -> Result<(PathBuf, SaveReceipt), VaultError> {
+        self.path(source)?;
+        let parent = source.parent().ok_or(VaultError::InvalidPath)?;
+        let stem = source
+            .file_stem()
+            .ok_or(VaultError::InvalidPath)?
+            .to_string_lossy();
+        for serial in 1u64.. {
+            let suffix = if serial == 1 {
+                String::new()
+            } else {
+                format!(" {serial}")
+            };
+            let relative = parent.join(format!("{stem} 副本{suffix}.md"));
+            if reserved.iter().any(|p| {
+                p.to_string_lossy().replace('\\', "/").to_lowercase()
+                    == relative.to_string_lossy().replace('\\', "/").to_lowercase()
+            }) {
+                continue;
+            }
+            match fs::symlink_metadata(self.path(&relative)?) {
+                Ok(_) => continue,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+            match self.create(&relative, text) {
+                Ok(receipt) => return Ok((relative, receipt)),
+                Err(VaultError::Conflict { .. }) => continue,
+                Err(VaultError::Io(error)) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(VaultError::InvalidPath)
+    }
+    pub fn rename_folder(&self, old: &Path, new: &Path) -> Result<(), VaultError> {
+        if new.starts_with(old) {
+            return Err(VaultError::InvalidPath);
+        }
+        let source = self.folder_path(old)?;
+        let dest = self.folder_path(new)?;
+        fs::create_dir_all(dest.parent().ok_or(VaultError::InvalidPath)?)?;
+        move_no_replace(&source, &dest)?;
+        Ok(())
+    }
+    pub fn trash_folder(&self, relative: &Path) -> Result<PathBuf, VaultError> {
+        let source = self.folder_path(relative)?;
+        let trash = self.root.join(".inkstone-trash");
+        if let Ok(meta) = fs::symlink_metadata(&trash)
+            && is_reparse(&meta)
+        {
+            return Err(VaultError::InvalidPath);
+        }
+        fs::create_dir_all(&trash)?;
+        let entry = trash.join(unique_id());
+        fs::create_dir(&entry)?;
+        write_new_synced(
+            &entry.join("original-path.json"),
+            &serde_json::to_vec(relative).map_err(io::Error::other)?,
+        )?;
+        let dest = entry.join(relative.file_name().ok_or(VaultError::InvalidPath)?);
+        move_no_replace(&source, &dest)?;
+        Ok(dest)
+    }
+    pub fn store_attachment(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, VaultError> {
+        self.store_attachment_to(Path::new("附件"), name, bytes)
+    }
+    pub fn store_attachment_to(
+        &self,
+        folder: &Path,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf, VaultError> {
+        self.write_attachment(folder, name, |file| file.write_all(bytes))
+    }
+    pub fn import_attachment(&self, source: &Path) -> Result<PathBuf, VaultError> {
+        self.import_attachment_to(Path::new("附件"), source)
+    }
+    pub fn import_attachment_to(
+        &self,
+        folder: &Path,
+        source: &Path,
+    ) -> Result<PathBuf, VaultError> {
+        let mut input = fs::File::open(source)?;
+        if !input.metadata()?.is_file() {
+            return Err(VaultError::InvalidPath);
+        }
+        let name = source
+            .file_name()
+            .ok_or(VaultError::InvalidPath)?
+            .to_string_lossy();
+        self.write_attachment(folder, &name, |file| io::copy(&mut input, file).map(|_| ()))
+    }
+    fn write_attachment(
+        &self,
+        folder: &Path,
+        name: &str,
+        write: impl FnOnce(&mut fs::File) -> io::Result<()>,
+    ) -> Result<PathBuf, VaultError> {
+        let name = Path::new(name);
+        if name.components().count() != 1
+            || !matches!(name.components().next(), Some(Component::Normal(_)))
+            || name.to_string_lossy().contains(':')
+        {
+            return Err(VaultError::InvalidPath);
+        }
+        let dir = if folder.as_os_str().is_empty() {
+            self.root.clone()
+        } else {
+            self.folder_path(folder)?
+        };
+        fs::create_dir_all(&dir)?;
+        let stem = name.file_stem().unwrap_or_default().to_string_lossy();
+        let extension = name
+            .extension()
+            .map(|s| format!(".{}", s.to_string_lossy()))
+            .unwrap_or_default();
+        let mut serial = 0;
+        let (path, mut file) = loop {
+            let path = dir.join(if serial == 0 {
+                name.to_path_buf()
+            } else {
+                PathBuf::from(format!("{stem} {serial}{extension}"))
+            });
+            match OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => break (path, file),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => serial += 1,
+                Err(e) => return Err(e.into()),
+            }
+        };
+        if let Err(error) = write(&mut file).and_then(|_| file.sync_all()) {
+            drop(file);
+            let _ = fs::remove_file(&path);
+            return Err(error.into());
+        }
+        Ok(path
+            .strip_prefix(&self.root)
+            .map_err(|_| VaultError::InvalidPath)?
+            .to_path_buf())
+    }
+    /// Validate every component, including existing junctions, before folder operations.
+    pub fn folder_path(&self, relative: &Path) -> Result<PathBuf, VaultError> {
+        if relative.as_os_str().is_empty()
+            || relative.components().any(|c| {
+                !matches!(c, Component::Normal(_))
+                    || c.as_os_str().to_string_lossy().starts_with('.')
+                    || c.as_os_str().to_string_lossy().contains(':')
+            })
+        {
+            return Err(VaultError::InvalidPath);
+        }
+        let mut path = self.root.clone();
+        for c in relative.components() {
+            path.push(c);
+            match fs::symlink_metadata(&path) {
+                Ok(m) if is_reparse(&m) || !m.is_dir() => return Err(VaultError::InvalidPath),
+                Ok(_) => (),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => (),
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(path)
+    }
+    pub fn create_folder(&self, relative: &Path) -> Result<(), VaultError> {
+        let path = self.folder_path(relative)?;
+        fs::create_dir_all(path.parent().ok_or(VaultError::InvalidPath)?)?;
+        fs::create_dir(path)?;
+        Ok(())
+    }
+    pub fn folders(&self) -> Result<Vec<PathBuf>, VaultError> {
+        fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let meta = fs::symlink_metadata(entry.path())?;
+                if meta.is_dir()
+                    && !is_reparse(&meta)
+                    && !entry.file_name().to_string_lossy().starts_with('.')
+                {
+                    out.push(entry.path().strip_prefix(root).unwrap().to_path_buf());
+                    walk(root, &entry.path(), out)?;
+                }
+            }
+            Ok(())
+        }
+        let mut out = vec![];
+        walk(&self.root, &self.root, &mut out)?;
+        out.sort();
+        Ok(out)
+    }
+    pub fn trash_entries(&self) -> Result<Vec<TrashEntry>, VaultError> {
+        let trash = self.root.join(".inkstone-trash");
+        if !trash.exists() {
+            return Ok(vec![]);
+        }
+        if is_reparse(&fs::symlink_metadata(&trash)?) {
+            return Err(VaultError::InvalidPath);
+        }
+        let mut entries = vec![];
+        for entry in fs::read_dir(trash)? {
+            let dir = entry?.path();
+            if is_reparse(&fs::symlink_metadata(&dir)?) || !dir.is_dir() {
+                continue;
+            }
+            let Ok(bytes) = fs::read(dir.join("original-path.json")) else {
+                continue;
+            };
+            let Ok(original) = serde_json::from_slice::<PathBuf>(&bytes) else {
+                continue;
+            };
+            let stored = dir.join(original.file_name().ok_or(VaultError::InvalidPath)?);
+            if stored.exists() && !is_reparse(&fs::symlink_metadata(&stored)?) {
+                let directory = stored.is_dir();
+                if directory {
+                    if original.as_os_str().is_empty()
+                        || original.components().any(|c| {
+                            !matches!(c, Component::Normal(_))
+                                || c.as_os_str().to_string_lossy().contains(':')
+                        })
+                    {
+                        return Err(VaultError::InvalidPath);
+                    }
+                } else {
+                    self.path(&original)?;
+                }
+                entries.push(TrashEntry {
+                    stored,
+                    original,
+                    directory,
+                });
+            }
+        }
+        entries.sort_by(|a, b| b.stored.cmp(&a.stored));
+        Ok(entries)
+    }
+    pub fn restore_trash(&self, entry: &TrashEntry) -> Result<(), VaultError> {
+        // Re-enumerate so callers cannot supply a source outside the owned trash.
+        if !self.trash_entries()?.iter().any(|e| {
+            e.stored == entry.stored
+                && e.original == entry.original
+                && e.directory == entry.directory
+        }) {
+            return Err(VaultError::InvalidPath);
+        }
+        let dest = if entry.directory {
+            self.folder_path(&entry.original)?
+        } else {
+            self.path(&entry.original)?
+        };
+        fs::create_dir_all(dest.parent().ok_or(VaultError::InvalidPath)?)?;
+        move_no_replace(&entry.stored, &dest)?;
+        Ok(())
+    }
     pub fn recoveries(&self) -> Result<Vec<RecoveryEntry>, VaultError> {
         let mut entries = vec![];
         for entry in fs::read_dir(&self.recovery_dir)? {
@@ -128,7 +394,13 @@ impl Vault {
             if path.extension().is_none_or(|e| e != "json") {
                 continue;
             }
-            let record: Recovery = match serde_json::from_slice(&fs::read(&path)?) {
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                // A completed save can rename a journal after enumeration.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            let record: Recovery = match serde_json::from_slice(&bytes) {
                 Ok(record) => record,
                 Err(_) => continue, // A partial crash journal remains on disk for manual inspection.
             };
@@ -149,6 +421,7 @@ impl Vault {
     pub fn rename_note(&self, old: &Path, new: &Path, baseline: &str) -> Result<(), VaultError> {
         let source = self.path(old)?;
         let dest = self.path(new)?;
+        fs::create_dir_all(dest.parent().ok_or(VaultError::InvalidPath)?)?;
         let recovery = self.journal(old, Some(baseline), baseline)?;
         if read_optional(&source)?.as_deref() != Some(baseline) {
             return Err(VaultError::Conflict { recovery });
@@ -238,6 +511,13 @@ impl Vault {
         read_optional(&self.path(relative)?)
     }
     pub fn scan(&self) -> Result<Vec<PathBuf>, VaultError> {
+        Ok(self
+            .scan_files()?
+            .into_iter()
+            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")))
+            .collect())
+    }
+    pub fn scan_files(&self) -> Result<Vec<PathBuf>, VaultError> {
         fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
@@ -250,11 +530,7 @@ impl Vault {
                     if !entry.file_name().to_string_lossy().starts_with('.') {
                         walk(root, &path, out)?;
                     }
-                } else if meta.is_file()
-                    && path
-                        .extension()
-                        .is_some_and(|e| e.eq_ignore_ascii_case("md"))
-                {
+                } else if meta.is_file() {
                     out.push(path.strip_prefix(root).unwrap().to_path_buf());
                 }
             }
@@ -527,6 +803,113 @@ mod tests {
         assert_eq!(s.1.read(note).unwrap().unwrap(), "新内容");
         assert!(s.1.create(note, "不能覆盖").is_err());
         assert_eq!(s.1.read(note).unwrap().unwrap(), "新内容");
+    }
+    #[test]
+    fn attachments_can_use_root_or_nested_folder_without_clobbering() {
+        let s = Sandbox::new();
+        assert_eq!(
+            s.1.store_attachment_to(Path::new(""), "image.png", b"first")
+                .unwrap(),
+            Path::new("image.png")
+        );
+        assert_eq!(
+            s.1.store_attachment_to(Path::new(""), "image.png", b"second")
+                .unwrap(),
+            Path::new("image 1.png")
+        );
+        let nested =
+            s.1.store_attachment_to(Path::new("notes/assets"), "image.png", b"nested")
+                .unwrap();
+        assert_eq!(fs::read(s.1.root.join(nested)).unwrap(), b"nested");
+        assert_eq!(fs::read(s.1.root.join("image.png")).unwrap(), b"first");
+        assert!(
+            s.1.store_attachment_to(Path::new("../outside"), "image.png", b"bad")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn duplication_preserves_source_and_skips_disk_and_open_document_names() {
+        let s = Sandbox::new();
+        let source = Path::new("资料/笔记.2026.md");
+        s.1.create(source, "磁盘原文").unwrap();
+        s.1.create(Path::new("资料/笔记.2026 副本.md"), "不能覆盖")
+            .unwrap();
+        let reserved = vec![PathBuf::from("资料/笔记.2026 副本 2.md")];
+        let draft = "# 新编辑😀\r\n[[目标]]";
+        let (path, receipt) = s.1.duplicate_note(source, draft, &reserved).unwrap();
+        assert_eq!(path, Path::new("资料/笔记.2026 副本 3.md"));
+        assert_eq!(receipt.text, draft);
+        assert_eq!(s.1.read(source).unwrap().as_deref(), Some("磁盘原文"));
+        assert_eq!(
+            s.1.read(Path::new("资料/笔记.2026 副本.md"))
+                .unwrap()
+                .as_deref(),
+            Some("不能覆盖")
+        );
+        assert_eq!(s.1.read(&path).unwrap().as_deref(), Some(draft));
+        assert!(
+            s.1.duplicate_note(Path::new("../bad.md"), draft, &[])
+                .is_err()
+        );
+    }
+    #[test]
+    fn folders_and_trash_restore_are_confined_and_no_clobber() {
+        let s = Sandbox::new();
+        s.1.create_folder(Path::new("空目录/子目录")).unwrap();
+        assert!(
+            s.1.folders()
+                .unwrap()
+                .contains(&PathBuf::from("空目录/子目录"))
+        );
+        assert!(s.1.create_folder(Path::new("../outside")).is_err());
+        assert!(s.1.create_folder(Path::new(".inkstone-trash")).is_err());
+        s.1.create(Path::new("空目录/a.md"), "原文😀").unwrap();
+        s.1.trash_note(Path::new("空目录/a.md"), "原文😀").unwrap();
+        let entries = s.1.trash_entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        s.1.create(Path::new("空目录/a.md"), "新文件").unwrap();
+        assert!(s.1.restore_trash(&entries[0]).is_err());
+        assert_eq!(
+            s.1.read(Path::new("空目录/a.md")).unwrap().unwrap(),
+            "新文件"
+        );
+        s.1.rename_note(Path::new("空目录/a.md"), Path::new("新目录/b.md"), "新文件")
+            .unwrap();
+        s.1.restore_trash(&entries[0]).unwrap();
+        assert_eq!(
+            s.1.read(Path::new("空目录/a.md")).unwrap().unwrap(),
+            "原文😀"
+        );
+        assert!(s.1.trash_entries().unwrap().is_empty());
+        assert!(
+            s.1.restore_trash(&TrashEntry {
+                stored: s.0.join("anything.md"),
+                directory: false,
+                original: PathBuf::from("escape.md")
+            })
+            .is_err()
+        );
+    }
+    #[test]
+    fn attachment_collisions_preserve_existing_bytes_and_folder_trash_restores() {
+        let s = Sandbox::new();
+        let first = s.1.store_attachment("图片.png", b"first").unwrap();
+        let second = s.1.store_attachment("图片.png", b"second").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(s.1.root.join(&first)).unwrap(), b"first");
+        assert!(s.1.store_attachment("../escape.png", b"x").is_err());
+        s.1.rename_folder(Path::new("附件"), Path::new("资料/附件"))
+            .unwrap();
+        s.1.trash_folder(Path::new("资料")).unwrap();
+        let entries = s.1.trash_entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].directory);
+        s.1.restore_trash(&entries[0]).unwrap();
+        assert_eq!(
+            fs::read(s.1.root.join("资料").join(first)).unwrap(),
+            b"first"
+        );
     }
     #[test]
     fn external_change_never_silently_overwrites() {
