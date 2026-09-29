@@ -146,6 +146,92 @@ impl Workspace {
                 }
                 menu
             });
+        let card = rgb(if self.ui.prefs.light {
+            0xfafafa
+        } else {
+            0x232323
+        });
+        let content = if interface {
+            vec![
+                div()
+                    .px_4()
+                    .rounded(px(12.))
+                    .bg(card)
+                    .flex_shrink_0()
+                    .child(
+                        self.settings_row(
+                            "显示标签页标题栏",
+                            "在每个标签页顶部显示文件标题与导航控件。",
+                            ui::setting_switch("view-header-setting")
+                                .accessibility_label("显示标签页标题栏")
+                                .checked(self.ui.prefs.show_view_header)
+                                .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                                    this.ui.prefs.show_view_header = *enabled;
+                                    this.ui.more = false;
+                                    this.persist_workspace(cx);
+                                    cx.notify();
+                                })),
+                            false,
+                            16.,
+                        ),
+                    )
+                    .into_any_element(),
+            ]
+        } else {
+            let mut fonts: Vec<_> = [
+                ("界面字体", "选择应用界面使用的字体。"),
+                ("正文字体", "选择编辑与阅读视图中笔记正文使用的字体。"),
+                ("等宽字体", "选择代码等内容使用的等宽字体。"),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(role, (label, description))| {
+                let control = div()
+                    .w(px(240.))
+                    .flex_shrink_0()
+                    .debug_selector(move || match role {
+                        0 => "font-interface-trigger".into(),
+                        1 => "font-text-trigger".into(),
+                        _ => "font-monospace-trigger".into(),
+                    })
+                    .child(
+                        Select::new(&self.ui.font_selects[role])
+                            .w_full()
+                            .accessibility_label(label)
+                            .search_placeholder("搜索字体…")
+                            .empty(|_, _| div().p_3().child("未找到字体")),
+                    );
+                self.settings_row(label, description, control, role > 0, 20.)
+            })
+            .collect();
+            fonts.push(
+                self.settings_row(
+                    &format!("字体大小  {}", self.ui.prefs.font_size),
+                    "调整编辑和阅读视图的正文字号，单位为像素。",
+                    div()
+                        .w(px(160.))
+                        .child(Slider::new(&self.ui.font_size_slider)),
+                    true,
+                    20.,
+                ),
+            );
+            vec![
+                div()
+                    .px_4()
+                    .rounded(px(12.))
+                    .bg(card)
+                    .flex_shrink_0()
+                    .child(self.settings_row(
+                        "基础颜色",
+                        "选择深色、浅色或跟随系统的配色。",
+                        theme,
+                        false,
+                        16.,
+                    ))
+                    .into_any_element(),
+                self.settings_group("字体", fonts),
+            ]
+        };
         div()
             .flex()
             .gap_4()
@@ -162,89 +248,20 @@ impl Workspace {
                     .min_h_0()
                     .h_full()
                     .flex_1()
-                    .p_3()
+                    .min_w_0()
+                    .px(px(32.))
+                    .py_3()
                     .flex()
                     .flex_col()
-                    .gap_4()
+                    .gap_2()
                     .child(
                         div()
-                            .text_lg()
+                            .text_size(px(13.))
                             .font_weight(FontWeight::SEMIBOLD)
+                            .mb_3()
                             .child(if interface { "界面" } else { "外观" }),
                     )
-                    .when(!interface, |s| {
-                        s.child(
-                            div()
-                                .flex()
-                                .justify_between()
-                                .items_center()
-                                .child("基础主题")
-                                .child(theme),
-                        )
-                        .children(
-                            ["界面字体", "正文字体", "等宽字体"]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(role, label)| {
-                                    div()
-                                        .flex()
-                                        .justify_between()
-                                        .items_center()
-                                        .child(label)
-                                        .child(
-                                            div()
-                                                .w(px(240.))
-                                                .flex_shrink_0()
-                                                .debug_selector(move || match role {
-                                                    0 => "font-interface-trigger".into(),
-                                                    1 => "font-text-trigger".into(),
-                                                    _ => "font-monospace-trigger".into(),
-                                                })
-                                                .child(
-                                                    Select::new(&self.ui.font_selects[role])
-                                                        .w_full()
-                                                        .accessibility_label(label)
-                                                        .search_placeholder("搜索字体…")
-                                                        .empty(|_, _| {
-                                                            div().p_3().child("未找到字体")
-                                                        }),
-                                                ),
-                                        )
-                                }),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .justify_between()
-                                .items_center()
-                                .child(format!("正文字号  {}", self.ui.prefs.font_size))
-                                .child(
-                                    div()
-                                        .w(px(160.))
-                                        .child(Slider::new(&self.ui.font_size_slider)),
-                                ),
-                        )
-                    })
-                    .when(interface, |s| {
-                        s.child(
-                            div()
-                                .flex()
-                                .justify_between()
-                                .items_center()
-                                .child("显示标签页标题栏")
-                                .child(
-                                    ui::setting_switch("view-header-setting")
-                                        .accessibility_label("显示标签页标题栏")
-                                        .checked(self.ui.prefs.show_view_header)
-                                        .on_click(cx.listener(|this, enabled: &bool, _, cx| {
-                                            this.ui.prefs.show_view_header = *enabled;
-                                            this.ui.more = false;
-                                            this.persist_workspace(cx);
-                                            cx.notify();
-                                        })),
-                                ),
-                        )
-                    }),
+                    .children(content),
             )
             .into_any_element()
     }
