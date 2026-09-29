@@ -92,6 +92,7 @@ actions!(
         MovePageDown,
         AddCursorAbove,
         AddCursorBelow,
+        SelectNextOccurrence,
         SelectAll,
         SelectToStartOfLine,
         SelectToEndOfLine,
@@ -252,6 +253,10 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("cmd-a", SelectAll, Some(CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-a", SelectAll, Some(CONTEXT)),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-d", SelectNextOccurrence, Some(CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-d", SelectNextOccurrence, Some(CONTEXT)),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-c", Copy, Some(CONTEXT)),
         #[cfg(not(target_os = "macos"))]
@@ -2702,6 +2707,103 @@ impl<M: InputModeKind> InputBaseState<M> {
                 handler(NativeMenu::new(), capabilities, position, window, cx);
             });
         }
+    }
+
+    pub(super) fn select_next_occurrence(
+        &mut self,
+        _: &SelectNextOccurrence,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.is_multi_line() || self.ime_marked_range.is_some() {
+            return;
+        }
+        let source = self.text.to_string();
+        // Classify complete graphemes so combining marks stay with their base.
+        let mut words = Vec::new();
+        let mut word_start = None;
+        for (offset, grapheme) in source.grapheme_indices(true) {
+            if grapheme.chars().any(|ch| ch.is_alphanumeric() || ch == '_') {
+                word_start.get_or_insert(offset);
+            } else if let Some(start) = word_start.take() {
+                words.push(start..offset);
+            }
+        }
+        if let Some(start) = word_start {
+            words.push(start..source.len());
+        }
+        let word_at = |offset| {
+            words
+                .get(words.partition_point(|word| word.end < offset))
+                .filter(|word| word.start <= offset && offset <= word.end)
+        };
+        if self.selections.iter().any(|selection| selection.is_empty()) {
+            let selections = self
+                .selections
+                .iter()
+                .map(|original| {
+                    let mut selection = *original;
+                    let head = selection.cursor_offset();
+                    let word = word_at(head).cloned().unwrap_or(head..head);
+                    selection.start = word.start;
+                    selection.end = word.end;
+                    selection.reversed = false;
+                    selection.column_anchor = None;
+                    selection
+                })
+                .collect();
+            self.undo_manager.break_transaction_coalescing();
+            self.selections.replace_all(selections);
+            self.selections.merge_overlapping();
+        } else {
+            let active = self.selected_range();
+            let needle = &source[active.clone()];
+            if self
+                .selections
+                .iter()
+                .any(|selection| &source[selection.start..selection.end] != needle)
+            {
+                return;
+            }
+            let whole_word = word_at(self.cursor()).is_some_and(|word| *word == active);
+            let from = self
+                .selections
+                .iter()
+                .map(|selection| selection.end)
+                .max()
+                .unwrap();
+            let found = source[from..]
+                .match_indices(needle)
+                .map(|(offset, _)| from + offset)
+                .chain(
+                    source[..from]
+                        .match_indices(needle)
+                        .map(|(offset, _)| offset),
+                )
+                .map(|start| start..start + needle.len())
+                .find(|candidate| {
+                    !self.selections.iter().any(|selection| {
+                        candidate.start < selection.end && selection.start < candidate.end
+                    }) && (!whole_word
+                        || word_at(candidate.start).is_some_and(|word| word == candidate))
+                        && self.cursor_boundary(candidate.start, Bias::Left) == candidate.start
+                        && self.cursor_boundary(candidate.end, Bias::Right) == candidate.end
+                });
+            let Some(found) = found else {
+                return;
+            };
+            self.undo_manager.break_transaction_coalescing();
+            let id = self.selections.generate_id();
+            self.selections
+                .add(CursorSelection::new(id, found.start, found.end));
+            self.unfold_offset(found.start, cx);
+            self.unfold_offset(found.end, cx);
+            self.scroll_to(found.end, None, cx);
+        }
+        self.selected_word_range = None;
+        self.pause_blink_cursor(cx);
+        self.update_preferred_column();
+        cx.notify();
     }
 
     pub(super) fn add_cursor_above(
@@ -5240,6 +5342,7 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
                     .on_action(window.listener_for(&entity, InputBaseState::page_down))
                     .on_action(window.listener_for(&entity, InputBaseState::add_cursor_above))
                     .on_action(window.listener_for(&entity, InputBaseState::add_cursor_below))
+                    .on_action(window.listener_for(&entity, InputBaseState::select_next_occurrence))
             })
             .on_action(window.listener_for(&entity, InputBaseState::on_action_select_all))
             .on_action(window.listener_for(&entity, InputBaseState::select_to_start_of_line))
