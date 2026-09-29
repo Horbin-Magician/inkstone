@@ -2066,6 +2066,86 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.pause_blink_cursor(cx);
     }
 
+    /// Surround non-empty selections in one transaction, retaining their IDs
+    /// and direction. Empty carets are handled by the insertion path.
+    fn surround_selections(
+        &mut self,
+        typed: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.silent_replace_text
+            || self.ime_marked_range.is_some()
+            || !self.mode.is_auto_close()
+            || typed.chars().count() != 1
+            || self.selections.iter().any(|selection| selection.is_empty())
+        {
+            return false;
+        }
+        let closer = self.mode.language_config().and_then(|rules| {
+            rules
+                .surround_selection
+                .then(|| {
+                    rules
+                        .closing_pairs()
+                        .find(|(open, _, _)| *open == typed)
+                        .map(|(_, close, _)| close.to_string())
+                })
+                .flatten()
+        });
+        let Some(closer) = closer else {
+            return false;
+        };
+        let before: Vec<_> = self.selections.iter().copied().collect();
+        let mut ordered: Vec<_> = before.iter().copied().enumerate().collect();
+        ordered.sort_by_key(|(_, selection)| selection.start);
+        let mut edits = Vec::with_capacity(ordered.len());
+        let mut after = before.clone();
+        let mut pairs = Vec::with_capacity(ordered.len());
+        let mut delta = 0isize;
+        for (index, mut selection) in ordered {
+            let range = selection.start..selection.end;
+            // Inline brackets/emphasis replace selections crossing lines;
+            // backticks can surround a multiline code selection.
+            let preserve = typed == "`"
+                || self.text.offset_to_point(range.start).row
+                    == self.text.offset_to_point(range.end).row;
+            let body = if preserve {
+                self.text.slice(range.clone()).to_string()
+            } else {
+                String::new()
+            };
+            let replacement = format!("{typed}{body}{closer}");
+            let start = (range.start as isize + delta) as usize;
+            selection.start = start + typed.len();
+            selection.end = selection.start + body.len();
+            selection.column_anchor = None;
+            pairs.push((
+                start..selection.start,
+                selection.end..selection.end + closer.len(),
+            ));
+            delta += replacement.len() as isize - range.len() as isize;
+            edits.push((range, replacement));
+            after[index] = selection;
+        }
+        self.undo_manager.begin_transaction_with(EditIntent::Atomic);
+        self.undo_manager.set_pending_intent(EditIntent::Atomic);
+        self.replace_text_in_ranges(&edits, window, cx);
+        for (open, close) in pairs {
+            self.mode.track_auto_closed_pair(open, close);
+        }
+        self.undo_manager
+            .record_auto_closed_pairs_after(self.mode.auto_closed_pairs().clone());
+        // Keep the active cursor and original ordering as well as offsets.
+        self.selections.replace_all(after);
+        self.undo_manager
+            .record_selections(before, self.selections.iter().copied().collect());
+        self.undo_manager.commit_transaction();
+        self.update_preferred_column();
+        cx.notify();
+        true
+    }
+
     /// Decide pairing against the pre-edit text, before an opening quote can
     /// change its own syntax context. Ordinary characters never query syntax.
     fn auto_close_target(&self, range: &Range<usize>, text: &str) -> Option<(usize, SharedString)> {
@@ -4575,6 +4655,10 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                 && !self.selections.is_single();
             if multi_cursor {
                 self.selections.merge_overlapping();
+                if self.surround_selections(new_text, window, cx) {
+                    M::on_text_typed(self, &range, new_text, window, cx);
+                    return;
+                }
                 let mut edits: Vec<(Range<usize>, String)> = self
                     .selections
                     .iter()
@@ -4597,44 +4681,12 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                 if let Some(intent) = requested_intent {
                     self.undo_manager.set_pending_intent(intent);
                 }
-                let surround = if !range.is_empty()
-                    && range == self.selected_range()
-                    && !self.silent_replace_text
-                    && self.ime_marked_range.is_none()
-                    && self.mode.is_auto_close()
-                    && new_text.chars().count() == 1
+                if range == self.selected_range() && self.surround_selections(new_text, window, cx)
                 {
-                    self.mode.language_config().and_then(|rules| {
-                        if !rules.surround_selection {
-                            return None;
-                        }
-                        rules
-                            .closing_pairs()
-                            .find(|(open, _, _)| *open == new_text)
-                            .map(|(_, close, _)| close.to_string())
-                    })
-                } else {
-                    None
-                };
-                if let Some(closer) = surround {
-                    let selected = self.text.slice(range.clone()).to_string();
-                    let replacement = format!("{new_text}{selected}{closer}");
-                    self.replace_text_in_ranges(&[(range.clone(), replacement)], window, cx);
-                    self.mode.track_auto_closed_pair(
-                        range.start..range.start + new_text.len(),
-                        range.end + new_text.len()..range.end + new_text.len() + closer.len(),
-                    );
-                    self.undo_manager
-                        .record_auto_closed_pairs_after(self.mode.auto_closed_pairs().clone());
-                    self.set_selected_range(
-                        range.start + new_text.len()..range.end + new_text.len(),
-                        cx,
-                    );
-                    self.undo_manager.record_selections(
-                        vec![selection_before],
-                        self.selections.iter().copied().collect(),
-                    );
-                } else if let Some((open_len, closer)) = self.auto_close_target(&range, new_text) {
+                    M::on_text_typed(self, &range, new_text, window, cx);
+                    return;
+                }
+                if let Some((open_len, closer)) = self.auto_close_target(&range, new_text) {
                     // One edit keeps the pair atomic even at undo coalescing limits.
                     let padding =
                         self.mode

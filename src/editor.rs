@@ -2533,6 +2533,87 @@ mod tests {
     }
 
     #[gpui::test]
+    fn multiple_selections_surround_preserve_direction_and_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for reversed in [false, true] {
+            let source = "中文\n中文";
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            let editor = handle
+                .update(cx, |p, w, cx| {
+                    p.set_auto_pairing(true, true, cx);
+                    p.editor.update(cx, |s, cx| {
+                        let offset = if reversed { 6 } else { 0 };
+                        s.set_selected_range(offset..offset, cx);
+                        s.focus(w, cx);
+                    });
+                    p.editor.clone()
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.simulate_keystrokes(if reversed {
+                "ctrl-alt-down shift-home"
+            } else {
+                "ctrl-alt-down shift-end"
+            });
+            handle
+                .update(&mut visual, |_, w, cx| {
+                    editor.update(cx, |s, cx| {
+                        assert!(s.has_multiple_selections());
+                        s.replace_text_in_range(None, "*", w, cx);
+                        assert_eq!(s.value(), "*中文*\n*中文*");
+                        s.replace_text_in_range(None, "(", w, cx);
+                        assert_eq!(s.value(), "*(中文)*\n*(中文)*");
+                    });
+                })
+                .unwrap();
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| assert_eq!(s.value(), "*中文*\n*中文*"));
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| assert_eq!(s.value(), source));
+            visual.simulate_keystrokes("ctrl-y");
+            if reversed {
+                visual.simulate_keystrokes("shift-right");
+            }
+            handle
+                .update(&mut visual, |_, w, cx| {
+                    editor.update(cx, |s, cx| {
+                        assert!(s.has_multiple_selections());
+                        s.replace_text_in_range(None, "x", w, cx);
+                        assert_eq!(
+                            s.value(),
+                            if reversed {
+                                "*中x*\n*中x*"
+                            } else {
+                                "*x*\n*x*"
+                            }
+                        );
+                    });
+                })
+                .unwrap();
+        }
+    }
+
+    #[gpui::test]
+    fn multiline_selection_pairing_distinguishes_inline_markers_and_code(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("中\n文", w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                p.set_auto_pairing(true, true, cx);
+                p.editor.update(cx, |s, cx| {
+                    for (typed, expected) in [("(", "()"), ("*", "**"), ("`", "`中\n文`")] {
+                        s.set_value("中\n文", w, cx);
+                        s.set_selected_range(0..7, cx);
+                        s.replace_text_in_range(None, typed, w, cx);
+                        assert_eq!(s.value(), expected);
+                    }
+                });
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn multiple_carets_delete_pairs_together_and_restore_carets_on_undo(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for (source, offset, enabled, select, deleted, inserted) in [
