@@ -1637,6 +1637,45 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn property_rename_delete_undo_and_stale_dialog(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let source = "---\nold: value\nother: keep\n---\n正文";
+                w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                w.edit_property("old", "value", window, cx);
+                w.ui.property_key
+                    .update(cx, |s, cx| s.set_value("new", window, cx));
+                w.save_property(window, cx);
+                assert!(!editor.read(cx).value().contains("old:"));
+                assert!(editor.read(cx).value().contains("new:"));
+                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+                assert_eq!(editor.read(cx).value().as_ref(), source);
+                w.edit_property("old", "value", window, cx);
+                w.delete_property(window, cx);
+                assert_eq!(
+                    editor.read(cx).value().as_ref(),
+                    "---\nother: keep\n---\n正文"
+                );
+                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+                assert_eq!(editor.read(cx).value().as_ref(), source);
+                w.edit_property("old", "value", window, cx);
+                editor.update(cx, |s, cx| {
+                    s.replace_all(format!("{source}外部变化"), window, cx)
+                });
+                w.delete_property(window, cx);
+                assert!(w.ui.property_open);
+                assert_eq!(
+                    editor.read(cx).value().as_ref(),
+                    format!("{source}外部变化")
+                );
+                assert!(w.status.contains("笔记已变更"));
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn property_editor_preserves_multiline_aliases_and_rejects_invalid_lists(
         cx: &mut TestAppContext,
     ) {

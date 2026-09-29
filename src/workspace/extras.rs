@@ -380,6 +380,11 @@ impl Workspace {
             return;
         }
         self.ui.property_open = true;
+        self.ui.property_original = (!name.is_empty()).then(|| name.to_owned());
+        self.ui.property_baseline = self.active.and_then(|i| self.tabs.get(i)).and_then(|tab| {
+            self.current_pane()
+                .map(|pane| (tab.id, pane.read(cx).editor.read(cx).value().to_string()))
+        });
         let display = serde_json::from_str::<String>(value).unwrap_or_else(|_| value.to_string());
         self.ui
             .property_key
@@ -391,21 +396,54 @@ impl Workspace {
         cx.notify();
     }
     pub(super) fn save_property(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        self.apply_property(false, w, cx);
+    }
+    pub(super) fn delete_property(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        self.apply_property(true, w, cx);
+    }
+    fn apply_property(&mut self, delete: bool, w: &mut Window, cx: &mut Context<Self>) {
         let Some(pane) = self.current_pane() else {
             return;
         };
         let text = pane.read(cx).editor.read(cx).value();
-        match inkstone::properties::set(
-            &text,
-            &self.ui.property_key.read(cx).value(),
-            &self.ui.property_value.read(cx).value(),
-        ) {
+        if !self
+            .ui
+            .property_baseline
+            .as_ref()
+            .is_some_and(|(id, baseline)| {
+                self.active
+                    .and_then(|i| self.tabs.get(i))
+                    .is_some_and(|tab| tab.id == *id)
+                    && baseline == text.as_ref()
+            })
+        {
+            self.status = "笔记已变更，请重新打开属性编辑。".into();
+            cx.notify();
+            return;
+        }
+        let result = if delete {
+            self.ui
+                .property_original
+                .as_deref()
+                .ok_or_else(|| "没有可删除的属性。".to_string())
+                .and_then(|name| inkstone::properties::remove(&text, name))
+        } else {
+            inkstone::properties::edit(
+                &text,
+                self.ui.property_original.as_deref(),
+                &self.ui.property_key.read(cx).value(),
+                &self.ui.property_value.read(cx).value(),
+            )
+        };
+        match result {
             Ok(text) => {
                 pane.read(cx).editor.clone().update(cx, |s, cx| {
                     s.replace_all(text, w, cx);
                     s.focus(w, cx);
                 });
                 self.ui.property_open = false;
+                self.ui.property_baseline = None;
+                self.ui.property_original = None;
             }
             Err(error) => self.status = error,
         }

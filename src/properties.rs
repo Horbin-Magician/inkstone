@@ -151,9 +151,91 @@ pub fn set(source: &str, key: &str, value: &str) -> Result<String, String> {
     Ok(result)
 }
 
+fn header_value(source: &str) -> Result<serde_json::Value, String> {
+    let block = block(source).ok_or("属性已不存在，请重新打开属性编辑。")?;
+    let first = source.find('\n').unwrap() + 1;
+    let close = source[..block.end]
+        .trim_end_matches(['\r', '\n'])
+        .rfind('\n')
+        .unwrap()
+        + 1;
+    serde_saphyr::from_str(&source[first..close])
+        .map_err(|_| "属性 YAML 无效，请先在源码中修正。".into())
+}
+fn checked_property(source: &str, key: &str) -> Result<Property, String> {
+    let values = header_value(source)?;
+    if !values.as_object().is_some_and(|map| map.contains_key(key)) {
+        return Err("属性不存在或使用了暂不支持的复杂键。".into());
+    }
+    parse(source)
+        .into_iter()
+        .find(|p| p.name == key)
+        .ok_or_else(|| "属性位置无法识别。".into())
+}
+fn validate_header(source: &str) -> Result<(), String> {
+    if block(source).is_some() {
+        header_value(source).map_err(|_| "修改会破坏 YAML 引用，请先在源码中处理。")?;
+    }
+    Ok(())
+}
+pub fn edit(
+    source: &str,
+    original: Option<&str>,
+    key: &str,
+    value: &str,
+) -> Result<String, String> {
+    let Some(original) = original else {
+        if block(source).is_some()
+            && header_value(source)?
+                .as_object()
+                .is_some_and(|map| map.contains_key(key))
+        {
+            return Err("同名属性已存在，请编辑已有属性。".into());
+        }
+        return set(source, key, value);
+    };
+    let property = checked_property(source, original)?;
+    if original != key
+        && header_value(source)?
+            .as_object()
+            .is_some_and(|map| map.contains_key(key))
+    {
+        return Err("同名属性已存在，请使用其他名称。".into());
+    }
+    let rendered = set("", key, value)?;
+    let line = parse(&rendered).into_iter().next().ok_or("属性值无效。")?;
+    let mut replacement = rendered[line.range].to_owned();
+    if source.contains("\r\n") {
+        replacement = replacement.replace('\n', "\r\n");
+    }
+    let mut result = source.to_owned();
+    result.replace_range(property.range, &replacement);
+    validate_header(&result)?;
+    Ok(result)
+}
+pub fn remove(source: &str, key: &str) -> Result<String, String> {
+    let property = checked_property(source, key)?;
+    let mut result = source.to_owned();
+    result.replace_range(property.range, "");
+    validate_header(&result)?;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rename_and_remove_properties_preserve_neighbors_and_reject_collisions() {
+        let source = "---\r\n# keep\r\nold: [one, two]\r\nother: value\r\n---\r\n正文😀";
+        let renamed = edit(source, Some("old"), "new", "[\"one\",\"two\"]").unwrap();
+        assert!(!renamed.contains("old:"));
+        assert!(renamed.contains("# keep\r\nnew: [\"one\",\"two\"]\r\nother: value\r\n"));
+        assert!(edit(source, Some("old"), "other", "x").is_err());
+        assert!(edit(source, Some("missing"), "new", "x").is_err());
+        let removed = remove(source, "old").unwrap();
+        assert_eq!(removed, "---\r\n# keep\r\nother: value\r\n---\r\n正文😀");
+        assert!(remove("---\nanchor: &a value\nref: *a\n---\n", "anchor").is_err());
+    }
     #[test]
     fn list_properties_roundtrip_through_editor_without_splitting_items() {
         let source = "---\r\naliases:\r\n  - 'Smith, John'\r\n  - 'It''s a note'\r\n  - 名称\r\nother: '原文' # keep\r\n---\r\n正文😀";
