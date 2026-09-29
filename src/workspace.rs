@@ -1752,6 +1752,41 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn split_undo_groups_continuous_typing_but_keeps_paste_separate(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let editor = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some(String::new()), false, window, cx);
+                w.split_active(false, window, cx);
+                w.views.split.as_ref().unwrap().pane.read(cx).editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("a b c");
+        visual.run_until_parked();
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "abc"));
+        visual.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string("X".into())));
+        visual.simulate_keystrokes("ctrl-v");
+        visual.run_until_parked();
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "abcX"));
+        visual.simulate_keystrokes("ctrl-z");
+        visual.run_until_parked();
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "abc"));
+        visual.simulate_keystrokes("ctrl-z");
+        visual.run_until_parked();
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), ""));
+        visual.simulate_keystrokes("ctrl-y ctrl-y");
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(editor.read(cx).value(), "abcX");
+                assert_eq!(w.tabs[0].pane.read(cx).editor.read(cx).value(), "abcX");
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn split_multiple_carets_survive_undo_redo_and_further_input(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);

@@ -16,6 +16,8 @@ pub(crate) enum EditIntent {
 
 #[derive(Debug)]
 struct UndoTransaction {
+    id: u64,
+    source_group: Option<u64>,
     intent: EditIntent,
     changes: Vec<Change>,
     /// How many changes the most recently appended batch contributed. A batch
@@ -38,6 +40,7 @@ struct UndoTransaction {
 /// matching `commit_transaction`.
 #[derive(Debug)]
 struct PendingTransaction {
+    source_group: Option<u64>,
     intent: EditIntent,
     changes: Vec<Change>,
     selections_before: Option<Vec<CursorSelection>>,
@@ -111,7 +114,7 @@ impl UndoManager {
 
         match self.pending.as_mut() {
             Some(pending) => pending.changes.push(change),
-            None => self.push_batch(vec![change], intent),
+            None => self.push_batch(vec![change], intent, None),
         }
         true
     }
@@ -131,6 +134,7 @@ impl UndoManager {
         self.transaction_depth += 1;
         if self.transaction_depth == 1 {
             self.pending = Some(PendingTransaction {
+                source_group: None,
                 intent,
                 changes: Vec::new(),
                 selections_before: None,
@@ -159,7 +163,7 @@ impl UndoManager {
         if pending.changes.is_empty() || is_noop_batch(&pending.changes) {
             return;
         }
-        self.push_batch(pending.changes, pending.intent);
+        self.push_batch(pending.changes, pending.intent, pending.source_group);
         if let Some(before) = pending.selections_before {
             self.record_selections_before(before);
         }
@@ -180,20 +184,25 @@ impl UndoManager {
 
     /// Push one logical edit, which is one or more changes in application
     /// order, onto the undo stack.
-    fn push_batch(&mut self, changes: Vec<Change>, intent: EditIntent) {
+    fn push_batch(&mut self, changes: Vec<Change>, intent: EditIntent, source_group: Option<u64>) {
         if changes.is_empty() {
             return;
         }
 
         self.redo_transactions.clear();
-        let can_coalesce = !self.coalescing_boundary
-            && intent != EditIntent::Atomic
-            && self.undo_transactions.last().is_some_and(|previous| {
-                previous.intent == intent
-                    && previous.last_batch_len == changes.len()
-                    && previous.recorded_changes + changes.len() <= MAX_CHANGES_PER_TRANSACTION
-                    && is_adjacent_batch(intent, previous.trailing_batch(), &changes)
-            });
+        let can_coalesce = self.undo_transactions.last().is_some_and(|previous| {
+            previous.recorded_changes + changes.len() <= MAX_CHANGES_PER_TRANSACTION
+                && if let Some(group) = source_group {
+                    previous.source_group == Some(group)
+                } else {
+                    !self.coalescing_boundary
+                        && intent != EditIntent::Atomic
+                        && previous.source_group.is_none()
+                        && previous.intent == intent
+                        && previous.last_batch_len == changes.len()
+                        && is_adjacent_batch(intent, previous.trailing_batch(), &changes)
+                }
+        });
 
         if can_coalesce {
             let previous = self
@@ -220,7 +229,10 @@ impl UndoManager {
         if self.undo_transactions.len() >= MAX_UNDO_TRANSACTIONS {
             self.undo_transactions.remove(0);
         }
+        static NEXT_GROUP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         self.undo_transactions.push(UndoTransaction {
+            id: NEXT_GROUP.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            source_group,
             intent,
             last_batch_len: changes.len(),
             recorded_changes: changes.len(),
@@ -231,6 +243,25 @@ impl UndoManager {
             auto_closed_pairs_after: None,
         });
         self.coalescing_boundary = intent == EditIntent::Atomic;
+    }
+
+    pub(super) fn history_group_id(&self) -> Option<u64> {
+        if self.transaction_depth > 0 {
+            None
+        } else {
+            self.undo_transactions
+                .last()
+                .map(|transaction| transaction.id)
+        }
+    }
+
+    pub(super) fn begin_linked_transaction(&mut self, source_group: u64) {
+        self.begin_transaction();
+        if self.transaction_depth == 1
+            && let Some(pending) = &mut self.pending
+        {
+            pending.source_group = Some(source_group);
+        }
     }
 
     /// Record the cursors around the transaction being built, or around the
