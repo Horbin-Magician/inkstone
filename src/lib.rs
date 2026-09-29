@@ -11,5 +11,6 @@ pub mod properties;
 pub mod rendering;
 pub mod search;
 pub mod tables;
+pub mod template_edit;
 pub mod templates;
 pub mod vault;

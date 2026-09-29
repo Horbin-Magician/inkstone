@@ -411,21 +411,6 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.ensure_active_note(window, cx) {
-            return;
-        }
-        if let Some(pane) = self.current_pane() {
-            pane.update(cx, |pane, cx| {
-                pane.reading = false;
-                pane.editor.update(cx, |s, cx| {
-                    s.replace(text.to_string(), window, cx);
-                    s.focus(window, cx);
-                });
-                cx.notify();
-            });
-        }
-    }
     pub(super) fn insert_template(
         &mut self,
         path: &std::path::Path,
@@ -450,9 +435,37 @@ impl Workspace {
                 return;
             }
         };
-        self.ui.quick_open = false;
-        self.ui.template_mode = false;
-        self.insert_text(&text, window, cx);
+        if !self.ensure_active_note(window, cx) {
+            return;
+        }
+        let Some(pane) = self.current_pane() else {
+            return;
+        };
+        let editor = pane.read(cx).editor.clone();
+        let edit = match inkstone::template_edit::insert(
+            &editor.read(cx).value(),
+            editor.read(cx).selected_range(),
+            &text,
+        ) {
+            Ok(edit) => edit,
+            Err(error) => {
+                self.status = error;
+                cx.notify();
+                return;
+            }
+        };
+        let applied = editor.update(cx, |s, cx| {
+            s.apply_source_edit(edit.range, &edit.replacement, edit.selection, window, cx)
+        });
+        if applied {
+            self.ui.quick_open = false;
+            self.ui.template_mode = false;
+            pane.update(cx, |p, cx| {
+                p.reading = false;
+                p.focus_view(window, cx);
+                cx.notify();
+            });
+        }
         cx.notify();
     }
     pub(super) fn choose_attachments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
