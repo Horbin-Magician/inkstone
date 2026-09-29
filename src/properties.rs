@@ -91,6 +91,14 @@ pub fn parse(source: &str) -> Vec<Property> {
         }
         offset += line.len();
     }
+    for property in &mut properties {
+        if let Ok(serde_json::Value::Object(values)) =
+            serde_saphyr::from_str::<serde_json::Value>(&source[property.range.clone()])
+            && let Some(value) = values.get(&property.name)
+        {
+            property.value = value.to_string();
+        }
+    }
     properties
 }
 pub fn set(source: &str, key: &str, value: &str) -> Result<String, String> {
@@ -102,16 +110,26 @@ pub fn set(source: &str, key: &str, value: &str) -> Result<String, String> {
         return Err("属性名只能包含文字、数字、下划线或连字符".into());
     }
     let value = if matches!(key, "tags" | "aliases") {
-        let values: Vec<_> = value
-            .trim_matches(['[', ']'])
-            .split(',')
-            .map(|s| s.trim().trim_matches(['\'', '"']))
-            .filter(|s| !s.is_empty())
-            .collect();
+        let input = value.trim();
+        let yaml = if input.starts_with('[') || input.starts_with("- ") {
+            input.to_owned()
+        } else {
+            format!("[{input}]")
+        };
+        let parsed: serde_json::Value = serde_saphyr::from_str(&yaml)
+            .map_err(|_| "列表格式无效；包含逗号、冒号等字符的项目请用引号包围。".to_string())?;
+        let items = parsed.as_array().ok_or("请使用文本列表。")?;
+        let values = items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .ok_or("标签和别名必须是文本；数字等内容请用引号包围。")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         serde_json::to_string(&values).map_err(|e| e.to_string())?
     } else {
         match serde_json::from_str::<serde_json::Value>(value) {
-            Ok(parsed) if !parsed.is_object() => parsed.to_string(),
+            Ok(parsed) => parsed.to_string(),
             _ => serde_json::to_string(value).map_err(|e| e.to_string())?,
         }
     };
@@ -136,6 +154,37 @@ pub fn set(source: &str, key: &str, value: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn list_properties_roundtrip_through_editor_without_splitting_items() {
+        let source = "---\r\naliases:\r\n  - 'Smith, John'\r\n  - 'It''s a note'\r\n  - 名称\r\nother: '原文' # keep\r\n---\r\n正文😀";
+        let property = parse(source)
+            .into_iter()
+            .find(|p| p.name == "aliases")
+            .unwrap();
+        let updated = set(source, "aliases", &property.value).unwrap();
+        assert_eq!(
+            crate::index::parse(&updated).aliases,
+            ["Smith, John", "It's a note", "名称"]
+        );
+        assert!(updated.contains("other: '原文' # keep\r\n"));
+        assert!(updated.ends_with("正文😀"));
+        assert_eq!(
+            parse("---\ntitle: 'It''s a note'\n---\n")[0].value,
+            "\"It's a note\""
+        );
+        assert_eq!(
+            crate::index::parse(&set("正文", "aliases", "'Smith, John', \"名称: 冒号\"").unwrap())
+                .aliases,
+            ["Smith, John", "名称: 冒号"]
+        );
+        assert!(set(source, "aliases", "[broken").is_err());
+        assert!(set(source, "aliases", "[true, 42]").is_err());
+        assert!(
+            crate::index::parse(&set(source, "aliases", "").unwrap())
+                .aliases
+                .is_empty()
+        );
+    }
     #[test]
     fn reserved_metadata_uses_yaml_values_without_splitting_aliases() {
         let (tags, aliases) = metadata(

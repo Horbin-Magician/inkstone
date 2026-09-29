@@ -1637,6 +1637,35 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn property_editor_preserves_multiline_aliases_and_rejects_invalid_lists(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let source = "---\naliases:\n  - 'Smith, John'\n  - 中文\n---\n正文😀";
+                w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
+                let property = inkstone::properties::parse(source).remove(0);
+                w.edit_property(&property.name, &property.value, window, cx);
+                assert!(w.ui.property_value.read(cx).value().contains("Smith, John"));
+                w.save_property(window, cx);
+                assert!(!w.ui.property_open);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                assert_eq!(
+                    inkstone::index::parse(&editor.read(cx).value()).aliases,
+                    ["Smith, John", "中文"]
+                );
+                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+                assert_eq!(editor.read(cx).value().as_ref(), source);
+                w.edit_property("aliases", "[broken", window, cx);
+                w.save_property(window, cx);
+                assert!(w.ui.property_open);
+                assert_eq!(editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn template_properties_and_body_are_one_undoable_edit(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);

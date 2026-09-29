@@ -105,8 +105,9 @@ impl UiState {
         window.focus(&workspace_focus, cx);
         let property_key = cx
             .new(|cx| InputState::new(window, cx).placeholder("属性名，如 tags、aliases、status"));
-        let property_value =
-            cx.new(|cx| InputState::new(window, cx).placeholder("属性值；标签与别名使用逗号分隔"));
+        let property_value = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("属性值；列表用逗号分隔，项目内含逗号时加引号")
+        });
         let command = cx.new(|cx| InputState::new(window, cx).placeholder("输入命令…"));
         let note_folder_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("笔记文件夹，如 收件箱"));
@@ -1955,7 +1956,12 @@ impl Workspace {
                                         .text_color(rgb(0x999999))
                                         .child(name.clone()),
                                 )
-                                .child(div().truncate().child(value.clone()))
+                                .child(
+                                    div().truncate().child(
+                                        serde_json::from_str::<String>(&value)
+                                            .unwrap_or_else(|_| value.clone()),
+                                    ),
+                                )
                                 .on_click(cx.listener(move |this, _, w, cx| {
                                     this.edit_property(&name, &value, w, cx)
                                 }))
