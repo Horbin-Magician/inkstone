@@ -1635,6 +1635,66 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn daily_navigation_opens_existing_neighbors_without_creating_notes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-daily-navigation-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("日记")).unwrap();
+        for name in ["2026-08-31", "2026-09-02", "2026-09-04"] {
+            std::fs::write(root.join(format!("日记/{name}.md")), name).unwrap();
+        }
+        handle
+            .update(cx, |w, window, cx| {
+                let vault = Vault::open(&root, root.with_extension("recovery")).unwrap();
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.vault = Some(vault);
+                w.ui.prefs.daily.folder = "日记".into();
+                w.add_tab(
+                    "日记/2026-09-02.md".into(),
+                    Some("2026-09-02".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.execute_command(77, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(
+                    w.tabs[w.active.unwrap()].path,
+                    PathBuf::from("日记/2026-08-31.md")
+                );
+                w.execute_command(77, window, cx);
+                assert_eq!(w.status, "没有上一篇日记。");
+                w.execute_command(78, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(
+                    w.tabs[w.active.unwrap()].path,
+                    PathBuf::from("日记/2026-09-02.md")
+                );
+                w.execute_command(78, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(
+                    w.tabs[w.active.unwrap()].path,
+                    PathBuf::from("日记/2026-09-04.md")
+                );
+            })
+            .unwrap();
+        assert_eq!(std::fs::read_dir(root.join("日记")).unwrap().count(), 3);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
     fn date_time_commands_insert_at_selection_head_and_undo(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
