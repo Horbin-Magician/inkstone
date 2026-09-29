@@ -1635,6 +1635,40 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn date_time_commands_insert_at_selection_head_and_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.execute_command(75, window, cx);
+                assert!(w.tabs.is_empty());
+                w.add_tab("note.md".into(), Some("中文😀".into()), false, window, cx);
+                w.ui.prefs.templates.date_format = "[日期]".into();
+                w.ui.prefs.templates.time_format = "[时间]".into();
+                let pane = w.current_pane().unwrap();
+                let editor = pane.read(cx).editor.clone();
+                editor.update(cx, |s, cx| s.set_selected_range(3..10, cx));
+                w.execute_command(75, window, cx);
+                assert_eq!(editor.read(cx).value().as_ref(), "中文😀日期");
+                assert_eq!(editor.read(cx).selected_range(), 16..16);
+                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+                assert_eq!(editor.read(cx).value().as_ref(), "中文😀");
+                assert_eq!(editor.read(cx).selected_range(), 3..10);
+                editor.update(cx, |s, cx| s.set_selected_range(3..3, cx));
+                w.execute_command(76, window, cx);
+                assert_eq!(editor.read(cx).value().as_ref(), "中时间文😀");
+                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+                w.ui.prefs.templates.date_format = "[未闭合".into();
+                w.execute_command(75, window, cx);
+                assert_eq!(editor.read(cx).value().as_ref(), "中文😀");
+                assert!(w.status.contains("未闭合"));
+                pane.update(cx, |p, _| p.reading = true);
+                w.execute_command(76, window, cx);
+                assert_eq!(editor.read(cx).value().as_ref(), "中文😀");
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn template_picker_filters_empty_query_and_inserts_selected_template(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
