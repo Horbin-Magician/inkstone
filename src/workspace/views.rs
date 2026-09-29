@@ -307,12 +307,14 @@ impl Workspace {
             (original.reading, original.live, original.image_dir.clone());
         let prefs = self.ui.prefs.clone();
         let paths = self.link_paths_for(&tab.path);
+        let text_font = self.resolved_font(&prefs.text_font, "Microsoft YaHei UI");
         let pane = cx.new(|cx| {
             let mut p = EditorPane::new(&text, window, cx);
             p.reading = reading;
             p.live = live;
             p.image_dir = image_dir;
             p.font_size = prefs.font_size;
+            p.text_font = text_font;
             p.light = prefs.light;
             p.readable_width = prefs.readable_width;
             p.strict_line_breaks = prefs.strict_line_breaks;
