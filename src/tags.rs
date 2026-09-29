@@ -39,9 +39,9 @@ pub struct Row {
     pub collapsed: bool,
 }
 pub fn rows(index: &crate::index::Index, options: &Options) -> Vec<Row> {
-    let mut counts: BTreeMap<String, (String, usize)> = BTreeMap::new();
+    let mut spellings: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     for note in index.notes.values() {
-        for tag in &note.parsed.tags {
+        for (tag, count) in &note.parsed.tag_counts {
             let mut prefix = String::new();
             for part in tag
                 .trim_end_matches('/')
@@ -52,13 +52,26 @@ pub fn rows(index: &crate::index::Index, options: &Options) -> Vec<Row> {
                     prefix.push('/');
                 }
                 prefix.push_str(part);
-                counts
+                *spellings
                     .entry(prefix.to_lowercase())
-                    .or_insert_with(|| (prefix.clone(), 0))
-                    .1 += 1;
+                    .or_default()
+                    .entry(prefix.clone())
+                    .or_default() += count;
             }
         }
     }
+    let counts: BTreeMap<String, (String, usize)> = spellings
+        .into_iter()
+        .map(|(key, versions)| {
+            let display = versions
+                .iter()
+                .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
+                .unwrap()
+                .0
+                .clone();
+            (key, (display, versions.values().sum()))
+        })
+        .collect();
     let mut visible: BTreeSet<String> = counts.keys().cloned().collect();
     if options.show_filter && !options.query.trim().is_empty() {
         let Ok(query) = crate::search::Query::parse(&options.query) else {
@@ -169,6 +182,21 @@ pub fn navigate(items: &[Row], selected: Option<&str>, key: &str) -> Navigation 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_tags_count_occurrences_and_prefer_the_most_common_spelling() {
+        let mut index = crate::index::Index::default();
+        index.update("a.md".into(), "---\nTags: [WORK/one, WORK/one]\n---\n#work/one #work/one #work/one\n`#work/one`\n```\n#work/one\n```".into());
+        let items = rows(&index, &Options::default());
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].tag, "work");
+        assert_eq!(items[0].count, 5);
+        assert_eq!(items[1].tag, "work/one");
+        assert_eq!(items[1].count, 5);
+        assert_eq!(
+            index.notes[std::path::Path::new("a.md")].parsed.tags.len(),
+            2
+        );
+    }
     #[test]
     fn keyboard_navigation_handles_tree_edges_and_stale_selection() {
         let mut index = crate::index::Index::default();

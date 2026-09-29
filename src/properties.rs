@@ -90,7 +90,15 @@ pub fn metadata(yaml: &str) -> (Vec<String>, Vec<String>) {
         return (vec![], vec![]);
     };
     let strings = |name: &str, legacy: &str| -> Vec<String> {
-        match values.get(name).or_else(|| values.get(legacy)) {
+        let find = |key: &str| {
+            values.get(key).or_else(|| {
+                values
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(key))
+                    .map(|(_, value)| value)
+            })
+        };
+        match find(name).or_else(|| find(legacy)) {
             Some(Value::String(value)) => vec![value.clone()],
             Some(Value::Array(items)) => items
                 .iter()
@@ -108,7 +116,6 @@ pub fn metadata(yaml: &str) -> (Vec<String>, Vec<String>) {
                 .chars()
                 .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '/'))
             && value.chars().any(|c| !c.is_numeric())
-            && !tags.iter().any(|tag: &String| tag == value)
         {
             tags.push(value.to_owned());
         }
