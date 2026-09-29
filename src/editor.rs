@@ -40,6 +40,7 @@ pub struct EditorPane {
     pub reading: bool,
     pub font_size: f32,
     pub readable_width: bool,
+    pub strict_line_breaks: bool,
     pub indentation: gpui_base::input::TabSize,
     pub smart_lists: bool,
     pub fold_headings: bool,
@@ -504,6 +505,7 @@ impl EditorPane {
             reading: false,
             font_size: 16.,
             readable_width: true,
+            strict_line_breaks: false,
             indentation,
             smart_lists: true,
             fold_headings: true,
@@ -820,6 +822,10 @@ impl Render for EditorPane {
         let weak = cx.entity().downgrade();
         let font_size = self.font_size;
         let preview = TextView::new(&self.preview)
+            .markdown_extensions(
+                gpui_base::text::MarkdownExtensions::default()
+                    .soft_line_breaks(!self.strict_line_breaks),
+            )
             .text_size(px(font_size))
             .line_height(relative(1.5))
             .style(
@@ -1690,6 +1696,61 @@ mod tests {
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn reading_soft_breaks_follow_strict_setting_without_changing_source(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "第一行\r\n第二行\n\nhard  \nbreak";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, _, cx| {
+                p.reading = true;
+                p.update_presentation(cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(700.), px(400.)));
+        let mut soft_height = None;
+        for strict in [false, true, false] {
+            handle
+                .update(&mut visual, |p, _, cx| {
+                    p.strict_line_breaks = strict;
+                    cx.notify();
+                })
+                .unwrap();
+            for _ in 0..3 {
+                visual.run_until_parked();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+            }
+            handle
+                .update(&mut visual, |p, _, cx| {
+                    let preview = p.preview.read(cx);
+                    let text = preview.rendered_text();
+                    assert!(
+                        text.as_str().contains(if strict {
+                            "第一行 第二行"
+                        } else {
+                            "第一行\n第二行"
+                        }),
+                        "{}",
+                        text.as_str()
+                    );
+                    assert!(text.as_str().contains("hard\nbreak"));
+                    let first = preview.bounds_for_source_offset(0).unwrap();
+                    assert_eq!(
+                        text.position_for_source_offset(source.find("第二行").unwrap()),
+                        text.as_str().find("第二行")
+                    );
+                    if strict {
+                        assert!(first.size.height < soft_height.unwrap());
+                    } else {
+                        soft_height = Some(first.size.height);
+                    }
+                    assert_eq!(p.editor.read(cx).value(), source);
+                })
+                .unwrap();
+        }
     }
 
     #[gpui::test]

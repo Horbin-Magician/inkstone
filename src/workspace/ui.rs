@@ -702,6 +702,7 @@ impl Workspace {
             pane.update(cx, |pane, cx| {
                 pane.font_size = p.font_size;
                 pane.readable_width = p.readable_width;
+                pane.strict_line_breaks = p.strict_line_breaks;
                 pane.light = p.light;
                 pane.smart_lists = p.smart_lists;
                 pane.set_fold_options(p.fold_headings, p.fold_indentation, window, cx);
@@ -3838,6 +3839,22 @@ impl Workspace {
                             .items_center()
                             .child("缩减栏宽")
                             .child(width),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("严格换行")
+                            .child(
+                                gpui_component::switch::Switch::new("strict-line-breaks")
+                                    .accessibility_label("严格换行")
+                                    .checked(self.ui.prefs.strict_line_breaks)
+                                    .on_click(cx.listener(|this, enabled: &bool, window, cx| {
+                                        this.ui.prefs.strict_line_breaks = *enabled;
+                                        this.apply_editor_preferences(window, cx);
+                                    })),
+                            ),
                     )
                     .child(
                         div()

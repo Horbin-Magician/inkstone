@@ -56,6 +56,7 @@ pub struct Preferences {
     pub font_size: f32,
     pub line_numbers: bool,
     pub readable_width: bool,
+    pub strict_line_breaks: bool,
     pub default_live_preview: bool,
     pub default_reading: bool,
     pub use_tabs: bool,
@@ -111,6 +112,7 @@ impl Default for Preferences {
             font_size: 16.,
             line_numbers: false,
             readable_width: true,
+            strict_line_breaks: false,
             default_live_preview: true,
             default_reading: false,
             use_tabs: true,
@@ -324,6 +326,7 @@ mod tests {
         assert!(p.show_indent_guides);
         assert!(p.auto_pair_brackets && p.auto_pair_markdown);
         assert!(p.smart_lists);
+        assert!(!p.strict_line_breaks);
         assert!(p.fold_headings && p.fold_indentation);
         assert_eq!(p.link_format, crate::locations::LinkFormat::Shortest);
         assert_eq!(p.font_size, 20.);
@@ -342,6 +345,7 @@ mod tests {
         prefs.auto_pair_brackets = false;
         prefs.auto_pair_markdown = false;
         prefs.smart_lists = false;
+        prefs.strict_line_breaks = true;
         prefs.fold_headings = false;
         prefs.fold_indentation = false;
         prefs.tab_size = 6;
@@ -405,6 +409,7 @@ mod tests {
         assert!(!Preferences::load(&path).auto_pair_brackets);
         assert!(!Preferences::load(&path).auto_pair_markdown);
         assert!(!Preferences::load(&path).smart_lists);
+        assert!(Preferences::load(&path).strict_line_breaks);
         assert!(!Preferences::load(&path).fold_headings);
         assert!(!Preferences::load(&path).fold_indentation);
         assert_eq!(Preferences::load(&path).tab_size, 6);
