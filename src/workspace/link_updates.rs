@@ -76,7 +76,7 @@ impl Workspace {
                     };
                     let composing = this.has_pending_input(id, w, cx);
                     let tab = this.tabs.iter_mut().find(|t| t.id == id).unwrap();
-                    let editor = tab.pane.read(cx).editor.clone();
+                    let editor = tab.save.editor.clone();
                     if tab.save.dirty.get()
                         || composing
                         || tab.save.baseline.borrow().as_deref() != Some(&before)
@@ -99,7 +99,10 @@ impl Workspace {
                     }
                 }
                 for id in changed {
-                    this.sync_to_split(id, w, cx);
+                    if let Some(tab) = this.tabs.iter().find(|tab| tab.id == id) {
+                        let owner = tab.save.editor.clone();
+                        this.document_changed(owner, w, cx);
+                    }
                 }
                 if !errors.is_empty() {
                     this.ui.window_close_requested = false;
