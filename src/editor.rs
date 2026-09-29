@@ -258,6 +258,20 @@ impl EditorPane {
         });
         cx.notify();
     }
+    pub fn move_lines(&mut self, down: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.reading {
+            return;
+        }
+        self.editor.update(cx, |editor, cx| {
+            editor.apply_selection_transform(
+                |text, selections| inkstone::line_edit::move_lines(text, selections, down),
+                window,
+                cx,
+            );
+            editor.focus(window, cx);
+        });
+    }
+
     fn markdown_key(
         &mut self,
         key: inkstone::markdown_edit::Key,

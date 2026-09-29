@@ -121,6 +121,12 @@
 - `Selections::merge_overlapping` 保留相邻非空范围，继续合并实际重叠与边界重复光标，匹配参考的选择规范化规则。
 - 主应用以 Ctrl+Shift+L 和命令面板调用，并通过已有快捷键配置处理用户自定义侧栏绑定的冲突。
 
+## 行移动与转换后选区
+
+- 应用层 `line_edit::move_lines` 规划行块重排与选区偏移，主应用命令通过现有 `apply_selection_transform` 批量应用。
+- 非空转换结果选区保留原方向，折叠为光标时清除反向标记。
+- 相同文本但选区位置不同的转换仅更新选区、打断输入合并并滚动，不修改之前的撤销记录。
+
 ## 命令触发补全
 
 - `input/editor/lsp/completions.rs` 增加显式 `request_completions`，使用 LSP Invoked 触发类型，不伪造键入字符，并清除旧触发位置。

@@ -1235,8 +1235,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         let Some((result, selections)) = transform(&source, &ranges) else {
             return false;
         };
-        if result == source
-            || selections.len() != before.len()
+        if selections.len() != before.len()
             || selections.iter().any(|r| {
                 r.start > r.end
                     || !result.is_char_boundary(r.start)
@@ -1269,11 +1268,22 @@ impl<M: InputModeKind> InputBaseState<M> {
                 let mut selection = *old;
                 selection.start = range.start;
                 selection.end = range.end;
-                selection.reversed = false;
+                selection.reversed = !range.is_empty() && old.reversed;
                 selection.column_anchor = None;
                 selection
             })
             .collect();
+        if result == source {
+            if after == before {
+                return false;
+            }
+            self.undo_manager.break_transaction_coalescing();
+            self.selections.replace_all(after);
+            self.scroll_to(self.cursor(), None, cx);
+            self.pause_blink_cursor(cx);
+            cx.notify();
+            return true;
+        }
         self.undo_manager.begin_transaction();
         self.undo_manager
             .record_selections(before.clone(), before.clone());
