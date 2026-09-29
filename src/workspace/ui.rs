@@ -2,7 +2,7 @@ use super::*;
 use gpui_component::date_picker::{DatePicker, DatePickerEvent, DatePickerState};
 use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_component::{
-    Disableable, Icon, TitleBar,
+    Disableable, Icon, Selectable, TitleBar,
     button::*,
     list::ListItem,
     resizable::{h_resizable, resizable_panel},
@@ -1720,7 +1720,36 @@ impl Workspace {
             })
             .when(self.ui.left_mode == 1, |s| {
                 s.when(!self.ui.quick_open, |s| {
-                    s.child(div().p_3().child(Input::new(&self.search).cleanable(true)))
+                    s.child(
+                        div()
+                            .p_3()
+                            .flex()
+                            .gap_1()
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(Input::new(&self.search).cleanable(true)),
+                            )
+                            .child(
+                                Button::new("search-case-sensitive")
+                                    .ghost()
+                                    .compact()
+                                    .label("Aa")
+                                    .accessibility_label("区分大小写")
+                                    .tooltip("区分大小写")
+                                    .toggled(self.ui.prefs.search_case_sensitive)
+                                    .selected(self.ui.prefs.search_case_sensitive)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.ui.prefs.search_case_sensitive =
+                                            !this.ui.prefs.search_case_sensitive;
+                                        this.run_search(cx);
+                                        this.persist_workspace(cx);
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
                 })
                 .child(
                     div()

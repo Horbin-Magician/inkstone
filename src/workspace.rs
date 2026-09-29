@@ -1441,11 +1441,14 @@ impl Workspace {
         }
         let index = self.index.clone();
         let fulltext = self.fulltext;
+        let case_sensitive = self.ui.prefs.search_case_sensitive;
         let template_folder = self
             .ui
             .template_mode
             .then(|| self.ui.prefs.templates.directory().ok());
-        if fulltext && let Err(error) = inkstone::search::Query::parse(&query) {
+        if fulltext
+            && let Err(error) = inkstone::search::Query::parse_with_case(&query, case_sensitive)
+        {
             self.search_results.clear();
             self.status = error;
             cx.notify();
@@ -1464,7 +1467,9 @@ impl Workspace {
             } else if query.trim().is_empty() {
                 vec![]
             } else if fulltext {
-                index.search(&query)
+                index
+                    .search_with_case(&query, case_sensitive)
+                    .unwrap_or_default()
             } else {
                 index.filenames(&query)
             };
@@ -1671,6 +1676,35 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn fulltext_case_setting_changes_background_results(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                Arc::make_mut(&mut w.index).update("note.md".into(), "Alpha\nalpha".into());
+                w.fulltext = true;
+                w.search
+                    .update(cx, |s, cx| s.set_value("Alpha", window, cx));
+                w.run_search(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.search_results.len(), 2);
+                w.ui.prefs.search_case_sensitive = true;
+                w.run_search(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(w.search_results.len(), 1);
+                assert_eq!(w.search_results[0].line, 1);
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn quick_switch_and_template_queries_do_not_replace_fulltext_search(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

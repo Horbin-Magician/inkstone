@@ -757,11 +757,18 @@ impl Index {
         self.try_search(query).unwrap_or_default()
     }
     pub fn try_search(&self, query: &str) -> Result<Vec<SearchHit>, String> {
+        self.search_with_case(query, false)
+    }
+    pub fn search_with_case(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+    ) -> Result<Vec<SearchHit>, String> {
         fn excerpt(text: &str, at: usize) -> String {
             let skip = text[..at].chars().count().saturating_sub(40);
             text.chars().skip(skip).take(120).collect()
         }
-        let query = crate::search::Query::parse(query)?;
+        let query = crate::search::Query::parse_with_case(query, case_sensitive)?;
         let mut hits = vec![];
         for (path, note) in &self.notes {
             if !query.matches(path, &note.text, &note.parsed.tags) {
