@@ -56,6 +56,7 @@ actions!(
 
 struct Tab {
     id: usize,
+    pinned: bool,
     path: PathBuf,
     pane: Entity<EditorPane>,
     save: std::rc::Rc<document::DocumentState>,
@@ -755,14 +756,17 @@ impl Workspace {
                                 if let Some(tab) =
                                     this.active.and_then(|index| this.tabs.get(index))
                                 {
-                                    view_restores.push((tab.pane.clone(), view_index));
+                                    view_restores.push((tab.id, tab.pane.clone(), view_index));
                                 }
                             }
                             if Some(saved_index) == restore_active_index {
                                 restored_active = this.active;
                             }
                         }
-                        for (pane, view_index) in view_restores {
+                        for (id, pane, view_index) in view_restores {
+                            if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.id == id) {
+                                tab.pinned = saved_views[view_index].pinned.unwrap_or(tab.pinned);
+                            }
                             Self::restore_view_state(&pane, &saved_views[view_index], cx);
                         }
                         this.ui.prefs.main_tab_index = this
@@ -1038,6 +1042,7 @@ impl Workspace {
         });
         self.tabs.push(Tab {
             id,
+            pinned: self.loading && self.ui.prefs.pinned_paths.contains(&path),
             path,
             pane,
             save,
@@ -1413,7 +1418,7 @@ impl Workspace {
             .iter()
             .enumerate()
             .filter(|(i, t)| {
-                !self.ui.prefs.pinned_paths.contains(&t.path)
+                !t.pinned
                     && match mode {
                         0 => Some(t.id) != anchor,
                         1 => Some(*i) > anchor_index,
@@ -1466,8 +1471,9 @@ impl Workspace {
         let Some(tab) = self.tabs.get_mut(index) else {
             return;
         };
-        if self.ui.prefs.pinned_paths.contains(&tab.path) {
-            self.status = "请先取消固定，再关闭标签页。".into();
+        if tab.pinned {
+            tab.pinned = false;
+            self.persist_workspace(cx);
             cx.notify();
             return;
         }
@@ -1561,7 +1567,7 @@ impl Workspace {
     }
     fn finish_pending_closes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for tab in &self.tabs {
-            if self.ui.prefs.pinned_paths.contains(&tab.path) {
+            if tab.pinned {
                 self.ui.close_pending.remove(&tab.id);
             }
         }
@@ -1575,7 +1581,7 @@ impl Workspace {
                     && !t.save.saving.get()
                     && !t.save.conflict.get()
                     && t.save.error.borrow().is_none()
-                    && !self.ui.prefs.pinned_paths.contains(&t.path)
+                    && !t.pinned
                     && !self.has_pending_input(t.id, window, cx)
             })
             .map(|(i, _)| i)
@@ -1927,6 +1933,96 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn pinned_views_migrate_and_restore_independently(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!("inkstone-view-pins-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let prefs = inkstone::preferences::Preferences {
+            open_paths: vec!["a.md".into(), "a.md".into()],
+            pinned_paths: vec!["a.md".into()],
+            active_tab_index: Some(1),
+            views: vec![
+                inkstone::preferences::ViewState {
+                    path: "a.md".into(),
+                    ..Default::default()
+                },
+                inkstone::preferences::ViewState {
+                    path: "a.md".into(),
+                    pinned: Some(false),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        prefs.save(&root.join(".inkstone-workspace.json")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.tabs[0].pinned);
+                assert!(!w.tabs[1].pinned);
+                assert!(w.ui.prefs.pinned_paths.is_empty());
+                w.focus_primary(0, window, cx);
+                w.execute_command(27, window, cx);
+                w.focus_primary(1, window, cx);
+                w.execute_command(27, window, cx);
+                assert!(!w.tabs[0].pinned);
+                assert!(w.tabs[1].pinned);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.tabs[0].pinned);
+                assert!(w.tabs[1].pinned);
+                w.close_tab_at(0, window, cx);
+                assert_eq!(w.tabs.len(), 1);
+                w.close_tab_at(0, window, cx);
+                assert_eq!(w.tabs.len(), 1);
+                assert!(!w.tabs[0].pinned);
+                w.close_tab_at(0, window, cx);
+                assert!(w.tabs.is_empty());
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn split_pin_is_independent_and_survives_promotion(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.execute_command(27, window, cx);
+                w.split_active(false, window, cx);
+                assert!(w.tabs[0].pinned);
+                assert!(!w.views.split.as_ref().unwrap().pinned);
+                w.execute_command(27, window, cx);
+                w.close_tab(window, cx);
+                assert!(!w.views.split.as_ref().unwrap().pinned);
+                assert!(w.tabs[0].pinned);
+                w.focus_primary(0, window, cx);
+                w.close_tab(window, cx);
+                assert!(!w.tabs[0].pinned);
+                w.focus_secondary(cx);
+                w.execute_command(27, window, cx);
+                w.focus_primary(0, window, cx);
+                w.close_tab_at(0, window, cx);
+                assert!(w.views.split.is_none());
+                assert!(w.tabs[0].pinned);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn session_restores_duplicate_note_views_and_split_after_missing_file(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let root =
@@ -1961,6 +2057,7 @@ mod tests {
             split_view: Some(inkstone::preferences::ViewState {
                 path: "a.md".into(),
                 selection: 7..7,
+                pinned: Some(true),
                 ..Default::default()
             }),
             split_focused: true,
@@ -1992,6 +2089,7 @@ mod tests {
                     assert_eq!(w.main_tab(), Some(0));
                     let split = w.views.split.as_ref().unwrap();
                     assert_eq!(split.source, w.tabs[1].id);
+                    assert!(split.pinned);
                     assert_eq!(split.pane.read(cx).editor.read(cx).selected_range(), 7..7);
                     assert!(w.views.secondary_focused);
                 })
@@ -5201,7 +5299,7 @@ mod tests {
                 for name in ["a.md", "b.md", "c.md", "d.md"] {
                     w.add_tab(name.into(), Some(String::new()), false, window, cx);
                 }
-                w.ui.prefs.pinned_paths.push("b.md".into());
+                w.tabs[1].pinned = true;
                 let a = w.tabs[0].id;
                 let c = w.tabs[2].id;
                 w.close_tab_group(Some(c), 1, window, cx);
@@ -5220,7 +5318,7 @@ mod tests {
                 w.ui.close_pending.insert(w.tabs[0].id);
                 w.finish_pending_closes(window, cx);
                 assert!(w.ui.close_pending.is_empty());
-                w.ui.prefs.pinned_paths.clear();
+                w.tabs[0].pinned = false;
                 w.finish_pending_closes(window, cx);
                 assert_eq!(w.tabs.len(), 1);
             })
@@ -5559,7 +5657,7 @@ mod tests {
                 workspace.execute_command(27, window, cx);
                 workspace.close_tab(window, cx);
                 assert_eq!(workspace.tabs.len(), 1);
-                workspace.execute_command(27, window, cx);
+                assert!(!workspace.tabs[0].pinned);
                 workspace.close_tab(window, cx);
                 assert!(workspace.tabs.is_empty());
                 assert_eq!(workspace.ui.closed, vec![PathBuf::from("中文.md")]);

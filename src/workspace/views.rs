@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) struct SplitPane {
     pub source: usize,
+    pub pinned: bool,
     pub pane: Entity<EditorPane>,
     last_synced_text: SharedString,
     _changes: Subscription,
@@ -126,6 +127,7 @@ impl Workspace {
         let scroll = editor.scroll_offset();
         inkstone::preferences::ViewState {
             path,
+            pinned: None,
             reading: pane.reading,
             live: pane.live,
             selection: editor.selected_range(),
@@ -150,20 +152,26 @@ impl Workspace {
         self.ui.prefs.views = self
             .tabs
             .iter()
-            .map(|t| Self::snapshot_view(t.path.clone(), &t.pane, cx))
+            .map(|t| {
+                let mut state = Self::snapshot_view(t.path.clone(), &t.pane, cx);
+                state.pinned = Some(t.pinned);
+                state
+            })
             .collect();
         self.ui.prefs.main_path = self
             .main_tab()
             .and_then(|i| self.tabs.get(i))
             .map(|t| t.path.clone());
         self.ui.prefs.split_view = self.views.split.as_ref().and_then(|s| {
-            self.tabs
-                .iter()
-                .find(|t| t.id == s.source)
-                .map(|t| Self::snapshot_view(t.path.clone(), &s.pane, cx))
+            self.tabs.iter().find(|t| t.id == s.source).map(|t| {
+                let mut state = Self::snapshot_view(t.path.clone(), &s.pane, cx);
+                state.pinned = Some(s.pinned);
+                state
+            })
         });
         self.ui.prefs.split_vertical = self.views.vertical;
         self.ui.prefs.split_focused = self.views.secondary_focused;
+        self.ui.prefs.pinned_paths.clear();
     }
     pub(super) fn restore_view_state(
         pane: &Entity<EditorPane>,
@@ -226,7 +234,8 @@ impl Workspace {
             self.views.main = Some(self.tabs[main].id);
             self.views.vertical = prefs.split_vertical;
             self.bind_split(index, window, cx);
-            if let Some(split) = &self.views.split {
+            if let Some(split) = &mut self.views.split {
+                split.pinned = state.pinned.unwrap_or(false);
                 Self::restore_view_state(&split.pane, &state, cx);
             }
             if !prefs.split_focused {
@@ -520,6 +529,7 @@ impl Workspace {
         });
         self.views.split = Some(SplitPane {
             source: id,
+            pinned: false,
             pane: pane.clone(),
             last_synced_text: text,
             _changes: changes,
@@ -640,6 +650,7 @@ impl Workspace {
             self.ui.closed.push(ui::ClosedTab { view: closed });
         }
         tab.pane = split.pane;
+        tab.pinned = split.pinned;
         tab.synced_text = split.last_synced_text;
         tab._subscription = Some(split._changes);
         tab._links = split._links;
@@ -655,6 +666,14 @@ impl Workspace {
     }
 
     pub(super) fn close_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(split) = &mut self.views.split
+            && split.pinned
+        {
+            split.pinned = false;
+            self.persist_workspace(cx);
+            cx.notify();
+            return;
+        }
         if self
             .views
             .split
