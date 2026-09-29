@@ -59,6 +59,7 @@ pub struct Preferences {
     pub default_live_preview: bool,
     pub default_reading: bool,
     pub use_tabs: bool,
+    pub show_indent_guides: bool,
     pub tab_size: usize,
     pub show_inline_title: bool,
     pub show_view_header: bool,
@@ -108,6 +109,7 @@ impl Default for Preferences {
             default_live_preview: true,
             default_reading: false,
             use_tabs: true,
+            show_indent_guides: true,
             tab_size: 4,
             show_inline_title: true,
             show_view_header: true,
@@ -309,6 +311,7 @@ mod tests {
         assert!(!p.auto_reveal_file);
         assert!(p.show_inline_title);
         assert!(p.show_view_header);
+        assert!(p.show_indent_guides);
         assert_eq!(p.link_format, crate::locations::LinkFormat::Shortest);
         assert_eq!(p.font_size, 20.);
     }
@@ -322,6 +325,7 @@ mod tests {
         prefs.default_live_preview = false;
         prefs.default_reading = true;
         prefs.use_tabs = false;
+        prefs.show_indent_guides = false;
         prefs.tab_size = 6;
         prefs.search_case_sensitive = true;
         prefs.search_sort_by = crate::file_order::SortBy::Modified;
@@ -379,6 +383,7 @@ mod tests {
         assert!(!Preferences::load(&path).default_live_preview);
         assert!(Preferences::load(&path).default_reading);
         assert!(!Preferences::load(&path).use_tabs);
+        assert!(!Preferences::load(&path).show_indent_guides);
         assert_eq!(Preferences::load(&path).tab_size, 6);
         assert!(Preferences::load(&path).search_case_sensitive);
         assert_eq!(
