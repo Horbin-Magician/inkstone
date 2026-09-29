@@ -7,6 +7,22 @@ use std::{
     sync::Arc,
 };
 
+fn has_uri_prefix(value: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| {
+        value
+            .get(..prefix.len())
+            .is_some_and(|part| part.eq_ignore_ascii_case(prefix))
+    })
+}
+
+pub fn is_external_link(value: &str) -> bool {
+    has_uri_prefix(value, &["http://", "https://", "mailto:"])
+}
+
+pub fn is_remote_image(value: &str) -> bool {
+    has_uri_prefix(value, &["http://", "https://", "data:"])
+}
+
 #[derive(Clone, Debug)]
 pub struct Reference {
     pub from: PathBuf,
@@ -457,6 +473,30 @@ pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn uri_schemes_ignore_case_without_reclassifying_local_names() {
+        for value in [
+            "HTTPS://example.com/CaseSensitive?q=AbC",
+            "HtTp://example.com",
+            "MAILTO:User@example.com",
+        ] {
+            assert!(is_external_link(value));
+        }
+        for value in [
+            "https-note.md",
+            "httpx://example.com",
+            "文件.md",
+            "目录/HTTP:notes",
+            "data:text/plain,hello",
+            "javascript:alert(1)",
+        ] {
+            assert!(!is_external_link(value));
+        }
+        assert!(is_remote_image("DaTa:image/png;base64,AAAA"));
+        assert!(is_remote_image("HTTPS://example.com/Picture.PNG"));
+        assert!(!is_remote_image("MAILTO:User@example.com"));
+        assert!(!is_remote_image("附件/图片.png"));
+    }
     #[test]
     fn imported_attachment_formats_resolve_with_catalog_and_collisions() {
         use crate::{

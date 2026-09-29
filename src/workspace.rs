@@ -1582,10 +1582,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if href.starts_with("https://")
-            || href.starts_with("http://")
-            || href.starts_with("mailto:")
-        {
+        if inkstone::rendering::is_external_link(href) {
             cx.open_url(href);
             return;
         }

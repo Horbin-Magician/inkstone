@@ -888,9 +888,7 @@ impl Render for EditorPane {
                 {
                     if let Some(reference) = rendered.references.get(id) {
                         if !reference.wiki
-                            && (reference.target.starts_with("https://")
-                                || reference.target.starts_with("http://")
-                                || reference.target.starts_with("data:"))
+                            && inkstone::rendering::is_remote_image(&reference.target)
                         {
                             return SharedUri::from(reference.target.clone()).into();
                         }
@@ -901,10 +899,7 @@ impl Render for EditorPane {
                         }
                     }
                     root.join(".inkstone-missing-image").into()
-                } else if raw.starts_with("http://")
-                    || raw.starts_with("https://")
-                    || raw.starts_with("data:")
-                {
+                } else if inkstone::rendering::is_remote_image(&raw) {
                     uri.clone().into()
                 } else {
                     image_dir
@@ -927,9 +922,7 @@ impl Render for EditorPane {
                     {
                         if let Some(reference) = this.rendered.references.get(id).cloned() {
                             if !reference.wiki
-                                && (reference.target.starts_with("http://")
-                                    || reference.target.starts_with("https://")
-                                    || reference.target.starts_with("mailto:"))
+                                && inkstone::rendering::is_external_link(&reference.target)
                             {
                                 cx.open_url(&reference.target);
                             } else {
@@ -943,7 +936,7 @@ impl Render for EditorPane {
                         if let Some(link) = this.parsed.links.get(index) {
                             cx.emit(EditorEvent::FollowLink(link.target.clone()));
                         }
-                    } else if url.starts_with("https://") || url.starts_with("http://") {
+                    } else if inkstone::rendering::is_external_link(url) {
                         cx.open_url(url);
                     } else {
                         cx.emit(EditorEvent::FollowMarkdownLink(url.to_string()));
