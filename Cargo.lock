@@ -3388,6 +3388,7 @@ dependencies = [
  "gpui-component",
  "gpui-kit",
  "gpui-pre",
+ "granit-parser",
  "lsp-types",
  "markdown",
  "notify",

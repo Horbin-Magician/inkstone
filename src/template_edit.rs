@@ -57,6 +57,75 @@ fn render(map: &Map<String, Value>, eol: &str) -> Result<String, String> {
         .map(|text| text.replace('\n', eol))
         .map_err(|error| error.to_string())
 }
+struct YamlEntry {
+    key: String,
+    start: usize,
+    value: Range<usize>,
+}
+fn entries(yaml: &str) -> Result<(bool, usize, Vec<YamlEntry>), String> {
+    use granit_parser::{Event, Parser, StructureStyle};
+    let mut depth = 0;
+    let mut flow = false;
+    let mut close = yaml.len();
+    let mut result: Vec<YamlEntry> = vec![];
+    let mut expect_key = true;
+    let mut value_start = None;
+    // Parser indexes are Unicode character offsets, not UTF-8 byte offsets.
+    let offsets: Vec<_> = yaml
+        .char_indices()
+        .map(|(i, _)| i)
+        .chain(std::iter::once(yaml.len()))
+        .collect();
+    for event in Parser::new_from_str(yaml) {
+        let (event, span) = event.map_err(|e| e.to_string())?;
+        let start = offsets[span.start.index()];
+        let end = offsets[span.end.index()];
+        match event {
+            Event::Comment(..)
+            | Event::StreamStart
+            | Event::StreamEnd
+            | Event::DocumentStart(..)
+            | Event::DocumentEnd => continue,
+            Event::MappingStart(style, ..) if depth == 0 => {
+                flow = style == StructureStyle::Flow;
+                depth = 1;
+            }
+            Event::Scalar(key, ..) if depth == 1 && expect_key => {
+                result.push(YamlEntry {
+                    key: key.into_owned(),
+                    start,
+                    value: end..end,
+                });
+                expect_key = false;
+            }
+            Event::MappingStart(..) | Event::SequenceStart(..) => {
+                if depth == 1 {
+                    if expect_key {
+                        return Err("暂不支持复合 YAML 属性键。".into());
+                    }
+                    value_start = Some(start);
+                }
+                depth += 1;
+            }
+            Event::MappingEnd | Event::SequenceEnd => {
+                if depth == 1 {
+                    close = start;
+                }
+                depth -= 1;
+                if depth == 1 {
+                    result.last_mut().unwrap().value = value_start.take().unwrap()..end;
+                    expect_key = true;
+                }
+            }
+            Event::Scalar(..) | Event::Alias(..) if depth == 1 => {
+                result.last_mut().ok_or("属性键无效。")?.value = start..end;
+                expect_key = true;
+            }
+            _ => (),
+        }
+    }
+    Ok((flow, close, result))
+}
 fn merge_header(
     source: &str,
     end: usize,
@@ -74,21 +143,42 @@ fn merge_header(
     if end == 0 {
         return Ok(format!("---{eol}{}---{eol}", render(after, eol)?));
     }
-    let properties = crate::properties::parse(source);
-    // Patch ordinary top-level properties, leaving untouched YAML and comments verbatim.
+    let first = source.find('\n').unwrap() + 1;
+    let closing = source[..end]
+        .trim_end_matches(['\r', '\n'])
+        .rfind('\n')
+        .unwrap()
+        + 1;
+    let yaml = &source[first..closing];
+    let (flow, close, properties) = entries(yaml)?;
     let simple =
-        properties.len() == before.len() && properties.iter().all(|p| before.contains_key(&p.name));
+        properties.len() == before.len() && properties.iter().all(|p| before.contains_key(&p.key));
     if !simple {
-        return Err(
-            "当前笔记包含复杂属性键或行内映射，暂不能自动合并；请在源码中合并属性。".into(),
-        );
+        return Err("当前笔记包含 YAML 合并键，暂不能自动合并；请在源码中合并属性。".into());
     }
     let mut result = source[..end].to_string();
-    for property in properties.iter().rev() {
-        if before.get(&property.name) != after.get(&property.name) {
+    let mut edits: Vec<(Range<usize>, String)> = vec![];
+    for (i, property) in properties.iter().enumerate() {
+        if before.get(&property.key) != after.get(&property.key) {
+            if flow {
+                edits.push((
+                    first + property.value.start..first + property.value.end,
+                    serde_json::to_string(&after[&property.key]).map_err(|e| e.to_string())?,
+                ));
+                continue;
+            }
             let mut single = Map::new();
-            single.insert(property.name.clone(), after[&property.name].clone());
-            result.replace_range(property.range.clone(), &render(&single, eol)?);
+            single.insert(property.key.clone(), after[&property.key].clone());
+            let mut stop = properties.get(i + 1).map(|p| p.start).unwrap_or(yaml.len());
+            // Keep standalone comments belonging to the next property outside this edit.
+            for line in yaml[property.start..stop].split_inclusive('\n').rev() {
+                if line.trim().is_empty() || line.starts_with('#') {
+                    stop -= line.len();
+                } else {
+                    break;
+                }
+            }
+            edits.push((first + property.start..first + stop, render(&single, eol)?));
         }
     }
     let mut added = Map::new();
@@ -98,8 +188,24 @@ fn merge_header(
         }
     }
     if !added.is_empty() {
-        let close = result.trim_end_matches(['\r', '\n']).rfind('\n').unwrap() + 1;
-        result.insert_str(close, &render(&added, eol)?);
+        if flow {
+            let json = serde_json::to_string(&added).map_err(|e| e.to_string())?;
+            let prefix = if before.is_empty() || yaml[..close].trim_end().ends_with(',') {
+                ""
+            } else {
+                ", "
+            };
+            edits.push((
+                first + close..first + close,
+                format!("{prefix}{}", &json[1..json.len() - 1]),
+            ));
+        } else {
+            edits.push((closing..closing, render(&added, eol)?));
+        }
+    }
+    edits.sort_by_key(|(range, _)| range.start);
+    for (range, replacement) in edits.into_iter().rev() {
+        result.replace_range(range, &replacement);
     }
     Ok(result)
 }
@@ -152,6 +258,41 @@ pub fn insert(source: &str, selection: Range<usize>, template: &str) -> Result<E
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quoted_keys_keep_unrelated_comments_and_multiline_values() {
+        let source = "---\n\"名称: 中文\": old\n# 保留下一属性说明\n'unchanged key': |\n  a: b\n  中文😀\n---\n正文";
+        let template = "---\n\"名称: 中文\": new\n---\n插入";
+        let edit = insert(source, source.len()..source.len(), template).unwrap();
+        let mut result = source.to_string();
+        result.replace_range(edit.range, &edit.replacement);
+        assert_eq!(frontmatter(&result).unwrap().1["名称: 中文"], "new");
+        assert!(result.contains("# 保留下一属性说明\n'unchanged key': |\n  a: b\n  中文😀\n"));
+        assert!(result.ends_with("正文插入"));
+    }
+    #[test]
+    fn flow_frontmatter_merges_values_and_adds_keys_without_reformatting_neighbors() {
+        for yaml in [
+            "{\"名称: 中文\": old, keep: '原样', nested: {a: 1}, tags: [a]}",
+            "{\n  \"名称: 中文\": old, # 保留注释\n  keep: '原样', nested: {a: 1}, tags: [a],\n}",
+        ] {
+            let source = format!("---\r\n{yaml}\r\n---\r\n正文");
+            let template =
+                "---\n\"名称: 中文\": new\nnested: {b: 2}\ntags: [b]\nadded: true\n---\n插入";
+            let edit = insert(&source, source.len()..source.len(), template).unwrap();
+            let mut result = source.clone();
+            result.replace_range(edit.range, &edit.replacement);
+            let properties = frontmatter(&result).unwrap().1;
+            assert_eq!(properties["名称: 中文"], "new");
+            assert_eq!(properties["nested"], serde_json::json!({"a":1,"b":2}));
+            assert_eq!(properties["tags"], serde_json::json!(["a", "b"]));
+            assert_eq!(properties["added"], true);
+            assert!(result.contains("keep: '原样'"));
+            if yaml.contains('#') {
+                assert!(result.contains("# 保留注释"));
+            }
+            assert!(result.ends_with("正文插入"));
+        }
+    }
     #[test]
     fn merging_template_preserves_unrelated_yaml_and_body() {
         let source = "---\r\n# Keep\r\nunchanged: 'yes' # comment\r\ntags: [old]\r\nnested:\r\n  a: 1\r\n---\r\n中文😀结束";
