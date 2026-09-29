@@ -921,6 +921,24 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn task_search_filters_state_and_includes_continuations_without_code() {
+        let mut index = Index::default();
+        let source = "---\ntext: |\n  - [ ] YAMLfake\n---\n- [ ] alpha\n  continuation beta\n\n- [x] alpha beta\n- [?] custom done\n- plain [x] notTask\n\n```md\n- [ ] codefake\n```\n";
+        index.update("FilenameOnly.md".into(), source.into());
+        let todo = index.search("task-todo:(alpha beta)");
+        assert_eq!(todo.iter().map(|hit| hit.line).collect::<Vec<_>>(), [5, 6]);
+        assert_eq!(&todo[1].excerpt[todo[1].highlights[0].clone()], "beta");
+        assert_eq!(index.search("task-done:alpha").len(), 1);
+        assert_eq!(index.search("task-done:custom").len(), 1);
+        assert!(index.search("task:codefake").is_empty());
+        assert!(index.search("task:YAMLfake").is_empty());
+        assert!(index.search("task:notTask").is_empty());
+        assert!(index.search("task:FilenameOnly").is_empty());
+        assert_eq!(index.search("task:\"\"").len(), 3);
+        assert_eq!(index.search("task-todo: \"\"").len(), 1);
+        assert_eq!(index.search("task-done:\"\"").len(), 2);
+    }
+    #[test]
     fn line_scope_requires_same_line_and_preserves_global_offsets() {
         let mut index = Index::default();
         let source = "alpha\r\nbeta\r\n😀alpha beta\r\nalpha skip\r\n";

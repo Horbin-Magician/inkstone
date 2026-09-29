@@ -3,11 +3,13 @@ use super::{Query, ScopedPattern};
 use std::path::Path;
 
 pub(super) enum Expression {
+    Always,
     Leaf(Box<Query>),
     All(Vec<Expression>),
     Any(Vec<Expression>),
     Not(Box<Expression>),
     Line(Box<Expression>),
+    Task(super::task::Tasks, Box<Expression>),
 }
 impl Expression {
     pub(super) fn title_highlights(
@@ -25,16 +27,21 @@ impl Expression {
                 .iter()
                 .flat_map(|item| item.title_highlights(path, text, tags))
                 .collect(),
-            Self::Not(_) | Self::Line(_) => vec![],
+            Self::Always | Self::Not(_) | Self::Line(_) | Self::Task(..) => vec![],
         }
     }
     pub(super) fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
         match self {
+            Self::Always => true,
             Self::Leaf(query) => query.matches(path, text, tags),
             Self::All(items) => items.iter().all(|item| item.matches(path, text, tags)),
             Self::Any(items) => items.iter().any(|item| item.matches(path, text, tags)),
             Self::Not(item) => !item.matches(path, text, tags),
             Self::Line(item) => text.split('\n').any(|line| item.matches(path, line, tags)),
+            Self::Task(tasks, item) => tasks
+                .ranges(text)
+                .iter()
+                .any(|range| item.matches(path, &text[range.clone()], tags)),
         }
     }
     pub(super) fn patterns<'a>(
@@ -52,7 +59,28 @@ impl Expression {
                 .iter()
                 .flat_map(|item| item.patterns(path, text, tags))
                 .collect(),
-            Self::Not(_) => vec![],
+            Self::Always | Self::Not(_) => vec![],
+            Self::Task(tasks, item) => {
+                let mut result = vec![];
+                for range in tasks.ranges(text).iter() {
+                    let body = &text[range.clone()];
+                    if item.matches(path, body, tags) {
+                        let mut patterns = item.patterns(path, body, tags);
+                        if patterns.is_empty() {
+                            patterns.push(ScopedPattern {
+                                pattern: None,
+                                range: 0..body.len(),
+                            });
+                        }
+                        for pattern in &mut patterns {
+                            pattern.range.start += range.start;
+                            pattern.range.end += range.start;
+                        }
+                        result.extend(patterns);
+                    }
+                }
+                result
+            }
             Self::Line(item) => {
                 let mut result = vec![];
                 let mut offset = 0;
@@ -145,11 +173,18 @@ struct Parser {
     at: usize,
     case_sensitive: bool,
 }
-fn line_parts(word: &str) -> Option<(&str, &str)> {
+enum Scope {
+    Line,
+    Task(Option<bool>),
+}
+fn scope_parts(word: &str) -> Option<(&str, &str, Scope)> {
     let mut start = 0;
     while let Some((prefix, rest)) = word[start..].split_once(':') {
         match prefix.to_ascii_lowercase().as_str() {
-            "line" => return Some((&word[..start], rest)),
+            "line" => return Some((&word[..start], rest, Scope::Line)),
+            "task" => return Some((&word[..start], rest, Scope::Task(None))),
+            "task-todo" => return Some((&word[..start], rest, Scope::Task(Some(false)))),
+            "task-done" => return Some((&word[..start], rest, Scope::Task(Some(true)))),
             "match-case" | "ignore-case" | "file" | "path" | "content" | "tag" => {
                 start += prefix.len() + 1
             }
@@ -210,9 +245,19 @@ impl Parser {
                     return Err("搜索表达式嵌套过深。".into());
                 }
                 let word = &word[negatives..];
-                if let Some((prefix, rest)) = line_parts(word) {
+                if let Some((prefix, rest, kind)) = scope_parts(word) {
                     let scope = format!("{scope}{prefix}content:");
-                    let inner = if rest.is_empty() {
+                    Query::parse_flat(&format!("{scope}scope-check"), self.case_sensitive)?;
+                    let all_tasks = matches!(kind, Scope::Task(_))
+                        && (rest == "\"\""
+                            || (rest.is_empty()
+                                && matches!(self.tokens.get(self.at), Some(Token::Word(value)) if value == "\"\"")));
+                    let inner = if all_tasks {
+                        if rest.is_empty() {
+                            self.at += 1;
+                        }
+                        Expression::Always
+                    } else if rest.is_empty() {
                         self.primary(&scope, depth + negatives + 1)?
                     } else {
                         let mut parser = Parser {
@@ -222,7 +267,12 @@ impl Parser {
                         };
                         parser.expression(&scope, depth + negatives + 1)?
                     };
-                    let mut expression = Expression::Line(Box::new(inner));
+                    let mut expression = match kind {
+                        Scope::Line => Expression::Line(Box::new(inner)),
+                        Scope::Task(completed) => {
+                            Expression::Task(super::task::Tasks::new(completed), Box::new(inner))
+                        }
+                    };
                     for _ in 0..negatives {
                         expression = Expression::Not(Box::new(expression));
                     }
@@ -255,7 +305,7 @@ pub(super) fn parse(input: &str, case_sensitive: bool) -> Result<Option<Expressi
     let tokens = tokens(input);
     if !tokens
         .iter()
-        .any(|token| matches!(token, Token::Open | Token::Close) || matches!(token, Token::Word(word) if line_parts(word.trim_start_matches('-')).is_some()))
+        .any(|token| matches!(token, Token::Open | Token::Close) || matches!(token, Token::Word(word) if scope_parts(word.trim_start_matches('-')).is_some()))
     {
         return Ok(None);
     }

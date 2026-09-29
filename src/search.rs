@@ -2,6 +2,7 @@
 use regex::{Regex, RegexBuilder};
 use std::path::Path;
 mod group;
+mod task;
 
 enum Pattern {
     Text(String),
@@ -509,6 +510,30 @@ impl Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn task_queries_refresh_cached_ranges_when_completion_changes() {
+        let query = Query::parse("task-todo:foo").unwrap();
+        let path = Path::new("note.md");
+        assert!(query.matches(path, "1. [ ] foo", &[]));
+        assert!(!query.matches(path, "1. [X] foo", &[]));
+        assert!(
+            Query::parse("task-done:foo")
+                .unwrap()
+                .matches(path, "1. [>] foo", &[])
+        );
+        assert!(
+            Query::parse("-task-todo:foo")
+                .unwrap()
+                .matches(path, "1. [X] foo", &[])
+        );
+        assert!(Query::parse("task:").is_err());
+        assert!(Query::parse("file:task:\"\"").is_err());
+        assert!(
+            Query::parse("task-done:foo")
+                .unwrap()
+                .matches(path, "- [完] foo", &[])
+        );
+    }
     #[test]
     fn line_scope_accepts_single_terms_groups_and_case_prefixes() {
         let path = Path::new("Alpha.md");
