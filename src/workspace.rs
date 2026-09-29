@@ -1886,6 +1886,95 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn new_tab_command_shares_document_and_keeps_independent_view_state(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!("inkstone-new-view-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "甲\n乙").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("甲\n乙".into()), false, window, cx);
+                w.tabs[0].pane.update(cx, |p, cx| {
+                    p.reading = true;
+                    p.editor.update(cx, |s, cx| s.set_selected_range(4..4, cx));
+                });
+                w.execute_command(85, window, cx);
+                assert_eq!(w.tabs.len(), 2);
+                assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
+                assert_ne!(w.tabs[0].pane.entity_id(), w.tabs[1].pane.entity_id());
+                w.tabs[1].pane.update(cx, |p, cx| {
+                    assert!(p.reading);
+                    assert_eq!(p.editor.read(cx).selected_range(), 4..4);
+                    p.reading = false;
+                    p.editor
+                        .update(cx, |s, cx| s.replace_text_in_range(None, "X", window, cx));
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.tabs[0].pane.read(cx).reading);
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).selected_range(),
+                    4..4
+                );
+                assert_eq!(w.tabs[0].save.editor.read(cx).value(), "甲\nX乙");
+                w.save_all(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.md")).unwrap(),
+            "甲\nX乙"
+        );
+        handle
+            .update(cx, |w, window, cx| {
+                w.close_tab_at(1, window, cx);
+                assert_eq!(w.tabs.len(), 1);
+                assert!(w.tabs[0].pane.read(cx).reading);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn new_tab_from_split_keeps_split_and_rejects_pending_composition(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("one\ntwo".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                let split = w.views.split.as_ref().unwrap().pane.clone();
+                split.update(cx, |p, cx| {
+                    p.live = false;
+                    p.editor.update(cx, |s, cx| s.set_selected_range(5..5, cx));
+                });
+                w.execute_command(85, window, cx);
+                assert_eq!(w.tabs.len(), 2);
+                assert_eq!(
+                    w.views.split.as_ref().unwrap().pane.entity_id(),
+                    split.entity_id()
+                );
+                assert!(!w.views.secondary_focused);
+                assert!(!w.tabs[1].pane.read(cx).live);
+                assert_eq!(
+                    w.tabs[1].pane.read(cx).editor.read(cx).selected_range(),
+                    5..5
+                );
+                split.read(cx).editor.clone().update(cx, |s, cx| {
+                    s.replace_and_mark_text_in_range(None, "ni", Some(2..2), window, cx)
+                });
+                w.execute_command(85, window, cx);
+                assert_eq!(w.tabs.len(), 2);
+                assert!(w.ui.closed.is_empty());
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn closed_shared_view_reopens_without_changing_the_surviving_view(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);

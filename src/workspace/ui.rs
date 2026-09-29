@@ -663,6 +663,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (82, "下移当前行", "Alt+Down"),
     (83, "向上复制当前行", "Alt+Shift+Up"),
     (84, "向下复制当前行", "Alt+Shift+Down"),
+    (85, "在新标签页中打开当前笔记", ""),
 ];
 
 #[derive(Clone)]
@@ -1362,6 +1363,7 @@ impl Workspace {
                     pane.update(cx, |pane, cx| pane.copy_lines(id == 84, window, cx));
                 }
             }
+            85 => self.open_current_note_in_new_tab(window, cx),
             _ => (),
         }
         self.persist_workspace(cx);
@@ -1705,6 +1707,19 @@ impl Workspace {
                                 cx.listener(move |this, _, w, cx| this.focus_primary(i, w, cx)),
                             )
                             .context_menu(move |mut menu, _, _| {
+                                let weak = menu_weak.clone();
+                                menu = menu.item(PopupMenuItem::new("在新标签页中打开").on_click(
+                                    move |_, window, cx| {
+                                        let _ = weak.update(cx, |this, cx| {
+                                            if let Some(index) =
+                                                this.tabs.iter().position(|tab| tab.id == tab_id)
+                                            {
+                                                this.focus_primary(index, window, cx);
+                                                this.execute_command(85, window, cx);
+                                            }
+                                        });
+                                    },
+                                ));
                                 for (mode, label) in [
                                     (0, "关闭其他标签页"),
                                     (1, "关闭右侧标签页"),
