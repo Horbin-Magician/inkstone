@@ -376,6 +376,7 @@ pub struct SearchHit {
     pub offset: usize,
     pub line: usize,
     pub excerpt: String,
+    pub highlights: Vec<Range<usize>>,
 }
 fn key(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/").to_lowercase()
@@ -742,6 +743,7 @@ impl Index {
                         offset: 0,
                         line: 1,
                         excerpt: String::new(),
+                        highlights: vec![],
                     },
                 ));
             }
@@ -820,10 +822,8 @@ impl Index {
                     display_name: None,
                     offset: found.offset,
                     line: found.line,
-                    excerpt: excerpt(
-                        &note.text[found.range.clone()],
-                        found.offset - found.range.start,
-                    ),
+                    excerpt: note.text[found.range].to_string(),
+                    highlights: found.highlights,
                 });
             }
             if hits.len() == before {
@@ -844,6 +844,7 @@ impl Index {
                         .count()
                         + 1,
                     excerpt: excerpt(&note.text[start..end], at - start),
+                    highlights: vec![],
                 });
             }
             if hits.len() == limit {
@@ -914,6 +915,41 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_highlights_match_excerpt_bytes_and_merge_overlapping_terms() {
+        let mut index = Index::default();
+        index.update("note.md".into(), "前😀 Alpha alpha 汉字\nblocked".into());
+        let hits = index.search("alpha");
+        assert_eq!(
+            hits[0]
+                .highlights
+                .iter()
+                .map(|range| &hits[0].excerpt[range.clone()])
+                .collect::<Vec<_>>(),
+            ["Alpha", "alpha"]
+        );
+        let overlaps = index.search("alpha OR pha");
+        assert_eq!(overlaps[0].highlights.len(), 2);
+        let excluded = index.search("alpha -blocked OR 汉字");
+        assert_eq!(
+            &excluded[0].excerpt[excluded[0].highlights[0].clone()],
+            "汉字"
+        );
+        index.update(
+            "note.md".into(),
+            format!("{}İx 目标 目标", "前😀".repeat(180)),
+        );
+        let cropped = index.search("目标");
+        assert_eq!(cropped[0].highlights.len(), 2);
+        for range in &cropped[0].highlights {
+            assert_eq!(&cropped[0].excerpt[range.clone()], "目标");
+        }
+        let expanded_case = index.search("i");
+        assert_eq!(
+            &expanded_case[0].excerpt[expanded_case[0].highlights[0].clone()],
+            "İ"
+        );
+    }
     #[test]
     fn search_sorting_happens_before_the_result_limit() {
         use crate::file_order::SortBy;

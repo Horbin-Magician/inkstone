@@ -19,18 +19,18 @@ struct Term {
     exclude: bool,
 }
 impl Pattern {
-    fn visit_offsets(&self, text: &str, mut visit: impl FnMut(usize) -> bool) {
+    fn visit_ranges(&self, text: &str, mut visit: impl FnMut(std::ops::Range<usize>) -> bool) {
         match self {
             Self::Exact(needle) => {
                 for (offset, _) in text.match_indices(needle) {
-                    if !visit(offset) {
+                    if !visit(offset..offset + needle.len()) {
                         break;
                     }
                 }
             }
             Self::Regex(regex) => {
                 for found in regex.find_iter(text) {
-                    if !found.is_empty() && !visit(found.start()) {
+                    if !found.is_empty() && !visit(found.range()) {
                         break;
                     }
                 }
@@ -38,16 +38,26 @@ impl Pattern {
             Self::Text(needle) => {
                 let lower = text.to_lowercase();
                 let mut chars = text.char_indices();
-                let (mut lower_end, mut original) = (0, 0);
+                let (mut lower_end, mut original, mut original_end) = (0, 0, 0);
                 for (offset, _) in lower.match_indices(needle) {
                     while lower_end <= offset {
                         let Some((start, ch)) = chars.next() else {
                             return;
                         };
                         original = start;
+                        original_end = start + ch.len_utf8();
                         lower_end += ch.to_lowercase().map(char::len_utf8).sum::<usize>();
                     }
-                    if !visit(original) {
+                    let match_start = original;
+                    while lower_end < offset + needle.len() {
+                        let Some((start, ch)) = chars.next() else {
+                            return;
+                        };
+                        original = start;
+                        original_end = start + ch.len_utf8();
+                        lower_end += ch.to_lowercase().map(char::len_utf8).sum::<usize>();
+                    }
+                    if !visit(match_start..original_end) {
                         break;
                     }
                 }
@@ -110,6 +120,7 @@ pub struct LineMatch {
     pub offset: usize,
     pub line: usize,
     pub range: std::ops::Range<usize>,
+    pub highlights: Vec<std::ops::Range<usize>>,
 }
 
 impl Query {
@@ -246,9 +257,26 @@ impl Query {
                     .filter_map(|(i, byte)| (byte == b'\n').then_some(i + 1)),
             )
             .collect();
-        let mut matches = std::collections::BTreeMap::<usize, usize>::new();
+        let snippet = |line: usize, at: usize| {
+            let start = starts[line];
+            let end = starts.get(line + 1).copied().unwrap_or(text.len());
+            let skip = text[start..at].chars().count().saturating_sub(40);
+            let left = start
+                + text[start..end]
+                    .char_indices()
+                    .nth(skip)
+                    .map_or(end - start, |(i, _)| i);
+            let right = left
+                + text[left..end]
+                    .char_indices()
+                    .nth(120)
+                    .map_or(end - left, |(i, _)| i);
+            left..right
+        };
+        let mut matches = std::collections::BTreeMap::<usize, LineMatch>::new();
         for pattern in patterns {
-            pattern.visit_offsets(text, |offset| {
+            pattern.visit_ranges(text, |found| {
+                let offset = found.start;
                 let line = starts.partition_point(|start| *start <= offset) - 1;
                 if matches.len() == limit
                     && matches
@@ -257,10 +285,34 @@ impl Query {
                 {
                     return false;
                 }
-                matches
-                    .entry(line)
-                    .and_modify(|old| *old = (*old).min(offset))
-                    .or_insert(offset);
+                let entry = matches.entry(line).or_insert_with(|| LineMatch {
+                    offset,
+                    line: line + 1,
+                    range: snippet(line, offset),
+                    highlights: vec![],
+                });
+                if offset < entry.offset {
+                    entry.offset = offset;
+                    entry.range = snippet(line, offset);
+                    entry.highlights.retain_mut(|range| {
+                        range.start = range.start.max(entry.range.start);
+                        range.end = range.end.min(entry.range.end);
+                        range.start < range.end
+                    });
+                }
+                let mut range = found.start.max(entry.range.start)..found.end.min(entry.range.end);
+                if range.start < range.end {
+                    entry.highlights.retain(|old| {
+                        if old.end < range.start || old.start > range.end {
+                            true
+                        } else {
+                            range.start = range.start.min(old.start);
+                            range.end = range.end.max(old.end);
+                            false
+                        }
+                    });
+                    entry.highlights.push(range);
+                }
                 if matches.len() > limit {
                     matches.pop_last();
                 }
@@ -268,11 +320,14 @@ impl Query {
             });
         }
         matches
-            .into_iter()
-            .map(|(line, offset)| LineMatch {
-                offset,
-                line: line + 1,
-                range: starts[line]..starts.get(line + 1).copied().unwrap_or(text.len()),
+            .into_values()
+            .map(|mut found| {
+                found.highlights.sort_by_key(|range| range.start);
+                for range in &mut found.highlights {
+                    range.start -= found.range.start;
+                    range.end -= found.range.start;
+                }
+                found
             })
             .collect()
     }

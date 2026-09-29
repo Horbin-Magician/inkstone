@@ -1962,6 +1962,7 @@ impl Workspace {
                     offset: 0,
                     line: 1,
                     excerpt: String::new(),
+                    highlights: vec![],
                 })
                 .collect()
         } else {
@@ -2165,10 +2166,38 @@ impl Workspace {
                                         .child(format!("第 {} 行", hit.line)),
                                 )
                                 .child(
-                                    div()
-                                        .text_sm()
-                                        .whitespace_normal()
-                                        .child(hit.excerpt.trim_end().to_string()),
+                                    div().text_sm().whitespace_normal().child(
+                                        StyledText::new(hit.excerpt.trim_end().to_string())
+                                            .with_highlights(
+                                                hit.highlights.iter().cloned().filter_map(
+                                                    |mut range| {
+                                                        range.end = range
+                                                            .end
+                                                            .min(hit.excerpt.trim_end().len());
+                                                        if range.start >= range.end {
+                                                            return None;
+                                                        }
+                                                        Some((
+                                                            range,
+                                                            HighlightStyle {
+                                                                background_color: Some(
+                                                                    rgba(if self.ui.prefs.light {
+                                                                        0xf4d03f66
+                                                                    } else {
+                                                                        0x9e7d2866
+                                                                    })
+                                                                    .into(),
+                                                                ),
+                                                                font_weight: Some(
+                                                                    FontWeight::SEMIBOLD,
+                                                                ),
+                                                                ..Default::default()
+                                                            },
+                                                        ))
+                                                    },
+                                                ),
+                                            ),
+                                    ),
                                 )
                                 .on_click(cx.listener(move |this, _, w, cx| {
                                     this.pending_jump = Some((path.clone(), hit.offset));
