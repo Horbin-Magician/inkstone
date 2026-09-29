@@ -1,4 +1,5 @@
 use super::*;
+use gpui_component::Selectable;
 use gpui_component::button::*;
 
 impl Workspace {
@@ -190,6 +191,8 @@ impl Workspace {
                     .map(|(i, title)| {
                         Button::new(("settings-tab", i))
                             .ghost()
+                            .selected(self.ui.settings_tab == i)
+                            .toggled(self.ui.settings_tab == i)
                             .label(title)
                             .on_click(cx.listener(move |this, _, w, cx| {
                                 this.ui.settings_tab = i;

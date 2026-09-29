@@ -1237,22 +1237,28 @@ impl Workspace {
             .border_b_1()
             .border_color(self.border())
             .child(
-                tool("files", "folder-closed", "文件列表").on_click(cx.listener(
-                    |this, _, _, cx| {
+                tool("files", "folder-closed", "文件列表")
+                    .selected(self.ui.left_mode == 0)
+                    .toggled(self.ui.left_mode == 0)
+                    .on_click(cx.listener(|this, _, _, cx| {
                         this.ui.left_mode = 0;
                         cx.notify();
-                    },
-                )),
+                    })),
             )
             .child(
                 tool("search", "search", "搜索")
+                    .selected(self.ui.left_mode == 1)
+                    .toggled(self.ui.left_mode == 1)
                     .on_click(cx.listener(|this, _, w, cx| this.focus_search(true, w, cx))),
             )
             .child(
-                tool("bookmarks", "bookmark", "书签").on_click(cx.listener(|this, _, _, cx| {
-                    this.ui.left_mode = 2;
-                    cx.notify();
-                })),
+                tool("bookmarks", "bookmark", "书签")
+                    .selected(self.ui.left_mode == 2)
+                    .toggled(self.ui.left_mode == 2)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.ui.left_mode = 2;
+                        cx.notify();
+                    })),
             )
             .child(
                 tool("open-graph", "network", "关系图谱")
@@ -1288,6 +1294,8 @@ impl Workspace {
                     Button::new(("right-mode", i))
                         .accessibility_id(format!("right-mode-{i}"))
                         .accessibility_label(*label)
+                        .selected(self.ui.right_mode == i)
+                        .toggled(self.ui.right_mode == i)
                         .ghost()
                         .compact()
                         .icon(icon(ico))
@@ -2243,6 +2251,7 @@ impl Workspace {
                     .child(
                         tool("tags-hierarchy", "network", "显示嵌套标签")
                             .toggled(options.hierarchy)
+                            .selected(options.hierarchy)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.ui.prefs.tags.hierarchy = !this.ui.prefs.tags.hierarchy;
                                 this.persist_workspace(cx);
@@ -2274,6 +2283,7 @@ impl Workspace {
                     .child(
                         tool("tags-filter", "search", "筛选标签")
                             .toggled(options.show_filter)
+                            .selected(options.show_filter)
                             .on_click(cx.listener(|this, _, w, cx| {
                                 this.ui.prefs.tags.show_filter = !this.ui.prefs.tags.show_filter;
                                 if this.ui.prefs.tags.show_filter {
