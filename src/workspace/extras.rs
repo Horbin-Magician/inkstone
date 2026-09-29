@@ -380,6 +380,7 @@ impl Workspace {
             return;
         }
         self.ui.property_open = true;
+        self.ui.property_error.clear();
         self.ui.property_kind = if matches!(name, "tags" | "aliases" | "cssclasses") {
             inkstone::properties::Kind::List
         } else {
@@ -407,7 +408,20 @@ impl Workspace {
             s.set_value(display, w, cx);
             s.focus(w, cx);
         });
+        if self.effective_property_kind(cx) == inkstone::properties::Kind::Checkbox {
+            w.focus(&self.ui.modal_focus, cx);
+        }
         cx.notify();
+    }
+    pub(super) fn effective_property_kind(&self, cx: &Context<Self>) -> inkstone::properties::Kind {
+        if matches!(
+            self.ui.property_key.read(cx).value().as_ref(),
+            "tags" | "aliases" | "cssclasses"
+        ) {
+            inkstone::properties::Kind::List
+        } else {
+            self.ui.property_kind
+        }
     }
     pub(super) fn save_property(&mut self, w: &mut Window, cx: &mut Context<Self>) {
         self.apply_property(false, w, cx);
@@ -432,6 +446,7 @@ impl Workspace {
             })
         {
             self.status = "笔记已变更，请重新打开属性编辑。".into();
+            self.ui.property_error = self.status.clone();
             cx.notify();
             return;
         }
@@ -475,10 +490,20 @@ impl Workspace {
                     s.focus(w, cx);
                 });
                 self.ui.property_open = false;
+                self.ui.property_error.clear();
                 self.ui.property_baseline = None;
                 self.ui.property_original = None;
+                self.status = if delete {
+                    "属性已删除。"
+                } else {
+                    "属性已保存。"
+                }
+                .into();
             }
-            Err(error) => self.status = error,
+            Err(error) => {
+                self.ui.property_error = error.clone();
+                self.status = error;
+            }
         }
         cx.notify();
     }

@@ -1661,6 +1661,9 @@ mod tests {
                 w.save_property(window, cx);
                 assert!(w.ui.property_open);
                 assert!(editor.read(cx).value().contains("code: 123"));
+                assert_eq!(w.ui.property_error, "请输入有效数字。");
+                w.edit_property("code", "123", window, cx);
+                assert!(w.ui.property_error.is_empty());
             })
             .unwrap();
     }
@@ -1700,6 +1703,7 @@ mod tests {
                     format!("{source}外部变化")
                 );
                 assert!(w.status.contains("笔记已变更"));
+                assert_eq!(w.ui.property_error, w.status);
             })
             .unwrap();
     }

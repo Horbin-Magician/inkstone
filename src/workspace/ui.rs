@@ -77,6 +77,8 @@ pub(super) struct UiState {
     _location_subscriptions: Vec<Subscription>,
     pub property_open: bool,
     pub property_kind: inkstone::properties::Kind,
+    pub property_error: String,
+    _property_subscriptions: Vec<Subscription>,
     pub property_original: Option<String>,
     pub property_baseline: Option<(usize, String)>,
     pub property_key: Entity<InputState>,
@@ -112,6 +114,25 @@ impl UiState {
             InputState::new(window, cx).placeholder("属性值；列表用逗号分隔，项目内含逗号时加引号")
         });
         let command = cx.new(|cx| InputState::new(window, cx).placeholder("输入命令…"));
+        let property_subscriptions = [&property_key, &property_value]
+            .into_iter()
+            .map(|input| {
+                cx.subscribe_in(
+                    input,
+                    window,
+                    |this, _, event: &InputEvent, w, cx| match event {
+                        InputEvent::Change => {
+                            this.ui.property_error.clear();
+                            cx.notify();
+                        }
+                        InputEvent::PressEnter { .. } if this.ui.property_open => {
+                            this.save_property(w, cx)
+                        }
+                        _ => (),
+                    },
+                )
+            })
+            .collect();
         let note_folder_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("笔记文件夹，如 收件箱"));
         let attachment_folder_input =
@@ -232,6 +253,8 @@ impl UiState {
             _location_subscriptions: location_subscriptions,
             property_open: false,
             property_kind: Default::default(),
+            property_error: String::new(),
+            _property_subscriptions: property_subscriptions,
             property_original: None,
             property_baseline: None,
             property_key,
@@ -1119,6 +1142,7 @@ impl Workspace {
         self.ui.settings = false;
         self.ui.hotkey_recording = None;
         self.ui.property_open = false;
+        self.ui.property_error.clear();
         self.ui.property_baseline = None;
         self.ui.property_original = None;
         self.ui.more = false;
@@ -2559,218 +2583,231 @@ impl Workspace {
                 )
                 .into_any_element();
         }
-        let content =
-            div()
-                .id("modal-body")
-                .track_focus(&self.ui.modal_focus)
-                .flex()
-                .flex_col()
-                .w(px(if self.ui.settings { 700. } else { 580. }))
-                .max_h(px(650.).min(available_height))
-                .p_3()
-                .gap_2()
-                .rounded(px(12.))
-                .bg(self.bg())
-                .border_1()
-                .border_color(self.border())
-                .shadow_lg()
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .capture_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
-                    if !this.command_open && !this.ui.quick_open {
-                        return;
+        let content = div()
+            .id("modal-body")
+            .track_focus(&self.ui.modal_focus)
+            .flex()
+            .flex_col()
+            .w(px(if self.ui.settings { 700. } else { 580. }))
+            .max_h(px(650.).min(available_height))
+            .p_3()
+            .gap_2()
+            .rounded(px(12.))
+            .bg(self.bg())
+            .border_1()
+            .border_color(self.border())
+            .shadow_lg()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
+                if !this.command_open && !this.ui.quick_open {
+                    return;
+                }
+                let key = event.keystroke.key.as_str();
+                let n = if this.command_open {
+                    this.filtered_commands(cx).len()
+                } else {
+                    this.visible_search_hits(true, cx).len()
+                };
+                if key == "down" || key == "up" {
+                    if n > 0 {
+                        this.ui.selected = if key == "down" {
+                            (this.ui.selected + 1).min(n - 1)
+                        } else {
+                            this.ui.selected.saturating_sub(1)
+                        };
                     }
-                    let key = event.keystroke.key.as_str();
-                    let n = if this.command_open {
-                        this.filtered_commands(cx).len()
+                    this.ui.modal_scroll.scroll_to_item(this.ui.selected);
+                    cx.stop_propagation();
+                    cx.notify();
+                } else if key == "enter" {
+                    if this.command_open {
+                        if let Some((id, _, _)) =
+                            this.filtered_commands(cx).get(this.ui.selected).copied()
+                        {
+                            this.execute_command(id, w, cx);
+                        }
                     } else {
-                        this.visible_search_hits(true, cx).len()
-                    };
-                    if key == "down" || key == "up" {
-                        if n > 0 {
-                            this.ui.selected = if key == "down" {
-                                (this.ui.selected + 1).min(n - 1)
-                            } else {
-                                this.ui.selected.saturating_sub(1)
-                            };
-                        }
-                        this.ui.modal_scroll.scroll_to_item(this.ui.selected);
-                        cx.stop_propagation();
-                        cx.notify();
-                    } else if key == "enter" {
-                        if this.command_open {
-                            if let Some((id, _, _)) =
-                                this.filtered_commands(cx).get(this.ui.selected).copied()
-                            {
-                                this.execute_command(id, w, cx);
-                            }
-                        } else {
-                            this.open_selected_result(w, cx);
-                        }
-                        cx.stop_propagation();
+                        this.open_selected_result(w, cx);
                     }
-                }))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .pb_1()
-                        .child(if self.command_open {
-                            "命令面板"
-                        } else if self.ui.quick_open {
-                            if self.ui.template_mode {
-                                "插入模板"
-                            } else {
-                                "快速切换"
-                            }
-                        } else if self.ui.property_open {
-                            "编辑属性"
-                        } else if self.ui.link_update.is_some() {
-                            "更新内部链接"
-                        } else if self.ui.settings {
-                            "设置"
-                        } else if self.ui.trash_open {
-                            "文件恢复"
+                    cx.stop_propagation();
+                }
+            }))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .pb_1()
+                    .child(if self.command_open {
+                        "命令面板"
+                    } else if self.ui.quick_open {
+                        if self.ui.template_mode {
+                            "插入模板"
                         } else {
-                            match self.ui.name_mode {
-                                Some(NameMode::Rename) => "重命名或移动文件",
-                                Some(NameMode::Folder) => "新建文件夹",
-                                Some(NameMode::RenameFolder) => "重命名文件夹",
-                                _ => "新建笔记",
-                            }
-                        })
-                        .child(
-                            tool("close-modal", "x", "关闭 Esc")
-                                .on_click(cx.listener(|this, _, w, cx| this.close_overlays(w, cx))),
-                        ),
-                )
-                .when(self.command_open, |s| {
-                    s.child(Input::new(&self.ui.command)).child(
-                        div()
-                            .id("commands-list")
-                            .track_scroll(&self.ui.modal_scroll)
-                            .overflow_y_scroll()
-                            .max_h(px(450.))
-                            .children(self.filtered_commands(cx).into_iter().enumerate().map(
-                                |(i, (id, label, _))| {
-                                    div()
-                                        .id(("command", id))
-                                        .flex()
-                                        .justify_between()
-                                        .p_2()
-                                        .rounded(px(4.))
-                                        .cursor_pointer()
-                                        .when(self.ui.selected == i, |s| s.bg(rgba(0x88888822)))
-                                        .hover(|s| s.bg(rgba(0x88888822)))
-                                        .child(label)
-                                        .child(
-                                            div()
-                                                .text_color(rgb(0x888888))
-                                                .child(self.hotkey_label(id)),
-                                        )
-                                        .on_click(cx.listener(move |this, _, w, cx| {
-                                            this.execute_command(id, w, cx)
-                                        }))
-                                },
-                            )),
-                    )
-                })
-                .when(self.ui.quick_open, |s| {
-                    s.child(Input::new(&self.search)).child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .min_h_0()
-                            .overflow_hidden()
-                            .h(px(360.).min((available_height - px(100.)).max(px(40.))))
-                            .child(self.search_list(true, cx)),
-                    )
-                })
-                .when(self.ui.name_mode.is_some(), |s| {
-                    s.child(Input::new(&self.name))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(0x999999))
-                                .child("使用 / 指定文件夹路径，Enter 确认"),
-                        )
-                        .child(
-                            Button::new("submit-name")
-                                .primary()
-                                .label("确认")
-                                .on_click(cx.listener(|this, _, w, cx| this.submit_name(w, cx))),
-                        )
-                })
-                .when(self.ui.property_open, |s| {
-                    s.child(Input::new(&self.ui.property_key))
-                        .child(self.property_type_control(cx))
-                        .child(Input::new(&self.ui.property_value))
-                        .child(
-                            Button::new("save-property")
-                                .primary()
-                                .label("保存属性")
-                                .on_click(cx.listener(|this, _, w, cx| this.save_property(w, cx))),
-                        )
-                        .when(self.ui.property_original.is_some(), |s| {
-                            s.child(Button::new("delete-property").label("删除属性").on_click(
-                                cx.listener(|this, _, w, cx| this.delete_property(w, cx)),
-                            ))
-                        })
-                })
-                .when(self.ui.settings, |s| s.child(self.settings_panel(cx)))
-                .when(self.ui.trash_open, |s| {
-                    s.child(
-                        div()
-                            .id("trash-items")
-                            .max_h(px(450.))
-                            .overflow_y_scroll()
-                            .child(
+                            "快速切换"
+                        }
+                    } else if self.ui.property_open {
+                        "编辑属性"
+                    } else if self.ui.link_update.is_some() {
+                        "更新内部链接"
+                    } else if self.ui.settings {
+                        "设置"
+                    } else if self.ui.trash_open {
+                        "文件恢复"
+                    } else {
+                        match self.ui.name_mode {
+                            Some(NameMode::Rename) => "重命名或移动文件",
+                            Some(NameMode::Folder) => "新建文件夹",
+                            Some(NameMode::RenameFolder) => "重命名文件夹",
+                            _ => "新建笔记",
+                        }
+                    })
+                    .child(
+                        tool("close-modal", "x", "关闭 Esc")
+                            .on_click(cx.listener(|this, _, w, cx| this.close_overlays(w, cx))),
+                    ),
+            )
+            .when(self.command_open, |s| {
+                s.child(Input::new(&self.ui.command)).child(
+                    div()
+                        .id("commands-list")
+                        .track_scroll(&self.ui.modal_scroll)
+                        .overflow_y_scroll()
+                        .max_h(px(450.))
+                        .children(self.filtered_commands(cx).into_iter().enumerate().map(
+                            |(i, (id, label, _))| {
                                 div()
-                                    .p_2()
-                                    .text_color(rgb(0x999999))
-                                    .child("回收站 · 恢复到原目录"),
-                            )
-                            .when(self.ui.trash.is_empty(), |s| {
-                                s.child(div().p_2().child("回收站为空"))
-                            })
-                            .children(self.ui.trash.iter().enumerate().map(|(i, e)| {
-                                div()
+                                    .id(("command", id))
                                     .flex()
-                                    .items_center()
+                                    .justify_between()
                                     .p_2()
-                                    .gap_2()
+                                    .rounded(px(4.))
+                                    .cursor_pointer()
+                                    .when(self.ui.selected == i, |s| s.bg(rgba(0x88888822)))
+                                    .hover(|s| s.bg(rgba(0x88888822)))
+                                    .child(label)
                                     .child(
                                         div()
-                                            .flex_1()
-                                            .truncate()
-                                            .child(e.original.to_string_lossy().to_string()),
+                                            .text_color(rgb(0x888888))
+                                            .child(self.hotkey_label(id)),
                                     )
-                                    .child(
-                                        Button::new(("restore-trash", i))
-                                            .compact()
-                                            .label("恢复")
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.restore_deleted(i, cx)
-                                            })),
-                                    )
-                            }))
-                            .child(
-                                div()
-                                    .p_2()
-                                    .text_color(rgb(0x999999))
-                                    .child("未保存草稿 · 恢复为新笔记"),
-                            )
-                            .children(self.recoveries.iter().enumerate().map(|(i, e)| {
-                                Button::new(("restore-draft", i))
-                                    .ghost()
-                                    .label(e.record.relative.to_string_lossy().to_string())
                                     .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.ui.trash_open = false;
-                                        this.restore_draft(i, w, cx);
+                                        this.execute_command(id, w, cx)
                                     }))
-                            })),
+                            },
+                        )),
+                )
+            })
+            .when(self.ui.quick_open, |s| {
+                s.child(Input::new(&self.search)).child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .min_h_0()
+                        .overflow_hidden()
+                        .h(px(360.).min((available_height - px(100.)).max(px(40.))))
+                        .child(self.search_list(true, cx)),
+                )
+            })
+            .when(self.ui.name_mode.is_some(), |s| {
+                s.child(Input::new(&self.name))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x999999))
+                            .child("使用 / 指定文件夹路径，Enter 确认"),
                     )
-                });
+                    .child(
+                        Button::new("submit-name")
+                            .primary()
+                            .label("确认")
+                            .on_click(cx.listener(|this, _, w, cx| this.submit_name(w, cx))),
+                    )
+            })
+            .when(self.ui.property_open, |s| {
+                s.child(Input::new(&self.ui.property_key))
+                    .child(self.property_type_control(cx))
+                    .when(
+                        self.effective_property_kind(cx) != inkstone::properties::Kind::Checkbox,
+                        |s| s.child(Input::new(&self.ui.property_value)),
+                    )
+                    .when(!self.ui.property_error.is_empty(), |s| {
+                        s.child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(0xe87979))
+                                .whitespace_normal()
+                                .child(self.ui.property_error.clone()),
+                        )
+                    })
+                    .child(
+                        Button::new("save-property")
+                            .primary()
+                            .label("保存属性")
+                            .on_click(cx.listener(|this, _, w, cx| this.save_property(w, cx))),
+                    )
+                    .when(self.ui.property_original.is_some(), |s| {
+                        s.child(
+                            Button::new("delete-property").label("删除属性").on_click(
+                                cx.listener(|this, _, w, cx| this.delete_property(w, cx)),
+                            ),
+                        )
+                    })
+            })
+            .when(self.ui.settings, |s| s.child(self.settings_panel(cx)))
+            .when(self.ui.trash_open, |s| {
+                s.child(
+                    div()
+                        .id("trash-items")
+                        .max_h(px(450.))
+                        .overflow_y_scroll()
+                        .child(
+                            div()
+                                .p_2()
+                                .text_color(rgb(0x999999))
+                                .child("回收站 · 恢复到原目录"),
+                        )
+                        .when(self.ui.trash.is_empty(), |s| {
+                            s.child(div().p_2().child("回收站为空"))
+                        })
+                        .children(self.ui.trash.iter().enumerate().map(|(i, e)| {
+                            div()
+                                .flex()
+                                .items_center()
+                                .p_2()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .truncate()
+                                        .child(e.original.to_string_lossy().to_string()),
+                                )
+                                .child(
+                                    Button::new(("restore-trash", i))
+                                        .compact()
+                                        .label("恢复")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.restore_deleted(i, cx)
+                                        })),
+                                )
+                        }))
+                        .child(
+                            div()
+                                .p_2()
+                                .text_color(rgb(0x999999))
+                                .child("未保存草稿 · 恢复为新笔记"),
+                        )
+                        .children(self.recoveries.iter().enumerate().map(|(i, e)| {
+                            Button::new(("restore-draft", i))
+                                .ghost()
+                                .label(e.record.relative.to_string_lossy().to_string())
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    this.ui.trash_open = false;
+                                    this.restore_draft(i, w, cx);
+                                }))
+                        })),
+                )
+            });
         div()
             .absolute()
             .inset_0()
@@ -2789,11 +2826,7 @@ impl Workspace {
             self.ui.property_key.read(cx).value().as_ref(),
             "tags" | "aliases" | "cssclasses"
         );
-        let kind = if reserved {
-            Kind::List
-        } else {
-            self.ui.property_kind
-        };
+        let kind = self.effective_property_kind(cx);
         let weak = cx.entity().downgrade();
         div()
             .flex()
@@ -2817,9 +2850,20 @@ impl Workspace {
                             menu = menu.item(
                                 PopupMenuItem::new(choice.label())
                                     .checked(kind == choice)
-                                    .on_click(move |_, _, cx| {
+                                    .on_click(move |_, w, cx| {
                                         let _ = weak.update(cx, |this, cx| {
                                             this.ui.property_kind = choice;
+                                            this.ui.property_error.clear();
+                                            if choice == Kind::Checkbox {
+                                                this.ui.property_value.update(cx, |s, cx| {
+                                                    s.set_value(
+                                                        (s.value().as_ref() == "true").to_string(),
+                                                        w,
+                                                        cx,
+                                                    )
+                                                });
+                                                w.focus(&this.ui.modal_focus, cx);
+                                            }
                                             cx.notify();
                                         });
                                     }),
@@ -2833,6 +2877,7 @@ impl Workspace {
                     gpui_component::switch::Switch::new("property-checkbox")
                         .checked(self.ui.property_value.read(cx).value().as_ref() == "true")
                         .on_click(cx.listener(|this, checked: &bool, w, cx| {
+                            this.ui.property_error.clear();
                             this.ui
                                 .property_value
                                 .update(cx, |s, cx| s.set_value(checked.to_string(), w, cx));
