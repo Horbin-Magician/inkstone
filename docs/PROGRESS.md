@@ -1,5 +1,7 @@
 # 实现进度
 
+> 本文记录先前 MVP 阶段。新的“按本机 Obsidian 对齐全部基础功能”目标仍在进行中，以 [OBSIDIAN_PARITY.md](OBSIDIAN_PARITY.md) 为当前清单。
+
 ## 当前状态（2026-09-28）
 
 可运行的 Windows 桌面 MVP 已交付。主界面和编辑器使用 Rust + GPUI；依赖及 Cargo.lock 已锁定。39 项自动测试、严格 Clippy 和 Windows release 构建通过，关键原生文件闭环与恢复流程有运行证据。
