@@ -398,6 +398,7 @@ impl Workspace {
                             this.ui.inline_title = None;
                         }
                         let old = this.tabs[index].path.clone();
+                        this.ui.prefs.relocate_paths(&old, &path, false);
                         for item in this
                             .ui
                             .prefs
@@ -411,6 +412,7 @@ impl Workspace {
                             }
                         }
                         this.tabs[index].path = path;
+                        this.persist_workspace(cx);
                         this.sync_reference_contexts(cx);
                         if focus_after && let Some(pane) = this.current_pane() {
                             pane.update(cx, |p, cx| p.focus_view(window, cx));
@@ -2245,6 +2247,7 @@ mod tests {
                     window,
                     cx,
                 );
+                w.ui.prefs.daily.template = "folder/old".into();
                 w.begin_inline_title(0, false, window, cx);
             })
             .unwrap();
@@ -2272,6 +2275,7 @@ mod tests {
                     w.ui.pending_file_writes
                 );
                 assert!(!root.join("folder/old.md").exists());
+                assert_eq!(w.ui.prefs.daily.template, "folder/新名😀");
                 assert_eq!(
                     w.tabs[w.active.unwrap()].path,
                     PathBuf::from("folder/other.md")
@@ -2305,6 +2309,7 @@ mod tests {
                         .as_ref(),
                     "other"
                 );
+                assert_eq!(w.ui.prefs.daily.template, "folder/新名😀");
                 assert_eq!(
                     std::fs::read_to_string(root.join("folder/新名😀.md")).unwrap(),
                     "body"
@@ -2433,6 +2438,9 @@ mod tests {
                 w.vault = Some(vault);
                 w.add_tab("old/note.md".into(), Some(source.into()), false, window, cx);
                 w.ui.prefs.bookmarks.push("old/note.md".into());
+                w.ui.prefs.daily.folder = "old".into();
+                w.ui.prefs.templates.folder = "old".into();
+                w.ui.prefs.daily.template = "old/target".into();
                 w.ui.closed.push("old/target.md".into());
                 w.manage_folder("old".into(), Some("archive/new".into()), window, cx);
                 assert!(w.ui.file_operation);
@@ -2452,6 +2460,9 @@ mod tests {
                     PathBuf::from("archive/new/note.md")
                 );
                 assert_eq!(w.ui.closed[0], PathBuf::from("archive/new/target.md"));
+                assert_eq!(w.ui.prefs.daily.folder, "archive/new");
+                assert_eq!(w.ui.prefs.templates.folder, "archive/new");
+                assert_eq!(w.ui.prefs.daily.template, "archive/new/target");
                 let disk = std::fs::read_to_string(root.join("archive/new/note.md")).unwrap();
                 assert_eq!(disk, "[[/archive/new/target]] [outside](../../outside.md)");
                 assert_eq!(w.tabs[0].baseline.as_ref(), Some(&disk));
