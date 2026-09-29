@@ -825,24 +825,41 @@ impl Workspace {
             self.persist_workspace(cx);
         }
     }
+    fn apply_reopened_tab(
+        &mut self,
+        closed: Option<&ui::ClosedTab>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(closed) = closed {
+            self.apply_reopened_view(Some(&closed.view), window, cx);
+            if let Some(pane) = self.current_pane() {
+                pane.update(cx, |pane, cx| {
+                    pane.navigation = closed.history.clone();
+                    cx.notify();
+                });
+            }
+        }
+    }
+
     fn open_existing_note(
         &mut self,
         index: usize,
-        view: Option<&inkstone::preferences::ViewState>,
+        view: Option<&ui::ClosedTab>,
         force_new: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let Some(view) = view {
             if self.has_pending_input(self.tabs[index].id, window, cx) {
-                self.ui.closed.push(ui::ClosedTab { view: view.clone() });
+                self.ui.remember_closed(view.clone());
                 self.status = "请完成当前编辑后再重新打开标签。".into();
                 cx.notify();
                 return;
             }
             self.views.secondary_focused = false;
-            self.add_tab(view.path.clone(), None, false, window, cx);
-            self.apply_reopened_view(Some(view), window, cx);
+            self.add_tab(view.view.path.clone(), None, false, window, cx);
+            self.apply_reopened_tab(Some(view), window, cx);
         } else if force_new {
             if self.has_pending_input(self.tabs[index].id, window, cx) {
                 self.pending_jump = None;
@@ -861,7 +878,7 @@ impl Workspace {
     fn open_note_with_view(
         &mut self,
         path: PathBuf,
-        view: Option<inkstone::preferences::ViewState>,
+        view: Option<ui::ClosedTab>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -895,7 +912,7 @@ impl Workspace {
     fn open_note_target(
         &mut self,
         path: PathBuf,
-        view: Option<inkstone::preferences::ViewState>,
+        view: Option<ui::ClosedTab>,
         force_new: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -930,6 +947,9 @@ impl Workspace {
             return;
         }
         let Some(vault) = self.vault.clone() else {
+            if let Some(view) = view {
+                self.ui.remember_closed(view);
+            }
             return;
         };
         let generation = self.generation;
@@ -943,6 +963,11 @@ impl Workspace {
                 if this.generation != generation
                     || this.navigation_generation != navigation_generation
                 {
+                    if this.generation == generation
+                        && let Some(view) = view
+                    {
+                        this.ui.remember_closed(view);
+                    }
                     return;
                 }
                 if let Some(i) = this.existing_note_target(&path) {
@@ -951,17 +976,23 @@ impl Workspace {
                 }
                 match result {
                     Ok(Some(text)) => {
-                        if force_new {
+                        if force_new || view.is_some() {
                             this.views.secondary_focused = false;
                         }
                         this.add_tab(path, Some(text), false, window, cx);
-                        this.apply_reopened_view(view.as_ref(), window, cx);
+                        this.apply_reopened_tab(view.as_ref(), window, cx);
                     }
                     Ok(None) => {
+                        if let Some(view) = view {
+                            this.ui.remember_closed(view);
+                        }
                         this.status = "文件已不存在，请刷新目录。".into();
                         cx.notify();
                     }
                     Err(error) => {
+                        if let Some(view) = view {
+                            this.ui.remember_closed(view);
+                        }
                         this.status = error.to_string();
                         cx.notify();
                     }
@@ -1634,7 +1665,10 @@ impl Workspace {
         }
         self.ui.close_pending.remove(&removed.id);
         if !removed.path.as_os_str().is_empty() {
-            self.ui.closed.push(ui::ClosedTab { view: closed_view });
+            self.ui.remember_closed(ui::ClosedTab::new(
+                closed_view,
+                removed.pane.read(cx).navigation.clone(),
+            ));
         }
         self.active = active_id
             .and_then(|id| self.tabs.iter().position(|t| t.id == id))

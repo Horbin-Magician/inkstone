@@ -239,40 +239,56 @@ impl Workspace {
             .map(|tab| tab.pane.clone())
             .chain(self.views.split.iter().map(|split| split.pane.clone()))
             .collect();
-        for pane in panes {
-            pane.update(cx, |pane, _| {
-                let history = &mut pane.navigation;
-                let mut before = 0;
-                let cursor = history.cursor;
-                let mut position = 0;
-                history.entries.retain_mut(|entry| {
-                    let path = &mut entry.path;
-                    let affected = if folder {
-                        path.starts_with(old)
+        let relocate = |history: &mut Navigation| {
+            let mut before = 0;
+            let cursor = history.cursor;
+            let mut position = 0;
+            history.entries.retain_mut(|entry| {
+                let path = &mut entry.path;
+                let affected = if folder {
+                    path.starts_with(old)
+                } else {
+                    path == old
+                };
+                let keep = !affected || new.is_some();
+                if affected && let Some(new) = new {
+                    *path = if folder {
+                        new.join(path.strip_prefix(old).unwrap())
                     } else {
-                        path == old
+                        new.to_owned()
                     };
-                    let keep = !affected || new.is_some();
-                    if affected && let Some(new) = new {
-                        *path = if folder {
-                            new.join(path.strip_prefix(old).unwrap())
-                        } else {
-                            new.to_owned()
-                        };
-                        if let Some(state) = &mut entry.state {
-                            state.path = path.clone();
-                        }
+                    if let Some(state) = &mut entry.state {
+                        state.path = path.clone();
                     }
-                    if position < cursor && !keep {
-                        before += 1;
-                    }
-                    position += 1;
-                    keep
-                });
-                history.cursor = cursor
-                    .saturating_sub(before)
-                    .min(history.entries.len().saturating_sub(1));
+                }
+                if position < cursor && !keep {
+                    before += 1;
+                }
+                position += 1;
+                keep
             });
+            history.cursor = cursor
+                .saturating_sub(before)
+                .min(history.entries.len().saturating_sub(1));
+        };
+        for pane in panes {
+            pane.update(cx, |pane, _| relocate(&mut pane.navigation));
+        }
+        for closed in &mut self.ui.closed {
+            relocate(&mut closed.history);
+            let path = &mut closed.view.path;
+            let affected = if folder {
+                path.starts_with(old)
+            } else {
+                path == old
+            };
+            if affected && let Some(new) = new {
+                *path = if folder {
+                    new.join(path.strip_prefix(old).unwrap())
+                } else {
+                    new.to_owned()
+                };
+            }
         }
         self.navigation_generation += 1;
         self.pending_navigation = None;
@@ -306,6 +322,36 @@ mod tests {
             .unwrap();
     }
 
+    #[gpui::test]
+    fn closed_history_keeps_the_ten_most_recent_views(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                for index in 0..12 {
+                    w.add_tab(
+                        format!("{index}.md").into(),
+                        Some("note".into()),
+                        false,
+                        window,
+                        cx,
+                    );
+                    w.close_tab(window, cx);
+                }
+                assert_eq!(w.ui.closed.len(), 10);
+                assert_eq!(w.ui.closed[0].view.path, PathBuf::from("2.md"));
+                assert_eq!(
+                    w.ui.closed.last().unwrap().view.path,
+                    PathBuf::from("11.md")
+                );
+                assert_eq!(
+                    w.ui.closed[0].history.entries[0].path,
+                    PathBuf::from("2.md")
+                );
+            })
+            .unwrap();
+    }
+
     fn fixture(name: &str) -> PathBuf {
         let root =
             std::env::temp_dir().join(format!("inkstone-navigation-{name}-{}", std::process::id()));
@@ -314,6 +360,123 @@ mod tests {
             std::fs::write(root.join(path), text).unwrap();
         }
         root
+    }
+
+    #[gpui::test]
+    fn reopening_keeps_forward_history_positions_and_renamed_targets(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = fixture("reopen");
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                w.current_pane()
+                    .unwrap()
+                    .read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.set_selected_range(1..1, cx));
+                w.open_note("b.md".into(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.current_pane().unwrap().update(cx, |p, cx| {
+                    p.reading = true;
+                    p.editor.update(cx, |s, cx| s.set_selected_range(1..1, cx));
+                });
+                w.execute_command(20, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.close_tab(window, cx);
+                assert!(w.tabs.is_empty());
+                assert_eq!(w.ui.closed[0].history.cursor, 0);
+                assert_eq!(w.ui.closed[0].history.entries.len(), 2);
+                std::fs::rename(root.join("b.md"), root.join("renamed.md")).unwrap();
+                w.relocate_navigation(
+                    std::path::Path::new("b.md"),
+                    Some(std::path::Path::new("renamed.md")),
+                    false,
+                    cx,
+                );
+                assert_eq!(
+                    w.ui.closed[0].history.entries[1]
+                        .state
+                        .as_ref()
+                        .unwrap()
+                        .path,
+                    PathBuf::from("renamed.md")
+                );
+                w.execute_command(17, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let pane = w.current_pane().unwrap();
+                assert_eq!(pane.read(cx).navigation.entries.len(), 2);
+                assert_eq!(pane.read(cx).navigation.cursor, 0);
+                assert_eq!(pane.read(cx).editor.read(cx).selected_range(), 1..1);
+                w.execute_command(21, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.tabs[0].path, PathBuf::from("renamed.md"));
+                let pane = w.current_pane().unwrap();
+                assert!(pane.read(cx).reading);
+                assert_eq!(pane.read(cx).editor.read(cx).selected_range(), 1..1);
+                assert_eq!(pane.read(cx).navigation.cursor, 1);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn unsuccessful_reopening_retains_the_closed_record(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = fixture("reopen-cancel");
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.ui.closed.push("missing.md".into());
+                w.execute_command(17, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.ui.closed.len(), 1);
+                w.ui.closed.push("b.md".into());
+                w.execute_command(17, window, cx);
+                w.open_note("c.md".into(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.ui.closed.len(), 2);
+                assert_eq!(w.tabs[0].path, PathBuf::from("c.md"));
+                w.execute_command(17, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.ui.closed.len(), 1);
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("b.md"));
+                assert_eq!(
+                    w.current_pane().unwrap().read(cx).navigation.entries.len(),
+                    1
+                );
+            })
+            .unwrap();
     }
 
     #[gpui::test]
@@ -615,6 +778,15 @@ mod tests {
                 );
                 assert_eq!(w.current_pane().unwrap().read(cx).navigation.cursor, 1);
                 assert_eq!(main.read(cx).navigation.cursor, 1);
+                w.close_split(window, cx);
+                assert_eq!(w.ui.closed.last().unwrap().history.entries.len(), 3);
+                w.execute_command(17, window, cx);
+                assert_eq!(
+                    w.current_pane().unwrap().read(cx).navigation.entries.len(),
+                    3
+                );
+                assert_eq!(w.current_pane().unwrap().read(cx).navigation.cursor, 1);
+                assert_eq!(main.read(cx).navigation.entries.len(), 2);
             })
             .unwrap();
         cx.run_until_parked();
