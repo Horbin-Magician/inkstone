@@ -539,6 +539,213 @@ pub(super) fn setting_switch(id: impl Into<ElementId>) -> gpui_component::switch
     gpui_component::switch::Switch::new(id).large()
 }
 
+#[derive(Clone, Copy)]
+enum EditorSetting {
+    InlineTitle,
+    ReadableWidth,
+    StrictBreaks,
+    FoldHeadings,
+    FoldIndentation,
+    LineNumbers,
+    IndentGuides,
+    PairBrackets,
+    PairMarkdown,
+    SmartLists,
+    UseTabs,
+}
+
+impl Workspace {
+    fn settings_row(
+        &self,
+        name: &str,
+        description: &str,
+        control: impl IntoElement,
+        divider: bool,
+        padding: f32,
+    ) -> AnyElement {
+        div()
+            .flex()
+            .items_start()
+            .gap_4()
+            .flex_shrink_0()
+            .py(px(padding))
+            .relative()
+            .when(divider, |row| {
+                row.child(
+                    div()
+                        .absolute()
+                        .top(px(-1.))
+                        .left_0()
+                        .right_0()
+                        .h(px(1.))
+                        .bg(self.border()),
+                )
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .line_height(px(16.9))
+                            .child(name.to_string()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .line_height(px(15.6))
+                            .text_color(rgb(if self.ui.prefs.light {
+                                0x5c5c5c
+                            } else {
+                                0xb3b3b3
+                            }))
+                            .child(description.to_string()),
+                    ),
+            )
+            .child(div().flex_shrink_0().child(control))
+            .into_any_element()
+    }
+
+    fn settings_group(&self, title: &str, rows: Vec<AnyElement>) -> AnyElement {
+        div()
+            .w_full()
+            .flex_shrink_0()
+            .max_w(px(700.))
+            .mx_auto()
+            .mt_4()
+            .child(
+                div()
+                    .px_4()
+                    .mb_3()
+                    .text_size(px(15.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title.to_string()),
+            )
+            .child(
+                div()
+                    .px_5()
+                    .flex()
+                    .flex_col()
+                    .rounded(px(12.))
+                    .bg(rgb(if self.ui.prefs.light {
+                        0xfafafa
+                    } else {
+                        0x232323
+                    }))
+                    .children(rows),
+            )
+            .into_any_element()
+    }
+
+    fn editor_setting_row(
+        &self,
+        setting: EditorSetting,
+        divider: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use EditorSetting::*;
+        let p = &self.ui.prefs;
+        let (id, name, description, checked) = match setting {
+            InlineTitle => (
+                "inline-title-setting",
+                "页面内标题",
+                "在正文上方显示可编辑的文件名。",
+                p.show_inline_title,
+            ),
+            ReadableWidth => (
+                "width-setting",
+                "限制行宽",
+                "限制正文行宽，让较长的段落更易阅读。",
+                p.readable_width,
+            ),
+            StrictBreaks => (
+                "strict-line-breaks",
+                "严格换行",
+                "按 Markdown 标准处理换行，阅读视图中的单个换行符不另起一行。",
+                p.strict_line_breaks,
+            ),
+            FoldHeadings => (
+                "fold-headings-setting",
+                "折叠标题",
+                "允许将章节正文折叠到标题行。",
+                p.fold_headings,
+            ),
+            FoldIndentation => (
+                "fold-indentation-setting",
+                "折叠缩进",
+                "允许折叠列表等缩进内容。",
+                p.fold_indentation,
+            ),
+            LineNumbers => (
+                "line-number-setting",
+                "行号",
+                "在编辑区左侧显示行号。",
+                p.line_numbers,
+            ),
+            IndentGuides => (
+                "indent-guides-setting",
+                "缩进参考线",
+                "在缩进行之间显示参考线。",
+                p.show_indent_guides,
+            ),
+            PairBrackets => (
+                "pair-brackets",
+                "自动补全英文标点符号",
+                "输入英文括号或引号时补齐另一侧。",
+                p.auto_pair_brackets,
+            ),
+            PairMarkdown => (
+                "pair-markdown",
+                "自动补全 Markdown 语法",
+                "输入强调和代码标记时自动配对。",
+                p.auto_pair_markdown,
+            ),
+            SmartLists => (
+                "smart-lists-setting",
+                "智能列表",
+                "换行时延续列表，并调整有序列表编号。",
+                p.smart_lists,
+            ),
+            UseTabs => (
+                "use-tabs-setting",
+                "使用制表符",
+                "开启后使用制表符缩进，关闭后使用空格。",
+                p.use_tabs,
+            ),
+        };
+        let control = setting_switch(id)
+            .accessibility_label(name)
+            .checked(checked)
+            .on_click(cx.listener(move |this, enabled: &bool, window, cx| {
+                let p = &mut this.ui.prefs;
+                match setting {
+                    InlineTitle => p.show_inline_title = *enabled,
+                    ReadableWidth => p.readable_width = *enabled,
+                    StrictBreaks => p.strict_line_breaks = *enabled,
+                    FoldHeadings => p.fold_headings = *enabled,
+                    FoldIndentation => p.fold_indentation = *enabled,
+                    LineNumbers => p.line_numbers = *enabled,
+                    IndentGuides => p.show_indent_guides = *enabled,
+                    PairBrackets => p.auto_pair_brackets = *enabled,
+                    PairMarkdown => p.auto_pair_markdown = *enabled,
+                    SmartLists => p.smart_lists = *enabled,
+                    UseTabs => p.use_tabs = *enabled,
+                }
+                if matches!(setting, InlineTitle) {
+                    this.persist_workspace(cx);
+                    cx.notify();
+                } else {
+                    this.apply_editor_preferences(window, cx);
+                }
+            }));
+        self.settings_row(name, description, control, divider, 20.)
+    }
+}
+
 fn icon(name: &str) -> Icon {
     let shape = match name {
         "x" => Some("M6 6l12 12M18 6 6 18"),
@@ -3972,20 +4179,41 @@ impl Workspace {
                 }
                 menu
             });
-        let numbers = setting_switch("line-number-setting")
-            .accessibility_label("显示行号")
-            .checked(self.ui.prefs.line_numbers)
-            .on_click(cx.listener(|this, enabled: &bool, w, cx| {
-                this.ui.prefs.line_numbers = *enabled;
-                this.apply_editor_preferences(w, cx);
-            }));
-        let width = setting_switch("width-setting")
-            .accessibility_label("缩减栏宽")
-            .checked(self.ui.prefs.readable_width)
-            .on_click(cx.listener(|this, enabled: &bool, w, cx| {
-                this.ui.prefs.readable_width = *enabled;
-                this.apply_editor_preferences(w, cx);
-            }));
+        let display = [
+            EditorSetting::InlineTitle,
+            EditorSetting::ReadableWidth,
+            EditorSetting::StrictBreaks,
+            EditorSetting::FoldHeadings,
+            EditorSetting::FoldIndentation,
+            EditorSetting::LineNumbers,
+            EditorSetting::IndentGuides,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, setting)| self.editor_setting_row(setting, i > 0, cx))
+        .collect();
+        let mut behavior: Vec<_> = [
+            EditorSetting::PairBrackets,
+            EditorSetting::PairMarkdown,
+            EditorSetting::SmartLists,
+            EditorSetting::UseTabs,
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(i, setting)| self.editor_setting_row(setting, i > 0, cx))
+        .collect();
+        behavior.push(self.settings_row(
+            &format!("制表符宽度  {}", self.ui.prefs.tab_size),
+            "设置制表符对应的空格数。",
+            div().w(px(160.)).child(Slider::new(&self.ui.tab_width)),
+            true,
+            20.,
+        ));
+        let card = rgb(if self.ui.prefs.light {
+            0xfafafa
+        } else {
+            0x232323
+        });
         div()
             .flex()
             .gap_4()
@@ -4002,203 +4230,47 @@ impl Workspace {
                     .min_h_0()
                     .h_full()
                     .flex_1()
-                    .p_3()
+                    .min_w_0()
+                    .px(px(32.))
+                    .py_3()
                     .flex()
                     .flex_col()
-                    .gap_4()
+                    .gap_2()
                     .child(
                         div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("新标签页默认视图")
-                            .child(default_view),
+                            .text_size(px(15.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .mb_3()
+                            .child("编辑器"),
                     )
                     .child(
                         div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("默认编辑模式")
-                            .child(editing_mode),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("显示行号")
-                            .child(numbers),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("缩减栏宽")
-                            .child(width),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("严格换行")
-                            .child(
-                                setting_switch("strict-line-breaks")
-                                    .accessibility_label("严格换行")
-                                    .checked(self.ui.prefs.strict_line_breaks)
-                                    .on_click(cx.listener(|this, enabled: &bool, window, cx| {
-                                        this.ui.prefs.strict_line_breaks = *enabled;
-                                        this.apply_editor_preferences(window, cx);
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("显示页内标题")
-                            .child(
-                                setting_switch("inline-title-setting")
-                                    .accessibility_label("显示页内标题")
-                                    .checked(self.ui.prefs.show_inline_title)
-                                    .on_click(cx.listener(|this, enabled: &bool, _, cx| {
-                                        this.ui.prefs.show_inline_title = *enabled;
-                                        this.persist_workspace(cx);
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("使用制表符")
-                            .child(
-                                setting_switch("use-tabs-setting")
-                                    .accessibility_label("使用制表符")
-                                    .checked(self.ui.prefs.use_tabs)
-                                    .on_click(cx.listener(|this, enabled: &bool, window, cx| {
-                                        this.ui.prefs.use_tabs = *enabled;
-                                        this.apply_editor_preferences(window, cx);
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("显示缩进参考线")
-                            .child(
-                                setting_switch("indent-guides-setting")
-                                    .accessibility_label("显示缩进参考线")
-                                    .checked(self.ui.prefs.show_indent_guides)
-                                    .on_click(cx.listener(|this, enabled: &bool, window, cx| {
-                                        this.ui.prefs.show_indent_guides = *enabled;
-                                        this.apply_editor_preferences(window, cx);
-                                    })),
-                            ),
-                    )
-                    .children(
-                        [
-                            (true, "自动补全括号", self.ui.prefs.auto_pair_brackets),
-                            (
+                            .px_4()
+                            .rounded(px(12.))
+                            .bg(card)
+                            .child(self.settings_row(
+                                "新标签页的默认视图",
+                                "选择新标签页使用编辑视图还是阅读视图。",
+                                default_view,
                                 false,
-                                "自动补全 Markdown 标记",
-                                self.ui.prefs.auto_pair_markdown,
-                            ),
-                        ]
-                        .into_iter()
-                        .map(|(brackets, label, enabled)| {
-                            div()
-                                .flex()
-                                .justify_between()
-                                .items_center()
-                                .child(label)
-                                .child(
-                                    setting_switch(if brackets {
-                                        "pair-brackets"
-                                    } else {
-                                        "pair-markdown"
-                                    })
-                                    .accessibility_label(label)
-                                    .checked(enabled)
-                                    .on_click(cx.listener(
-                                        move |this, enabled: &bool, window, cx| {
-                                            if brackets {
-                                                this.ui.prefs.auto_pair_brackets = *enabled;
-                                            } else {
-                                                this.ui.prefs.auto_pair_markdown = *enabled;
-                                            }
-                                            this.apply_editor_preferences(window, cx);
-                                        },
-                                    )),
-                                )
-                        }),
+                                16.,
+                            )),
                     )
                     .child(
                         div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child(format!("制表符宽度  {}", self.ui.prefs.tab_size))
-                            .child(div().w(px(160.)).child(Slider::new(&self.ui.tab_width))),
+                            .px_4()
+                            .rounded(px(12.))
+                            .bg(card)
+                            .child(self.settings_row(
+                                "默认编辑模式",
+                                "选择编辑视图默认使用实时预览还是源码模式。",
+                                editing_mode,
+                                false,
+                                16.,
+                            )),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("智能列表")
-                            .child(
-                                setting_switch("smart-lists-setting")
-                                    .accessibility_label("智能列表")
-                                    .checked(self.ui.prefs.smart_lists)
-                                    .on_click(cx.listener(|this, enabled: &bool, window, cx| {
-                                        this.ui.prefs.smart_lists = *enabled;
-                                        this.apply_editor_preferences(window, cx);
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div().flex().flex_col().gap_4().children(
-                            [
-                                (true, "折叠标题", self.ui.prefs.fold_headings),
-                                (false, "折叠缩进", self.ui.prefs.fold_indentation),
-                            ]
-                            .into_iter()
-                            .map(|(heading, label, enabled)| {
-                                div()
-                                    .flex()
-                                    .justify_between()
-                                    .items_center()
-                                    .child(label)
-                                    .child(
-                                        setting_switch(if heading {
-                                            "fold-headings-setting"
-                                        } else {
-                                            "fold-indentation-setting"
-                                        })
-                                        .accessibility_label(label)
-                                        .checked(enabled)
-                                        .on_click(
-                                            cx.listener(move |this, enabled: &bool, window, cx| {
-                                                if heading {
-                                                    this.ui.prefs.fold_headings = *enabled;
-                                                } else {
-                                                    this.ui.prefs.fold_indentation = *enabled;
-                                                }
-                                                this.apply_editor_preferences(window, cx);
-                                            }),
-                                        ),
-                                    )
-                            }),
-                        ),
-                    )
+                    .child(self.settings_group("显示", display))
+                    .child(self.settings_group("行为", behavior))
                     .child(
                         Button::new("settings-recovery")
                             .ghost()
