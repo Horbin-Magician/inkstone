@@ -40,9 +40,13 @@ impl Workspace {
         };
         if self.tabs[index].path == path {
             history.visit(path);
+            let restored = history.current_state().cloned();
             pane.update(cx, |p, _| {
                 p.navigation = history;
             });
+            if let Some(state) = &restored {
+                Self::restore_view_state(&pane, state, cx);
+            }
             self.activate_tab(index, window, cx);
             self.apply_jump(window, cx);
             return;
@@ -360,6 +364,96 @@ mod tests {
             std::fs::write(root.join(path), text).unwrap();
         }
         root
+    }
+
+    #[gpui::test]
+    fn history_menu_selects_older_visit_and_restores_same_file_position(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = fixture("menu");
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                w.current_pane()
+                    .unwrap()
+                    .read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.set_selected_range(1..1, cx));
+                w.open_note("b.md".into(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.open_note("a.md".into(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let position = visual.debug_bounds("main-history-back").unwrap().center();
+        visual.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
+        visual.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("down down enter");
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                let pane = w.current_pane().unwrap();
+                assert_eq!(w.tabs[0].path, PathBuf::from("a.md"));
+                assert_eq!(pane.read(cx).navigation.cursor, 0);
+                assert_eq!(pane.read(cx).navigation.entries.len(), 3);
+                assert_eq!(pane.read(cx).editor.read(cx).selected_range(), 1..1);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let position = visual
+            .debug_bounds("main-history-forward")
+            .unwrap()
+            .center();
+        visual.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
+        visual.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("down enter");
+        visual.run_until_parked();
+        let main = handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(w.tabs[0].path, PathBuf::from("b.md"));
+                assert_eq!(w.current_pane().unwrap().read(cx).navigation.cursor, 1);
+                let main = w.current_pane().unwrap();
+                w.split_active(true, window, cx);
+                w.open_note("c.md".into(), window, cx);
+                main
+            })
+            .unwrap();
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.focus_primary(w.main_tab().unwrap(), window, cx);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let position = visual
+            .debug_bounds("secondary-history-back")
+            .unwrap()
+            .center();
+        visual.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
+        visual.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("down enter");
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert!(w.views.secondary_focused);
+                assert_eq!(
+                    w.current_pane().unwrap().read(cx).current_path,
+                    PathBuf::from("b.md")
+                );
+                assert_ne!(w.current_pane().unwrap(), main);
+                assert_eq!(main.read(cx).navigation.cursor, 1);
+                assert_eq!(w.current_pane().unwrap().read(cx).navigation.cursor, 1);
+            })
+            .unwrap();
     }
 
     #[gpui::test]

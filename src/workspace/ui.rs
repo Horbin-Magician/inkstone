@@ -1175,21 +1175,159 @@ impl Workspace {
         cx.notify();
     }
     fn navigate(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.current_pane().is_none() {
+        let Some(pane) = self.current_pane() else {
+            return;
+        };
+        let cursor = pane.read(cx).navigation.cursor;
+        let target = if forward {
+            cursor.checked_add(1)
+        } else {
+            cursor.checked_sub(1)
+        };
+        if let Some(target) = target {
+            self.navigate_to(target, window, cx);
+        }
+    }
+
+    pub(super) fn navigate_to(
+        &mut self,
+        target: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut history = self.navigation_with_current_state(cx);
+        if target == history.cursor {
             return;
         }
-        let mut history = self.navigation_with_current_state(cx);
-        let path = if forward {
-            history.forward()
-        } else {
-            history.back()
+        let Some(entry) = history.entries.get(target) else {
+            return;
         };
-        if let Some(path) = path {
-            self.navigation_generation += 1;
-            self.pending_navigation = None;
-            self.pending_jump = None;
-            self.open_current_note(path, history, window, cx);
+        let path = entry.path.clone();
+        history.cursor = target;
+        self.navigation_generation += 1;
+        self.pending_navigation = None;
+        self.pending_jump = None;
+        self.open_current_note(path, history, window, cx);
+    }
+
+    fn focus_navigation_pane(
+        &mut self,
+        pane: &Entity<EditorPane>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self
+            .views
+            .split
+            .as_ref()
+            .is_some_and(|split| split.pane == *pane)
+        {
+            self.focus_secondary(cx);
+            true
+        } else if let Some(index) = self.tabs.iter().position(|tab| tab.pane == *pane) {
+            self.focus_primary(index, window, cx);
+            true
+        } else {
+            false
         }
+    }
+
+    fn navigation_button(
+        &self,
+        pane: Option<Entity<EditorPane>>,
+        forward: bool,
+        secondary: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let entries: Vec<_> = pane
+            .as_ref()
+            .map(|pane| {
+                let history = &pane.read(cx).navigation;
+                let mut entries: Vec<_> = history
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| {
+                        if forward {
+                            *index > history.cursor
+                        } else {
+                            *index < history.cursor
+                        }
+                    })
+                    .map(|(index, entry)| (index, entry.path.clone()))
+                    .collect();
+                if !forward {
+                    entries.reverse();
+                }
+                entries
+            })
+            .unwrap_or_default();
+        let disabled = entries.is_empty();
+        let cursor = pane.as_ref().map(|pane| pane.read(cx).navigation.cursor);
+        let click_pane = pane.clone();
+        let (id, name, tip) = if forward {
+            ("forward", "arrow-right", "前进 Alt+Right")
+        } else {
+            ("back", "arrow-left", "返回 Alt+Left")
+        };
+        let button = div()
+            .id(("navigation-button", usize::from(forward)))
+            .debug_selector(move || {
+                format!(
+                    "{}-history-{id}",
+                    if secondary { "secondary" } else { "main" }
+                )
+            })
+            .child(tool(id, name, tip).disabled(disabled).on_click(cx.listener(
+                move |this, _, window, cx| {
+                    if let Some(pane) = &click_pane
+                        && this.focus_navigation_pane(pane, window, cx)
+                    {
+                        this.navigate(forward, window, cx);
+                    }
+                },
+            )));
+        if disabled {
+            return button.into_any_element();
+        }
+        let weak = cx.entity().downgrade();
+        button
+            .context_menu(move |mut menu, _, _| {
+                for (target, path) in &entries {
+                    let target = *target;
+                    let path = path.clone();
+                    let label: String = path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .chars()
+                        .take(50)
+                        .collect();
+                    let weak = weak.clone();
+                    let pane = pane.clone();
+                    menu = menu.item(PopupMenuItem::new(label).icon(icon("file")).on_click(
+                        move |_, window, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                let Some(pane) = &pane else { return };
+                                let history = &pane.read(cx).navigation;
+                                if Some(history.cursor) != cursor
+                                    || history
+                                        .entries
+                                        .get(target)
+                                        .is_none_or(|entry| entry.path != path)
+                                {
+                                    return;
+                                }
+                                if this.focus_navigation_pane(pane, window, cx) {
+                                    this.navigate_to(target, window, cx);
+                                }
+                            });
+                        },
+                    ));
+                }
+                menu
+            })
+            .into_any_element()
     }
     fn cycle_tab(&mut self, backwards: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.tabs.is_empty() {
@@ -3430,36 +3568,8 @@ impl Workspace {
                         .h(px(40.))
                         .px_3()
                         .gap_1()
-                        .child(
-                            tool("back", "arrow-left", "返回 Alt+Left")
-                                .disabled(
-                                    pane.as_ref()
-                                        .is_none_or(|p| p.read(cx).navigation.cursor == 0),
-                                )
-                                .on_click(cx.listener(move |this, _, w, cx| {
-                                    if secondary {
-                                        this.focus_secondary(cx);
-                                    } else if let Some(index) = index {
-                                        this.focus_primary(index, w, cx);
-                                    }
-                                    this.navigate(false, w, cx)
-                                })),
-                        )
-                        .child(
-                            tool("forward", "arrow-right", "前进 Alt+Right")
-                                .disabled(pane.as_ref().is_none_or(|p| {
-                                    let history = &p.read(cx).navigation;
-                                    history.cursor + 1 >= history.entries.len()
-                                }))
-                                .on_click(cx.listener(move |this, _, w, cx| {
-                                    if secondary {
-                                        this.focus_secondary(cx);
-                                    } else if let Some(index) = index {
-                                        this.focus_primary(index, w, cx);
-                                    }
-                                    this.navigate(true, w, cx)
-                                })),
-                        )
+                        .child(self.navigation_button(pane.clone(), false, secondary, cx))
+                        .child(self.navigation_button(pane.clone(), true, secondary, cx))
                         .child(
                             div()
                                 .flex_1()
