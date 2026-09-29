@@ -555,7 +555,7 @@ enum EditorSetting {
 }
 
 impl Workspace {
-    fn settings_row(
+    pub(super) fn settings_row(
         &self,
         name: &str,
         description: &str,
@@ -610,7 +610,7 @@ impl Workspace {
             .into_any_element()
     }
 
-    fn settings_group(&self, title: &str, rows: Vec<AnyElement>) -> AnyElement {
+    pub(super) fn settings_group(&self, title: &str, rows: Vec<AnyElement>) -> AnyElement {
         div()
             .w_full()
             .flex_shrink_0()
@@ -4238,7 +4238,7 @@ impl Workspace {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(15.))
+                            .text_size(px(13.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .mb_3()
                             .child("编辑器"),
