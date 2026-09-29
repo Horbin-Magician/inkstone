@@ -1752,6 +1752,58 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn split_unmark_commits_and_saves_without_an_additional_text_edit(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-split-unmark-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        let editor = handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                let editor = w.views.split.as_ref().unwrap().pane.read(cx).editor.clone();
+                editor.update(cx, |s, cx| {
+                    s.set_selected_range(6..6, cx);
+                    s.replace_and_mark_text_in_range(None, "你", Some(1..1), window, cx);
+                });
+                w.save_all(window, cx);
+                editor
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "原文");
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.tabs[0].pane.read(cx).editor.read(cx).value(), "原文");
+                editor.update(cx, |s, cx| s.unmark_text(window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.tabs[0].pane.read(cx).editor.read(cx).value(), "原文你");
+                assert!(w.tabs[0].dirty);
+                w.save_all(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.md")).unwrap(),
+            "原文你"
+        );
+        handle
+            .update(cx, |w, window, cx| {
+                let owner = w.tabs[0].pane.read(cx).editor.clone();
+                owner.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        editor.read_with(cx, |s, _| assert_eq!(s.value(), "原文"));
+    }
+    #[gpui::test]
     fn split_undo_groups_continuous_typing_but_keeps_paste_separate(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
