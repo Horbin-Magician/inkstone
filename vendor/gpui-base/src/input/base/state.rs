@@ -4221,7 +4221,38 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                 if let Some(intent) = requested_intent {
                     self.undo_manager.set_pending_intent(intent);
                 }
-                if let Some((open_len, closer)) = self.auto_close_target(&range, new_text) {
+                let surround = if !range.is_empty()
+                    && range == self.selected_range()
+                    && !self.silent_replace_text
+                    && self.ime_marked_range.is_none()
+                    && self.mode.is_auto_close()
+                    && new_text.chars().count() == 1
+                {
+                    self.mode.language_config().and_then(|rules| {
+                        if !rules.surround_selection {
+                            return None;
+                        }
+                        rules
+                            .closing_pairs()
+                            .find(|(open, _, _)| *open == new_text)
+                            .map(|(_, close, _)| close.to_string())
+                    })
+                } else {
+                    None
+                };
+                if let Some(closer) = surround {
+                    let selected = self.text.slice(range.clone()).to_string();
+                    let replacement = format!("{new_text}{selected}{closer}");
+                    self.replace_text_in_ranges(&[(range.clone(), replacement)], window, cx);
+                    self.set_selected_range(
+                        range.start + new_text.len()..range.end + new_text.len(),
+                        cx,
+                    );
+                    self.undo_manager.record_selections(
+                        vec![selection_before],
+                        self.selections.iter().copied().collect(),
+                    );
+                } else if let Some((open_len, closer)) = self.auto_close_target(&range, new_text) {
                     // One edit keeps the pair atomic even at undo coalescing limits.
                     let replacement = format!("{new_text}{closer}");
                     self.replace_text_in_ranges(&[(range.clone(), replacement)], window, cx);
@@ -10302,6 +10333,18 @@ impl InputBaseState<crate::input::EditorMode> {
             *highlighter.borrow_mut() = None;
         }
         self
+    }
+
+    /// Override editing rules for this editor without changing highlighting or other editors.
+    pub fn set_editing_rules(
+        &mut self,
+        config: Option<crate::input::LanguageConfig>,
+        cx: &mut Context<Self>,
+    ) {
+        if let LayoutMode::CodeEditor { language, .. } = &mut self.mode {
+            language.set_config_override(config);
+        }
+        cx.notify();
     }
 
     /// The current language name, e.g. `"rust"`.

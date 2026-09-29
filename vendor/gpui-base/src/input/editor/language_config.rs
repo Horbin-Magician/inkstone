@@ -83,6 +83,8 @@ pub struct LanguageConfig {
     /// Automatic insertion is allowed before these characters, whitespace, or EOF.
     pub auto_close_before: SharedString,
     pub indentation_rules: Option<IndentationRules>,
+    /// Preserve and select the original text when typing a configured opener over a selection.
+    pub surround_selection: bool,
 }
 
 impl Default for LanguageConfig {
@@ -112,11 +114,16 @@ impl Default for LanguageConfig {
             auto_closing_pairs: Some(pairs),
             auto_close_before: ";:.,=}])>".into(),
             indentation_rules: None,
+            surround_selection: false,
         }
     }
 }
 
 impl LanguageConfig {
+    pub fn surround_selection(mut self, enabled: bool) -> Self {
+        self.surround_selection = enabled;
+        self
+    }
     pub fn brackets(mut self, pairs: impl IntoIterator<Item = BracketPair>) -> Self {
         self.brackets = pairs.into_iter().collect();
         self

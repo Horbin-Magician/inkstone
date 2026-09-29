@@ -677,6 +677,7 @@ impl Workspace {
                 pane.font_size = p.font_size;
                 pane.readable_width = p.readable_width;
                 pane.light = p.light;
+                pane.set_auto_pairing(p.auto_pair_brackets, p.auto_pair_markdown, cx);
                 pane.indentation = gpui_base::input::TabSize {
                     tab_size: p.tab_size.clamp(2, 8),
                     hard_tabs: p.use_tabs,
@@ -3900,6 +3901,43 @@ impl Workspace {
                                         this.apply_editor_preferences(window, cx);
                                     })),
                             ),
+                    )
+                    .children(
+                        [
+                            (true, "自动补全括号", self.ui.prefs.auto_pair_brackets),
+                            (
+                                false,
+                                "自动补全 Markdown 标记",
+                                self.ui.prefs.auto_pair_markdown,
+                            ),
+                        ]
+                        .into_iter()
+                        .map(|(brackets, label, enabled)| {
+                            div()
+                                .flex()
+                                .justify_between()
+                                .items_center()
+                                .child(label)
+                                .child(
+                                    gpui_component::switch::Switch::new(if brackets {
+                                        "pair-brackets"
+                                    } else {
+                                        "pair-markdown"
+                                    })
+                                    .accessibility_label(label)
+                                    .checked(enabled)
+                                    .on_click(cx.listener(
+                                        move |this, enabled: &bool, window, cx| {
+                                            if brackets {
+                                                this.ui.prefs.auto_pair_brackets = *enabled;
+                                            } else {
+                                                this.ui.prefs.auto_pair_markdown = *enabled;
+                                            }
+                                            this.apply_editor_preferences(window, cx);
+                                        },
+                                    )),
+                                )
+                        }),
                     )
                     .child(
                         div()
