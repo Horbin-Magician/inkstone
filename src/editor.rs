@@ -2533,6 +2533,56 @@ mod tests {
     }
 
     #[gpui::test]
+    fn multiple_carets_delete_pairs_together_and_restore_carets_on_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (source, offset, enabled, select, deleted, inserted) in [
+            ("中()\n文[]", 4, true, false, "中\n文", "中(x)\n文[x]"),
+            ("()\nab", 1, true, false, ")\nb", "(x)\naxb"),
+            ("()\n[]", 1, false, false, ")\n]", "(x)\n[x]"),
+            ("**\n__", 1, true, false, "\n", "*x*\n_x_"),
+            ("()\n[]", 1, true, true, ")\n]", "x)\nx]"),
+            ("\\()\n ()", 2, true, false, "\\)\n )", "\\(x)\n (x)"),
+        ] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            let editor = handle
+                .update(cx, |p, w, cx| {
+                    p.set_auto_pairing(enabled, enabled, cx);
+                    p.editor.update(cx, |s, cx| {
+                        s.set_selected_range(offset..offset, cx);
+                        s.focus(w, cx);
+                    });
+                    p.editor.clone()
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.simulate_keystrokes("ctrl-alt-down");
+            if select {
+                visual.simulate_keystrokes("shift-left");
+            }
+            visual.simulate_keystrokes("backspace");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), deleted, "{source}");
+                assert!(s.has_multiple_selections());
+            });
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| assert_eq!(s.value(), source));
+            visual.simulate_keystrokes("ctrl-y");
+            editor.read_with(&visual, |s, _| assert_eq!(s.value(), deleted));
+            visual.simulate_keystrokes("ctrl-z");
+            handle
+                .update(&mut visual, |_, w, cx| {
+                    editor.update(cx, |s, cx| {
+                        assert!(s.has_multiple_selections());
+                        s.replace_text_in_range(None, "x", w, cx);
+                        assert_eq!(s.value(), inserted);
+                    });
+                })
+                .unwrap();
+        }
+    }
+
+    #[gpui::test]
     fn pair_tracking_expires_when_keyboard_navigation_leaves_the_line(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(|w, cx| EditorPane::new("\nnext", w, cx));
