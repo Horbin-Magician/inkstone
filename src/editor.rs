@@ -855,28 +855,37 @@ impl EditorPane {
         let styles = if !self.live {
             Some(vec![])
         } else if self.typography_ready {
+            let heading_lines: std::collections::BTreeMap<_, _> = self
+                .spans
+                .iter()
+                .filter(|span| span.kind == Kind::Heading)
+                .map(|span| (span.source.start, span.heading_line_anchors(&text)))
+                .collect();
             Some(
                 self.parsed
                     .headings
                     .iter()
-                    .filter_map(|heading| {
-                        let raw = text.get(heading.offset..)?;
-                        let length = raw
-                            .bytes()
-                            .take_while(|b| matches!(b, b'#' | b' ' | b'\t'))
-                            .count();
-                        let length = if length == 0 {
-                            raw.chars().next()?.len_utf8()
-                        } else {
-                            length
-                        };
+                    .flat_map(|heading| {
+                        let anchors =
+                            heading_lines
+                                .get(&heading.offset)
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    text.get(heading.offset..)
+                                        .and_then(|raw| raw.chars().next())
+                                        .map(|ch| heading.offset..heading.offset + ch.len_utf8())
+                                        .into_iter()
+                                        .collect()
+                                });
                         let i = usize::from(heading.level.saturating_sub(1)).min(5);
                         let scale = markdown::HEADING_SCALES[i];
-                        Some(gpui_base::input::LineTypography::new(
-                            heading.offset..heading.offset + length,
-                            scale,
-                            scale * [1.2, 1.2, 1.3, 1.4, 1.5, 1.5][i] / 1.5,
-                        ))
+                        anchors.into_iter().map(move |anchor| {
+                            gpui_base::input::LineTypography::new(
+                                anchor,
+                                scale,
+                                scale * [1.2, 1.2, 1.3, 1.4, 1.5, 1.5][i] / 1.5,
+                            )
+                        })
                     })
                     .collect(),
             )
@@ -3840,6 +3849,53 @@ mod tests {
                 p.update_presentation(cx);
                 assert!(p.editor.read(cx).concealed_lines().is_empty());
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+    #[gpui::test]
+    fn multiline_setext_content_uses_uniform_heading_metrics(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "MMMM\r\nMMMM\r\n===\r\n\r\nMMMM";
+        let second = source.find('\n').unwrap() + 1;
+        let body = source.rfind("MMMM").unwrap();
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, _, cx| {
+                p.editor
+                    .update(cx, |s, cx| s.set_selected_range(body..body, cx));
+                p.update_presentation(cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..4 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |p, _, cx| {
+                let state = p.editor.read(cx);
+                let first = state.range_to_bounds(&(0..4)).unwrap();
+                let next = state.range_to_bounds(&(second..second + 4)).unwrap();
+                let paragraph = state.range_to_bounds(&(body..body + 4)).unwrap();
+                assert_eq!(first.size.width, next.size.width);
+                assert_eq!(first.size.height, next.size.height);
+                assert!(next.size.width > paragraph.size.width * 1.5);
+                assert_eq!(state.concealed_lines(), &[2]);
+                assert_eq!(state.value().as_ref(), source);
+                p.live = false;
+                p.update_presentation(cx);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |p, _, cx| {
+                let state = p.editor.read(cx);
+                let first = state.range_to_bounds(&(0..4)).unwrap();
+                let next = state.range_to_bounds(&(second..second + 4)).unwrap();
+                let paragraph = state.range_to_bounds(&(body..body + 4)).unwrap();
+                assert_eq!(first.size, next.size);
+                assert_eq!(next.size, paragraph.size);
+                assert!(state.concealed_lines().is_empty());
             })
             .unwrap();
     }

@@ -23,6 +23,34 @@ pub struct Span {
     pub markers: Vec<Range<usize>>,
 }
 impl Span {
+    /// Stable source prefixes for every logical line of a heading's content.
+    pub fn heading_line_anchors(&self, text: &str) -> Vec<Range<usize>> {
+        if self.kind != Kind::Heading {
+            return vec![];
+        }
+        let Some(raw) = text.get(self.source.start..self.content.end) else {
+            return vec![];
+        };
+        let mut start = self.source.start;
+        raw.split_inclusive('\n')
+            .filter_map(|line| {
+                let offset = start;
+                start += line.len();
+                let line = line.trim_end_matches(['\r', '\n']);
+                let prefix = line
+                    .bytes()
+                    .take_while(|b| matches!(b, b'#' | b' ' | b'\t'))
+                    .count();
+                let length = if prefix > 0 {
+                    prefix
+                } else {
+                    line.chars().next()?.len_utf8()
+                };
+                Some(offset..offset + length)
+            })
+            .collect()
+    }
+
     /// Start of a Setext underline's source line, including container prefixes.
     pub fn setext_line(&self, text: &str) -> Option<usize> {
         if self.kind != Kind::Heading {
@@ -420,6 +448,38 @@ mod tests {
                     .all(|span| span.setext_line(source).is_none())
             );
         }
+    }
+    #[test]
+    fn heading_line_anchors_cover_content_but_not_setext_underlines() {
+        for source in [
+            "中文\n第二行\n===",
+            "中文\r\n第二行\r\n---",
+            "> 中文\n> 第二行\n> ===",
+            "- 中文\n  第二行\n  ---",
+        ] {
+            let heading = spans(source)
+                .into_iter()
+                .find(|span| span.kind == Kind::Heading)
+                .unwrap();
+            let anchors = heading.heading_line_anchors(source);
+            assert_eq!(anchors.len(), 2);
+            assert_eq!(anchors[0].start, heading.source.start);
+            assert_eq!(anchors[1].start, source.find('\n').unwrap() + 1);
+            assert!(
+                anchors
+                    .iter()
+                    .all(|anchor| source.is_char_boundary(anchor.end)
+                        && !source[anchor.clone()].contains(['\r', '\n']))
+            );
+        }
+        let heading = spans("### 中文")
+            .into_iter()
+            .find(|span| span.kind == Kind::Heading)
+            .unwrap();
+        assert_eq!(
+            heading.heading_line_anchors("### 中文"),
+            std::iter::once(0..4).collect::<Vec<_>>()
+        );
     }
     #[test]
     fn highlight_handles_nested_formatting_and_escaped_openers() {
