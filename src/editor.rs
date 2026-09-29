@@ -2533,6 +2533,84 @@ mod tests {
     }
 
     #[gpui::test]
+    fn selected_code_after_double_backticks_gets_fence_line_breaks(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (source, range, expected, selected) in [
+            ("``中文``", 2..8, "```\n中文\n```", 4..10),
+            ("``\n中文\n``", 2..10, "```\n中文\n```", 3..11),
+            (
+                "> ``中文``\r\n",
+                4..10,
+                "> ```\r\n> 中文\r\n> ```\r\n",
+                9..15,
+            ),
+            ("``\r\n中文\r\n``", 2..12, "```\r\n中文\r\n```", 3..13),
+        ] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            let editor = handle
+                .update(cx, |p, w, cx| {
+                    p.set_auto_pairing(true, true, cx);
+                    p.editor.update(cx, |s, cx| {
+                        s.set_selected_range(range.clone(), cx);
+                        s.focus(w, cx);
+                        s.replace_text_in_range(None, "`", w, cx);
+                        assert_eq!(s.value(), expected);
+                        assert_eq!(s.selected_range(), selected);
+                    });
+                    p.editor.clone()
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), source);
+                assert_eq!(s.selected_range(), range);
+            });
+            visual.simulate_keystrokes("ctrl-y");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), expected);
+                assert_eq!(s.selected_range(), selected);
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn multiple_selected_code_ranges_become_fences_and_keep_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "``中``\n``文``";
+        let expected = "```\n中\n```\n```\n文\n```";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.set_auto_pairing(true, true, cx);
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(2..2, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-alt-down shift-right");
+        handle
+            .update(&mut visual, |_, w, cx| {
+                editor.update(cx, |s, cx| {
+                    s.replace_text_in_range(None, "`", w, cx);
+                    assert_eq!(s.value(), expected);
+                    assert!(s.has_multiple_selections());
+                    s.replace_text_in_range(None, "x", w, cx);
+                    assert_eq!(s.value(), "```\nx\n```\n```\nx\n```");
+                });
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), expected));
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), source));
+    }
+
+    #[gpui::test]
     fn multiple_carets_pair_symmetric_markers_and_code_fences(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for (source, offset, typed, paired, inserted) in [

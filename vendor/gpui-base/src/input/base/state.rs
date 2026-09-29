@@ -2140,13 +2140,29 @@ impl<M: InputModeKind> InputBaseState<M> {
             } else {
                 String::new()
             };
-            let replacement = format!("{typed}{body}{closer}");
-            selection.start = start + typed.len();
+            let fence_padding = if typed == "`" && self.text_before_matches(range.start, "``") {
+                self.auto_close_padding(range.start, "```")
+            } else {
+                String::new()
+            };
+            let opening_padding = if body.starts_with('\n') || body.starts_with("\r\n") {
+                ""
+            } else {
+                fence_padding.as_str()
+            };
+            let closing_padding = if body.ends_with('\n') {
+                ""
+            } else {
+                fence_padding.as_str()
+            };
+            let replacement = format!("{typed}{opening_padding}{body}{closing_padding}{closer}");
+            selection.start = start + typed.len() + opening_padding.len();
             selection.end = selection.start + body.len();
             selection.column_anchor = None;
+            let close_start = selection.end + closing_padding.len();
             pairs.push((
-                start..selection.start,
-                selection.end..selection.end + closer.len(),
+                start..start + typed.len(),
+                close_start..close_start + closer.len(),
             ));
             delta += replacement.len() as isize - range.len() as isize;
             edits.push((range, replacement));
