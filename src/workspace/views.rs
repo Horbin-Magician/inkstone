@@ -52,9 +52,13 @@ impl Workspace {
             return;
         };
         let state = Self::snapshot_view(path.clone(), &pane, cx);
+        let history = self.navigation_with_current_state(cx);
         self.views.secondary_focused = false;
         self.add_tab(path, None, false, window, cx);
         self.apply_reopened_view(Some(&state), window, cx);
+        if let Some(pane) = self.current_pane() {
+            pane.update(cx, |pane, _| pane.navigation = history);
+        }
         cx.notify();
     }
 

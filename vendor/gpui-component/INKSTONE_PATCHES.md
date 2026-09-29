@@ -13,3 +13,5 @@ Completion placement uses window coordinates with an 8px edge margin. It chooses
 `src/title_bar.rs` allows the title-bar content region to shrink below its intrinsic width. The window controls remain non-shrinking, so a host's scrollable tabs cannot push minimize/maximize/close outside the window.
 
 `src/switch.rs` gives `Size::Large` a 40×22 track and an 18px thumb with the existing 2px inset, matching the reference modal controls. Small and medium sizes retain their existing dimensions. Inkstone selects the large size for its settings and property dialogs.
+
+`src/menu/popup_menu.rs` forwards the actual mouse `ClickEvent` to both standard and custom item callbacks, preserving modifiers and position. Keyboard confirmation retains its existing default event. History-menu Ctrl-click depends on this information to navigate in a copied view. Menu item elements expose stable debug selectors for the mouse-event regression.
