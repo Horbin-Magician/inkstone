@@ -353,11 +353,19 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.views.secondary_focused {
+            self.navigation_generation += 1;
+            self.pending_navigation = None;
+        }
         self.views.secondary_focused = false;
         self.views.main = self.tabs.get(index).map(|t| t.id);
         self.activate_tab(index, window, cx);
     }
     pub(super) fn focus_secondary(&mut self, cx: &mut Context<Self>) {
+        if !self.views.secondary_focused {
+            self.navigation_generation += 1;
+            self.pending_navigation = None;
+        }
         if let Some(split) = &self.views.split {
             self.active = self.tabs.iter().position(|t| t.id == split.source);
             self.views.secondary_focused = true;
@@ -411,8 +419,16 @@ impl Workspace {
         let prefs = self.ui.prefs.clone();
         let paths = self.link_paths_for(&tab.path);
         let text_font = self.resolved_font(&prefs.text_font, "Microsoft YaHei UI");
+        let mut navigation = self
+            .views
+            .split
+            .as_ref()
+            .map(|split| split.pane.read(cx).navigation.clone())
+            .unwrap_or_else(|| original.navigation.clone());
+        navigation.visit(tab.path.clone());
         let pane = cx.new(|cx| {
             let mut p = EditorPane::new(&text, window, cx);
+            p.navigation = navigation;
             p.reading = reading;
             p.live = live;
             p.image_dir = image_dir;

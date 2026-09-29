@@ -324,7 +324,6 @@ impl Workspace {
                             &mut this.ui.prefs.bookmarks,
                             &mut this.ui.prefs.pinned_paths,
                             &mut this.ui.prefs.expanded_folders,
-                            &mut this.ui.history.entries,
                         ] {
                             paths.retain_mut(|path| {
                                 if let Ok(suffix) = path.strip_prefix(&old) {
@@ -347,11 +346,7 @@ impl Workspace {
                             }
                             true
                         });
-                        this.ui.history.cursor = this
-                            .ui
-                            .history
-                            .cursor
-                            .min(this.ui.history.entries.len().saturating_sub(1));
+                        this.relocate_navigation(&old, new.as_deref(), true, cx);
                         this.active = active
                             .and_then(|id| this.tabs.iter().position(|t| t.id == id))
                             .or_else(|| (!this.tabs.is_empty()).then_some(0));
