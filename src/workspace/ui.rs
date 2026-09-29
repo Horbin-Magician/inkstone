@@ -661,6 +661,11 @@ impl Workspace {
         self.persist_workspace(cx);
         cx.notify();
     }
+    pub(super) fn set_default_view(&mut self, reading: bool, cx: &mut Context<Self>) {
+        self.ui.prefs.default_reading = reading;
+        self.persist_workspace(cx);
+        cx.notify();
+    }
     pub(super) fn set_default_editing_mode(&mut self, live: bool, cx: &mut Context<Self>) {
         self.ui.prefs.default_live_preview = live;
         let mut panes: Vec<_> = self.tabs.iter().map(|tab| tab.pane.clone()).collect();
@@ -3659,6 +3664,28 @@ impl Workspace {
         if self.ui.settings_tab == 1 {
             return self.hotkey_settings_panel(cx);
         }
+        let reading = self.ui.prefs.default_reading;
+        let weak = cx.entity().downgrade();
+        let default_view = Button::new("default-view-mode")
+            .label(if reading {
+                "阅读视图"
+            } else {
+                "编辑视图"
+            })
+            .dropdown_menu(move |mut menu, _, _| {
+                for (value, label) in [(false, "编辑视图"), (true, "阅读视图")] {
+                    let weak = weak.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(label)
+                            .checked(reading == value)
+                            .on_click(move |_, _, cx| {
+                                let _ =
+                                    weak.update(cx, |this, cx| this.set_default_view(value, cx));
+                            }),
+                    );
+                }
+                menu
+            });
         let live = self.ui.prefs.default_live_preview;
         let weak = cx.entity().downgrade();
         let editing_mode = Button::new("default-editing-mode")
@@ -3743,6 +3770,14 @@ impl Workspace {
                             .items_center()
                             .child("默认编辑模式")
                             .child(editing_mode),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("新标签页默认视图")
+                            .child(default_view),
                     )
                     .child(
                         div()

@@ -828,6 +828,7 @@ impl Workspace {
         let pane = cx.new(|cx| {
             let mut pane = EditorPane::new(baseline.as_deref().unwrap_or(""), window, cx);
             pane.live = self.ui.prefs.default_live_preview;
+            pane.reading = self.ui.prefs.default_reading && !new && !path.as_os_str().is_empty();
             pane
         });
         pane.update(cx, |pane, _| pane.set_paths(self.link_paths_for(&path)));
@@ -1731,6 +1732,43 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn default_view_applies_to_opened_notes_but_preserves_new_and_restored_views(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("# A".into()), false, window, cx);
+                let a = w.current_pane().unwrap();
+                w.set_default_view(true, cx);
+                assert!(!a.read(cx).reading);
+                w.add_tab("b.md".into(), Some("# B".into()), false, window, cx);
+                let b = w.current_pane().unwrap();
+                assert!(b.read(cx).reading);
+                w.split_active(false, window, cx);
+                assert!(w.views.split.as_ref().unwrap().pane.read(cx).reading);
+                w.set_default_view(false, cx);
+                assert!(b.read(cx).reading);
+                assert!(w.views.split.as_ref().unwrap().pane.read(cx).reading);
+                w.set_default_view(true, cx);
+                Workspace::restore_view_state(
+                    &b,
+                    &inkstone::preferences::ViewState {
+                        reading: false,
+                        ..Default::default()
+                    },
+                    cx,
+                );
+                assert!(!b.read(cx).reading);
+                w.add_tab("new.md".into(), None, true, window, cx);
+                assert!(!w.current_pane().unwrap().read(cx).reading);
+                assert_eq!(a.read(cx).editor.read(cx).value().as_ref(), "# A");
+                assert_eq!(b.read(cx).editor.read(cx).value().as_ref(), "# B");
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn default_editing_mode_updates_open_views_and_preserves_reading_state(
         cx: &mut TestAppContext,
