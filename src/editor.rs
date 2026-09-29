@@ -1702,6 +1702,32 @@ mod tests {
     }
 
     #[gpui::test]
+    fn enter_after_soft_list_continuation_resumes_marker_and_undoes_once(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("- 中文", w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(8..8, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("shift-enter");
+        visual.simulate_input("续行");
+        visual.simulate_keystrokes("enter");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "- 中文\n  续行\n- ");
+            assert_eq!(s.selected_range(), 20..20);
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "- 中文\n  续行"));
+    }
+
+    #[gpui::test]
     fn reading_soft_breaks_follow_strict_setting_without_changing_source(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "第一行\r\n第二行\n\nhard  \nbreak";

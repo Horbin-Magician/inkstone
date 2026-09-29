@@ -467,6 +467,38 @@ fn literal_ranges(text: &str) -> Vec<Range<usize>> {
     ranges
 }
 
+fn continuation_prefix<'a>(text: &'a str, start: usize, line: &'a str) -> Option<Prefix<'a>> {
+    let direct = prefix(line);
+    if direct.as_ref().is_some_and(|p| !p.marker.is_empty()) {
+        return direct;
+    }
+    let width = line
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t' | '>'))
+        .map_or(line.len(), |(i, _)| i);
+    if width > 0 {
+        for previous in text[..start].lines().rev() {
+            if let Some(p) = prefix(previous) {
+                if p.end == width && !p.marker.is_empty() {
+                    return Some(p);
+                }
+                if p.end < width {
+                    break;
+                }
+            } else {
+                let indent = previous
+                    .bytes()
+                    .take_while(|b| matches!(b, b' ' | b'\t'))
+                    .count();
+                if indent < width {
+                    break;
+                }
+            }
+        }
+    }
+    direct
+}
+
 fn outdent(indent: &str, width: usize) -> &str {
     if let Some(rest) = indent.strip_prefix('\t') {
         rest
@@ -523,7 +555,11 @@ pub fn edit_with_options(
         .find('\n')
         .map_or(text.len(), |i| selection.start + i);
     let line = text[start..end].trim_end_matches('\r');
-    let p = prefix(line)?;
+    let p = if matches!(key, Key::Enter) {
+        continuation_prefix(text, start, line)
+    } else {
+        prefix(line)
+    }?;
     // Ordinary Backspace within list text must not parse the document.
     match key {
         Key::Backspace if !selection.is_empty() || selection.start != start + p.end => return None,
@@ -609,16 +645,24 @@ pub fn edit_with_options(
             } else {
                 "\n"
             };
-            let edit = after(
-                selection,
-                format!(
-                    "{newline}{}{}{marker}{}{}",
-                    p.quote,
-                    p.indent,
-                    p.gap,
-                    if p.task { "[ ] " } else { "" }
-                ),
-            );
+            let tail = prefix(&line[selection.end - start..]).filter(|p| !p.marker.is_empty());
+            let edit = if let Some(tail) = tail {
+                after(
+                    selection.start..selection.end + tail.quote.len() + tail.indent.len(),
+                    format!("{newline}{}{}", p.quote, p.indent),
+                )
+            } else {
+                after(
+                    selection,
+                    format!(
+                        "{newline}{}{}{marker}{}{}",
+                        p.quote,
+                        p.indent,
+                        p.gap,
+                        if p.task { "[ ] " } else { "" }
+                    ),
+                )
+            };
             Some(if smart_lists && p.marker.ends_with(['.', ')']) {
                 renumber::following_items(text, edit)
             } else {
@@ -654,6 +698,34 @@ pub fn edit_with_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn enter_recovers_list_markers_from_continuations_and_reuses_existing_markers() {
+        assert_eq!(
+            press("- first\n  continuation|", Key::Enter),
+            "- first\n  continuation\n- |"
+        );
+        assert_eq!(
+            press("1. first\n   more\n   text|\n2. next", Key::Enter),
+            "1. first\n   more\n   text\n2. |\n3. next"
+        );
+        assert_eq!(
+            press("> - [x] first\n>       text|", Key::Enter),
+            "> - [x] first\n>       text\n> - [ ] |"
+        );
+        assert_eq!(press("- first|  - next", Key::Enter), "- first\n|- next");
+        assert_eq!(
+            press("> - first|> - next", Key::Enter),
+            "> - first\n> |- next"
+        );
+        assert_eq!(
+            press("- first\n\n  text|", Key::Enter),
+            "- first\n\n  text|"
+        );
+        assert_eq!(
+            press("```\n- first\n  text|\n```", Key::Enter),
+            "```\n- first\n  text|\n```"
+        );
+    }
     #[test]
     fn indentation_handles_paragraphs_quotes_mixed_whitespace_and_selection_edges() {
         assert_eq!(press("中|文", Key::Indent), "    中|文");
