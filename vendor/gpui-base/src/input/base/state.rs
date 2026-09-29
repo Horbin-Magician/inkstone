@@ -2449,6 +2449,138 @@ impl<M: InputModeKind> InputBaseState<M> {
             })
     }
 
+    /// Delete logical line blocks touched by selections as one undoable edit.
+    pub fn delete_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.is_editable() || !self.is_multi_line() || self.ime_marked_range.is_some() {
+            return;
+        }
+        let before: Vec<_> = self.selections.iter().copied().collect();
+        let mut groups: Vec<_> = before
+            .iter()
+            .map(|selection| {
+                let start = self.text.offset_to_point(selection.start).row;
+                let mut end = self.text.offset_to_point(selection.end).row;
+                if !selection.is_empty()
+                    && end > start
+                    && selection.end == self.text.line_start_offset(end)
+                {
+                    end -= 1;
+                }
+                start..end + 1
+            })
+            .collect();
+        groups.sort_by_key(|group| group.start);
+        let mut merged: Vec<Range<usize>> = Vec::new();
+        for group in groups {
+            if let Some(last) = merged.last_mut().filter(|last| group.start <= last.end) {
+                last.end = last.end.max(group.end);
+            } else {
+                merged.push(group);
+            }
+        }
+        let content_end = |row| {
+            let end = self.text.line_end_offset(row);
+            if self.text.chars_at(end).reversed().next() == Some('\r') {
+                end.saturating_sub(1)
+            } else {
+                end
+            }
+        };
+        let edits: Vec<_> = merged
+            .into_iter()
+            .map(|group| {
+                let start = if group.start > 0 {
+                    content_end(group.start - 1)
+                } else {
+                    0
+                };
+                let end = if group.start == 0 {
+                    self.text.line_start_offset(group.end)
+                } else {
+                    content_end(group.end - 1)
+                };
+                (start..end, String::new())
+            })
+            .filter(|(range, _)| !range.is_empty())
+            .collect();
+        if edits.is_empty() {
+            return;
+        }
+        let targets: Vec<_> = before
+            .iter()
+            .map(|selection| {
+                let head = selection.cursor_offset();
+                let row = self.text.offset_to_point(head).row;
+                if self.last_layout.is_none() {
+                    let next = (row + 1).min(self.text.lines_len().saturating_sub(1));
+                    return self.cursor_boundary(
+                        (self.text.line_start_offset(next) + head
+                            - self.text.line_start_offset(row))
+                        .min(content_end(next)),
+                        Bias::Left,
+                    );
+                }
+                let affinity = self.line_end_affinity_for(selection);
+                let wrap = self
+                    .display_map
+                    .offset_to_wrap_display_point_with_affinity(head, affinity);
+                let display = self
+                    .display_map
+                    .wrap_row_to_display_row(wrap.row)
+                    .unwrap_or_else(|| self.display_map.nearest_visible_display_row(wrap.row));
+                let end = self
+                    .display_map
+                    .buffer_line_to_display_row_range(row)
+                    .map_or(display + 1, |rows| rows.end);
+                let target = self
+                    .vertical_target(
+                        head,
+                        selection.column_anchor,
+                        affinity,
+                        end.saturating_sub(display).max(1) as isize,
+                    )
+                    .0;
+                self.cursor_boundary(target, Bias::Left)
+            })
+            .collect();
+        let map = |offset| {
+            let mut removed = 0;
+            for (range, _) in &edits {
+                if offset <= range.start {
+                    break;
+                }
+                if offset <= range.end {
+                    return range.start - removed;
+                }
+                removed += range.len();
+            }
+            offset - removed
+        };
+        let after: Vec<_> = before
+            .iter()
+            .zip(targets)
+            .map(|(original, target)| {
+                let mut selection = *original;
+                selection.place_at(map(target), None);
+                selection
+            })
+            .collect();
+        self.undo_manager.begin_transaction_with(EditIntent::Atomic);
+        self.undo_manager.set_pending_intent(EditIntent::Atomic);
+        self.undo_manager
+            .record_selections(before.clone(), before.clone());
+        self.replace_text_in_ranges(&edits, window, cx);
+        self.selections.replace_all(after);
+        self.selections.merge_overlapping();
+        self.undo_manager
+            .record_selections(before, self.selections.iter().copied().collect());
+        self.undo_manager.commit_transaction();
+        self.update_preferred_column();
+        self.scroll_to(self.cursor(), None, cx);
+        self.pause_blink_cursor(cx);
+        cx.notify();
+    }
+
     pub(super) fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
         self.delete_selections(
             false,

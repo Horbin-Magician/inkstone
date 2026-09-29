@@ -5,6 +5,10 @@ use gpui_component::button::*;
 impl Workspace {
     fn default_hotkeys(id: usize) -> Vec<String> {
         #[cfg(target_os = "macos")]
+        if id == 95 {
+            return vec!["cmd-shift-k".into()];
+        }
+        #[cfg(target_os = "macos")]
         if (86..=94).contains(&id) {
             return vec![format!("cmd-{}", id - 85)];
         }
@@ -185,7 +189,7 @@ impl Workspace {
             {
                 return;
             }
-            if matches!(id, 79..=84)
+            if matches!(id, 79..=84 | 95)
                 && !self.current_pane().is_some_and(|pane| {
                     let pane = pane.read(cx);
                     !pane.reading && pane.editor.read(cx).focus_handle(cx).is_focused(window)
@@ -390,6 +394,82 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn delete_line_shortcut_preserves_crlf_boundaries_and_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (source, selected, expected, caret) in [
+            ("aa\r\naaaa\r\na", 1..1, "aaaa\r\na", Some(1..1)),
+            ("aa\r\naaaa\r\na", 11..11, "aa\r\naaaa", Some(8..8)),
+            ("aa\r\naaaa\r\na", 0..4, "aaaa\r\na", None),
+            ("中文😀", 3..3, "", Some(0..0)),
+            ("", 0..0, "", Some(0..0)),
+            ("aa\nbb\ncc\ndd", 1..6, "cc\ndd", None),
+        ] {
+            let handle = cx.add_window(Workspace::new);
+            let editor = handle
+                .update(cx, |w, window, cx| {
+                    w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
+                    let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                    editor.update(cx, |s, cx| s.set_selected_range(selected.clone(), cx));
+                    editor
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.simulate_keystrokes("ctrl-shift-k");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), expected);
+                if let Some(caret) = &caret {
+                    assert_eq!(s.selected_range(), *caret);
+                }
+            });
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), source);
+                assert_eq!(s.selected_range(), selected);
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn delete_line_shortcut_handles_disjoint_selections_and_wrapped_lines(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "a\nb\nc\nb\ne";
+        let handle = cx.add_window(Workspace::new);
+        let editor = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                editor.update(cx, |s, cx| s.set_selected_range(2..3, cx));
+                editor
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-shift-l ctrl-shift-k");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "a\nc\ne"));
+        visual.simulate_keystrokes("ctrl-z");
+        handle
+            .update(&mut visual, |_, window, cx| {
+                editor.update(cx, |s, cx| {
+                    assert!(s.has_multiple_selections());
+                    assert_eq!(s.value(), source);
+                    s.replace_text_in_range(None, "X", window, cx);
+                    assert_eq!(s.value(), "a\nX\nc\nX\ne");
+                    s.set_value(format!("{}\nnext\nlast", "中文😀 ".repeat(100)), window, cx);
+                    s.set_selected_range(0..0, cx);
+                });
+            })
+            .unwrap();
+        visual.simulate_resize(size(px(500.), px(500.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-shift-k");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "next\nlast");
+            assert!(s.selected_range().start <= 4);
+        });
+    }
+
     #[gpui::test]
     fn numbered_tab_shortcuts_follow_visible_order_and_custom_bindings(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

@@ -673,6 +673,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (92, "切换到第 7 个标签页", "Ctrl+7"),
     (93, "切换到第 8 个标签页", "Ctrl+8"),
     (94, "切换到最后一个标签页", "Ctrl+9"),
+    (95, "删除当前行", "Ctrl+Shift+K"),
 ];
 
 #[derive(Clone)]
@@ -1371,6 +1372,18 @@ impl Workspace {
                 }
             }
             85 => self.open_current_note_in_new_tab(window, cx),
+            95 => {
+                if let Some(pane) = self.current_pane() {
+                    pane.update(cx, |pane, cx| {
+                        if !pane.reading {
+                            pane.editor.update(cx, |editor, cx| {
+                                editor.delete_lines(window, cx);
+                                editor.focus(window, cx);
+                            });
+                        }
+                    });
+                }
+            }
             86..=94 => {
                 let index = if id == 94 {
                     self.tabs.len().checked_sub(1)
