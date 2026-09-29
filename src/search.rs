@@ -330,6 +330,50 @@ impl Query {
             .filter_map(|pattern| pattern.first_offset(text))
             .min()
     }
+    pub fn title_highlights(
+        &self,
+        path: &Path,
+        text: &str,
+        tags: &[String],
+    ) -> Vec<std::ops::Range<usize>> {
+        let mut ranges = if let Some(expression) = &self.expression {
+            expression.title_highlights(path, text, tags)
+        } else {
+            let label = path.to_string_lossy().replace('\\', "/");
+            let name_start = label.rfind('/').map_or(0, |i| i + 1);
+            let mut ranges = vec![];
+            for group in self
+                .groups
+                .iter()
+                .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
+            {
+                for term in group.iter().filter(|term| !term.exclude) {
+                    let start = match term.field {
+                        Field::Text | Field::File => name_start,
+                        Field::Path => 0,
+                        _ => continue,
+                    };
+                    term.pattern.visit_ranges(&label[start..], |range| {
+                        ranges.push(start + range.start..start + range.end);
+                        true
+                    });
+                }
+            }
+            ranges
+        };
+        ranges.sort_by_key(|range| range.start);
+        let mut merged: Vec<std::ops::Range<usize>> = vec![];
+        for range in ranges {
+            if let Some(last) = merged.last_mut()
+                && last.end >= range.start
+            {
+                last.end = last.end.max(range.end);
+            } else {
+                merged.push(range);
+            }
+        }
+        merged
+    }
     fn patterns<'a>(&'a self, path: &Path, text: &str, tags: &[String]) -> Vec<&'a Pattern> {
         if let Some(expression) = &self.expression {
             return expression.patterns(path, text, tags);

@@ -377,6 +377,7 @@ pub struct SearchHit {
     pub line: usize,
     pub excerpt: String,
     pub highlights: Vec<Range<usize>>,
+    pub title_highlights: Vec<Range<usize>>,
 }
 fn key(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/").to_lowercase()
@@ -744,6 +745,7 @@ impl Index {
                         line: 1,
                         excerpt: String::new(),
                         highlights: vec![],
+                        title_highlights: vec![],
                     },
                 ));
             }
@@ -813,6 +815,7 @@ impl Index {
             )
         });
         for (path, note) in notes {
+            let title_highlights = query.title_highlights(path, &note.text, &note.parsed.tags);
             let before = hits.len();
             for found in
                 query.matching_lines(path, &note.text, &note.parsed.tags, limit - hits.len())
@@ -824,6 +827,7 @@ impl Index {
                     line: found.line,
                     excerpt: note.text[found.range].to_string(),
                     highlights: found.highlights,
+                    title_highlights: title_highlights.clone(),
                 });
             }
             if hits.len() == before {
@@ -845,6 +849,7 @@ impl Index {
                         + 1,
                     excerpt: excerpt(&note.text[start..end], at - start),
                     highlights: vec![],
+                    title_highlights,
                 });
             }
             if hits.len() == limit {
@@ -915,6 +920,28 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn filename_and_path_highlights_follow_successful_query_scopes() {
+        let mut index = Index::default();
+        let path = PathBuf::from("资料/İdea.md");
+        index.update(path.clone(), "body 资料".into());
+        let title = path.to_string_lossy().replace('\\', "/");
+        let basic = index.search("i");
+        assert_eq!(&title[basic[0].title_highlights[0].clone()], "İ");
+        let scoped = index.search("(file:İdea OR path:资料) content:body");
+        assert_eq!(
+            scoped[0]
+                .title_highlights
+                .iter()
+                .map(|range| &title[range.clone()])
+                .collect::<Vec<_>>(),
+            ["资料", "İdea"]
+        );
+        assert!(index.search("content:资料")[0].title_highlights.is_empty());
+        let excluded = index.search("(file:missing OR path:资料) -content:blocked");
+        assert_eq!(excluded[0].title_highlights.len(), 1);
+        assert_eq!(&title[excluded[0].title_highlights[0].clone()], "资料");
+    }
     #[test]
     fn default_search_includes_filename_while_content_scope_excludes_it() {
         let mut index = Index::default();
