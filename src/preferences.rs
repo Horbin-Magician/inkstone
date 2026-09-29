@@ -64,6 +64,7 @@ pub struct Preferences {
     pub left_panel: usize,
     pub right_panel: usize,
     pub search_query: String,
+    pub search_case_sensitive: bool,
     pub left_width: f32,
     pub right_width: f32,
     pub sort_descending: bool,
@@ -106,6 +107,7 @@ impl Default for Preferences {
             left_panel: 0,
             right_panel: 0,
             search_query: String::new(),
+            search_case_sensitive: false,
             left_width: 250.,
             right_width: 260.,
             sort_descending: false,
@@ -304,6 +306,7 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
         prefs.font_size = 23.;
+        prefs.search_case_sensitive = true;
         prefs.tags.hierarchy = false;
         prefs.tags.sort = crate::tags::Sort::NameDescending;
         prefs.tags.collapsed.insert("work".into());
@@ -354,6 +357,7 @@ mod tests {
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 23.);
+        assert!(Preferences::load(&path).search_case_sensitive);
         assert!(!Preferences::load(&path).tags.hierarchy);
         assert_eq!(
             Preferences::load(&path).tags.sort,

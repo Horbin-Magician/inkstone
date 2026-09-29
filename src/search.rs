@@ -4,6 +4,7 @@ use std::path::Path;
 
 enum Pattern {
     Text(String),
+    Exact(String),
     Regex(Regex),
 }
 enum Field {
@@ -20,6 +21,13 @@ struct Term {
 impl Pattern {
     fn visit_offsets(&self, text: &str, mut visit: impl FnMut(usize) -> bool) {
         match self {
+            Self::Exact(needle) => {
+                for (offset, _) in text.match_indices(needle) {
+                    if !visit(offset) {
+                        break;
+                    }
+                }
+            }
             Self::Regex(regex) => {
                 for found in regex.find_iter(text) {
                     if !found.is_empty() && !visit(found.start()) {
@@ -48,12 +56,14 @@ impl Pattern {
     }
     fn matches(&self, text: &str) -> bool {
         match self {
+            Self::Exact(s) => text.contains(s),
             Self::Text(s) => text.to_lowercase().contains(s),
             Self::Regex(r) => r.find_iter(text).any(|found| !found.is_empty()),
         }
     }
     fn first_offset(&self, text: &str) -> Option<usize> {
         match self {
+            Self::Exact(needle) => text.find(needle),
             Self::Regex(regex) => regex
                 .find_iter(text)
                 .find(|found| !found.is_empty())
@@ -83,6 +93,7 @@ impl Term {
                 .pattern
                 .matches(&path.to_string_lossy().replace('\\', "/")),
             Field::Tag => tags.iter().any(|tag| match &self.pattern {
+                Pattern::Exact(s) => tag == s || tag.starts_with(&format!("{s}/")),
                 Pattern::Text(s) => {
                     tag.to_lowercase() == *s || tag.to_lowercase().starts_with(&format!("{s}/"))
                 }
@@ -103,6 +114,9 @@ pub struct LineMatch {
 
 impl Query {
     pub fn parse(input: &str) -> Result<Self, String> {
+        Self::parse_with_case(input, false)
+    }
+    pub fn parse_with_case(input: &str, case_sensitive: bool) -> Result<Self, String> {
         let mut words = vec![];
         let mut current = String::new();
         let mut quote = false;
@@ -166,15 +180,18 @@ impl Query {
             if value.is_empty() {
                 return Err("搜索条件不能为空".into());
             }
+            let term_case_sensitive = case_sensitive && !matches!(field, Field::Tag);
             let pattern = if value.starts_with('/') && value.ends_with('/') && value.len() > 1 {
                 Pattern::Regex(
                     RegexBuilder::new(&value[1..value.len() - 1])
-                        .case_insensitive(true)
+                        .case_insensitive(!term_case_sensitive)
                         .multi_line(true)
                         .size_limit(2 * 1024 * 1024)
                         .build()
                         .map_err(|e| format!("无效的正则表达式：{e}"))?,
                 )
+            } else if term_case_sensitive {
+                Pattern::Exact(value.to_owned())
             } else {
                 Pattern::Text(value.to_lowercase())
             };
@@ -264,6 +281,47 @@ impl Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn case_setting_affects_content_regex_and_paths_but_not_tags() {
+        let path = Path::new("Folder/Note.md");
+        let tags = vec!["Work/Task".into()];
+        assert!(
+            Query::parse("alpha file:note path:folder")
+                .unwrap()
+                .matches(path, "Alpha", &tags)
+        );
+        assert!(
+            !Query::parse_with_case("alpha", true)
+                .unwrap()
+                .matches(path, "Alpha", &tags)
+        );
+        assert!(
+            !Query::parse_with_case("file:note", true)
+                .unwrap()
+                .matches(path, "Alpha", &tags)
+        );
+        assert!(
+            !Query::parse_with_case("path:folder", true)
+                .unwrap()
+                .matches(path, "Alpha", &tags)
+        );
+        assert!(
+            Query::parse_with_case("tag:work", true)
+                .unwrap()
+                .matches(path, "Alpha", &tags)
+        );
+        let regex = Query::parse_with_case("/^Alpha/", true).unwrap();
+        assert_eq!(
+            regex.matching_lines(path, "Alpha\nalpha", &tags, 10).len(),
+            1
+        );
+        assert_eq!(
+            Query::parse_with_case("x", true)
+                .unwrap()
+                .first_offset(path, "İx", &tags),
+            Some("İ".len())
+        );
+    }
     #[test]
     fn line_matching_limit_counts_lines_and_keeps_earliest_across_terms() {
         let text = format!("early İx\n{}\nlate\n", "word ".repeat(300));
