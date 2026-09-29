@@ -3075,6 +3075,19 @@ impl<M: InputModeKind> InputBaseState<M> {
         active.reversed = false;
     }
 
+    /// Markdown-style closing markers expire when navigation leaves the logical line.
+    pub(super) fn expire_pairs_after_navigation(&mut self, previous: usize) {
+        if self
+            .mode
+            .language_config()
+            .is_some_and(|rules| rules.skip_only_generated)
+            && self.text.offset_to_point(previous.min(self.text.len())).row
+                != self.text.offset_to_point(self.cursor()).row
+        {
+            self.mode.restore_auto_closed_pairs(Default::default());
+        }
+    }
+
     /// Visible row range in the last laid-out viewport, `None` before first layout.
     pub fn visible_row_range(&self) -> Option<std::ops::Range<usize>> {
         self.last_layout.as_ref().map(|l| l.visible_range.clone())
@@ -3384,6 +3397,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         line_end_affinity: bool,
         cx: &mut Context<Self>,
     ) {
+        let previous = self.cursor();
         M::clear_inline_completion(self, cx);
 
         self.cursor_line_end_affinity = line_end_affinity;
@@ -3392,6 +3406,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         Self::extend_selection(self.active_selection_mut(), offset, word_range);
         let range = self.normalize_token_range(self.selected_range());
         self.set_selection(range.start, range.end);
+        self.expire_pairs_after_navigation(previous);
 
         if self.active_selection().is_empty() {
             self.update_preferred_column();
@@ -3417,6 +3432,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         preserve_column: bool,
         cx: &mut Context<Self>,
     ) {
+        let previous = self.cursor();
         self.pause_blink_cursor(cx);
         self.undo_manager.break_transaction_coalescing();
         M::clear_inline_completion(self, cx);
@@ -3451,6 +3467,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.cursor_line_end_affinity = active_affinity;
         self.selections.replace_all(new_selections);
         self.selections.merge_overlapping();
+        self.expire_pairs_after_navigation(previous);
 
         self.scroll_to(self.cursor(), None, cx);
         cx.notify()

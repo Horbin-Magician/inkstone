@@ -1583,8 +1583,8 @@ mod tests {
                         let end = expected.len() - 3;
                         s.set_selected_range(end..end, cx);
                         s.replace_text_in_range(None, "`", w, cx);
-                        assert_eq!(s.value(), expected);
-                        assert_eq!(s.selected_range(), expected.len()..expected.len());
+                        assert_eq!(s.value(), format!("{expected}`"));
+                        assert_eq!(s.selected_range(), end + 1..end + 1);
                     });
                 }
                 p.editor.update(cx, |s, cx| {
@@ -1610,6 +1610,47 @@ mod tests {
             .update(&mut visual, |p, _, cx| {
                 assert_eq!(p.editor.read(cx).value(), "before\r\n```\r\n```");
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn pair_tracking_expires_when_keyboard_navigation_leaves_the_line(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("\nnext", w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.set_auto_pairing(true, true, cx);
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(0..0, cx);
+                    s.replace_text_in_range(None, "(", w, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("down up");
+        handle
+            .update(&mut visual, |_, w, cx| {
+                editor.update(cx, |s, cx| {
+                    assert_eq!(s.selected_range(), 1..1);
+                    s.replace_text_in_range(None, ")", w, cx);
+                    assert_eq!(s.value(), "())\nnext");
+                    s.set_value("", w, cx);
+                    s.replace_text_in_range(None, "(", w, cx);
+                });
+            })
+            .unwrap();
+        visual.simulate_keystrokes("left right");
+        handle
+            .update(&mut visual, |_, w, cx| {
+                editor.update(cx, |s, cx| {
+                    s.replace_text_in_range(None, ")", w, cx);
+                    assert_eq!(s.value(), "()");
+                    assert_eq!(s.selected_range(), 2..2);
+                })
             })
             .unwrap();
     }
