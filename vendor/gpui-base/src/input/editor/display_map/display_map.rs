@@ -284,6 +284,7 @@ impl DisplayMap {
         new_text: &Rope,
         cx: &mut App,
     ) {
+        self.fold_map.set_concealed_lines(vec![]);
         self.wrap_map
             .on_text_changed(changed_text, range, new_text, cx);
         self.rebuild_fold_projection();
@@ -326,8 +327,20 @@ impl DisplayMap {
 
     /// Initialize with text
     pub fn set_text(&mut self, text: &Rope, cx: &mut App) {
+        self.fold_map.set_concealed_lines(vec![]);
         self.wrap_map.set_text(text, cx);
         self.rebuild_fold_projection();
+    }
+
+    pub(crate) fn set_concealed_lines(&mut self, lines: Vec<usize>) -> bool {
+        if !self.fold_map.set_concealed_lines(lines) {
+            return false;
+        }
+        self.rebuild_fold_projection();
+        true
+    }
+    pub(crate) fn concealed_lines(&self) -> &[usize] {
+        self.fold_map.concealed_lines()
     }
 
     // ==================== Internal Helpers ====================
@@ -335,7 +348,10 @@ impl DisplayMap {
     /// Rebuild fold projection after wrap_map or fold state changes
     /// Only rebuilds if there are actually folded ranges
     fn rebuild_fold_projection(&mut self) {
-        if !self.fold_map.folded_ranges().is_empty() {
+        if self.fold_map.has_hidden_lines() {
+            // Wrapping can move hidden runs even when the total row count is unchanged.
+            self.fold_map
+                .mark_dirty_with_wrap_count(self.wrap_map.wrap_row_count());
             self.fold_map.rebuild(&self.wrap_map);
         } else {
             // No active folds: identity mapping (wrap_row == display_row).

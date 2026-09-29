@@ -23,6 +23,21 @@ pub struct Span {
     pub markers: Vec<Range<usize>>,
 }
 impl Span {
+    /// Start of a Setext underline's source line, including container prefixes.
+    pub fn setext_line(&self, text: &str) -> Option<usize> {
+        if self.kind != Kind::Heading {
+            return None;
+        }
+        let suffix = text.get(self.content.end..self.source.end)?;
+        let start = self.content.end + suffix.rfind('\n')? + 1;
+        let mut line = text.get(start..self.source.end)?.trim();
+        while let Some(rest) = line.strip_prefix('>') {
+            line = rest.trim_start();
+        }
+        let marker = line.as_bytes().first().copied()?;
+        (matches!(marker, b'=' | b'-') && line.bytes().all(|b| b == marker)).then_some(start)
+    }
+
     pub fn active(&self, selection: &Range<usize>) -> bool {
         if selection.is_empty() {
             self.source.start <= selection.start && selection.start <= self.source.end
@@ -379,6 +394,32 @@ mod tests {
         assert_eq!(&source[range], "> - [ ] 第一项😀\r\n\t2. 第二项\r\n");
         assert_eq!(toggle_task_lines("", 0..0).unwrap().1, "- [ ] ");
         assert!(toggle_task_lines("中", 1..1).is_none());
+    }
+    #[test]
+    fn setext_underlines_are_whole_lines_and_exclude_rules_and_code() {
+        for source in [
+            "标题\n===",
+            "标题\r\n---",
+            "> 标题\n> ---",
+            "- 标题\n  ===",
+            "第一行\n第二行\n---",
+        ] {
+            let heading = spans(source)
+                .into_iter()
+                .find(|span| span.kind == Kind::Heading)
+                .unwrap();
+            assert_eq!(
+                heading.setext_line(source),
+                Some(source.rfind('\n').unwrap() + 1)
+            );
+        }
+        for source in ["# 标题", "---\n", "```\n标题\n===\n```", "正文\n\n---"] {
+            assert!(
+                spans(source)
+                    .iter()
+                    .all(|span| span.setext_line(source).is_none())
+            );
+        }
     }
     #[test]
     fn highlight_handles_nested_formatting_and_escaped_openers() {

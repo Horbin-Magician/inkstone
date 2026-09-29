@@ -3966,6 +3966,12 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn has_multiple_selections(&self) -> bool {
         !self.selections.is_single()
     }
+    pub fn selected_ranges(&self) -> Vec<std::ops::Range<usize>> {
+        self.selections
+            .iter()
+            .map(|selection| (*selection).into())
+            .collect()
+    }
 
     /// Reveal a source position hidden by any enclosing fold.
     pub fn unfold_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
