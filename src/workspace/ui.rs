@@ -590,7 +590,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (9, "创建文件夹", ""),
     (10, "删除当前文件", ""),
     (11, "另存为副本", ""),
-    (12, "切换左侧栏", "Ctrl+Shift+L"),
+    (12, "切换左侧栏", ""),
     (13, "切换右侧栏", "Ctrl+Shift+R"),
     (14, "打开设置", "Ctrl+,"),
     (15, "为当前文件添加 / 移除书签", ""),
@@ -658,6 +658,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (77, "打开上一篇日记", ""),
     (78, "打开下一篇日记", ""),
     (79, "选择下一个相同文本", "Ctrl+D"),
+    (80, "选择所有相同文本", "Ctrl+Shift+L"),
 ];
 
 #[derive(Clone)]
@@ -1141,7 +1142,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79) {
+        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=80)
+        {
             self.graph_open = false;
         }
         self.command_open = false;
@@ -1322,16 +1324,24 @@ impl Workspace {
             }
             75..=76 => self.insert_current_date_time(id == 76, window, cx),
             77..=78 => self.open_neighboring_daily(id == 78, window, cx),
-            79 => {
+            79..=80 => {
                 if let Some(pane) = self.current_pane() {
                     pane.update(cx, |pane, cx| {
                         if !pane.reading {
                             pane.editor.update(cx, |editor, cx| {
-                                editor.select_next_occurrence(
-                                    &gpui_base::input::SelectNextOccurrence,
-                                    window,
-                                    cx,
-                                );
+                                if id == 79 {
+                                    editor.select_next_occurrence(
+                                        &gpui_base::input::SelectNextOccurrence,
+                                        window,
+                                        cx,
+                                    );
+                                } else {
+                                    editor.select_all_occurrences(
+                                        &gpui_base::input::SelectAllOccurrences,
+                                        window,
+                                        cx,
+                                    );
+                                }
                                 editor.focus(window, cx);
                             });
                         }
