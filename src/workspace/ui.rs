@@ -94,6 +94,10 @@ pub(super) struct UiState {
     pub search_collapsed: std::collections::BTreeSet<PathBuf>,
     pub search_group_scroll: ScrollHandle,
     pub search_group_query: String,
+    pub search_limit: usize,
+    pub search_has_more: bool,
+    pub search_loading: bool,
+    pub search_signature: Option<(String, bool, SortBy, bool)>,
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub more: bool,
@@ -331,6 +335,10 @@ impl UiState {
             search_collapsed: Default::default(),
             search_group_scroll: ScrollHandle::new(),
             search_group_query: String::new(),
+            search_limit: 200,
+            search_has_more: false,
+            search_loading: false,
+            search_signature: None,
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             more: false,
@@ -1774,7 +1782,7 @@ impl Workspace {
                         .items_center()
                         .justify_between()
                         .child(format!(
-                            "{} 个文件 · {} 行结果",
+                            "已载入 {} 个文件 · {} 行",
                             self.search_results
                                 .iter()
                                 .map(|hit| &hit.path)
@@ -2065,12 +2073,22 @@ impl Workspace {
         div()
             .id("grouped-search-results")
             .track_scroll(&self.ui.search_group_scroll)
+            .on_scroll_wheel(cx.listener(|_, _, w, cx| {
+                cx.defer_in(w, |this, _, cx| {
+                    let scroll = &this.ui.search_group_scroll;
+                    if scroll.max_offset().y + scroll.offset().y <= px(120.) {
+                        this.load_more_search(cx);
+                    }
+                });
+            }))
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
             .p_2()
             .when(
-                groups.is_empty() && !self.search.read(cx).value().trim().is_empty(),
+                groups.is_empty()
+                    && !self.ui.search_loading
+                    && !self.search.read(cx).value().trim().is_empty(),
                 |s| {
                     s.child(
                         div()
@@ -2160,6 +2178,24 @@ impl Workspace {
                         },
                     ))
             }))
+            .when(
+                self.ui.search_loading && self.search_results.is_empty(),
+                |s| s.child(div().p_2().text_sm().child("正在搜索…")),
+            )
+            .when(self.ui.search_has_more, |s| {
+                s.child(
+                    Button::new("search-load-more")
+                        .ghost()
+                        .w_full()
+                        .label(if self.ui.search_loading {
+                            "正在载入…"
+                        } else {
+                            "显示更多结果"
+                        })
+                        .disabled(self.ui.search_loading)
+                        .on_click(cx.listener(|this, _, _, cx| this.load_more_search(cx))),
+                )
+            })
             .into_any_element()
     }
 

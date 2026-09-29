@@ -649,6 +649,7 @@ impl Workspace {
                         this.ui.right_mode = this.ui.prefs.right_panel;
                         this.ui.tags_selected = None;
                         this.ui.search_collapsed.clear();
+                        this.ui.search_signature = None;
                         this.fulltext = this.ui.left_mode == 1;
                         this.search.update(cx, |s, cx| {
                             s.set_value(this.ui.prefs.search_query.clone(), window, cx)
@@ -1451,6 +1452,16 @@ impl Workspace {
         let case_sensitive = self.ui.prefs.search_case_sensitive;
         let sort_by = self.ui.prefs.search_sort_by;
         let descending = self.ui.prefs.search_descending;
+        if fulltext && !self.ui.quick_open {
+            let signature = (query.clone(), case_sensitive, sort_by, descending);
+            if self.ui.search_signature.as_ref() != Some(&signature) {
+                self.ui.search_signature = Some(signature);
+                self.ui.search_limit = 200;
+                self.ui.search_has_more = false;
+            }
+        }
+        let limit = self.ui.search_limit;
+        self.ui.search_loading = true;
         let template_folder = self
             .ui
             .template_mode
@@ -1459,6 +1470,8 @@ impl Workspace {
             && let Err(error) = inkstone::search::Query::parse_with_case(&query, case_sensitive)
         {
             self.search_results.clear();
+            self.ui.search_loading = false;
+            self.ui.search_has_more = false;
             self.status = error;
             cx.notify();
             return;
@@ -1469,7 +1482,7 @@ impl Workspace {
             .map(|t| t.path.clone());
         let task = cx.background_executor().spawn(async move {
             let backlinks = active.map(|p| index.backlinks(&p)).unwrap_or_default();
-            let hits = if let Some(folder) = template_folder {
+            let mut hits = if let Some(folder) = template_folder {
                 folder
                     .map(|folder| inkstone::templates::search(&index, &folder, &query))
                     .unwrap_or_default()
@@ -1477,18 +1490,30 @@ impl Workspace {
                 vec![]
             } else if fulltext {
                 index
-                    .search_ordered(&query, case_sensitive, sort_by, descending)
+                    .search_limited(
+                        &query,
+                        case_sensitive,
+                        sort_by,
+                        descending,
+                        limit.saturating_add(1),
+                    )
                     .unwrap_or_default()
             } else {
                 index.filenames(&query)
             };
-            (hits, backlinks)
+            let more = fulltext && hits.len() > limit;
+            if more {
+                hits.truncate(limit);
+            }
+            (hits, backlinks, more)
         });
         cx.spawn(async move |this, cx| {
-            let (hits, backlinks) = task.await;
+            let (hits, backlinks, more) = task.await;
             let _ = this.update(cx, |this, cx| {
                 if this.search_revision == revision && this.generation == generation {
                     this.search_results = hits;
+                    this.ui.search_loading = false;
+                    this.ui.search_has_more = more;
                     if this.backlinks != backlinks {
                         this.backlink_scroll.scroll_to_item(0, ScrollStrategy::Top);
                     }
@@ -1498,6 +1523,18 @@ impl Workspace {
             });
         })
         .detach();
+    }
+    pub(super) fn load_more_search(&mut self, cx: &mut Context<Self>) {
+        if !self.fulltext
+            || self.ui.quick_open
+            || self.ui.search_loading
+            || !self.ui.search_has_more
+        {
+            return;
+        }
+        self.ui.search_limit = self.ui.search_limit.saturating_add(200);
+        self.run_search(cx);
+        cx.notify();
     }
     fn apply_jump(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((path, offset)) = self.pending_jump.clone() else {
@@ -1685,6 +1722,54 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn search_loads_beyond_two_hundred_and_resets_for_new_query(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                Arc::make_mut(&mut w.index).update("many.md".into(), "hit\n".repeat(450));
+                w.fulltext = true;
+                w.search.update(cx, |s, cx| s.set_value("hit", window, cx));
+                w.run_search(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.search_results.len(), 200);
+                assert!(w.ui.search_has_more);
+                w.load_more_search(cx);
+                w.load_more_search(cx);
+                assert_eq!(w.ui.search_limit, 400);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.search_results.len(), 400);
+                w.load_more_search(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.search_results.len(), 450);
+                assert!(!w.ui.search_has_more);
+                w.search
+                    .update(cx, |s, cx| s.set_value("missing", window, cx));
+                w.run_search(cx);
+                assert_eq!(w.ui.search_limit, 200);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(w.search_results.is_empty());
+                assert!(!w.ui.search_loading);
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn grouped_search_collapses_rows_and_header_opens_first_match(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

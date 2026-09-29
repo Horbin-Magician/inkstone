@@ -778,6 +778,19 @@ impl Index {
         by: crate::file_order::SortBy,
         descending: bool,
     ) -> Result<Vec<SearchHit>, String> {
+        self.search_limited(query, case_sensitive, by, descending, 200)
+    }
+    pub fn search_limited(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+        by: crate::file_order::SortBy,
+        descending: bool,
+        limit: usize,
+    ) -> Result<Vec<SearchHit>, String> {
+        if limit == 0 {
+            return Ok(vec![]);
+        }
         fn excerpt(text: &str, at: usize) -> String {
             let skip = text[..at].chars().count().saturating_sub(40);
             text.chars().skip(skip).take(120).collect()
@@ -799,7 +812,8 @@ impl Index {
         });
         for (path, note) in notes {
             let before = hits.len();
-            for found in query.matching_lines(path, &note.text, &note.parsed.tags, 200 - hits.len())
+            for found in
+                query.matching_lines(path, &note.text, &note.parsed.tags, limit - hits.len())
             {
                 hits.push(SearchHit {
                     path: path.clone(),
@@ -832,7 +846,7 @@ impl Index {
                     excerpt: excerpt(&note.text[start..end], at - start),
                 });
             }
-            if hits.len() == 200 {
+            if hits.len() == limit {
                 return Ok(hits);
             }
         }
