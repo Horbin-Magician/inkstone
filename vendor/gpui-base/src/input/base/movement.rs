@@ -155,7 +155,7 @@ impl<M: InputModeKind> InputBaseState<M> {
                 if let Some((x, line_end_affinity)) = line.closest_index_for_position(
                     Point {
                         x: preferred_x,
-                        y: next_display_point.local_row * last_layout.line_height,
+                        y: next_display_point.local_row * line.row_height(last_layout.line_height),
                     },
                     last_layout,
                 ) {
@@ -367,8 +367,16 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         };
 
-        let display_lines = (self.input_bounds.size.height / last_layout.line_height) as isize;
-        self.move_vertical(-display_lines, false, window, cx);
+        let point = self.text.offset_to_point(self.cursor());
+        let row = self
+            .display_map
+            .buffer_pos_to_display_pos(crate::input::BufferPoint::new(point.row, point.column))
+            .row;
+        let target = self.display_map.row_at_y(
+            self.display_map.row_top(row, last_layout.line_height) - self.input_bounds.size.height,
+            last_layout.line_height,
+        );
+        self.move_vertical(target as isize - row as isize, false, window, cx);
     }
 
     pub(super) fn page_down(
@@ -385,8 +393,16 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         };
 
-        let display_lines = (self.input_bounds.size.height / last_layout.line_height) as isize;
-        self.move_vertical(display_lines, false, window, cx);
+        let point = self.text.offset_to_point(self.cursor());
+        let row = self
+            .display_map
+            .buffer_pos_to_display_pos(crate::input::BufferPoint::new(point.row, point.column))
+            .row;
+        let target = self.display_map.row_at_y(
+            self.display_map.row_top(row, last_layout.line_height) + self.input_bounds.size.height,
+            last_layout.line_height,
+        );
+        self.move_vertical(target as isize - row as isize, false, window, cx);
     }
 
     pub(super) fn home(&mut self, _: &MoveHome, window: &mut Window, cx: &mut Context<Self>) {

@@ -42,6 +42,30 @@ const CHECK_SVG_DARK: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBo
 
 /// The block-level nodes.
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Callout {
+    pub(crate) kind: String,
+    pub(crate) marker: String,
+    pub(crate) collapsed: Option<bool>,
+    pub(crate) default_title: bool,
+}
+#[derive(Clone)]
+pub(crate) struct CalloutHeader {
+    pub(crate) meta: Callout,
+    pub(crate) title: Range<usize>,
+    pub(crate) line: usize,
+    pub(crate) range: Range<usize>,
+    pub(crate) references: Vec<String>,
+    pub(crate) footnotes: Vec<String>,
+}
+#[derive(Clone, Default)]
+pub(crate) struct FootnoteInfo {
+    pub(crate) number: usize,
+    pub(crate) definition: usize,
+    pub(crate) references: Vec<usize>,
+}
+
+/// The block-level nodes.
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum BlockNode {
     /// Something like a Div container in HTML.
     Root {
@@ -57,6 +81,7 @@ pub(crate) enum BlockNode {
     Blockquote {
         children: Vec<BlockNode>,
         span: Option<Span>,
+        callout: Option<Callout>,
     },
     List {
         /// Only contains ListItem, others will be ignored
@@ -237,8 +262,29 @@ impl BlockNode {
             BlockNode::ListItem { children, .. } => {
                 text.push_str(&Self::children_text(children, kind));
             }
-            BlockNode::Blockquote { children, .. } => {
-                let block_text = Self::children_text(children, kind);
+            BlockNode::Blockquote {
+                children, callout, ..
+            } => {
+                let mut block_text = Self::children_text(children, kind);
+                if matches!(kind, BlockTextKind::SelectedSource)
+                    && let Some(callout) = callout
+                    && let Some(title) = children
+                        .first()
+                        .map(|c| c.text_by_kind(kind))
+                        .filter(|s| !s.is_empty())
+                {
+                    let rest = Self::children_text(&children[1..], kind);
+                    block_text = format!(
+                        "{}{}\n{}",
+                        callout.marker,
+                        if callout.default_title {
+                            String::new()
+                        } else {
+                            format!(" {}", title.trim_end_matches('\n'))
+                        },
+                        rest
+                    );
+                }
 
                 if !block_text.is_empty() {
                     if matches!(kind, BlockTextKind::SelectedSource) {
@@ -1984,6 +2030,12 @@ impl CodeBlock {
 /// A context for rendering nodes, contains link references.
 #[derive(Default, Clone)]
 pub(crate) struct NodeContext {
+    pub(crate) footnotes: HashMap<String, FootnoteInfo>,
+    pub(crate) footnote_starts: std::collections::HashSet<usize>,
+    pub(crate) callout_folds: Arc<Mutex<HashMap<u64, bool>>>,
+    pub(crate) callouts: HashMap<usize, CalloutHeader>,
+    pub(crate) view_entity: Option<gpui::EntityId>,
+    pub(crate) view_state: Option<gpui::WeakEntity<super::state::TextViewState>>,
     /// The byte offset of the node in the original markdown text.
     /// Used for incremental updates.
     pub(crate) offset: usize,
@@ -1993,6 +2045,7 @@ pub(crate) struct NodeContext {
     pub(crate) code_block_highlighter: Option<Arc<CodeBlockHighlighterFn>>,
     pub(crate) table_actions: Option<Arc<TableActionsFn>>,
     pub(crate) image_source: Option<Arc<super::text_view::ImageSourceFn>>,
+    pub(crate) task_toggle_handler: Option<Arc<super::text_view::TaskToggleHandlerFn>>,
     pub(crate) link_click_handler: Option<Arc<LinkClickHandlerFn>>,
     pub(crate) markdown_extensions: Arc<MarkdownExtensions>,
     /// This frame's streamed fade-in, when any text is still fading.
@@ -2012,7 +2065,7 @@ impl NodeContext {
     }
 
     pub(super) fn add_ref(&mut self, identifier: SharedString, link: LinkMark) {
-        self.link_refs.insert(identifier, link);
+        self.link_refs.entry(identifier).or_insert(link);
     }
 
     /// The fade ranges of the text leaf `key`, in its rendered byte space.
@@ -2713,12 +2766,39 @@ impl BlockNode {
                 let hashes = "#".repeat(*level as usize);
                 format!("{} {}", hashes, children.to_markdown())
             }
-            BlockNode::Blockquote { children, .. } => {
-                let content = children
+            BlockNode::Blockquote {
+                children, callout, ..
+            } => {
+                let mut content = children
                     .iter()
                     .map(|child| child.to_markdown())
                     .collect::<Vec<_>>()
                     .join("\n\n");
+                if let Some(callout) = callout {
+                    let title = if callout.default_title {
+                        String::new()
+                    } else {
+                        children
+                            .first()
+                            .map(|n| format!(" {}", n.to_markdown()))
+                            .unwrap_or_default()
+                    };
+                    let body = children
+                        .iter()
+                        .skip(1)
+                        .map(|n| n.to_markdown())
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    content = format!(
+                        "{}{title}{}",
+                        callout.marker,
+                        if body.is_empty() {
+                            String::new()
+                        } else {
+                            format!("\n{body}")
+                        }
+                    );
+                }
 
                 content
                     .lines()
@@ -2804,9 +2884,12 @@ impl BlockNode {
         ix: usize,
         options: NodeRenderOptions,
         checked: Option<bool>,
-        style: &TextViewStyle,
+        node_cx: &NodeContext,
         line_height: Pixels,
+        source_start: Option<usize>,
     ) -> Div {
+        let style = &node_cx.style;
+        let handler = node_cx.task_toggle_handler.clone();
         h_flex()
             .w_full()
             .min_w_0()
@@ -2823,13 +2906,25 @@ impl BlockNode {
             })
             .when_some(checked, |this, checked| {
                 // Todo list checkbox
-                let check_svg = if style.is_dark() {
+                let interactive = handler.is_some() && source_start.is_some();
+                let check_svg = if interactive {
+                    CHECK_SVG_LIGHT
+                } else if style.is_dark() {
                     CHECK_SVG_DARK
                 } else {
                     CHECK_SVG_LIGHT
                 };
                 this.child(
                     div()
+                        .id(("task-checkbox", source_start.unwrap_or(ix)))
+                        .when(interactive, |s| s.cursor_pointer())
+                        .on_click(move |_, window, cx| {
+                            if let (Some(handler), Some(start)) = (&handler, source_start) {
+                                crate::TextSelection::end(window, cx);
+                                handler(start, !checked, window, cx);
+                                cx.stop_propagation();
+                            }
+                        })
                         .flex()
                         .mr_1p5()
                         .h(line_height)
@@ -2840,12 +2935,25 @@ impl BlockNode {
                             div()
                                 .flex()
                                 .size(rems(0.875))
+                                .when(interactive, |s| {
+                                    s.rounded(px(2.)).size(line_height * (2. / 3.))
+                                })
                                 .items_center()
                                 .justify_center()
                                 .border_1()
                                 .border_color(style.foreground())
                                 .when(checked, |this| {
-                                    this.bg(style.foreground()).child(
+                                    this.bg(if interactive {
+                                        style.link()
+                                    } else {
+                                        style.foreground()
+                                    })
+                                    .border_color(if interactive {
+                                        style.link()
+                                    } else {
+                                        style.foreground()
+                                    })
+                                    .child(
                                         img(Arc::new(Image::from_bytes(
                                             ImageFormat::Svg,
                                             check_svg.to_vec(),
@@ -2872,6 +2980,7 @@ impl BlockNode {
                 children,
                 spread,
                 checked,
+                span,
                 ..
             } => div()
                 .w_full()
@@ -2921,8 +3030,9 @@ impl BlockNode {
                                     ix,
                                     options,
                                     *checked,
-                                    &node_cx.style,
+                                    node_cx,
                                     window.line_height(),
+                                    span.map(|s| s.start),
                                 ));
                             }
                             BlockNode::List { .. } => {
@@ -2963,8 +3073,9 @@ impl BlockNode {
                                         ix,
                                         options,
                                         *checked,
-                                        &node_cx.style,
+                                        node_cx,
                                         window.line_height(),
+                                        span.map(|s| s.start),
                                     ));
                                 } else {
                                     // Indent continuation blocks to align with a
@@ -3304,9 +3415,29 @@ impl BlockNode {
         };
 
         match self {
-            BlockNode::Root { children, .. } => div()
+            BlockNode::Root { children, span } => div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .when(
+                    span.is_some_and(|s| node_cx.footnote_starts.contains(&s.start)),
+                    |s| {
+                        s.text_size(
+                            window.text_style().font_size.to_pixels(window.rem_size()) * 0.875,
+                        )
+                    },
+                )
                 .children(children.into_iter().enumerate().map(move |(ix, node)| {
-                    node.render_block(NodeRenderOptions { ix, ..options }, node_cx, window, cx)
+                    node.render_block(
+                        NodeRenderOptions {
+                            ix,
+                            is_last: ix + 1 == children.len(),
+                            ..options
+                        },
+                        node_cx,
+                        window,
+                        cx,
+                    )
                 }))
                 .into_any_element(),
             BlockNode::Paragraph(paragraph) => gapped(
@@ -3349,23 +3480,187 @@ impl BlockNode {
                     ))
                     .into_any_element()
             }
-            BlockNode::Blockquote { children, .. } => gapped(
-                div()
-                    .w_full()
-                    .text_color(node_cx.style.muted_foreground())
-                    .border_l_3()
-                    .border_color(node_cx.style.border())
-                    .px_4()
-                    .children({
-                        let children_len = children.len();
-                        children.into_iter().enumerate().map(move |(index, c)| {
-                            let is_last = index == children_len - 1;
-                            c.render_block(options.is_last(is_last), node_cx, window, cx)
+            BlockNode::Blockquote {
+                children,
+                callout,
+                span,
+            } => {
+                if let Some(callout) = callout {
+                    let (light, dark) = match callout.kind.as_str() {
+                        "success" | "check" | "done" => (0x08b94e, 0x44cf6e),
+                        "warning" | "caution" | "attention" | "question" | "help" | "faq" => {
+                            (0xec7500, 0xe9973f)
+                        }
+                        "failure" | "fail" | "missing" | "danger" | "error" | "bug" => {
+                            (0xe93147, 0xfb464c)
+                        }
+                        "tip" | "hint" | "important" | "abstract" | "summary" | "tldr" => {
+                            (0x00bfbc, 0x53dfdd)
+                        }
+                        "example" => (0x7852ee, 0xa882ff),
+                        "quote" | "cite" => (0x9e9e9e, 0x9e9e9e),
+                        _ => (0x086ddd, 0x027aff),
+                    };
+                    let color = if node_cx.style.is_dark() { dark } else { light };
+                    let glyph = match callout.kind.as_str() {
+                        "success" | "check" | "done" | "todo" => r#"<path d="m4 12 5 5L20 6"/>"#,
+                        "warning" | "caution" | "attention" => {
+                            r#"<path d="M12 3 2 21h20L12 3zM12 9v5M12 17h.01"/>"#
+                        }
+                        "question" | "help" | "faq" => {
+                            r#"<circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 1 1 4 3v2M12 17h.01"/>"#
+                        }
+                        "failure" | "fail" | "missing" | "danger" | "error" | "bug" => {
+                            r#"<circle cx="12" cy="12" r="9"/><path d="m8 8 8 8M16 8l-8 8"/>"#
+                        }
+                        "quote" | "cite" => r#"<path d="M3 4h7v8H6v7H3zM14 4h7v8h-4v7h-3z"/>"#,
+                        "note" => r#"<path d="m16 3 5 5L8 21H3v-5zM13 6l5 5"/>"#,
+                        _ => r#"<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>"#,
+                    };
+                    let svg=format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{glyph}</svg>"#).into_bytes();
+                    let icon_key = format!("callout-icon-{}", callout.kind);
+                    let icon = gpui::canvas(
+                        |_, _, _| (),
+                        move |bounds, _, window, cx| {
+                            let _ = window.paint_svg(
+                                bounds,
+                                icon_key.clone().into(),
+                                Some(&svg),
+                                gpui::TransformationMatrix::default(),
+                                gpui::rgb(color).into(),
+                                cx,
+                            );
+                        },
+                    )
+                    .size(px(18.));
+                    let key = gpui::ElementId::Name(
+                        format!(
+                            "callout-{:?}-{}-{}-{}",
+                            node_cx.view_entity,
+                            span.map_or(0, |s| s.start),
+                            callout.marker,
+                            children.first().map(|n| n.text()).unwrap_or_default()
+                        )
+                        .into(),
+                    );
+                    let default = callout.collapsed.unwrap_or(false);
+                    // Keep persisted state independent of transient view/entity IDs.
+                    let identity = format!(
+                        "{}:{}:{}",
+                        span.map_or(0, |s| s.start),
+                        callout.marker,
+                        children.first().map(|n| n.text()).unwrap_or_default()
+                    );
+                    let fold_key = identity.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
+                        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+                    });
+                    let folded = node_cx.callout_folds.clone();
+                    let mut closed = folded
+                        .lock()
+                        .ok()
+                        .and_then(|states| states.get(&fold_key).copied())
+                        .unwrap_or(default);
+                    if node_cx.reveal.as_ref().is_some_and(|r| {
+                        span.is_some_and(|s| {
+                            s.start <= r.source_start() && r.source_start() < s.end
+                        }) && children
+                            .first()
+                            .and_then(|n| n.span())
+                            .is_none_or(|s| r.source_start() > s.end)
+                    }) && closed
+                    {
+                        if let Ok(mut states) = folded.lock() {
+                            states.insert(fold_key, false);
+                        }
+                        closed = false;
+                        let view = node_cx.view_state.clone();
+                        cx.defer(move |cx| {
+                            if let Some(view) = view {
+                                let _ = view.update(cx, |s, cx| s.invalidate_inline_layout(cx));
+                            }
+                        });
+                    }
+                    let view = node_cx.view_state.clone();
+                    let header = div()
+                        .flex()
+                        .items_start()
+                        .gap_1()
+                        .text_color(gpui::rgb(color))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(relative(1.3))
+                        .child(div().w(px(18.)).child(icon))
+                        .children(children.first().map(|title| {
+                            div().flex_1().min_w_0().child(title.render_block(
+                                options.is_last(true),
+                                node_cx,
+                                window,
+                                cx,
+                            ))
+                        }))
+                        .when(callout.collapsed.is_some(), |s| {
+                            s.child(
+                                div()
+                                    .id(key)
+                                    .w(px(18.))
+                                    .cursor_pointer()
+                                    .child(if closed { "›" } else { "⌄" })
+                                    .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+                                        cx.stop_propagation();
+                                        if let Ok(mut states) = folded.lock() {
+                                            let state = states.entry(fold_key).or_insert(default);
+                                            *state = !*state;
+                                        }
+                                        if let Some(view) = &view {
+                                            let _ = view.update(cx, |state, cx| {
+                                                state.invalidate_inline_layout(cx)
+                                            });
+                                        }
+                                    }),
+                            )
+                        });
+                    return gapped(
+                        div()
+                            .w_full()
+                            .pl(px(24.))
+                            .pr(px(12.))
+                            .py(px(12.))
+                            .rounded(px(4.))
+                            .bg(gpui::rgba((color << 8) | 0x19))
+                            .child(header)
+                            .when(!closed && children.len() > 1, |s| {
+                                s.child(div().pt(px(8.)).children(
+                                    children.iter().skip(1).enumerate().map(|(i, c)| {
+                                        c.render_block(
+                                            options.is_last(i + 2 == children.len()),
+                                            node_cx,
+                                            window,
+                                            cx,
+                                        )
+                                    }),
+                                ))
+                            })
+                            .into_any_element(),
+                        mb,
+                    );
+                }
+                gapped(
+                    div()
+                        .w_full()
+                        .text_color(node_cx.style.muted_foreground())
+                        .border_l_3()
+                        .border_color(node_cx.style.border())
+                        .px_4()
+                        .children({
+                            let children_len = children.len();
+                            children.into_iter().enumerate().map(move |(index, c)| {
+                                let is_last = index == children_len - 1;
+                                c.render_block(options.is_last(is_last), node_cx, window, cx)
+                            })
                         })
-                    })
-                    .into_any_element(),
-                mb,
-            ),
+                        .into_any_element(),
+                    mb,
+                )
+            }
             BlockNode::List {
                 children,
                 ordered,
@@ -4048,6 +4343,7 @@ mod tests {
     fn blockquote_selected_source_prefixes_gt() {
         let quote = BlockNode::Blockquote {
             span: None,
+            callout: None,
             children: vec![BlockNode::Paragraph(selected_paragraph("quoted text"))],
         };
         assert_eq!(

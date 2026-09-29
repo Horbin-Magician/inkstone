@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use gpui::{AnyElement, App, IntoElement, SharedString, Window};
+use gpui::{AnyElement, App, IntoElement, ParentElement, SharedString, Styled, Window};
 use markdown::{ParseOptions, mdast};
 
 use super::{InlineElement, InlineRenderContext};
@@ -438,6 +438,20 @@ impl MarkdownExtensions {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<InlineElement> {
+        if node.name() == "__gpui_footnote" {
+            let font = context.font_size();
+            return Some(
+                InlineElement::new(
+                    gpui::div()
+                        .h(font)
+                        .text_size(font * 0.75)
+                        .line_height(gpui::relative(1.))
+                        .text_decoration_none()
+                        .child(node.shared_text()),
+                )
+                .with_baseline(font * 0.95),
+            );
+        }
         self.inline_renderers
             .get(node.name())
             .and_then(|render| render(node, context, window, cx))

@@ -167,11 +167,26 @@ impl FoldMap {
         self.candidates = candidates;
 
         // Remove any folded ranges that are no longer in candidates
-        self.folded.retain(|fold| {
-            self.candidates
-                .iter()
-                .any(|c| c.start_line == fold.start_line)
-        });
+        self.folded = self
+            .folded
+            .iter()
+            .filter_map(|fold| {
+                self.candidates
+                    .iter()
+                    .find(|c| c.start_line == fold.start_line)
+                    .copied()
+            })
+            .collect();
+        self.needs_rebuild = true;
+    }
+
+    pub(super) fn set_all_folded(&mut self, folded: bool) {
+        self.folded = if folded {
+            self.candidates.clone()
+        } else {
+            vec![]
+        };
+        self.needs_rebuild = true;
     }
 
     /// Merge new candidates extracted from an edited region into existing candidates.

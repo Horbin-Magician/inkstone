@@ -42,6 +42,8 @@ pub(crate) use token_presentation::InlineTokenPresentation;
 pub use token_presentation::{
     InlineTokenClickEvent, InlineTokenClickListener, InlineTokenContext, InlineTokenRenderer,
 };
+#[path = "base/grapheme_cursor.rs"]
+mod grapheme_cursor;
 #[path = "base/kind.rs"]
 mod kind;
 #[path = "editor/language.rs"]
@@ -58,8 +60,6 @@ mod mask_pattern;
 mod mode;
 #[path = "base/movement.rs"]
 mod movement;
-#[path = "base/grapheme_cursor.rs"]
-mod grapheme_cursor;
 #[path = "base/native.rs"]
 mod native;
 #[path = "base/rope_ext.rs"]
@@ -123,3 +123,10 @@ pub use ropey::Rope;
 pub use search::{SearchMatcher, SearchSession};
 pub use state::*;
 pub use textarea::{Textarea, TextareaState};
+
+#[path = "editor/concealment.rs"]
+mod concealment;
+
+#[path = "editor/line_typography.rs"]
+mod line_typography;
+pub use line_typography::LineTypography;

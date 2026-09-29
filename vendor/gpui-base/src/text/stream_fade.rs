@@ -118,6 +118,9 @@ impl From<TextLeafKey> for ElementId {
 }
 
 impl TextLeafKey {
+    pub(super) fn source_start(self) -> usize {
+        self.block_start
+    }
     pub(crate) fn block(start: usize) -> Self {
         Self {
             block_start: start,

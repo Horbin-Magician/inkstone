@@ -29,6 +29,14 @@ use crate::input::rope_ext::RopeExt as _;
 pub struct DisplayMap {
     wrap_map: WrapMap,
     fold_map: FoldMap,
+    heights: Vec<HeightRun>,
+}
+struct HeightRun {
+    rows: Range<usize>,
+    scale: f32,
+    extra_before: f32,
+    extra_after: f32,
+    y_end: f32,
 }
 
 impl DisplayMap {
@@ -36,10 +44,57 @@ impl DisplayMap {
         Self {
             wrap_map: WrapMap::new(font, font_size, wrap_width),
             fold_map: FoldMap::new(),
+            heights: vec![],
         }
     }
 
     // ==================== Core Coordinate Mapping ====================
+    pub(crate) fn set_line_typography(
+        &mut self,
+        styles: std::rc::Rc<[crate::input::LineTypography]>,
+        cx: &mut App,
+    ) {
+        self.wrap_map.set_line_typography(styles, cx);
+        self.rebuild_fold_projection();
+    }
+    pub(crate) fn line_scales(&self, row: usize) -> (f32, f32) {
+        self.wrap_map.wrapper().line_scales(row)
+    }
+    pub(crate) fn row_top(&self, row: usize, base: Pixels) -> Pixels {
+        let row = row.min(self.display_row_count());
+        let i = self.heights.partition_point(|h| h.rows.end <= row);
+        let mut extra = if i == 0 {
+            0.
+        } else {
+            self.heights[i - 1].extra_after
+        };
+        if let Some(h) = self.heights.get(i)
+            && row > h.rows.start
+        {
+            extra = h.extra_before + (row - h.rows.start) as f32 * (h.scale - 1.);
+        }
+        base * (row as f32 + extra)
+    }
+    pub(crate) fn row_at_y(&self, y: Pixels, base: Pixels) -> usize {
+        let y = (f32::from(y) / f32::from(base).max(0.01)).max(0.);
+        let i = self.heights.partition_point(|h| h.y_end <= y);
+        let extra = if i == 0 {
+            0.
+        } else {
+            self.heights[i - 1].extra_after
+        };
+        let row = if let Some(h) = self.heights.get(i)
+            && y >= h.rows.start as f32 + h.extra_before
+        {
+            h.rows.start + ((y - h.rows.start as f32 - h.extra_before) / h.scale).floor() as usize
+        } else {
+            (y - extra).floor() as usize
+        };
+        row.min(self.display_row_count().saturating_sub(1))
+    }
+    pub(crate) fn height(&self, base: Pixels) -> Pixels {
+        self.row_top(self.display_row_count(), base)
+    }
 
     /// Convert buffer position to display position
     pub fn buffer_pos_to_display_pos(&self, pos: BufferPoint) -> DisplayPoint {
@@ -143,6 +198,15 @@ impl DisplayMap {
     /// Toggle fold at the given start_line
     pub fn toggle_fold(&mut self, start_line: usize) {
         self.fold_map.toggle_fold(start_line);
+        self.rebuild_fold_projection();
+    }
+
+    pub fn fold_candidates(&self) -> &[FoldRange] {
+        self.fold_map.fold_candidates()
+    }
+
+    pub fn set_all_folded(&mut self, folded: bool) {
+        self.fold_map.set_all_folded(folded);
         self.rebuild_fold_projection();
     }
 
@@ -279,6 +343,26 @@ impl DisplayMap {
             self.fold_map
                 .mark_dirty_with_wrap_count(self.wrap_map.wrap_row_count());
         }
+        let mut heights = vec![];
+        let mut extra = 0.;
+        for style in self.wrap_map.wrapper().typography.iter() {
+            if style.anchor.end > self.text().len() {
+                continue;
+            }
+            let row = self.text().offset_to_point(style.anchor.start).row;
+            if let Some(rows) = self.buffer_line_to_display_row_range(row) {
+                let before = extra;
+                extra += rows.len() as f32 * (style.height_scale - 1.);
+                heights.push(HeightRun {
+                    y_end: rows.end as f32 + extra,
+                    rows,
+                    scale: style.height_scale,
+                    extra_before: before,
+                    extra_after: extra,
+                });
+            }
+        }
+        self.heights = heights;
     }
 
     // ==================== Wrap Display Point Operations ====================

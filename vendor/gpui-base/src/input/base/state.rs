@@ -357,6 +357,10 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) replaying_history: bool,
     pub(super) validated_token_edit: bool,
     pub(super) document_revision: u64,
+    /// Presentation-only spans. Their bytes remain in the document and history.
+    pub(super) concealment: Rc<[(Range<usize>, Pixels)]>,
+    pub(super) line_typography: Rc<[super::LineTypography]>,
+    pub(super) presentation_revision: u64,
     pub(super) token_presentation: super::InlineTokenPresentation,
     pub(super) token_layout_cache: Option<Box<super::token_presentation::TokenLayoutCache>>,
     /// The start offset of a pressed token, with the document revision and
@@ -719,6 +723,9 @@ impl<M: InputModeKind> InputBaseState<M> {
             replaying_history: false,
             validated_token_edit: false,
             document_revision: 0,
+            concealment: Rc::from([]),
+            line_typography: Rc::from([]),
+            presentation_revision: 0,
             token_presentation: Default::default(),
             token_layout_cache: None,
             pressed_token: None,
@@ -912,7 +919,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             let prev_lines_offset = last_layout.visible_line_byte_offsets[vi];
             let local_offset = offset.saturating_sub(prev_lines_offset);
             if let Some(pos) = line.position_for_index(local_offset, last_layout, false) {
-                let sub_line_index = (pos.y / line_height) as usize;
+                let sub_line_index = (pos.y / line.row_height(line_height)) as usize;
                 let adjusted_pos = point(pos.x + last_layout.line_number_width, pos.y + y_offset);
                 return (vi, sub_line_index, Some(adjusted_pos));
             }
@@ -1022,6 +1029,49 @@ impl<M: InputModeKind> InputBaseState<M> {
             let end = this.active_selection().end;
             this.set_cursor_to(end);
         });
+    }
+
+    /// Apply a host source edit with explicit UTF-8 selection and one undo step.
+    /// Active compositions and multiple carets are left to the normal input path.
+    pub fn apply_source_edit(
+        &mut self,
+        range: Range<usize>,
+        replacement: &str,
+        selection_after: Range<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_editable() || !self.selections.is_single() || self.ime_marked_range.is_some() {
+            return false;
+        }
+        let source = self.text.to_string();
+        if range.start > range.end
+            || !source.is_char_boundary(range.start)
+            || !source.is_char_boundary(range.end)
+        {
+            return false;
+        }
+        let mut result = source;
+        result.replace_range(range.clone(), replacement);
+        if selection_after.start > selection_after.end
+            || !result.is_char_boundary(selection_after.start)
+            || !result.is_char_boundary(selection_after.end)
+        {
+            return false;
+        }
+        let before = *self.active_selection();
+        self.undo_manager.begin_transaction();
+        self.undo_manager
+            .record_selections(vec![before], vec![before]);
+        self.set_selected_range(range, cx);
+        self.replace_text_in_range_silent(None, replacement, window, cx);
+        self.set_selected_range(selection_after, cx);
+        self.undo_manager
+            .record_selections(vec![before], vec![*self.active_selection()]);
+        self.undo_manager.commit_transaction();
+        self.pause_blink_cursor(cx);
+        cx.notify();
+        true
     }
 
     fn replace_text(
@@ -2510,6 +2560,11 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn reveal_cursor(&mut self, cx: &mut Context<Self>) {
         self.scroll_to(self.cursor(), None, cx);
     }
+    /// Reveal a source offset after a display-only reflow without changing selection.
+    pub fn reveal_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
+        self.unfold_offset(offset, cx);
+        self.scroll_to(offset.min(self.text.len()), None, cx);
+    }
 
     /// Scroll to make the given offset visible.
     /// If `direction` is Some, will keep edges at the same side.
@@ -2555,7 +2610,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         let display_pos = self
             .display_map
             .buffer_pos_to_display_pos(crate::input::BufferPoint::new(row, point.column));
-        let row_offset_y = line_height * display_pos.row;
+        let row_offset_y = self.display_map.row_top(display_pos.row, line_height);
 
         // For Right alignment use 0 margin: the cursor indicator is clamped inside bounds
         // in layout_cursors, so shifting the text here would cause a first-click visual jump.
@@ -2805,6 +2860,41 @@ impl<M: InputModeKind> InputBaseState<M> {
         selection_after: Option<CursorSelection>,
     ) -> bool {
         self.document_revision = self.document_revision.wrapping_add(1);
+        if !self.line_typography.is_empty() {
+            self.line_typography = super::line_typography::rebase(
+                &self.line_typography,
+                &self.text,
+                range,
+                new_text.len(),
+            );
+        }
+        if !self.concealment.is_empty() {
+            let shift = new_text.len() as isize - range.len() as isize;
+            self.concealment = self
+                .concealment
+                .iter()
+                .filter_map(|(hidden, width)| {
+                    if hidden.start <= range.end && range.start <= hidden.end {
+                        return None;
+                    }
+                    let hidden = if hidden.start >= range.end {
+                        hidden.start.checked_add_signed(shift)?
+                            ..hidden.end.checked_add_signed(shift)?
+                    } else {
+                        hidden.clone()
+                    };
+                    if hidden.end > self.text.len()
+                        || super::grapheme_cursor::snap_grapheme(&self.text, hidden.start, false)
+                            != hidden.start
+                        || super::grapheme_cursor::snap_grapheme(&self.text, hidden.end, false)
+                            != hidden.end
+                    {
+                        return None;
+                    }
+                    Some((hidden, *width))
+                })
+                .collect();
+        }
         let token_delta = self.edit_tokens(range, new_text.len());
         if self.undo_manager.is_ignoring() {
             return false;
@@ -2844,11 +2934,13 @@ impl<M: InputModeKind> InputBaseState<M> {
         recorded
     }
 
-    pub(super) fn undo(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
+    /// Replay undo on a shared document's authoritative editor from another view.
+    pub fn undo(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
         self.replay_history(true, window, cx);
     }
 
-    pub(super) fn redo(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
+    /// Replay redo on a shared document's authoritative editor from another view.
+    pub fn redo(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
         self.replay_history(false, window, cx);
     }
 
@@ -2997,6 +3089,78 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn selected_range(&self) -> std::ops::Range<usize> {
         (*self.selections.active()).into()
     }
+    pub fn has_multiple_selections(&self) -> bool {
+        !self.selections.is_single()
+    }
+
+    /// Reveal a source position hidden by any enclosing fold.
+    pub fn unfold_offset(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let row = self.text.offset_to_point(offset.min(self.text.len())).row;
+        let starts: Vec<_> = self
+            .display_map
+            .folded_ranges()
+            .iter()
+            .filter(|f| f.start_line < row && row < f.end_line)
+            .map(|f| f.start_line)
+            .collect();
+        for start in starts {
+            self.display_map.set_folded(start, false);
+        }
+        cx.notify();
+    }
+
+    pub fn folded_ranges(&self) -> &[crate::input::FoldRange] {
+        self.display_map.folded_ranges()
+    }
+
+    pub fn restore_fold_lines(&mut self, rows: &[usize], cx: &mut Context<Self>) {
+        self.display_map.clear_folds();
+        for row in rows {
+            self.display_map.set_folded(*row, true);
+        }
+        self.keep_cursor_visible_after_fold(cx);
+    }
+
+    pub fn toggle_fold_line(&mut self, row: usize, cx: &mut Context<Self>) {
+        if self.ime_marked_range.is_some() || !self.mode.is_folding() {
+            return;
+        }
+        self.display_map.toggle_fold(row);
+        self.keep_cursor_visible_after_fold(cx);
+    }
+
+    /// Toggle the innermost section containing the caret, or all sections.
+    pub fn fold_sections(&mut self, all: Option<bool>, cx: &mut Context<Self>) {
+        if self.ime_marked_range.is_some() || !self.mode.is_folding() {
+            return;
+        }
+        if let Some(folded) = all {
+            self.display_map.set_all_folded(folded);
+        } else {
+            let row = self.text.offset_to_point(self.cursor()).row;
+            if let Some(start) = self
+                .display_map
+                .fold_candidates()
+                .iter()
+                .rev()
+                .find(|f| f.start_line <= row && row < f.end_line)
+                .map(|f| f.start_line)
+            {
+                self.display_map.toggle_fold(start);
+            }
+        }
+        self.keep_cursor_visible_after_fold(cx);
+    }
+
+    fn keep_cursor_visible_after_fold(&mut self, cx: &mut Context<Self>) {
+        let offset = self.clamp_offset_to_visible_backward(self.cursor());
+        if offset != self.cursor() {
+            self.set_cursor_to(offset);
+        }
+        self.presentation_revision = self.presentation_revision.wrapping_add(1);
+        self.reveal_cursor(cx);
+        cx.notify();
+    }
 
     pub fn select_all(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.undo_manager.break_transaction_coalescing();
@@ -3010,6 +3174,8 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Non-empty ranges expand to character boundaries. Empty ranges remain empty and are
     /// clipped to the preceding character boundary.
     pub fn set_selected_range(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
+        self.unfold_offset(range.start, cx);
+        self.unfold_offset(range.end, cx);
         let range = self.normalize_token_range(range);
         let end_bias = if range.start == range.end {
             Bias::Left
@@ -3320,7 +3486,11 @@ impl<M: InputModeKind> InputBaseState<M> {
         if self.display_map.is_buffer_line_hidden(line) {
             for fold in self.display_map.folded_ranges() {
                 if line > fold.start_line && line <= fold.end_line {
-                    return self.text.line_start_offset(fold.end_line);
+                    return if fold.end_line >= self.text.lines_len() {
+                        self.text.line_end_offset(fold.start_line)
+                    } else {
+                        self.text.line_start_offset(fold.end_line)
+                    };
                 }
             }
         }
@@ -3619,7 +3789,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         };
 
         let (_, _, start_pos) = self.line_and_position_for_offset(range.start);
-        let (_, _, end_pos) = self.line_and_position_for_offset(range.end);
+        let (end_line, _, end_pos) = self.line_and_position_for_offset(range.end);
 
         let Some(start_pos) = start_pos else {
             return None;
@@ -3630,7 +3800,17 @@ impl<M: InputModeKind> InputBaseState<M> {
 
         Some(Bounds::from_corners(
             last_bounds.origin + start_pos,
-            last_bounds.origin + end_pos + point(px(0.), last_layout.line_height),
+            last_bounds.origin
+                + end_pos
+                + point(
+                    px(0.),
+                    last_layout
+                        .lines
+                        .get(end_line)
+                        .map_or(last_layout.line_height, |line| {
+                            line.row_height(last_layout.line_height)
+                        }),
+                ),
         ))
     }
 
@@ -4333,6 +4513,7 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
         let range = self.range_from_utf16(&range_utf16);
 
         let mut start_origin = None;
+        let mut candidate_height = line_height;
         let mut end_origin = None;
         let line_number_origin = point(line_number_width, px(0.));
         let mut y_offset = last_layout.visible_top;
@@ -4351,6 +4532,7 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                     false,
                 ) {
                     start_origin = Some(p + point(px(0.), y_offset));
+                    candidate_height = line.row_height(line_height);
                 }
             }
 
@@ -4375,7 +4557,9 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
         Some(Bounds::from_corners(
             bounds.origin + line_number_origin + start_origin,
             // + line_height for show IME panel under the cursor line.
-            bounds.origin + line_number_origin + point(end_origin.x, end_origin.y + line_height),
+            bounds.origin
+                + line_number_origin
+                + point(end_origin.x, end_origin.y + candidate_height),
         ))
     }
 
@@ -4388,11 +4572,16 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
         let last_layout = self.last_layout.as_ref()?;
         let line_point = self.last_bounds?.localize(&point)?;
 
+        let mut y = last_layout.visible_top;
         for (vi, line) in last_layout.lines.iter().enumerate() {
             let offset = last_layout.visible_line_byte_offsets[vi];
-            if let Some(utf8_index) = line.index_for_position(line_point, last_layout) {
+            if let Some(utf8_index) = line.index_for_position(
+                line_point - gpui::point(last_layout.line_number_width, y),
+                last_layout,
+            ) {
                 return Some(self.offset_to_utf16(offset + utf8_index));
             }
+            y += line.size(last_layout.line_height).height;
         }
 
         None

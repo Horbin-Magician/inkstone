@@ -108,9 +108,18 @@ impl WrapMap {
         cx: &mut App,
     ) {
         self.wrapper.adjust_inline_metrics(range, new_text.len());
+        self.wrapper
+            .adjust_typography(changed_text, range, new_text.len());
         self.wrapper.update(changed_text, range, new_text, cx);
     }
 
+    pub(super) fn set_line_typography(
+        &mut self,
+        styles: std::rc::Rc<[crate::input::LineTypography]>,
+        cx: &mut App,
+    ) {
+        self.wrapper.set_line_typography(styles, cx);
+    }
     /// Update layout parameters (wrap width or font)
     pub(super) fn set_inline_metrics(
         &mut self,
