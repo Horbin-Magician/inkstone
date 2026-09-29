@@ -88,6 +88,9 @@ pub(super) struct UiState {
     pub property_value: Entity<InputState>,
     pub property_list_entry: Entity<InputState>,
     pub tags_filter: Entity<InputState>,
+    pub tags_focus: FocusHandle,
+    pub tags_selected: Option<String>,
+    pub tags_scroll: ScrollHandle,
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub more: bool,
@@ -126,6 +129,8 @@ impl UiState {
             cx.subscribe(&tags_filter, |this, input, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.ui.prefs.tags.query = input.read(cx).value().to_string();
+                    this.ui.tags_selected = None;
+                    this.ui.tags_scroll.set_offset(Point::default());
                     this.persist_workspace(cx);
                     cx.notify();
                 }
@@ -317,6 +322,9 @@ impl UiState {
             property_value,
             property_list_entry,
             tags_filter,
+            tags_focus: cx.focus_handle(),
+            tags_selected: None,
+            tags_scroll: ScrollHandle::new(),
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             more: false,
@@ -1286,8 +1294,11 @@ impl Workspace {
                         .tooltip(*label)
                         .w(px(24.))
                         .h(px(28.))
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_click(cx.listener(move |this, _, w, cx| {
                             this.ui.right_mode = i;
+                            if i == 3 {
+                                w.focus(&this.ui.tags_focus, cx);
+                            }
                             cx.notify();
                         }))
                 }),
@@ -1931,7 +1942,7 @@ impl Workspace {
             .into_any_element()
     }
 
-    fn right_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn right_panel(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let pane = self.current_pane();
         let headings = pane
             .as_ref()
@@ -2074,14 +2085,56 @@ impl Workspace {
                                 }))
                         }))
                     })
-                    .when(self.ui.right_mode == 3, |s| s.child(self.tags_panel(cx))),
+                    .when(self.ui.right_mode == 3, |s| {
+                        s.child(self.tags_panel(window, cx))
+                    }),
             )
             .into_any_element()
     }
 }
 
 impl Workspace {
-    fn tags_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn navigate_tags(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        use inkstone::tags::{Navigation, rows};
+        let action = inkstone::tags::navigate(
+            &rows(&self.index, &self.ui.prefs.tags),
+            self.ui.tags_selected.as_deref(),
+            key,
+        );
+        match action {
+            Navigation::None => return false,
+            Navigation::Select(tag) => self.ui.tags_selected = Some(tag.to_lowercase()),
+            Navigation::Fold(tag, collapsed) => {
+                let key = tag.to_lowercase();
+                self.ui.tags_selected = Some(key.clone());
+                if collapsed {
+                    self.ui.prefs.tags.collapsed.insert(key);
+                } else {
+                    self.ui.prefs.tags.collapsed.remove(&key);
+                }
+                self.persist_workspace(cx);
+            }
+            Navigation::Open(tag) => {
+                self.search
+                    .update(cx, |s, cx| s.set_value(format!("tag:{tag}"), window, cx));
+                self.focus_search(true, window, cx);
+            }
+        }
+        if let Some(i) = rows(&self.index, &self.ui.prefs.tags)
+            .iter()
+            .position(|row| Some(row.tag.to_lowercase()) == self.ui.tags_selected)
+        {
+            self.ui.tags_scroll.scroll_to_item(i);
+        }
+        cx.notify();
+        true
+    }
+    fn tags_panel(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         use inkstone::tags::{Sort, rows};
         let options = &self.ui.prefs.tags;
         let items = rows(&self.index, options);
@@ -2109,6 +2162,14 @@ impl Workspace {
                 menu
             });
         div()
+            .track_focus(&self.ui.tags_focus)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
+                if this.ui.tags_focus.is_focused(w)
+                    && this.navigate_tags(&event.keystroke.key, w, cx)
+                {
+                    cx.stop_propagation();
+                }
+            }))
             .flex()
             .flex_col()
             .gap_1()
@@ -2170,7 +2231,17 @@ impl Workspace {
                     ),
             )
             .when(options.show_filter, |s| {
-                s.child(Input::new(&self.ui.tags_filter))
+                s.child(
+                    div()
+                        .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
+                            if event.keystroke.key == "down" {
+                                w.focus(&this.ui.tags_focus, cx);
+                                this.navigate_tags("down", w, cx);
+                                cx.stop_propagation();
+                            }
+                        }))
+                        .child(Input::new(&self.ui.tags_filter)),
+                )
             })
             .when_some(
                 if options.show_filter {
@@ -2189,55 +2260,72 @@ impl Workspace {
                     },
                 ))
             })
-            .children(items.into_iter().enumerate().map(|(i, row)| {
-                let tag = row.tag;
-                let fold_key = tag.to_lowercase();
-                let label = if options.hierarchy {
-                    tag.rsplit('/').next().unwrap_or(&tag).to_string()
-                } else {
-                    tag.clone()
-                };
+            .child(
                 div()
-                    .id(("tag", i))
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .py_1()
-                    .pl(px(row.depth as f32 * 14.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgba(0x88888822)))
-                    .child(div().w(px(20.)).flex_shrink_0().when(row.children, |s| {
-                        s.child(
-                            Button::new(("tag-fold", i))
-                                .ghost()
-                                .compact()
-                                .w(px(20.))
-                                .h(px(24.))
-                                .label(if row.collapsed { "›" } else { "⌄" })
-                                .accessibility_label(format!("展开或折叠标签 {tag}"))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    if !this.ui.prefs.tags.collapsed.remove(&fold_key) {
-                                        this.ui.prefs.tags.collapsed.insert(fold_key.clone());
-                                    }
-                                    this.persist_workspace(cx);
-                                    cx.notify();
-                                })),
-                        )
-                    }))
-                    .child(div().flex_1().min_w_0().truncate().child(label))
-                    .child(
+                    .id("tag-rows")
+                    .max_h((window.viewport_size().height - px(210.)).max(px(100.)))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.ui.tags_scroll)
+                    .children(items.into_iter().enumerate().map(|(i, row)| {
+                        let tag = row.tag;
+                        let fold_key = tag.to_lowercase();
+                        let label = if options.hierarchy {
+                            tag.rsplit('/').next().unwrap_or(&tag).to_string()
+                        } else {
+                            tag.clone()
+                        };
                         div()
-                            .text_xs()
-                            .text_color(rgb(0x999999))
-                            .child(row.count.to_string()),
-                    )
-                    .on_click(cx.listener(move |this, _, w, cx| {
-                        this.search
-                            .update(cx, |s, cx| s.set_value(format!("tag:{tag}"), w, cx));
-                        this.focus_search(true, w, cx);
-                    }))
-            }))
+                            .id(("tag", i))
+                            .when(
+                                self.ui.tags_selected.as_deref() == Some(fold_key.as_str()),
+                                |s| s.bg(rgba(0x88888833)),
+                            )
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .py_1()
+                            .pl(px(row.depth as f32 * 14.))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(rgba(0x88888822)))
+                            .child(div().w(px(20.)).flex_shrink_0().when(row.children, |s| {
+                                s.child(
+                                    Button::new(("tag-fold", i))
+                                        .ghost()
+                                        .compact()
+                                        .w(px(20.))
+                                        .h(px(24.))
+                                        .label(if row.collapsed { "›" } else { "⌄" })
+                                        .accessibility_label(format!("展开或折叠标签 {tag}"))
+                                        .on_click(cx.listener(move |this, _, w, cx| {
+                                            cx.stop_propagation();
+                                            this.ui.tags_selected = Some(fold_key.clone());
+                                            w.focus(&this.ui.tags_focus, cx);
+                                            if !this.ui.prefs.tags.collapsed.remove(&fold_key) {
+                                                this.ui
+                                                    .prefs
+                                                    .tags
+                                                    .collapsed
+                                                    .insert(fold_key.clone());
+                                            }
+                                            this.persist_workspace(cx);
+                                            cx.notify();
+                                        })),
+                                )
+                            }))
+                            .child(div().flex_1().min_w_0().truncate().child(label))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x999999))
+                                    .child(row.count.to_string()),
+                            )
+                            .on_click(cx.listener(move |this, _, w, cx| {
+                                this.search
+                                    .update(cx, |s, cx| s.set_value(format!("tag:{tag}"), w, cx));
+                                this.focus_search(true, w, cx);
+                            }))
+                    })),
+            )
             .into_any_element()
     }
     fn editor_group(
@@ -2599,7 +2687,7 @@ impl Render for Workspace {
                 resizable_panel()
                     .size(px(self.ui.prefs.right_width))
                     .size_range(px(180.)..px(500.))
-                    .child(self.right_panel(cx)),
+                    .child(self.right_panel(_window, cx)),
             )
         })
         .on_resize(move |state, _, cx| {

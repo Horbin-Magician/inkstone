@@ -128,9 +128,79 @@ pub fn rows(index: &crate::index::Index, options: &Options) -> Vec<Row> {
     result
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Navigation {
+    Select(String),
+    Fold(String, bool),
+    Open(String),
+    None,
+}
+pub fn navigate(items: &[Row], selected: Option<&str>, key: &str) -> Navigation {
+    let found = selected.and_then(|selected| {
+        items
+            .iter()
+            .position(|row| row.tag.to_lowercase() == selected)
+    });
+    let Some(row) = items.get(found.unwrap_or(0)) else {
+        return Navigation::None;
+    };
+    let index = found.unwrap_or(0);
+    let target = match key {
+        "down" => Some(found.map_or(0, |i| (i + 1).min(items.len() - 1))),
+        "up" => Some(found.map_or(items.len() - 1, |i| i.saturating_sub(1))),
+        "home" => Some(0),
+        "end" => Some(items.len() - 1),
+        "right" if row.children && row.collapsed => {
+            return Navigation::Fold(row.tag.clone(), false);
+        }
+        "right" if row.children => Some((index + 1).min(items.len() - 1)),
+        "left" if row.children && !row.collapsed => return Navigation::Fold(row.tag.clone(), true),
+        "left" if row.depth > 0 => items[..index]
+            .iter()
+            .rposition(|parent| parent.depth < row.depth),
+        "enter" => return Navigation::Open(row.tag.clone()),
+        _ => None,
+    };
+    target
+        .map(|i| Navigation::Select(items[i].tag.clone()))
+        .unwrap_or(Navigation::None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn keyboard_navigation_handles_tree_edges_and_stale_selection() {
+        let mut index = crate::index::Index::default();
+        index.update("a.md".into(), "#work/one #work/two".into());
+        let options = Options::default();
+        let items = rows(&index, &options);
+        assert_eq!(
+            navigate(&items, None, "down"),
+            Navigation::Select("work".into())
+        );
+        assert_eq!(
+            navigate(&items, Some("work/one"), "left"),
+            Navigation::Select("work".into())
+        );
+        assert_eq!(
+            navigate(&items, Some("work"), "right"),
+            Navigation::Select("work/one".into())
+        );
+        assert_eq!(
+            navigate(&items, Some("work/two"), "down"),
+            Navigation::Select("work/two".into())
+        );
+        assert_eq!(
+            navigate(&items, Some("missing"), "enter"),
+            Navigation::Open("work".into())
+        );
+        assert_eq!(
+            navigate(&items, None, "end"),
+            Navigation::Select("work/two".into())
+        );
+        assert_eq!(navigate(&[], None, "down"), Navigation::None);
+    }
     #[test]
     fn filtering_preserves_ancestors_counts_and_saved_folds() {
         let mut index = crate::index::Index::default();

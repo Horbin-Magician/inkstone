@@ -646,6 +646,7 @@ impl Workspace {
                         this.ui.prefs = prefs;
                         this.ui.left_mode = this.ui.prefs.left_panel;
                         this.ui.right_mode = this.ui.prefs.right_panel;
+                        this.ui.tags_selected = None;
                         this.fulltext = this.ui.left_mode == 1;
                         this.search.update(cx, |s, cx| s.set_value("", window, cx));
                         this.ui.tags_filter.update(cx, |s, cx| {
@@ -1643,6 +1644,30 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn tag_navigation_folds_and_opens_selected_search(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                Arc::make_mut(&mut w.index).update("note.md".into(), "#work/one #work/two".into());
+                w.ui.right_mode = 3;
+                window.focus(&w.ui.tags_focus, cx);
+                assert!(w.navigate_tags("down", window, cx));
+                assert_eq!(w.ui.tags_selected.as_deref(), Some("work"));
+                w.navigate_tags("left", window, cx);
+                assert!(w.ui.prefs.tags.collapsed.contains("work"));
+                w.navigate_tags("right", window, cx);
+                assert!(!w.ui.prefs.tags.collapsed.contains("work"));
+                w.navigate_tags("right", window, cx);
+                assert_eq!(w.ui.tags_selected.as_deref(), Some("work/one"));
+                w.navigate_tags("enter", window, cx);
+                assert_eq!(w.search.read(cx).value().as_ref(), "tag:work/one");
+                assert!(w.fulltext);
+                assert_eq!(w.ui.left_mode, 1);
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn property_list_conversion_preserves_scalar_commas_and_pending_items(cx: &mut TestAppContext) {
         use inkstone::properties::Kind;
