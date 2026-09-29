@@ -2427,6 +2427,8 @@ impl Render for Workspace {
                             div()
                                 .w(px(self.ui.prefs.left_width))
                                 .flex_shrink_0()
+                                .occlude()
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .child(self.left_header(cx)),
                         )
                     })
@@ -2436,6 +2438,8 @@ impl Render for Workspace {
                             div()
                                 .w(px((self.ui.prefs.right_width - 102.).max(148.)))
                                 .flex_shrink_0()
+                                .occlude()
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                                 .child(self.right_header(cx)),
                         )
                     }),
