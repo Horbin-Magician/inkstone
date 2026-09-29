@@ -2533,6 +2533,74 @@ mod tests {
     }
 
     #[gpui::test]
+    fn ctrl_d_selects_words_wraps_and_edits_all_occurrences(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "cat scatter cat Cat cat";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(13..13, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-d");
+        editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 12..15));
+        visual.simulate_keystrokes("ctrl-d ctrl-d ctrl-d");
+        handle
+            .update(&mut visual, |_, w, cx| {
+                editor.update(cx, |s, cx| {
+                    assert!(s.has_multiple_selections());
+                    s.replace_text_in_range(None, "犬", w, cx);
+                    assert_eq!(s.value(), "犬 scatter 犬 Cat 犬");
+                });
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), source);
+            assert!(s.has_multiple_selections());
+        });
+    }
+
+    #[gpui::test]
+    fn ctrl_d_preserves_unicode_words_and_explicit_substrings(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (source, selection, expected) in [
+            ("中文 中文", 0..0, "x x"),
+            ("e\u{301} e\u{301}", 0..0, "x x"),
+            ("foobar barfoo", 3..6, "foox xfoo"),
+            ("😀 😀", 0..4, "x x"),
+        ] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            let editor = handle
+                .update(cx, |p, w, cx| {
+                    p.editor.update(cx, |s, cx| {
+                        s.set_selected_range(selection, cx);
+                        s.focus(w, cx);
+                    });
+                    p.editor.clone()
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.simulate_keystrokes("ctrl-d ctrl-d");
+            handle
+                .update(&mut visual, |_, w, cx| {
+                    editor.update(cx, |s, cx| {
+                        s.replace_text_in_range(None, "x", w, cx);
+                        assert_eq!(s.value(), expected);
+                    });
+                })
+                .unwrap();
+        }
+    }
+
+    #[gpui::test]
     fn selected_code_after_double_backticks_gets_fence_line_breaks(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for (source, range, expected, selected) in [
