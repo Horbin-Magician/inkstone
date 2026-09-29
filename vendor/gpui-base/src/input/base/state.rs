@@ -2066,8 +2066,8 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.pause_blink_cursor(cx);
     }
 
-    /// Surround non-empty selections in one transaction, retaining their IDs
-    /// and direction. Empty carets are handled by the insertion path.
+    /// Surround selections and insert asymmetric pairs at multiple empty
+    /// carets in one transaction, retaining selection IDs and direction.
     fn surround_selections(
         &mut self,
         typed: &str,
@@ -2078,7 +2078,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             || self.ime_marked_range.is_some()
             || !self.mode.is_auto_close()
             || typed.chars().count() != 1
-            || self.selections.iter().any(|selection| selection.is_empty())
+            || (self.selections.is_single() && self.active_selection().is_empty())
         {
             return false;
         }
@@ -2105,6 +2105,13 @@ impl<M: InputModeKind> InputBaseState<M> {
         let mut delta = 0isize;
         for (index, mut selection) in ordered {
             let range = selection.start..selection.end;
+            if range.is_empty()
+                && (typed == closer || self.auto_close_target(&range, typed).is_none())
+            {
+                // Validate all carets before applying anything. Symmetric
+                // delimiters need their own context and repeated-marker rules.
+                return false;
+            }
             // Inline brackets/emphasis replace selections crossing lines;
             // backticks can surround a multiline code selection.
             let preserve = typed == "`"
@@ -2151,10 +2158,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     fn auto_close_target(&self, range: &Range<usize>, text: &str) -> Option<(usize, SharedString)> {
         if self.silent_replace_text
             || self.ime_marked_range.is_some()
-            || !self.selections.is_single()
-            || !self.active_selection().is_empty()
             || !range.is_empty()
-            || range.start != self.cursor()
             || text.chars().count() != 1
             || !self.mode.is_auto_close()
         {
@@ -2224,12 +2228,11 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// active [`LanguageConfig`](crate::input::language_config::LanguageConfig) that already follows the collapsed cursor and is
     /// not escaped. The caller then moves the cursor without editing text or
     /// history. `None` means insert normally.
-    fn skip_over_target(&self, new_text: &str) -> Option<usize> {
+    fn skip_over_target(&self, cursor: usize, new_text: &str) -> Option<usize> {
         if !self.mode.is_auto_close() || new_text.chars().count() != 1 {
             return None;
         }
         let rules = self.mode.language_config()?;
-        let cursor = self.cursor();
         for (open, close, not_in) in rules.closing_pairs() {
             for (index, _) in close.char_indices() {
                 if !close[index..].starts_with(new_text)
@@ -4631,18 +4634,32 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
             && self.ime_marked_range.is_none()
             && !self.silent_replace_text
             && self.is_code_editor()
-            && self.selections.is_single()
-            && self.active_selection().is_empty()
+            && (range_utf16.is_none() || self.selections.is_single())
+            && self.selections.iter().all(|selection| selection.is_empty())
         {
-            if let Some(target) = self.skip_over_target(new_text) {
-                if self
+            let targets: Option<Vec<_>> = self
+                .selections
+                .iter()
+                .map(|selection| {
+                    self.skip_over_target(selection.start, new_text)
+                        .map(|target| (*selection, target))
+                })
+                .collect();
+            if let Some(targets) = targets {
+                let consume = self
                     .mode
                     .language_config()
-                    .is_some_and(|rules| rules.skip_only_generated)
-                {
-                    self.mode.consume_closer(self.cursor());
+                    .is_some_and(|rules| rules.skip_only_generated);
+                let mut after = Vec::with_capacity(targets.len());
+                for (mut selection, target) in targets {
+                    if consume {
+                        self.mode.consume_closer(selection.start);
+                    }
+                    selection.place_at(target, None);
+                    after.push(selection);
                 }
-                self.set_cursor_to(target);
+                self.selections.replace_all(after);
+                self.selections.merge_overlapping();
                 self.update_preferred_column();
                 cx.notify();
                 return;
@@ -4686,7 +4703,10 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                     M::on_text_typed(self, &range, new_text, window, cx);
                     return;
                 }
-                if let Some((open_len, closer)) = self.auto_close_target(&range, new_text) {
+                if let Some((open_len, closer)) = self
+                    .auto_close_target(&range, new_text)
+                    .filter(|_| self.active_selection().is_empty() && range.start == self.cursor())
+                {
                     // One edit keeps the pair atomic even at undo coalescing limits.
                     let padding =
                         self.mode
