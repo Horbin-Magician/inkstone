@@ -1711,6 +1711,34 @@ mod tests {
     }
 
     #[gpui::test]
+    fn shift_enter_replaces_multiline_selection_with_one_undo_step(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "    中文\r\n    tail";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(4..source.len(), cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("shift-enter");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "    \r\n");
+            assert_eq!(s.selected_range(), 6..6);
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), source);
+            assert_eq!(s.selected_range(), 4..source.len());
+        });
+    }
+
+    #[gpui::test]
     fn home_and_shift_home_respect_markdown_prefixes_and_soft_wrap(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "> - [!] 中文";
