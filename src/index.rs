@@ -52,6 +52,32 @@ pub struct ParsedNote {
     pub blocks: Vec<BlockReference>,
     /// Zero-based header row through the exclusive body end row.
     pub folds: Vec<Range<usize>>,
+    pub fold_regions: Vec<(Range<usize>, FoldKind)>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum FoldKind {
+    Heading,
+    Indent,
+    Block,
+}
+
+impl ParsedNote {
+    pub fn fold_ranges(&self, headings: bool, indentation: bool) -> Vec<Range<usize>> {
+        let mut ranges: Vec<_> = self
+            .fold_regions
+            .iter()
+            .filter(|(_, kind)| match kind {
+                FoldKind::Heading => headings,
+                FoldKind::Indent => indentation,
+                FoldKind::Block => headings || indentation,
+            })
+            .map(|(range, _)| range.clone())
+            .collect();
+        ranges.sort_by_key(|r| (r.start, std::cmp::Reverse(r.end)));
+        ranges.dedup_by_key(|r| r.start);
+        ranges
+    }
 }
 
 pub fn parse(source: &str) -> ParsedNote {
@@ -224,14 +250,21 @@ pub fn parse(source: &str) -> ParsedNote {
     options.constructs.frontmatter = true;
     if let Ok(root) = markdown_parser::to_mdast(source, &options) {
         walk(&root, source, &mut result);
-        fn folds(node: &Node, out: &mut Vec<Range<usize>>) {
+        fn folds(node: &Node, out: &mut Vec<(Range<usize>, FoldKind)>) {
             if matches!(
                 node,
                 Node::ListItem(_) | Node::Blockquote(_) | Node::Code(_) | Node::Yaml(_)
             ) && let Some(p) = node.position()
                 && p.end.line > p.start.line
             {
-                out.push(p.start.line - 1..p.end.line);
+                out.push((
+                    p.start.line - 1..p.end.line,
+                    if matches!(node, Node::ListItem(_) | Node::Blockquote(_)) {
+                        FoldKind::Indent
+                    } else {
+                        FoldKind::Block
+                    },
+                ));
             }
             if let Some(children) = node.children() {
                 for (i, child) in children.iter().enumerate() {
@@ -248,18 +281,15 @@ pub fn parse(source: &str) -> ParsedNote {
                             })
                             .unwrap_or_else(|| node.position().map_or(p.end.line, |p| p.end.line));
                         if end > p.start.line {
-                            out.push(p.start.line - 1..end);
+                            out.push((p.start.line - 1..end, FoldKind::Heading));
                         }
                     }
                     folds(child, out);
                 }
             }
         }
-        folds(&root, &mut result.folds);
-        result
-            .folds
-            .sort_by_key(|r| (r.start, std::cmp::Reverse(r.end)));
-        result.folds.dedup_by_key(|r| r.start);
+        folds(&root, &mut result.fold_regions);
+        result.folds = result.fold_ranges(true, true);
         fn collect_blocks(
             node: &Node,
             source: &str,
@@ -1334,6 +1364,12 @@ mod tests {
         let source = "# A\nbody\n## B\n- parent\n  - child\n# C\n```md\n# literal\n```";
         let parsed = parse(source);
         assert_eq!(parsed.folds, vec![0..5, 2..5, 3..5, 5..9, 6..9]);
+        assert_eq!(
+            parsed.fold_ranges(true, false),
+            vec![0..5, 2..5, 5..9, 6..9]
+        );
+        assert_eq!(parsed.fold_ranges(false, true), vec![3..5, 6..9]);
+        assert!(parsed.fold_ranges(false, false).is_empty());
         assert!(!parsed.folds.iter().any(|r| r.start == 7));
         assert!(parse("# single").folds.is_empty());
         assert_eq!(parse("Title\n=====\nbody").folds, vec![0..3]);
