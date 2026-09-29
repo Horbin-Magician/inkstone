@@ -380,12 +380,26 @@ impl Workspace {
             return;
         }
         self.ui.property_open = true;
+        self.ui.property_kind = if matches!(name, "tags" | "aliases" | "cssclasses") {
+            inkstone::properties::Kind::List
+        } else {
+            self.ui
+                .prefs
+                .property_types
+                .get(&name.to_lowercase())
+                .copied()
+                .unwrap_or_else(|| inkstone::properties::Kind::infer(value))
+        };
         self.ui.property_original = (!name.is_empty()).then(|| name.to_owned());
         self.ui.property_baseline = self.active.and_then(|i| self.tabs.get(i)).and_then(|tab| {
             self.current_pane()
                 .map(|pane| (tab.id, pane.read(cx).editor.read(cx).value().to_string()))
         });
-        let display = serde_json::from_str::<String>(value).unwrap_or_else(|_| value.to_string());
+        let display = if value == "null" {
+            String::new()
+        } else {
+            serde_json::from_str::<String>(value).unwrap_or_else(|_| value.to_string())
+        };
         self.ui
             .property_key
             .update(cx, |s, cx| s.set_value(name.to_string(), w, cx));
@@ -428,15 +442,34 @@ impl Workspace {
                 .ok_or_else(|| "没有可删除的属性。".to_string())
                 .and_then(|name| inkstone::properties::remove(&text, name))
         } else {
-            inkstone::properties::edit(
-                &text,
-                self.ui.property_original.as_deref(),
-                &self.ui.property_key.read(cx).value(),
-                &self.ui.property_value.read(cx).value(),
-            )
+            let key = self.ui.property_key.read(cx).value();
+            let kind = if matches!(key.as_ref(), "tags" | "aliases" | "cssclasses") {
+                inkstone::properties::Kind::List
+            } else {
+                self.ui.property_kind
+            };
+            kind.encode(&self.ui.property_value.read(cx).value())
+                .and_then(|value| {
+                    inkstone::properties::edit(
+                        &text,
+                        self.ui.property_original.as_deref(),
+                        &key,
+                        &value,
+                    )
+                })
         };
         match result {
             Ok(text) => {
+                if !delete {
+                    let key = self.ui.property_key.read(cx).value().to_lowercase();
+                    let kind = if matches!(key.as_str(), "tags" | "aliases" | "cssclasses") {
+                        inkstone::properties::Kind::List
+                    } else {
+                        self.ui.property_kind
+                    };
+                    self.ui.prefs.property_types.insert(key, kind);
+                    self.persist_workspace(cx);
+                }
                 pane.read(cx).editor.clone().update(cx, |s, cx| {
                     s.replace_all(text, w, cx);
                     s.focus(w, cx);
