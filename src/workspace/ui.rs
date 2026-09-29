@@ -49,6 +49,7 @@ impl PartialEq<PathBuf> for ClosedTab {
 
 pub(super) struct UiState {
     pub prefs: Preferences,
+    _appearance_subscription: Subscription,
     pub tab_width: Entity<SliderState>,
     pub font_size_slider: Entity<SliderState>,
     _font_size_subscription: Subscription,
@@ -129,7 +130,17 @@ pub(super) struct UiState {
 }
 impl UiState {
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
-        apply_theme(false, cx);
+        let prefs = Preferences {
+            light: Workspace::system_light(window),
+            ..Default::default()
+        };
+        apply_theme(prefs.light, cx);
+        let weak = cx.entity().downgrade();
+        let appearance_subscription = window.observe_window_appearance(move |window, cx| {
+            let _ = weak.update(cx, |this, cx| {
+                this.update_system_theme(Workspace::system_light(window), window, cx);
+            });
+        });
         let font_size_slider = cx.new(|_| {
             SliderState::new()
                 .min(10.)
@@ -329,7 +340,8 @@ impl UiState {
                 _ => (),
             });
         Self {
-            prefs: Preferences::default(),
+            prefs,
+            _appearance_subscription: appearance_subscription,
             tab_width,
             font_size_slider,
             _font_size_subscription: font_size_subscription,
@@ -1145,9 +1157,12 @@ impl Workspace {
             20 => self.navigate(false, window, cx),
             21 => self.navigate(true, window, cx),
             22 => {
-                self.ui.prefs.light = !self.ui.prefs.light;
-                apply_theme(self.ui.prefs.light, cx);
-                self.apply_editor_preferences(window, cx);
+                let theme = if self.ui.prefs.light {
+                    inkstone::preferences::ThemeMode::Dark
+                } else {
+                    inkstone::preferences::ThemeMode::Light
+                };
+                self.set_theme(theme, window, cx);
             }
             23 => {
                 if let Some(t) = self.active.and_then(|i| self.tabs.get(i)) {

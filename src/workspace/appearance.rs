@@ -1,19 +1,70 @@
 use super::*;
+use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::{button::Button, slider::Slider, switch::Switch};
+use inkstone::preferences::ThemeMode;
 
 impl Workspace {
+    pub(super) fn system_light(window: &Window) -> bool {
+        matches!(
+            window.appearance(),
+            WindowAppearance::Light | WindowAppearance::VibrantLight
+        )
+    }
+    pub(super) fn set_theme(
+        &mut self,
+        theme: ThemeMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ui.prefs.theme = theme;
+        self.ui.prefs.light = theme.is_light(Self::system_light(window));
+        ui::apply_theme(self.ui.prefs.light, cx);
+        self.apply_editor_preferences(window, cx);
+    }
+    pub(super) fn update_system_theme(
+        &mut self,
+        light: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ui.prefs.theme != ThemeMode::System || self.ui.prefs.light == light {
+            return;
+        }
+        self.ui.prefs.light = light;
+        ui::apply_theme(light, cx);
+        self.apply_editor_preferences(window, cx);
+    }
     pub(super) fn appearance_settings_panel(
         &self,
         interface: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let selected = self.ui.prefs.theme;
+        let weak = cx.entity().downgrade();
         let theme = Button::new("theme-setting")
-            .label(if self.ui.prefs.light {
-                "浅色"
-            } else {
-                "深色"
+            .label(match selected {
+                ThemeMode::System => "跟随系统",
+                ThemeMode::Light => "浅色",
+                ThemeMode::Dark => "深色",
             })
-            .on_click(cx.listener(|this, _, w, cx| this.execute_command(22, w, cx)));
+            .dropdown_menu(move |mut menu, _, _| {
+                for (value, label) in [
+                    (ThemeMode::System, "跟随系统"),
+                    (ThemeMode::Light, "浅色"),
+                    (ThemeMode::Dark, "深色"),
+                ] {
+                    let weak = weak.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(label)
+                            .checked(value == selected)
+                            .on_click(move |_, window, cx| {
+                                let _ =
+                                    weak.update(cx, |this, cx| this.set_theme(value, window, cx));
+                            }),
+                    );
+                }
+                menu
+            });
         div()
             .flex()
             .gap_4()
