@@ -882,6 +882,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (94, "切换到最后一个标签页", "Ctrl+9"),
     (95, "删除当前行", "Ctrl+Shift+K"),
     (96, "选中当前行", "Alt+L"),
+    (97, "显示 / 隐藏功能区", ""),
 ];
 
 #[derive(Clone)]
@@ -1581,6 +1582,7 @@ impl Workspace {
                 }
             }
             85 => self.open_current_note_in_new_tab(window, cx),
+            97 => self.ui.prefs.show_ribbon = !self.ui.prefs.show_ribbon,
             95..=96 => {
                 if let Some(pane) = self.current_pane() {
                     pane.update(cx, |pane, cx| {
@@ -1695,6 +1697,49 @@ impl Workspace {
         cx.notify();
     }
 
+    fn ribbon(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("workspace-ribbon")
+            .debug_selector(|| "workspace-ribbon".into())
+            .w(px(44.))
+            .h_full()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .py_2()
+            .gap_1()
+            .bg(self.side())
+            .border_r_1()
+            .border_color(self.border())
+            .children(
+                [
+                    ("ribbon-switcher", "search", "快速切换", 2),
+                    ("open-graph", "network", "关系图谱", 43),
+                    ("ribbon-commands", "list", "打开命令面板", 39),
+                ]
+                .into_iter()
+                .map(|(id, icon, label, command)| {
+                    tool(id, icon, label)
+                        .w(px(32.))
+                        .h(px(32.))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.execute_command(command, window, cx)
+                        }))
+                }),
+            )
+            .child(div().flex_1())
+            .child(
+                tool("settings", "settings", "设置")
+                    .w(px(32.))
+                    .h(px(32.))
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.execute_command(14, window, cx)),
+                    ),
+            )
+            .into_any_element()
+    }
+
     fn left_header(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex()
@@ -1727,10 +1772,6 @@ impl Workspace {
                         this.ui.left_mode = 2;
                         cx.notify();
                     })),
-            )
-            .child(
-                tool("open-graph", "network", "关系图谱")
-                    .on_click(cx.listener(|this, _, w, cx| this.open_graph(false, w, cx))),
             )
             .child(div().flex_1())
             .child(
@@ -2381,11 +2422,11 @@ impl Workspace {
                             .on_click(cx.listener(|this, _, w, cx| this.choose_vault(w, cx))),
                     )
                     .child(div().flex_1())
-                    .child(
-                        tool("settings", "settings", "设置").on_click(
+                    .when(!self.ui.prefs.show_ribbon, |row| {
+                        row.child(tool("settings", "settings", "设置").on_click(
                             cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
-                        ),
-                    ),
+                        ))
+                    }),
             )
             .into_any_element()
     }
@@ -3596,6 +3637,9 @@ impl Render for Workspace {
                     .h(px(40.))
                     .pl_0()
                     .bg(self.side())
+                    .when(self.ui.prefs.show_ribbon, |bar| {
+                        bar.child(div().w(px(44.)).flex_shrink_0())
+                    })
                     .when(left_open, |s| {
                         s.child(
                             div()
@@ -3618,7 +3662,16 @@ impl Render for Workspace {
                         )
                     }),
             )
-            .child(div().flex_1().min_h_0().child(panels))
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .when(self.ui.prefs.show_ribbon, |body| {
+                        body.child(self.ribbon(cx))
+                    })
+                    .child(div().flex_1().min_w_0().h_full().child(panels)),
+            )
             .when(error.is_some(), |s| {
                 s.child(
                     div()

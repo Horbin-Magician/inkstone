@@ -93,6 +93,7 @@ pub struct Preferences {
     pub tab_size: usize,
     pub show_inline_title: bool,
     pub show_view_header: bool,
+    pub show_ribbon: bool,
     pub expanded_folders: Vec<PathBuf>,
     pub left_open: bool,
     pub right_open: bool,
@@ -155,6 +156,7 @@ impl Default for Preferences {
             tab_size: 4,
             show_inline_title: true,
             show_view_header: true,
+            show_ribbon: true,
             expanded_folders: vec![],
             left_open: true,
             right_open: true,
@@ -389,6 +391,7 @@ mod tests {
         assert!(!p.auto_reveal_file);
         assert!(p.show_inline_title);
         assert!(p.show_view_header);
+        assert!(p.show_ribbon);
         assert!(p.show_indent_guides);
         assert!(p.auto_pair_brackets && p.auto_pair_markdown);
         assert!(p.smart_lists);
@@ -442,6 +445,7 @@ mod tests {
         prefs.auto_reveal_file = true;
         prefs.show_inline_title = false;
         prefs.show_view_header = false;
+        prefs.show_ribbon = false;
         prefs.link_format = crate::locations::LinkFormat::Relative;
         prefs.sort_by = crate::file_order::SortBy::Created;
         prefs.sort_descending = true;
@@ -530,6 +534,7 @@ mod tests {
         assert!(Preferences::load(&path).auto_reveal_file);
         assert!(!Preferences::load(&path).show_inline_title);
         assert!(!Preferences::load(&path).show_view_header);
+        assert!(!Preferences::load(&path).show_ribbon);
         assert_eq!(
             Preferences::load(&path).link_format,
             crate::locations::LinkFormat::Relative

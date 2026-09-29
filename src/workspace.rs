@@ -2006,6 +2006,43 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn ribbon_actions_visibility_and_hidden_settings_access(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let ribbon = visual.debug_bounds("workspace-ribbon").unwrap();
+        assert_eq!(ribbon.size.width, px(44.));
+        visual.simulate_click(
+            ribbon.origin + point(px(22.), px(24.)),
+            Modifiers::default(),
+        );
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert!(w.ui.quick_open);
+                w.close_overlays(window, cx);
+                w.execute_command(97, window, cx);
+                assert!(!w.ui.prefs.show_ribbon);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("workspace-ribbon").is_none());
+        visual.simulate_keystrokes("ctrl-,");
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert!(w.ui.settings);
+                w.execute_command(97, window, cx);
+                w.close_overlays(window, cx);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert_eq!(
+            visual.debug_bounds("workspace-ribbon").unwrap().size.width,
+            px(44.)
+        );
+    }
+
+    #[gpui::test]
     fn immediate_save_and_window_close_flush_committed_linked_view_edits(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for close in [true, false] {
