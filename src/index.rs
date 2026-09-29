@@ -768,31 +768,23 @@ impl Index {
                 continue;
             }
             let before = hits.len();
-            let content_match = query.first_offset(path, &note.text, &note.parsed.tags);
-            let mut offset = 0;
-            for (line, text) in note.text.split_inclusive('\n').enumerate() {
-                if query.matches(path, text, &note.parsed.tags) {
-                    let at = query
-                        .first_offset(path, text, &note.parsed.tags)
-                        .unwrap_or(0);
-                    hits.push(SearchHit {
-                        path: path.clone(),
-                        display_name: None,
-                        offset: offset + at,
-                        line: line + 1,
-                        excerpt: excerpt(text, at),
-                    });
-                    if hits.len() == 200 {
-                        return Ok(hits);
-                    }
-                    if content_match.is_none() {
-                        break;
-                    }
-                }
-                offset += text.len();
+            for found in query.matching_lines(path, &note.text, &note.parsed.tags, 200 - hits.len())
+            {
+                hits.push(SearchHit {
+                    path: path.clone(),
+                    display_name: None,
+                    offset: found.offset,
+                    line: found.line,
+                    excerpt: excerpt(
+                        &note.text[found.range.clone()],
+                        found.offset - found.range.start,
+                    ),
+                });
             }
             if hits.len() == before {
-                let at = content_match.unwrap_or(0);
+                let at = query
+                    .first_offset(path, &note.text, &note.parsed.tags)
+                    .unwrap_or(0);
                 let start = note.text[..at].rfind('\n').map_or(0, |i| i + 1);
                 let end = note.text[at..]
                     .find('\n')
@@ -877,6 +869,23 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cross_line_queries_show_all_terms_and_skip_false_or_branches() {
+        let mut index = Index::default();
+        let source = "前言\n😀alpha\nblocked\n中文beta\ngamma\n";
+        index.update("note.md".into(), source.into());
+        let both = index.search("alpha beta");
+        assert_eq!(both.iter().map(|hit| hit.line).collect::<Vec<_>>(), [2, 4]);
+        assert_eq!(both[0].offset, source.find("alpha").unwrap());
+        assert_eq!(both[1].offset, source.find("beta").unwrap());
+        let alternatives = index.search("alpha -blocked OR gamma");
+        assert_eq!(alternatives.len(), 1);
+        assert_eq!(alternatives[0].line, 5);
+        assert_eq!(index.search("file:note -absent").len(), 1);
+        assert!(index.search("alpha -blocked").is_empty());
+        index.update("many.md".into(), "alpha\n".repeat(300));
+        assert_eq!(index.search("alpha").len(), 200);
+    }
     #[test]
     fn search_excerpts_include_late_matches_and_metadata_hits_are_not_repeated() {
         let mut index = Index::default();

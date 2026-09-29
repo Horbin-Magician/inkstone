@@ -64,6 +64,11 @@ impl Term {
 pub struct Query {
     groups: Vec<Vec<Term>>,
 }
+pub struct LineMatch {
+    pub offset: usize,
+    pub line: usize,
+    pub range: std::ops::Range<usize>,
+}
 
 impl Query {
     pub fn parse(input: &str) -> Result<Self, String> {
@@ -165,6 +170,46 @@ impl Query {
             .filter(|term| !term.exclude && matches!(term.field, Field::Text))
             .filter_map(|term| term.pattern.first_offset(text))
             .min()
+    }
+    /// Only terms from Boolean branches satisfied by the whole document may produce hits.
+    pub fn matching_lines(
+        &self,
+        path: &Path,
+        text: &str,
+        tags: &[String],
+        limit: usize,
+    ) -> Vec<LineMatch> {
+        let patterns: Vec<_> = self
+            .groups
+            .iter()
+            .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
+            .flat_map(|group| group.iter())
+            .filter(|term| !term.exclude && matches!(term.field, Field::Text))
+            .map(|term| &term.pattern)
+            .collect();
+        if patterns.is_empty() || limit == 0 {
+            return vec![];
+        }
+        let mut matches = vec![];
+        let mut start = 0;
+        for (line, content) in text.split_inclusive('\n').enumerate() {
+            if let Some(offset) = patterns
+                .iter()
+                .filter_map(|pattern| pattern.first_offset(content))
+                .min()
+            {
+                matches.push(LineMatch {
+                    offset: start + offset,
+                    line: line + 1,
+                    range: start..start + content.len(),
+                });
+                if matches.len() == limit {
+                    break;
+                }
+            }
+            start += content.len();
+        }
+        matches
     }
 }
 
