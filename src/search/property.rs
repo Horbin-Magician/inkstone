@@ -1,8 +1,10 @@
-use super::Query;
+use super::{Pattern, Query, ScopedPattern};
 use serde_json::Value;
 use std::{cell::RefCell, path::Path};
 mod value;
 use value::Expected;
+static HIGHLIGHT: std::sync::LazyLock<Pattern> =
+    std::sync::LazyLock::new(|| Pattern::Regex(regex::Regex::new("[^\\r\\n]+").unwrap()));
 
 enum Key {
     Exact(String),
@@ -79,8 +81,37 @@ impl Property {
         })
     }
     pub(super) fn matches(&self, source: &str) -> bool {
+        !self.matching_keys(source).is_empty()
+    }
+    pub(super) fn patterns(&self, source: &str) -> Vec<ScopedPattern<'_>> {
+        let keys = self.matching_keys(source);
+        if keys.is_empty() {
+            return vec![];
+        }
         let Some(block) = crate::properties::block(source) else {
-            return false;
+            return vec![];
+        };
+        let first = source.find('\n').unwrap() + 1;
+        let last = source[..block.end]
+            .trim_end_matches(['\r', '\n'])
+            .rfind('\n')
+            .unwrap()
+            + 1;
+        let Ok((_, _, entries)) = crate::yaml_source::entries(&source[first..last]) else {
+            return vec![];
+        };
+        entries
+            .into_iter()
+            .filter(|entry| keys.contains(&entry.key))
+            .map(|entry| ScopedPattern {
+                pattern: Some(&HIGHLIGHT),
+                range: first + entry.start..(first + entry.value.end).min(last),
+            })
+            .collect()
+    }
+    fn matching_keys(&self, source: &str) -> Vec<String> {
+        let Some(block) = crate::properties::block(source) else {
+            return vec![];
         };
         let header = &source[..block.end];
         if self
@@ -96,24 +127,28 @@ impl Property {
         }
         let cache = self.cache.borrow();
         let Some((_, Some(Value::Object(values)))) = cache.as_ref() else {
-            return false;
+            return vec![];
         };
-        values.iter().any(|(name, value)| {
-            let key_matches = match &self.key {
-                Key::Exact(key) => key.to_lowercase() == name.to_lowercase(),
-                Key::Query(query) => query.matches(Path::new(""), name, &[]),
-            };
-            if !key_matches {
-                return false;
-            }
-            let Some(expected) = &self.expected else {
-                return true;
-            };
-            match value {
-                Value::Array(items) => items.iter().any(|value| expected.matches(value)),
-                _ => expected.matches(value),
-            }
-        })
+        values
+            .iter()
+            .filter(|(name, value)| {
+                let key_matches = match &self.key {
+                    Key::Exact(key) => key.to_lowercase() == name.to_lowercase(),
+                    Key::Query(query) => query.matches(Path::new(""), name, &[]),
+                };
+                if !key_matches {
+                    return false;
+                }
+                let Some(expected) = &self.expected else {
+                    return true;
+                };
+                match value {
+                    Value::Array(items) => items.iter().any(|value| expected.matches(value)),
+                    _ => expected.matches(value),
+                }
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 }
 fn value_text(value: &Value) -> String {

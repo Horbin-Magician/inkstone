@@ -921,6 +921,24 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn property_search_locates_quoted_keys_and_multiline_values() {
+        let mut index = Index::default();
+        let source =
+            "---\nother: keep\n\"名称: 中文\": done\naliases:\n  - one\n  - two\n---\nbody";
+        index.update("note.md".into(), source.into());
+        let hits = index.search("[\"名称: 中文\":done]");
+        assert_eq!(hits[0].line, 3);
+        assert_eq!(hits[0].offset, source.find("\"名称").unwrap());
+        assert!(hits[0].excerpt.contains("done"));
+        assert!(!hits[0].highlights.is_empty());
+        let list = index.search("[aliases:two]");
+        assert_eq!(
+            list.iter().map(|hit| hit.line).collect::<Vec<_>>(),
+            [4, 5, 6]
+        );
+        assert!(index.search("-[missing]")[0].highlights.is_empty());
+    }
+    #[test]
     fn property_conditions_use_original_metadata_inside_line_and_section_scopes() {
         let mut index = Index::default();
         let source = "---\nstatus: done\n---\n# Title\nalpha\nbeta\n";

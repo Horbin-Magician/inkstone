@@ -107,7 +107,14 @@ impl Expression {
                 .iter()
                 .flat_map(|item| item.patterns_in(path, text, tags, context, original))
                 .collect(),
-            Self::Always | Self::Not(_) | Self::Property(_) => vec![],
+            Self::Always | Self::Not(_) => vec![],
+            Self::Property(property) => {
+                if text.as_ptr() == original.as_ptr() && text.len() == original.len() {
+                    property.patterns(original)
+                } else {
+                    vec![]
+                }
+            }
             Self::Section(cache, item) => {
                 let view = super::sections::View::new(cache, text, context);
                 let mut result = vec![];

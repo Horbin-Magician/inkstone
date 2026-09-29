@@ -15,3 +15,4 @@ pub mod tags;
 pub mod template_edit;
 pub mod templates;
 pub mod vault;
+mod yaml_source;
