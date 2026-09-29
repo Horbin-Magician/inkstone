@@ -41,6 +41,7 @@ pub struct EditorPane {
     pub font_size: f32,
     pub readable_width: bool,
     pub indentation: gpui_base::input::TabSize,
+    pub smart_lists: bool,
     pub light: bool,
     pub history_owner: Option<Entity<EditorState>>,
     preview: Entity<TextViewState>,
@@ -155,6 +156,14 @@ impl EditorPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.smart_lists
+            && matches!(
+                key,
+                inkstone::markdown_edit::Key::Enter | inkstone::markdown_edit::Key::SoftEnter
+            )
+        {
+            return;
+        }
         if self
             .editor
             .update(cx, |s, cx| s.marked_text_range(window, cx).is_some())
@@ -438,6 +447,7 @@ impl EditorPane {
             font_size: 16.,
             readable_width: true,
             indentation,
+            smart_lists: true,
             light: false,
             history_owner: None,
             preview,
@@ -863,8 +873,16 @@ impl Render for EditorPane {
             .id("editor-pane")
             .capture_action(cx.listener(
                 |this, action: &gpui_component::input::Enter, window, cx| {
-                    if !action.shift && !action.secondary {
-                        this.markdown_key(inkstone::markdown_edit::Key::Enter, window, cx);
+                    if !action.secondary {
+                        this.markdown_key(
+                            if action.shift {
+                                inkstone::markdown_edit::Key::SoftEnter
+                            } else {
+                                inkstone::markdown_edit::Key::Enter
+                            },
+                            window,
+                            cx,
+                        );
                     }
                 },
             ))
@@ -1615,6 +1633,34 @@ mod tests {
     }
 
     #[gpui::test]
+    fn smart_lists_toggle_enter_but_keep_tab_and_soft_continuation(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "- 中文";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(source.len()..source.len(), cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("shift-enter");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "- 中文\n  "));
+        visual.simulate_keystrokes("ctrl-z");
+        handle
+            .update(&mut visual, |p, _, _| p.smart_lists = false)
+            .unwrap();
+        visual.simulate_keystrokes("enter");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "- 中文\n"));
+        visual.simulate_keystrokes("ctrl-z tab");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "\t- 中文"));
+    }
+
+    #[gpui::test]
     fn pair_tracking_expires_when_keyboard_navigation_leaves_the_line(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(|w, cx| EditorPane::new("\nnext", w, cx));
@@ -1908,7 +1954,9 @@ mod tests {
             assert_eq!(s.selected_range(), 8..8);
         });
         visual.simulate_keystrokes("ctrl-end shift-enter");
-        editor.read_with(&visual, |s, _| assert_eq!(s.value(), format!("{source}\n")));
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), format!("{source}\n>       "))
+        });
     }
     #[gpui::test]
     fn wrapped_headings_reflow_and_keep_the_following_caret_visible(cx: &mut TestAppContext) {

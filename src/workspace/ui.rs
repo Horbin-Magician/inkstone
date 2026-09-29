@@ -677,6 +677,7 @@ impl Workspace {
                 pane.font_size = p.font_size;
                 pane.readable_width = p.readable_width;
                 pane.light = p.light;
+                pane.smart_lists = p.smart_lists;
                 pane.set_auto_pairing(p.auto_pair_brackets, p.auto_pair_markdown, cx);
                 pane.indentation = gpui_base::input::TabSize {
                     tab_size: p.tab_size.clamp(2, 8),
@@ -3946,6 +3947,22 @@ impl Workspace {
                             .items_center()
                             .child(format!("制表符宽度  {}", self.ui.prefs.tab_size))
                             .child(div().w(px(160.)).child(Slider::new(&self.ui.tab_width))),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("智能列表")
+                            .child(
+                                gpui_component::switch::Switch::new("smart-lists-setting")
+                                    .accessibility_label("智能列表")
+                                    .checked(self.ui.prefs.smart_lists)
+                                    .on_click(cx.listener(|this, enabled: &bool, window, cx| {
+                                        this.ui.prefs.smart_lists = *enabled;
+                                        this.apply_editor_preferences(window, cx);
+                                    })),
+                            ),
                     )
                     .child(
                         Button::new("settings-recovery")
