@@ -96,6 +96,7 @@ struct LanguageSyntax {
 #[derive(Clone, Default)]
 pub(crate) struct EditorLanguage {
     name: SharedString,
+    config_override: Option<Rc<LanguageConfig>>,
     languages: Languages,
     syntax: Rc<RefCell<Option<LanguageSyntax>>>,
 }
@@ -104,6 +105,7 @@ impl EditorLanguage {
     pub(crate) fn new(cx: &mut App) -> Self {
         Self {
             name: SharedString::default(),
+            config_override: None,
             languages: Languages::global(cx),
             syntax: Rc::default(),
         }
@@ -119,6 +121,9 @@ impl EditorLanguage {
     }
 
     pub(crate) fn config(&self) -> Rc<LanguageConfig> {
+        if let Some(config) = &self.config_override {
+            return config.clone();
+        }
         let source = self.languages.0.borrow().provider.clone();
         let name = source.language_name(&self.name);
         let configured = self
@@ -131,6 +136,10 @@ impl EditorLanguage {
             .find(|(registered, _)| source.language_name(registered) == name)
             .map(|(_, config)| config.clone());
         configured.unwrap_or_else(|| source.config(&name))
+    }
+
+    pub(crate) fn set_config_override(&mut self, config: Option<LanguageConfig>) {
+        self.config_override = config.map(Rc::new);
     }
 
     pub(crate) fn context_at(&self, text: &Rope, offset: usize) -> SyntaxContext {

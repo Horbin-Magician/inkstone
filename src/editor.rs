@@ -65,6 +65,30 @@ pub struct EditorPane {
 }
 
 impl EditorPane {
+    pub fn set_auto_pairing(&mut self, brackets: bool, markdown: bool, cx: &mut Context<Self>) {
+        use gpui_base::input::{AutoClosingPair, language_config::LanguageConfig};
+        let mut pairs = vec![];
+        if brackets {
+            pairs.extend(
+                [("(", ")"), ("[", "]"), ("{", "}"), ("'", "'"), ("\"", "\"")]
+                    .into_iter()
+                    .map(|(open, close)| AutoClosingPair::new(open, close)),
+            );
+        }
+        if markdown {
+            pairs.extend(
+                ["```", "*", "_", "`"]
+                    .into_iter()
+                    .map(|marker| AutoClosingPair::new(marker, marker)),
+            );
+        }
+        let config = LanguageConfig::default()
+            .brackets([])
+            .surround_selection(true)
+            .auto_closing_pairs(pairs);
+        self.editor
+            .update(cx, |editor, cx| editor.set_editing_rules(Some(config), cx));
+    }
     pub fn callout_states(&self, cx: &App) -> std::collections::BTreeMap<u64, bool> {
         self.preview.read(cx).callout_states()
     }
@@ -1525,6 +1549,73 @@ mod tests {
             assert_eq!(s.value(), source);
         });
     }
+    #[gpui::test]
+    fn automatic_pairs_are_independent_and_respect_escape_words_and_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                for (brackets, markdown) in
+                    [(true, true), (true, false), (false, true), (false, false)]
+                {
+                    p.set_auto_pairing(brackets, markdown, cx);
+                    for (typed, paired, enabled) in [
+                        ("(", "()", brackets),
+                        ("[", "[]", brackets),
+                        ("\"", "\"\"", brackets),
+                        ("*", "**", markdown),
+                        ("_", "__", markdown),
+                        ("`", "``", markdown),
+                    ] {
+                        p.editor.update(cx, |s, cx| {
+                            s.set_value("", w, cx);
+                            s.replace_text_in_range(None, typed, w, cx);
+                            assert_eq!(s.value(), if enabled { paired } else { typed });
+                            assert_eq!(s.selected_range(), 1..1);
+                        });
+                    }
+                }
+                p.set_auto_pairing(true, true, cx);
+                p.editor.update(cx, |s, cx| {
+                    s.set_value("中文😀", w, cx);
+                    s.set_selected_range(0..10, cx);
+                    s.replace_text_in_range(None, "*", w, cx);
+                    assert_eq!(s.value(), "*中文😀*");
+                    assert_eq!(s.selected_range(), 1..11);
+                });
+                for source in ["word", "\\"] {
+                    p.editor.update(cx, |s, cx| {
+                        s.set_value(source, w, cx);
+                        s.set_selected_range(source.len()..source.len(), cx);
+                        s.replace_text_in_range(None, "*", w, cx);
+                        assert_eq!(s.value(), format!("{source}*"));
+                    });
+                }
+                let other = cx.new(|cx| EditorPane::new("", w, cx));
+                other.update(cx, |other, cx| other.set_auto_pairing(false, false, cx));
+                p.editor.update(cx, |s, cx| {
+                    s.set_value("", w, cx);
+                    s.replace_text_in_range(None, "(", w, cx);
+                    assert_eq!(s.value(), "()");
+                    s.focus(w, cx);
+                });
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_keystrokes("backspace");
+        handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(p.editor.read(cx).value(), "")
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-z");
+        handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(p.editor.read(cx).value(), "()")
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn markdown_keys_continue_indent_and_undo_as_single_edits(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
