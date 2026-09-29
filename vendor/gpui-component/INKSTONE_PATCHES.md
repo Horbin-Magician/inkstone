@@ -11,3 +11,5 @@ The menu renders `label_details.description` below the label at 12px. Inkstone s
 Completion placement uses window coordinates with an 8px edge margin. It chooses the space above the caret when the preferred list height will not fit below and limits the list height to the available space. The list keeps its existing scroll and keyboard-selection behavior.
 
 `src/title_bar.rs` allows the title-bar content region to shrink below its intrinsic width. The window controls remain non-shrinking, so a host's scrollable tabs cannot push minimize/maximize/close outside the window.
+
+`src/switch.rs` gives `Size::Large` a 40×22 track and an 18px thumb with the existing 2px inset, matching the reference modal controls. Small and medium sizes retain their existing dimensions. Inkstone selects the large size for its settings and property dialogs.

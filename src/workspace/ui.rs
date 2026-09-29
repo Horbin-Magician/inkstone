@@ -534,6 +534,11 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.scrollbar_thumb = rgb(if light { 0xcccccc } else { 0x484848 }).into();
     });
 }
+pub(super) fn setting_switch(id: impl Into<ElementId>) -> gpui_component::switch::Switch {
+    use gpui_component::Sizable;
+    gpui_component::switch::Switch::new(id).large()
+}
+
 fn icon(name: &str) -> Icon {
     let shape = match name {
         "x" => Some("M6 6l12 12M18 6 6 18"),
@@ -3774,7 +3779,7 @@ impl Workspace {
             )
             .when(kind == Kind::Checkbox, |s| {
                 s.child(
-                    gpui_component::switch::Switch::new("property-checkbox")
+                    setting_switch("property-checkbox")
                         .accessibility_label(format!(
                             "属性 {}",
                             self.ui.property_key.read(cx).value()
@@ -3845,14 +3850,14 @@ impl Workspace {
                 }
                 menu
             });
-        let numbers = gpui_component::switch::Switch::new("line-number-setting")
+        let numbers = setting_switch("line-number-setting")
             .accessibility_label("显示行号")
             .checked(self.ui.prefs.line_numbers)
             .on_click(cx.listener(|this, enabled: &bool, w, cx| {
                 this.ui.prefs.line_numbers = *enabled;
                 this.apply_editor_preferences(w, cx);
             }));
-        let width = gpui_component::switch::Switch::new("width-setting")
+        let width = setting_switch("width-setting")
             .accessibility_label("缩减栏宽")
             .checked(self.ui.prefs.readable_width)
             .on_click(cx.listener(|this, enabled: &bool, w, cx| {
@@ -3918,7 +3923,7 @@ impl Workspace {
                             .items_center()
                             .child("严格换行")
                             .child(
-                                gpui_component::switch::Switch::new("strict-line-breaks")
+                                setting_switch("strict-line-breaks")
                                     .accessibility_label("严格换行")
                                     .checked(self.ui.prefs.strict_line_breaks)
                                     .on_click(cx.listener(|this, enabled: &bool, window, cx| {
@@ -3934,7 +3939,7 @@ impl Workspace {
                             .items_center()
                             .child("显示页内标题")
                             .child(
-                                gpui_component::switch::Switch::new("inline-title-setting")
+                                setting_switch("inline-title-setting")
                                     .accessibility_label("显示页内标题")
                                     .checked(self.ui.prefs.show_inline_title)
                                     .on_click(cx.listener(|this, enabled: &bool, _, cx| {
@@ -3951,7 +3956,7 @@ impl Workspace {
                             .items_center()
                             .child("使用制表符")
                             .child(
-                                gpui_component::switch::Switch::new("use-tabs-setting")
+                                setting_switch("use-tabs-setting")
                                     .accessibility_label("使用制表符")
                                     .checked(self.ui.prefs.use_tabs)
                                     .on_click(cx.listener(|this, enabled: &bool, window, cx| {
@@ -3967,7 +3972,7 @@ impl Workspace {
                             .items_center()
                             .child("显示缩进参考线")
                             .child(
-                                gpui_component::switch::Switch::new("indent-guides-setting")
+                                setting_switch("indent-guides-setting")
                                     .accessibility_label("显示缩进参考线")
                                     .checked(self.ui.prefs.show_indent_guides)
                                     .on_click(cx.listener(|this, enabled: &bool, window, cx| {
@@ -3993,7 +3998,7 @@ impl Workspace {
                                 .items_center()
                                 .child(label)
                                 .child(
-                                    gpui_component::switch::Switch::new(if brackets {
+                                    setting_switch(if brackets {
                                         "pair-brackets"
                                     } else {
                                         "pair-markdown"
@@ -4028,7 +4033,7 @@ impl Workspace {
                             .items_center()
                             .child("智能列表")
                             .child(
-                                gpui_component::switch::Switch::new("smart-lists-setting")
+                                setting_switch("smart-lists-setting")
                                     .accessibility_label("智能列表")
                                     .checked(self.ui.prefs.smart_lists)
                                     .on_click(cx.listener(|this, enabled: &bool, window, cx| {
@@ -4051,7 +4056,7 @@ impl Workspace {
                                     .items_center()
                                     .child(label)
                                     .child(
-                                        gpui_component::switch::Switch::new(if heading {
+                                        setting_switch(if heading {
                                             "fold-headings-setting"
                                         } else {
                                             "fold-indentation-setting"

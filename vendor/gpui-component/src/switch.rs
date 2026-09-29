@@ -184,10 +184,12 @@ impl RenderOnce for Switch {
 
         let (bg_width, bg_height) = match self.size {
             Size::XSmall | Size::Small => (px(28.), px(16.)),
+            Size::Large => (px(40.), px(22.)),
             _ => (px(36.), px(20.)),
         };
         let bar_width = match self.size {
             Size::XSmall | Size::Small => px(12.),
+            Size::Large => px(18.),
             _ => px(16.),
         };
         let inset = px(2.);

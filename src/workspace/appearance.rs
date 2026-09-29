@@ -1,7 +1,7 @@
 use super::*;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::select::{SearchableVec, Select, SelectItem};
-use gpui_component::{button::Button, slider::Slider, switch::Switch};
+use gpui_component::{button::Button, slider::Slider};
 use inkstone::preferences::ThemeMode;
 
 #[derive(Clone)]
@@ -233,7 +233,7 @@ impl Workspace {
                                 .items_center()
                                 .child("显示标签页标题栏")
                                 .child(
-                                    Switch::new("view-header-setting")
+                                    ui::setting_switch("view-header-setting")
                                         .accessibility_label("显示标签页标题栏")
                                         .checked(self.ui.prefs.show_view_header)
                                         .on_click(cx.listener(|this, enabled: &bool, _, cx| {
