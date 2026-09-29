@@ -4,6 +4,10 @@ use gpui_component::button::*;
 
 impl Workspace {
     fn default_hotkeys(id: usize) -> Vec<String> {
+        #[cfg(target_os = "macos")]
+        if id == 79 {
+            return vec!["cmd-d".into()];
+        }
         if id == 39 {
             return vec!["ctrl-p".into(), "ctrl-shift-p".into()];
         }
@@ -165,6 +169,14 @@ impl Workspace {
             .map(|c| c.0)
         {
             cx.stop_propagation();
+            if id == 79
+                && !self.current_pane().is_some_and(|pane| {
+                    let pane = pane.read(cx);
+                    !pane.reading && pane.editor.read(cx).focus_handle(cx).is_focused(window)
+                })
+            {
+                return;
+            }
             self.execute_command(id, window, cx);
         } else if ui::COMMANDS.iter().any(|c| {
             Self::default_hotkeys(c.0)
@@ -362,6 +374,88 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn occurrence_hotkeys_are_customizable_and_only_target_the_focused_editor(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let editor = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("note.md".into(), Some("cat cat".into()), false, window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                editor.update(cx, |s, cx| s.set_selected_range(0..0, cx));
+                editor
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-d");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.selected_range(), 0..3);
+            assert!(
+                !s.has_multiple_selections(),
+                "one key must invoke the command once"
+            );
+        });
+        handle
+            .update(&mut visual, |w, _, cx| {
+                w.ui.prefs.hotkeys.insert(79, vec![]);
+                w.assign_hotkey(79, &Keystroke::parse("ctrl-alt-d").unwrap())
+                    .unwrap();
+                editor.update(cx, |s, cx| s.set_selected_range(0..0, cx));
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-d");
+        editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 0..0));
+        visual.simulate_keystrokes("ctrl-alt-d ctrl-alt-d");
+        editor.read_with(&visual, |s, _| assert!(s.has_multiple_selections()));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                editor.update(cx, |s, cx| s.set_selected_range(0..0, cx));
+                w.ui.settings = true;
+                w.ui.settings_tab = 1;
+                w.ui.hotkey_filter.update(cx, |s, cx| s.focus(window, cx));
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-alt-d");
+        editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 0..0));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.settings = false;
+                w.ui.prefs.hotkeys.insert(79, vec![]);
+                editor.update(cx, |s, cx| s.focus(window, cx));
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-d ctrl-alt-d");
+        editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 0..0));
+    }
+
+    #[gpui::test]
+    fn occurrence_palette_command_targets_the_last_focused_split(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("note.md".into(), Some("cat cat".into()), false, window, cx);
+                let main = w.current_pane().unwrap().read(cx).editor.clone();
+                main.update(cx, |s, cx| s.set_selected_range(0..0, cx));
+                w.split_active(false, window, cx);
+                w.focus_secondary(cx);
+                let secondary = w.current_pane().unwrap().read(cx).editor.clone();
+                secondary.update(cx, |s, cx| s.set_selected_range(0..0, cx));
+                w.execute_command(39, window, cx);
+                assert!(w.command_open);
+                w.execute_command(79, window, cx);
+                assert!(!w.command_open);
+                assert_eq!(secondary.read(cx).selected_range(), 0..3);
+                assert_eq!(main.read(cx).selected_range(), 0..0);
+                assert!(secondary.read(cx).focus_handle(cx).is_focused(window));
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn link_shortcut_matches_markdown_default_and_respects_custom_wiki_binding(
         cx: &mut TestAppContext,

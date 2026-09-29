@@ -657,6 +657,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (76, "插入当前时间", ""),
     (77, "打开上一篇日记", ""),
     (78, "打开下一篇日记", ""),
+    (79, "选择下一个相同文本", "Ctrl+D"),
 ];
 
 #[derive(Clone)]
@@ -1140,7 +1141,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73) {
+        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79) {
             self.graph_open = false;
         }
         self.command_open = false;
@@ -1321,6 +1322,22 @@ impl Workspace {
             }
             75..=76 => self.insert_current_date_time(id == 76, window, cx),
             77..=78 => self.open_neighboring_daily(id == 78, window, cx),
+            79 => {
+                if let Some(pane) = self.current_pane() {
+                    pane.update(cx, |pane, cx| {
+                        if !pane.reading {
+                            pane.editor.update(cx, |editor, cx| {
+                                editor.select_next_occurrence(
+                                    &gpui_base::input::SelectNextOccurrence,
+                                    window,
+                                    cx,
+                                );
+                                editor.focus(window, cx);
+                            });
+                        }
+                    });
+                }
+            }
             _ => (),
         }
         self.persist_workspace(cx);
