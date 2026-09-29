@@ -916,6 +916,16 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn grouped_queries_highlight_only_successful_positive_branches() {
+        let mut index = Index::default();
+        index.update("note.md".into(), "alpha\nblocked\ngamma\ntarget".into());
+        let hits = index.search("(alpha -blocked OR gamma) target");
+        assert_eq!(hits.iter().map(|hit| hit.line).collect::<Vec<_>>(), [3, 4]);
+        assert_eq!(&hits[0].excerpt[hits[0].highlights[0].clone()], "gamma");
+        assert_eq!(index.search("-(missing OR absent)").len(), 1);
+        assert!(index.search("-(alpha OR gamma)").is_empty());
+    }
+    #[test]
     fn search_highlights_match_excerpt_bytes_and_merge_overlapping_terms() {
         let mut index = Index::default();
         index.update("note.md".into(), "前😀 Alpha alpha 汉字\nblocked".into());
