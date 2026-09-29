@@ -1645,6 +1645,28 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn tag_search_combines_fulltext_filters_but_not_quick_switch_queries(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.fulltext = true;
+                w.search
+                    .update(cx, |s, cx| s.set_value("file:note", window, cx));
+                w.search_tag("work", true, window, cx);
+                assert_eq!(w.search.read(cx).value().as_ref(), "file:note tag:work");
+                w.search_tag("work", true, window, cx);
+                assert_eq!(w.search.read(cx).value().as_ref(), "file:note");
+                w.fulltext = false;
+                w.search
+                    .update(cx, |s, cx| s.set_value("temporary filename", window, cx));
+                w.search_tag("home", true, window, cx);
+                assert_eq!(w.search.read(cx).value().as_ref(), "tag:home");
+                assert!(w.fulltext);
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn tag_navigation_folds_and_opens_selected_search(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);

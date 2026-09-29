@@ -2100,6 +2100,15 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.navigate_tags_modified(key, false, window, cx)
+    }
+    fn navigate_tags_modified(
+        &mut self,
+        key: &str,
+        combine: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         use inkstone::tags::{Navigation, rows};
         let action = inkstone::tags::navigate(
             &rows(&self.index, &self.ui.prefs.tags),
@@ -2120,9 +2129,7 @@ impl Workspace {
                 self.persist_workspace(cx);
             }
             Navigation::Open(tag) => {
-                self.search
-                    .update(cx, |s, cx| s.set_value(format!("tag:{tag}"), window, cx));
-                self.focus_search(true, window, cx);
+                self.search_tag(&tag, combine, window, cx);
             }
         }
         if let Some(i) = rows(&self.index, &self.ui.prefs.tags)
@@ -2133,6 +2140,23 @@ impl Workspace {
         }
         cx.notify();
         true
+    }
+    pub(super) fn search_tag(
+        &mut self,
+        tag: &str,
+        combine: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = if self.fulltext {
+            self.search.read(cx).value().to_string()
+        } else {
+            String::new()
+        };
+        let query = inkstone::tags::search_query(&current, tag, combine);
+        self.search
+            .update(cx, |s, cx| s.set_value(query, window, cx));
+        self.focus_search(true, window, cx);
     }
     fn tags_panel(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         use inkstone::tags::{Sort, rows};
@@ -2165,7 +2189,12 @@ impl Workspace {
             .track_focus(&self.ui.tags_focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
                 if this.ui.tags_focus.is_focused(w)
-                    && this.navigate_tags(&event.keystroke.key, w, cx)
+                    && this.navigate_tags_modified(
+                        &event.keystroke.key,
+                        event.keystroke.modifiers.control,
+                        w,
+                        cx,
+                    )
                 {
                     cx.stop_propagation();
                 }
@@ -2319,10 +2348,8 @@ impl Workspace {
                                     .text_color(rgb(0x999999))
                                     .child(row.count.to_string()),
                             )
-                            .on_click(cx.listener(move |this, _, w, cx| {
-                                this.search
-                                    .update(cx, |s, cx| s.set_value(format!("tag:{tag}"), w, cx));
-                                this.focus_search(true, w, cx);
+                            .on_click(cx.listener(move |this, event: &ClickEvent, w, cx| {
+                                this.search_tag(&tag, event.modifiers().control, w, cx);
                             }))
                     })),
             )

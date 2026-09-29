@@ -148,6 +148,69 @@ pub enum Navigation {
     Open(String),
     None,
 }
+pub fn search_query(current: &str, tag: &str, combine: bool) -> String {
+    let term = format!("tag:{tag}");
+    if !combine || current.trim().is_empty() {
+        return term;
+    }
+    let mut tokens = vec![];
+    let mut start = None;
+    let (mut quote, mut regex, mut escaped) = (false, false, false);
+    for (i, ch) in current.char_indices() {
+        if ch.is_whitespace() && !quote && !regex && !escaped {
+            if let Some(begin) = start.take() {
+                tokens.push(begin..i);
+            }
+            continue;
+        }
+        let begin = *start.get_or_insert(i);
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' && !regex {
+            quote = !quote;
+        }
+        if ch == '/' && !quote && (regex || i == begin || &current[begin..i] == "-") {
+            regex = !regex;
+        }
+    }
+    if let Some(begin) = start {
+        tokens.push(begin..current.len());
+    }
+    let found = tokens.iter().position(|range| {
+        current[range.clone()]
+            .strip_prefix("tag:")
+            .is_some_and(|value| {
+                value
+                    .trim_matches('"')
+                    .trim_start_matches('#')
+                    .to_lowercase()
+                    == tag.to_lowercase()
+            })
+    });
+    if let Some(i) = found {
+        let mut remove = tokens[i].clone();
+        let before_or = i > 0 && &current[tokens[i - 1].clone()] == "OR";
+        let after_or = i + 1 < tokens.len() && &current[tokens[i + 1].clone()] == "OR";
+        if (i == 0 || before_or) && (i + 1 == tokens.len() || after_or) {
+            if before_or {
+                remove.start = tokens[i - 1].start;
+            } else if after_or {
+                remove.end = tokens[i + 1].end;
+            }
+        }
+        let mut result = current.to_owned();
+        result.replace_range(remove, "");
+        result.trim().to_owned()
+    } else {
+        format!("{} {term}", current.trim())
+    }
+}
 pub fn navigate(items: &[Row], selected: Option<&str>, key: &str) -> Navigation {
     let found = selected.and_then(|selected| {
         items
@@ -182,6 +245,39 @@ pub fn navigate(items: &[Row], selected: Option<&str>, key: &str) -> Navigation 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ctrl_tag_search_toggles_whole_terms_without_damaging_other_conditions() {
+        assert_eq!(search_query("old", "work", false), "tag:work");
+        assert_eq!(
+            search_query("file:note", "work", true),
+            "file:note tag:work"
+        );
+        assert_eq!(
+            search_query("tag:work/sub", "work", true),
+            "tag:work/sub tag:work"
+        );
+        assert_eq!(search_query("tag:#WORK", "work", true), "");
+        assert_eq!(
+            search_query("\"keep  tag:work  phrase\"", "work", true),
+            "\"keep  tag:work  phrase\" tag:work"
+        );
+        assert_eq!(
+            search_query("-tag:work /tag:work/", "work", true),
+            "-tag:work /tag:work/ tag:work"
+        );
+        assert_eq!(
+            search_query("tag:work OR tag:home", "work", true),
+            "tag:home"
+        );
+        assert_eq!(
+            search_query("tag:home OR tag:work", "work", true),
+            "tag:home"
+        );
+        assert_eq!(
+            search_query("one OR tag:work OR two", "work", true),
+            "one  OR two"
+        );
+    }
     #[test]
     fn repeated_tags_count_occurrences_and_prefer_the_most_common_spelling() {
         let mut index = crate::index::Index::default();
