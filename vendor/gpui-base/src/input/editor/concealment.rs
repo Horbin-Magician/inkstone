@@ -5,6 +5,34 @@ use std::ops::Range;
 use sum_tree::Bias;
 
 impl InputBaseState<EditorMode> {
+    /// Hide complete source lines without recording user folds or changing text.
+    /// Anchors must be line starts after the first line. Text edits clear them.
+    pub fn set_concealed_lines(&mut self, anchors: Vec<usize>, cx: &mut Context<Self>) -> bool {
+        let mut lines: Vec<_> = anchors
+            .into_iter()
+            .filter_map(|offset| {
+                if offset >= self.text.len() || self.text.clip_offset(offset, Bias::Left) != offset
+                {
+                    return None;
+                }
+                let point = self.text.offset_to_point(offset);
+                (point.row > 0 && point.column == 0).then_some(point.row)
+            })
+            .collect();
+        lines.sort_unstable();
+        lines.dedup();
+        if !self.display_map.set_concealed_lines(lines) {
+            return false;
+        }
+        self.presentation_revision = self.presentation_revision.wrapping_add(1);
+        cx.notify();
+        true
+    }
+
+    pub fn concealed_lines(&self) -> &[usize] {
+        self.display_map.concealed_lines()
+    }
+
     /// Set source ranges omitted from painting and wrapping. Invalid ranges are ignored.
     /// Only whole graphemes within one logical line can be concealed.
     /// Edits touching a range discard it; other ranges follow the edit until replaced.

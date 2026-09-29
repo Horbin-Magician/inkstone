@@ -46,6 +46,7 @@ pub(super) struct FoldMap {
     /// Currently folded ranges
     /// Subset of candidates, sorted by start_line
     folded: Vec<FoldRange>,
+    concealed_lines: Vec<usize>,
 
     /// Flag indicating if the fold projection needs rebuilding
     /// Used for lazy evaluation to avoid expensive rebuilds on every text change
@@ -64,9 +65,27 @@ impl FoldMap {
             projected_wrap_row_count: 0,
             candidates: Vec::new(),
             folded: Vec::new(),
+            concealed_lines: Vec::new(),
             needs_rebuild: true,
             cached_wrap_row_count: 0,
         }
+    }
+
+    pub(super) fn has_hidden_lines(&self) -> bool {
+        !self.folded.is_empty() || !self.concealed_lines.is_empty()
+    }
+
+    pub(super) fn concealed_lines(&self) -> &[usize] {
+        &self.concealed_lines
+    }
+
+    pub(super) fn set_concealed_lines(&mut self, lines: Vec<usize>) -> bool {
+        if self.concealed_lines == lines {
+            return false;
+        }
+        self.concealed_lines = lines;
+        self.needs_rebuild = true;
+        true
     }
 
     /// Update cached wrap_row_count without full rebuild.
@@ -78,7 +97,7 @@ impl FoldMap {
 
     /// Get total number of visible display rows
     pub(super) fn display_row_count(&self) -> usize {
-        if self.folded.is_empty() {
+        if !self.has_hidden_lines() {
             return self.cached_wrap_row_count;
         }
         self.projected_wrap_row_count - self.total_hidden
@@ -94,7 +113,7 @@ impl FoldMap {
     /// Convert wrap_row to display_row
     /// Returns None if the wrap_row is hidden by folding
     pub(super) fn wrap_row_to_display_row(&self, wrap_row: usize) -> Option<usize> {
-        if self.folded.is_empty() {
+        if !self.has_hidden_lines() {
             return if wrap_row < self.cached_wrap_row_count {
                 Some(wrap_row)
             } else {
@@ -119,7 +138,7 @@ impl FoldMap {
 
     /// Convert display_row to wrap_row
     pub(super) fn display_row_to_wrap_row(&self, display_row: usize) -> Option<usize> {
-        if self.folded.is_empty() {
+        if !self.has_hidden_lines() {
             return if display_row < self.cached_wrap_row_count {
                 Some(display_row)
             } else {
@@ -137,7 +156,7 @@ impl FoldMap {
 
     /// Find the nearest visible display_row for a given wrap_row
     pub(super) fn nearest_visible_display_row(&self, wrap_row: usize) -> usize {
-        if self.folded.is_empty() {
+        if !self.has_hidden_lines() {
             return wrap_row.min(self.cached_wrap_row_count.saturating_sub(1));
         }
 
@@ -322,7 +341,7 @@ impl FoldMap {
 
         self.cached_wrap_row_count = wrap_row_count;
 
-        if self.folded.is_empty() {
+        if !self.has_hidden_lines() {
             // Fast path: no folds, all wrap rows are visible
             self.set_hidden_rows(wrap_row_count, Vec::new());
             self.needs_rebuild = false;
@@ -354,6 +373,18 @@ impl FoldMap {
             }
         }
 
+        for &line in &self.concealed_lines {
+            if line >= wrap_map.buffer_line_count() {
+                continue;
+            }
+            let start = wrap_map.buffer_line_to_first_wrap_row(line);
+            let end = if line + 1 < wrap_map.buffer_line_count() {
+                wrap_map.buffer_line_to_first_wrap_row(line + 1)
+            } else {
+                wrap_row_count
+            };
+            hidden_ranges.push(start..end);
+        }
         self.set_hidden_rows(wrap_row_count, hidden_ranges);
         self.needs_rebuild = false;
     }

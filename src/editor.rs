@@ -27,7 +27,7 @@ impl EventEmitter<EditorEvent> for EditorPane {}
 #[derive(PartialEq)]
 struct PresentationSnapshot {
     text: SharedString,
-    selection: std::ops::Range<usize>,
+    selections: Vec<std::ops::Range<usize>>,
     live: bool,
     light: bool,
     search: Option<String>,
@@ -711,7 +711,7 @@ impl EditorPane {
     fn update_presentation(&mut self, cx: &mut Context<Self>) {
         let state = self.editor.read(cx);
         let text = state.value();
-        let selection = state.selected_range();
+        let selections = state.selected_ranges();
         let search_query = state
             .search_session()
             .is_active()
@@ -770,7 +770,7 @@ impl EditorPane {
         }
         let key = PresentationSnapshot {
             text: text.clone(),
-            selection: selection.clone(),
+            selections: selections.clone(),
             live: self.live,
             light: self.light,
             search: search_query.clone(),
@@ -781,6 +781,7 @@ impl EditorPane {
         self.last_presentation = Some(key);
         let mut decorations = Vec::new();
         let mut concealed = vec![];
+        let mut concealed_lines = vec![];
         if self.live {
             for span in &self.spans {
                 let style = match span.kind {
@@ -829,7 +830,10 @@ impl EditorPane {
                             .get(search_matches.partition_point(|r| r.end <= marker.start))
                             .is_some_and(|r| r.start < marker.end)
                     });
-                if !span.active(&selection) && !search_reveals {
+                if !selections.iter().any(|selection| span.active(selection)) && !search_reveals {
+                    if let Some(line) = span.setext_line(&text) {
+                        concealed_lines.push(line);
+                    }
                     for marker in &span.markers {
                         // Newlines remain in the source/display row map.
                         let mut start = marker.start;
@@ -889,6 +893,13 @@ impl EditorPane {
             self.reveal_after_concealment = true;
         }
         self.decorations.set(decorations, cx);
+        if self
+            .editor
+            .update(cx, |s, cx| s.set_concealed_lines(concealed_lines, cx))
+            && was_visible
+        {
+            self.reveal_after_concealment = true;
+        }
         let was_visible = self.last_geometry.is_some_and(|(_, visible)| visible);
         if self
             .editor
@@ -3750,6 +3761,89 @@ mod tests {
         });
     }
     #[gpui::test]
+    fn setext_marker_line_disappears_and_reveals_for_selection_and_search(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "标题\r\n===\r\n正文\r\n# Next\r\nend";
+        let body = source.find("正文").unwrap();
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, _, cx| {
+                p.editor
+                    .update(cx, |s, cx| s.set_selected_range(body..body, cx));
+                p.update_presentation(cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..4 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let hidden_y = handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(p.editor.read(cx).concealed_lines(), &[1]);
+                assert!(p.editor.read(cx).folded_ranges().is_empty());
+                let y = p
+                    .editor
+                    .read(cx)
+                    .range_to_bounds(&(body..body))
+                    .unwrap()
+                    .origin
+                    .y;
+                p.editor.update(cx, |s, cx| s.set_selected_range(0..0, cx));
+                p.update_presentation(cx);
+                y
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |p, window, cx| {
+                assert!(p.editor.read(cx).concealed_lines().is_empty());
+                let shown_y = p
+                    .editor
+                    .read(cx)
+                    .range_to_bounds(&(body..body))
+                    .unwrap()
+                    .origin
+                    .y;
+                assert!(shown_y > hidden_y + px(10.));
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(source.len()..source.len(), cx);
+                    s.set_search_query("===", false, cx);
+                });
+                p.update_presentation(cx);
+                assert!(p.editor.read(cx).concealed_lines().is_empty());
+                p.editor.update(cx, |s, cx| s.close_search(cx));
+                p.update_presentation(cx);
+                assert_eq!(p.editor.read(cx).concealed_lines(), &[1]);
+                p.editor.update(cx, |s, cx| {
+                    s.restore_fold_lines(&[0], cx);
+                    s.undo(&gpui_component::input::Undo, window, cx);
+                    assert_eq!(s.value().as_ref(), source);
+                    assert_eq!(s.folded_ranges().len(), 1);
+                    s.restore_fold_lines(&[], cx);
+                    let occurrence = source.find('e').unwrap();
+                    s.set_selected_range(occurrence..occurrence + 1, cx);
+                    s.select_all_occurrences(&gpui_base::input::SelectAllOccurrences, window, cx);
+                    assert!(s.has_multiple_selections());
+                    assert!(s.apply_selection_transform(
+                        |text, _| Some((text.to_string(), vec![body..body, 0..0])),
+                        window,
+                        cx,
+                    ));
+                    assert_eq!(s.selected_range(), body..body);
+                });
+                p.update_presentation(cx);
+                assert!(p.editor.read(cx).concealed_lines().is_empty());
+                p.live = false;
+                p.editor
+                    .update(cx, |s, cx| s.set_selected_range(body..body, cx));
+                p.update_presentation(cx);
+                assert!(p.editor.read(cx).concealed_lines().is_empty());
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn concealment_rejects_partial_graphemes_and_does_not_enter_history(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "**👩‍💻e\u{301}**\r\n尾行";
@@ -3775,6 +3869,46 @@ mod tests {
                 });
             })
             .unwrap();
+    }
+    #[gpui::test]
+    fn concealed_whole_line_removes_all_wraps_and_clears_after_edits(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = format!("Title\n{}\n尾行", "=".repeat(300));
+        let end = source.find("尾行").unwrap();
+        let handle = cx.add_window(|w, cx| {
+            let state = cx.new(|cx| {
+                EditorState::new(w, cx)
+                    .default_value(source.clone())
+                    .line_number(false)
+            });
+            state.update(cx, |s, cx| {
+                s.set_concealed_lines(vec![0, 6, 6, 7, source.len()], cx);
+                assert_eq!(s.concealed_lines(), &[1]);
+                s.focus(w, cx);
+            });
+            ConcealProbe { state }
+        });
+        let state = handle.update(cx, |p, _, _| p.state.clone()).unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for width in [200., 100., 300.] {
+            visual.simulate_resize(size(px(width), px(300.)));
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            state.read_with(&visual, |s, _| {
+                let first = s.range_to_bounds(&(0..0)).unwrap();
+                let last = s.range_to_bounds(&(end..end)).unwrap();
+                assert_eq!(last.origin.y - first.origin.y, s.line_height().unwrap());
+                assert!(s.folded_ranges().is_empty());
+                assert_eq!(s.value().as_ref(), source);
+            });
+        }
+        state.update_in(&mut visual, |s, window, cx| {
+            s.set_selected_range(0..0, cx);
+            s.replace("前缀\n", window, cx);
+            assert!(s.concealed_lines().is_empty());
+            s.undo(&gpui_component::input::Undo, window, cx);
+            assert_eq!(s.value().as_ref(), source);
+            assert!(s.concealed_lines().is_empty());
+        });
     }
     #[gpui::test]
     fn live_markers_reveal_for_the_caret_and_for_syntax_search(cx: &mut TestAppContext) {
