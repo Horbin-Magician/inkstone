@@ -1,5 +1,5 @@
 use super::*;
-use gpui_component::{button::Button, switch::Switch};
+use gpui_component::{button::Button, slider::Slider, switch::Switch};
 
 impl Workspace {
     pub(super) fn appearance_settings_panel(
@@ -14,20 +14,6 @@ impl Workspace {
                 "深色"
             })
             .on_click(cx.listener(|this, _, w, cx| this.execute_command(22, w, cx)));
-        let minus = Button::new("font-minus")
-            .accessibility_label("减小正文字号")
-            .label("−")
-            .on_click(cx.listener(|this, _, w, cx| {
-                this.ui.prefs.font_size = (this.ui.prefs.font_size - 1.).max(12.);
-                this.apply_editor_preferences(w, cx);
-            }));
-        let plus = Button::new("font-plus")
-            .accessibility_label("增大正文字号")
-            .label("+")
-            .on_click(cx.listener(|this, _, w, cx| {
-                this.ui.prefs.font_size = (this.ui.prefs.font_size + 1.).min(30.);
-                this.apply_editor_preferences(w, cx);
-            }));
         div()
             .flex()
             .gap_4()
@@ -69,7 +55,11 @@ impl Workspace {
                                 .justify_between()
                                 .items_center()
                                 .child(format!("正文字号  {}", self.ui.prefs.font_size))
-                                .child(div().flex().gap_2().child(minus).child(plus)),
+                                .child(
+                                    div()
+                                        .w(px(160.))
+                                        .child(Slider::new(&self.ui.font_size_slider)),
+                                ),
                         )
                     })
                     .when(interface, |s| {

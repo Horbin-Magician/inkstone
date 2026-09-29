@@ -50,6 +50,8 @@ impl PartialEq<PathBuf> for ClosedTab {
 pub(super) struct UiState {
     pub prefs: Preferences,
     pub tab_width: Entity<SliderState>,
+    pub font_size_slider: Entity<SliderState>,
+    _font_size_subscription: Subscription,
     _tab_width_subscription: Subscription,
     pub history: Navigation,
     pub closed: Vec<ClosedTab>,
@@ -128,6 +130,23 @@ pub(super) struct UiState {
 impl UiState {
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
         apply_theme(false, cx);
+        let font_size_slider = cx.new(|_| {
+            SliderState::new()
+                .min(10.)
+                .max(30.)
+                .step(1.)
+                .default_value(16.)
+        });
+        let font_size_subscription = cx.subscribe_in(
+            &font_size_slider,
+            window,
+            |this, _, event: &SliderEvent, window, cx| {
+                if let SliderEvent::Change(value) = event {
+                    this.ui.prefs.font_size = value.start().round().clamp(10., 30.);
+                    this.apply_editor_preferences(window, cx);
+                }
+            },
+        );
         let tab_width = cx.new(|_| {
             SliderState::new()
                 .min(2.)
@@ -312,6 +331,8 @@ impl UiState {
         Self {
             prefs: Preferences::default(),
             tab_width,
+            font_size_slider,
+            _font_size_subscription: font_size_subscription,
             _tab_width_subscription: tab_width_subscription,
             history: Navigation::default(),
             closed: vec![],
@@ -662,6 +683,9 @@ impl Workspace {
     }
     pub(super) fn apply_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let p = self.ui.prefs.clone();
+        self.ui
+            .font_size_slider
+            .update(cx, |slider, cx| slider.set_value(p.font_size, window, cx));
         self.ui.tab_width.update(cx, |slider, cx| {
             slider.set_value(p.tab_size as f32, window, cx);
         });
