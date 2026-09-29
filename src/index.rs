@@ -144,35 +144,9 @@ pub fn parse(source: &str) -> ParsedNote {
                 .push((link.url.clone(), position.start.offset));
         }
         if let Node::Yaml(yaml) = node {
-            let mut field = "";
-            for line in yaml.value.lines() {
-                if let Some((key, value)) = line.split_once(':').filter(|_| !line.starts_with(' '))
-                {
-                    field = key.trim();
-                    if matches!(field, "tags" | "aliases") {
-                        for value in value
-                            .trim()
-                            .trim_matches(['[', ']'])
-                            .split(',')
-                            .map(|s| s.trim().trim_matches(['\'', '"', '#']))
-                            .filter(|s| !s.is_empty())
-                        {
-                            if field == "tags" {
-                                result.tags.push(value.into());
-                            } else {
-                                result.aliases.push(value.into());
-                            }
-                        }
-                    }
-                } else if let Some(value) = line.trim().strip_prefix("- ") {
-                    let value = value.trim().trim_matches(['\'', '"', '#']);
-                    if field == "tags" {
-                        result.tags.push(value.into());
-                    } else if field == "aliases" {
-                        result.aliases.push(value.into());
-                    }
-                }
-            }
+            let (tags, aliases) = crate::properties::metadata(&yaml.value);
+            result.tags.extend(tags);
+            result.aliases.extend(aliases);
         }
         if let Node::Heading(heading) = node
             && let Some(position) = &heading.position
@@ -708,12 +682,7 @@ impl Index {
                 let aliases: Vec<_> = self
                     .notes
                     .iter()
-                    .filter(|(_, n)| {
-                        n.parsed
-                            .aliases
-                            .iter()
-                            .any(|a| a.eq_ignore_ascii_case(&stem))
-                    })
+                    .filter(|(_, n)| n.parsed.aliases.iter().any(|a| a.to_lowercase() == stem))
                     .map(|(p, _)| p.clone())
                     .collect();
                 match aliases.len() {
@@ -891,6 +860,31 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn yaml_aliases_with_punctuation_participate_in_search_and_backlinks() {
+        let mut index = Index::default();
+        index.update(
+            "target.md".into(),
+            "---\naliases: [\"Smith, John\", 'ÉTUDE']\ntags: ['工作/项目']\n---\n正文".into(),
+        );
+        index.update("entry.md".into(), "[[Smith, John]] [[étude]]".into());
+        assert_eq!(
+            index.filenames("Smith, John")[0].path,
+            Path::new("target.md")
+        );
+        assert_eq!(
+            index.resolve(Path::new("entry.md"), "étude"),
+            Resolution::Found("target.md".into())
+        );
+        assert_eq!(
+            index.backlinks(Path::new("target.md")),
+            vec![PathBuf::from("entry.md")]
+        );
+        assert_eq!(
+            index.search("tag:工作/项目")[0].path,
+            Path::new("target.md")
+        );
+    }
     #[test]
     fn filenames_rank_names_and_aliases_and_keep_real_paths() {
         let mut index = Index::default();
