@@ -1176,6 +1176,7 @@ impl Workspace {
         if self.ui.file_operation {
             return;
         }
+        self.flush_document_views(window, cx);
         for tab in &mut self.tabs {
             if !tab.save.conflict.get() {
                 tab.save.error.replace(None);
@@ -2004,6 +2005,51 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn immediate_save_and_window_close_flush_committed_linked_view_edits(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for close in [true, false] {
+            let root = std::env::temp_dir().join(format!(
+                "inkstone-immediate-view-save-{}-{close}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(root.join("a.md"), "abc").unwrap();
+            let handle = cx.add_window(Workspace::new);
+            handle
+                .update(cx, |w, window, cx| {
+                    w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                    w.add_tab("a.md".into(), Some("abc".into()), false, window, cx);
+                    w.execute_command(85, window, cx);
+                    w.tabs[1]
+                        .pane
+                        .read(cx)
+                        .editor
+                        .clone()
+                        .update(cx, |s, cx| s.set_selected_range(1..1, cx));
+                    w.persist_workspace(cx);
+                })
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, window, cx| {
+                    // Keep the caret unchanged so preference writes cannot mask a missed text change.
+                    w.tabs[1].pane.read(cx).editor.clone().update(cx, |s, cx| {
+                        s.replace_text_in_range(Some(0..1), "X", window, cx)
+                    });
+                    if close {
+                        assert!(!w.request_window_close(window, cx));
+                    } else {
+                        w.save_all(window, cx);
+                    }
+                    assert_eq!(w.tabs[0].save.editor.read(cx).value(), "Xbc");
+                })
+                .unwrap();
+            cx.run_until_parked();
+            assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "Xbc");
+        }
+    }
+
     #[gpui::test]
     fn explicit_new_tab_link_events_open_unpinned_targets_independently(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

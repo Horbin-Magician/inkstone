@@ -40,6 +40,15 @@ impl DocumentState {
 use super::*;
 
 impl Workspace {
+    /// Bring committed view edits into their document owners before save/close.
+    pub(super) fn flush_document_views(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let ids: Vec<_> = self.tabs.iter().map(|tab| tab.id).collect();
+        for id in ids {
+            self.document_view_changed(id, window, cx);
+        }
+        self.sync_from_split(window, cx);
+    }
+
     pub(super) fn relocate_document(
         &mut self,
         document: &std::rc::Rc<DocumentState>,
