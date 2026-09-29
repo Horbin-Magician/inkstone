@@ -858,6 +858,7 @@ impl Workspace {
             if let Some(tab) = this.tabs.iter().find(|t| t.id == id) {
                 let from = tab.path.clone();
                 match event {
+                    EditorEvent::CountsChanged => cx.notify(),
                     EditorEvent::FollowLink(target) => {
                         this.follow_link(from, target.clone(), window, cx)
                     }
@@ -1750,6 +1751,34 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn background_counts_from_split_do_not_change_active_view(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab(
+                    "long.md".into(),
+                    Some("word ".repeat(3000)),
+                    false,
+                    window,
+                    cx,
+                );
+                w.split_active(false, window, cx);
+                w.views.split.as_ref().unwrap().pane.update(cx, |p, cx| {
+                    p.text_counts(cx);
+                });
+                w.focus_primary(0, window, cx);
+                assert!(!w.views.secondary_focused);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(250));
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| assert!(!w.views.secondary_focused))
+            .unwrap();
+    }
     #[gpui::test]
     fn fonts_restore_across_vault_and_theme_changes(cx: &mut TestAppContext) {
         use inkstone::preferences::{Preferences, ThemeMode};

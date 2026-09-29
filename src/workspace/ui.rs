@@ -3119,7 +3119,7 @@ impl Render for Workspace {
             .as_ref()
             .filter(|_| !self.graph_open)
             .map(|p| {
-                let counts = p.read(cx).text_counts(cx);
+                let counts = p.update(cx, |pane, cx| pane.text_counts(cx));
                 format!("{} 个词  {} 个字符", counts.words, counts.characters)
             })
             .unwrap_or_default();

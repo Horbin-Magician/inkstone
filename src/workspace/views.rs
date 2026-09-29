@@ -380,8 +380,11 @@ impl Workspace {
                 return;
             };
             let from = tab.path.clone();
-            this.focus_secondary(cx);
+            if !matches!(event, EditorEvent::CountsChanged) {
+                this.focus_secondary(cx);
+            }
             match event {
+                EditorEvent::CountsChanged => cx.notify(),
                 EditorEvent::FollowLink(target) => this.follow_link(from, target.clone(), w, cx),
                 EditorEvent::FollowMarkdownLink(target) => {
                     this.follow_markdown_link(from, target, w, cx)
