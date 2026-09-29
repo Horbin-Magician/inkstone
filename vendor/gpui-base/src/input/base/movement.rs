@@ -82,11 +82,13 @@ impl<M: InputModeKind> InputBaseState<M> {
         line_end_affinity: bool,
         cx: &mut Context<Self>,
     ) {
+        let previous = self.cursor();
         self.undo_manager.break_transaction_coalescing();
         self.selections.remove_all_but_active();
         let offset = self.cursor_boundary(offset, Bias::Left);
         self.cursor_line_end_affinity = line_end_affinity;
         self.set_cursor_to(offset);
+        self.expire_pairs_after_navigation(previous);
         self.scroll_to(offset, direction, cx);
         self.pause_blink_cursor(cx);
         self.update_preferred_column();
@@ -210,6 +212,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let previous = self.cursor();
         self.undo_manager.break_transaction_coalescing();
         let mut active_affinity = false;
         let new_selections: Vec<CursorSelection> = self
@@ -227,6 +230,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             .collect();
         self.selections.replace_all(new_selections);
         self.selections.merge_overlapping();
+        self.expire_pairs_after_navigation(previous);
 
         self.cursor_line_end_affinity = active_affinity;
         self.scroll_to(self.cursor(), direction, cx);
