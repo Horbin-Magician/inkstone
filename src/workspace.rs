@@ -875,6 +875,14 @@ impl Workspace {
         );
     }
 
+    fn existing_note_target(&self, path: &std::path::Path) -> Option<usize> {
+        // A document can have multiple independent views. Keep same-document
+        // navigation in the active view so its caret and scroll state are used.
+        self.active
+            .filter(|&i| self.tabs.get(i).is_some_and(|tab| tab.path == path))
+            .or_else(|| self.tabs.iter().position(|tab| tab.path == path))
+    }
+
     fn open_note_target(
         &mut self,
         path: PathBuf,
@@ -901,7 +909,7 @@ impl Workspace {
         }
         self.navigation_generation += 1;
         let navigation_generation = self.navigation_generation;
-        if let Some(i) = self.tabs.iter().position(|t| t.path == path) {
+        if let Some(i) = self.existing_note_target(&path) {
             self.open_existing_note(i, view.as_ref(), force_new, window, cx);
             return;
         }
@@ -921,7 +929,7 @@ impl Workspace {
                 {
                     return;
                 }
-                if let Some(i) = this.tabs.iter().position(|t| t.path == path) {
+                if let Some(i) = this.existing_note_target(&path) {
                     this.open_existing_note(i, view.as_ref(), force_new, window, cx);
                     return;
                 }
@@ -2286,6 +2294,61 @@ mod tests {
                 })
                 .unwrap();
         }
+    }
+
+    #[gpui::test]
+    fn same_document_links_keep_the_current_duplicate_and_split(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let source = "intro\n\n# Target\nbody";
+        let duplicate = handle
+            .update(cx, |w, window, cx| {
+                Arc::make_mut(&mut w.index).update("a.md".into(), source.into());
+                w.add_tab("a.md".into(), Some(source.into()), false, window, cx);
+                w.add_tab("a.md".into(), None, false, window, cx);
+                let pane = w.tabs[1].pane.clone();
+                pane.update(cx, |_, cx| {
+                    cx.emit(EditorEvent::FollowLink("a#Target".into()))
+                });
+                pane
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let split = handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.active, Some(1));
+                assert_eq!(w.current_pane().unwrap().entity_id(), duplicate.entity_id());
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).selected_range(),
+                    0..0
+                );
+                assert_eq!(duplicate.read(cx).editor.read(cx).selected_range(), 7..7);
+                w.split_active(true, window, cx);
+                let pane = w.current_pane().unwrap();
+                pane.read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.set_selected_range(0..0, cx));
+                pane.update(cx, |_, cx| {
+                    cx.emit(EditorEvent::FollowMarkdownLink("#Target".into()))
+                });
+                pane
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.tabs.len(), 2);
+                assert!(w.views.secondary_focused);
+                assert_eq!(w.active, Some(1));
+                assert_eq!(w.current_pane().unwrap().entity_id(), split.entity_id());
+                assert_eq!(split.read(cx).editor.read(cx).selected_range(), 7..7);
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).selected_range(),
+                    0..0
+                );
+            })
+            .unwrap();
     }
 
     #[gpui::test]
