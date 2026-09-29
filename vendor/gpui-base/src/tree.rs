@@ -42,6 +42,7 @@ pub struct TreeItem {
     pub id: SharedString,
     pub label: SharedString,
     pub children: Vec<TreeItem>,
+    is_directory: bool,
     state: Rc<RefCell<TreeItemState>>,
 }
 
@@ -101,6 +102,7 @@ impl TreeItem {
             id: id.into(),
             label: label.into(),
             children: Vec::new(),
+            is_directory: false,
             state: Rc::new(RefCell::new(TreeItemState {
                 expanded: false,
                 disabled: false,
@@ -110,6 +112,12 @@ impl TreeItem {
 
     pub fn child(mut self, child: TreeItem) -> Self {
         self.children.push(child);
+        self
+    }
+
+    /// Mark an empty directory as expandable before it has any children.
+    pub fn folder(mut self, folder: bool) -> Self {
+        self.is_directory = folder;
         self
     }
 
@@ -130,7 +138,7 @@ impl TreeItem {
 
     #[inline]
     pub fn is_folder(&self) -> bool {
-        !self.children.is_empty()
+        self.is_directory || !self.children.is_empty()
     }
 
     pub fn is_disabled(&self) -> bool {

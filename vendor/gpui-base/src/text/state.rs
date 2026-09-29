@@ -116,6 +116,8 @@ pub struct TextViewState {
     pub(super) code_block_highlighter: Option<std::sync::Arc<CodeBlockHighlighterFn>>,
     pub(super) table_actions: Option<std::sync::Arc<TableActionsFn>>,
     pub(super) image_source: Option<std::sync::Arc<super::text_view::ImageSourceFn>>,
+    pub(super) task_toggle_handler: Option<Arc<super::text_view::TaskToggleHandlerFn>>,
+    callout_folds: Arc<Mutex<std::collections::HashMap<u64, bool>>>,
     pub(super) link_click_handler: Option<std::sync::Arc<LinkClickHandlerFn>>,
     pub(super) markdown_extensions: Arc<MarkdownExtensions>,
 
@@ -189,8 +191,12 @@ impl TextViewState {
 
                         match parsed_update.result {
                             Ok(content) => {
-                                let append =
-                                    parsed_update.selection_compatible && !parsed_update.full_parse;
+                                let footnote_layout =
+                                    !state.parsed_content.node_cx.footnotes.is_empty()
+                                        || !content.node_cx.footnotes.is_empty();
+                                let append = parsed_update.selection_compatible
+                                    && !parsed_update.full_parse
+                                    && !footnote_layout;
                                 if append && state.full_update_revision <= state.committed_revision
                                 {
                                     state.splice_appended_blocks(&content.document);
@@ -208,7 +214,7 @@ impl TextViewState {
                                 state.parsed_content = content;
                                 state.parsed_error = None;
                                 state.compatible_layout_update = parsed_update.selection_compatible;
-                                if parsed_update.full_parse {
+                                if parsed_update.full_parse || footnote_layout {
                                     state.invalidate_measured_heights();
                                 }
                             }
@@ -254,6 +260,8 @@ impl TextViewState {
             code_block_highlighter: None,
             table_actions: None,
             link_click_handler: None,
+            task_toggle_handler: None,
+            callout_folds: Default::default(),
             image_source: None,
             markdown_extensions: Arc::default(),
             is_selecting: false,
@@ -577,6 +585,11 @@ impl TextViewState {
         _ = self.tx.try_send(update_options);
     }
 
+    /// Whether the current text has completed parsing.
+    pub fn is_parsed(&self) -> bool {
+        self.committed_revision == self.revision
+    }
+
     /// The text this view renders, which [`RangeHighlight`] ranges index.
     ///
     /// This is the string plain copy produces, as of the last parse that
@@ -588,6 +601,43 @@ impl TextViewState {
             self.parsed_content.document.clone(),
             self.rendered_index.clone(),
         )
+    }
+    /// Logical position of the reading viewport, for host view restoration.
+    pub fn scroll_position(&self) -> gpui::ListOffset {
+        self.list_state.logical_scroll_top()
+    }
+    /// User overrides for collapsible callouts, independent of this view's identity.
+    pub fn callout_states(&self) -> std::collections::BTreeMap<u64, bool> {
+        self.callout_folds
+            .lock()
+            .map(|states| states.iter().map(|(key, value)| (*key, *value)).collect())
+            .unwrap_or_default()
+    }
+    pub fn restore_callout_states(
+        &mut self,
+        states: &std::collections::BTreeMap<u64, bool>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Ok(mut folds) = self.callout_folds.lock() {
+            folds.clear();
+            folds.extend(states.iter().map(|(key, value)| (*key, *value)));
+        }
+        self.invalidate_inline_layout(cx);
+    }
+    /// Bounds of the narrowest laid-out block containing a Markdown source offset.
+    pub fn bounds_for_source_offset(&self, offset: usize) -> Option<Bounds<Pixels>> {
+        let (i, _) = self
+            .parsed_content
+            .document
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| {
+                b.span()
+                    .is_some_and(|s| s.start <= offset && offset <= s.end)
+            })
+            .min_by_key(|(_, b)| b.span().map_or(usize::MAX, |s| s.end - s.start))?;
+        self.list_state.bounds_for_item(i)
     }
 
     /// Replace the range highlights, whose ranges index the current rendered text.
@@ -1022,15 +1072,53 @@ impl Render for TextViewState {
             }));
         }
         let (reveal, reveal_block) = self.reveal_frame(cx.background_executor().now(), window);
+        let weak = cx.entity().downgrade();
+        let app_handler = self.link_click_handler.clone();
+        let link_click_handler = Some(Arc::new(
+            move |url: &SharedString,
+                  event: &gpui::ClickEvent,
+                  window: &mut Window,
+                  cx: &mut App| {
+                if let Some(offset) = url
+                    .strip_prefix("gpui-footnote:")
+                    .and_then(|s| s.parse::<usize>().ok())
+                {
+                    if !event.is_right_click() {
+                        let _ = weak.update(cx, |s, cx| {
+                            if let Some(position) =
+                                s.rendered_text().position_for_source_offset(offset)
+                            {
+                                let _ = s.reveal_range(position..position, cx);
+                            }
+                        });
+                    }
+                } else {
+                    super::text_view::handle_link_click(
+                        &app_handler,
+                        url.clone(),
+                        event.clone(),
+                        window,
+                        cx,
+                    );
+                }
+            },
+        ) as Arc<LinkClickHandlerFn>);
         // Built every frame, so everything in it is shared, not copied.
         let node_cx = NodeContext {
+            footnotes: self.parsed_content.node_cx.footnotes.clone(),
+            footnote_starts: self.parsed_content.node_cx.footnote_starts.clone(),
+            callouts: Default::default(),
+            callout_folds: self.callout_folds.clone(),
+            view_entity: Some(self.entity_id),
+            view_state: Some(cx.entity().downgrade()),
             offset: self.parsed_content.node_cx.offset,
             link_refs: self.parsed_content.node_cx.link_refs.clone(),
             style: self.text_view_style.clone(),
             code_block_actions: self.code_block_actions.clone(),
             code_block_highlighter: self.code_block_highlighter.clone(),
             table_actions: self.table_actions.clone(),
-            link_click_handler: self.link_click_handler.clone(),
+            link_click_handler,
+            task_toggle_handler: self.task_toggle_handler.clone(),
             image_source: self.image_source.clone(),
             markdown_extensions: self.markdown_extensions.clone(),
             stream_fade,
@@ -1233,8 +1321,9 @@ fn parse_content(
     // in two. A block without a span cannot be located in `source` — the HTML
     // parser never records spans — so it is left in place and only the
     // appended text is parsed, positioned at the end of the current source.
-    let last_span = options
-        .append
+    let full_append = options.append
+        && (!content.node_cx.footnotes.is_empty() || options.pending_text.contains("[^"));
+    let last_span = (options.append && !full_append)
         .then(|| {
             content
                 .document
@@ -1245,7 +1334,10 @@ fn parse_content(
         .flatten();
 
     let mut source = String::new();
-    if let Some(span) = last_span {
+    if full_append {
+        source.push_str(&content.document.source);
+        source.push_str(&options.pending_text);
+    } else if let Some(span) = last_span {
         Arc::make_mut(&mut content.document.blocks).pop();
         node_cx.offset = span.start;
         source.push_str(&content.document.source[span.start..]);
@@ -1262,15 +1354,50 @@ fn parse_content(
         TextViewFormat::Html => format::html::parse(&source, &mut node_cx),
     }?;
 
-    if options.append {
+    if options.append && !full_append {
         content.document.source =
             format!("{}{}", content.document.source, options.pending_text).into();
         Arc::make_mut(&mut content.document.blocks)
             .extend(Arc::unwrap_or_clone(new_document.blocks));
     } else {
+        content.node_cx = node_cx;
         content.document = new_document;
     }
 
+    // A trailing definition can change when its block is reparsed on append.
+    // Derive references from the committed blocks instead of retaining stale URLs.
+    use super::node::{BlockNode, LinkMark};
+    fn references(block: &BlockNode, out: &mut std::collections::HashMap<SharedString, LinkMark>) {
+        match block {
+            BlockNode::Definition {
+                identifier,
+                url,
+                title,
+                ..
+            } => {
+                out.entry(identifier.clone()).or_insert_with(|| LinkMark {
+                    url: url.clone(),
+                    identifier: Some(identifier.clone()),
+                    title: title.clone(),
+                });
+            }
+            BlockNode::Root { children, .. }
+            | BlockNode::Blockquote { children, .. }
+            | BlockNode::List { children, .. }
+            | BlockNode::ListItem { children, .. } => {
+                for child in children {
+                    references(child, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    if options.append && !full_append {
+        content.node_cx.link_refs.clear();
+        for block in content.document.blocks.iter() {
+            references(block, &mut content.node_cx.link_refs);
+        }
+    }
     Ok(content)
 }
 

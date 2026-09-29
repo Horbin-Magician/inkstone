@@ -191,6 +191,8 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn next_search_match(&mut self, cx: &mut Context<Self>) -> Option<Range<usize>> {
         self.sync_search_matcher();
         let range = self.search_session.matcher.next()?;
+        self.unfold_offset(range.start, cx);
+        self.unfold_offset(range.end, cx);
         // Match order does not describe viewport direction after a manual
         // scroll. Always allow search navigation to reveal the active match.
         self.scroll_to_with_padding(range.end, None, ScrollPadding::SurroundingLines, cx);
@@ -200,6 +202,8 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn previous_search_match(&mut self, cx: &mut Context<Self>) -> Option<Range<usize>> {
         self.sync_search_matcher();
         let range = self.search_session.matcher.next_back()?;
+        self.unfold_offset(range.start, cx);
+        self.unfold_offset(range.end, cx);
         // Match order does not describe viewport direction after a manual
         // scroll. Always allow search navigation to reveal the active match.
         self.scroll_to_with_padding(range.start, None, ScrollPadding::SurroundingLines, cx);

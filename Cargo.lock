@@ -2298,8 +2298,6 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac246c9f3d9771e56fbf90bd7d8656d0992d83940b580debf2efab4c44fe91df"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3385,6 +3383,7 @@ name = "inkstone"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "gpui-base",
  "gpui-component",
  "gpui-kit",
@@ -3393,6 +3392,7 @@ dependencies = [
  "markdown",
  "notify",
  "percent-encoding",
+ "regex",
  "ropey",
  "serde",
  "serde_json",

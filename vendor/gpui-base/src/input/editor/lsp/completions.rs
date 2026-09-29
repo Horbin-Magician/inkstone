@@ -119,10 +119,31 @@ impl Default for InlineCompletion {
 }
 
 impl InputBaseState<EditorMode> {
+    /// Request completion after a host command, without fabricating typed text.
+    pub fn request_completions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ime_marked_range.is_some() {
+            return;
+        }
+        self.hide_context_menu(cx);
+        self.extras
+            .context_menu_content
+            .completion
+            .trigger_start_offset = None;
+        self.start_completion(self.cursor(), None, window, cx);
+    }
     pub(crate) fn handle_completion_trigger(
         &mut self,
         range: &Range<usize>,
         new_text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_completion(range.end, Some(new_text), window, cx);
+    }
+    fn start_completion(
+        &mut self,
+        start: usize,
+        typed: Option<&str>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -138,10 +159,9 @@ impl InputBaseState<EditorMode> {
         // It will check if menu is open before showing the suggestion.
         self.schedule_inline_completion(window, cx);
 
-        let start = range.end;
         let new_offset = self.cursor();
 
-        if !provider.is_completion_trigger(start, new_text, cx) {
+        if typed.is_some_and(|text| !provider.is_completion_trigger(start, text, cx)) {
             return;
         }
 
@@ -175,8 +195,12 @@ impl InputBaseState<EditorMode> {
             .clone_from(&query);
 
         let completion_context = CompletionContext {
-            trigger_kind: lsp_types::CompletionTriggerKind::TRIGGER_CHARACTER,
-            trigger_character: Some(query),
+            trigger_kind: if typed.is_some() {
+                lsp_types::CompletionTriggerKind::TRIGGER_CHARACTER
+            } else {
+                lsp_types::CompletionTriggerKind::INVOKED
+            },
+            trigger_character: typed.map(|_| query),
         };
 
         let provider_responses =
@@ -256,6 +280,9 @@ impl InputBaseState<EditorMode> {
         let handled = handler(kind, action, window, cx);
         if handled && closes_overlay {
             self.hide_context_menu(cx);
+        }
+        if handled {
+            cx.stop_propagation();
         }
         handled
     }

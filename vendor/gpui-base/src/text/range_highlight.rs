@@ -26,7 +26,7 @@ use gpui::{Bounds, EntityId, Hsla, Pixels, SharedString};
 
 use super::{
     document::ParsedDocument,
-    node::{BlockNode, Paragraph},
+    node::{BlockNode, Paragraph, SourceSegment},
     stream_fade::{TextLeaf, TextLeafKey, text_leaves},
 };
 
@@ -84,6 +84,84 @@ impl RenderedText {
     /// The rendered text.
     pub fn as_str(&self) -> &str {
         &self.index().text
+    }
+
+    /// The rendered position of the block containing a Markdown source offset.
+    /// Nested paragraph anchors resolve to their own leaf when available.
+    pub fn position_for_source_offset(&self, offset: usize) -> Option<usize> {
+        fn leaf_start(block: &BlockNode, offset: usize) -> Option<usize> {
+            match block {
+                BlockNode::Root { children, .. }
+                | BlockNode::Blockquote { children, .. }
+                | BlockNode::List { children, .. }
+                | BlockNode::ListItem { children, .. } => {
+                    let child = children
+                        .iter()
+                        .filter(|b| {
+                            b.span()
+                                .is_some_and(|s| s.start <= offset && offset <= s.end)
+                        })
+                        .min_by_key(|b| b.span().map_or(usize::MAX, |s| s.end - s.start))
+                        .or_else(|| {
+                            children
+                                .iter()
+                                .find(|b| b.span().is_some_and(|s| s.start >= offset))
+                        });
+                    child
+                        .and_then(|b| leaf_start(b, offset))
+                        .or_else(|| block.span().map(|s| s.start))
+                }
+                _ => block.span().map(|s| s.start),
+            }
+        }
+        let ix = self
+            .document
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| {
+                b.span()
+                    .is_some_and(|s| s.start <= offset && offset <= s.end)
+            })
+            .min_by_key(|(_, b)| b.span().map_or(usize::MAX, |s| s.end - s.start))
+            .map(|(i, _)| i)
+            .or_else(|| {
+                self.document
+                    .blocks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, b)| b.span().is_some_and(|s| s.start <= offset))
+                    .max_by_key(|(_, b)| b.span().map_or(0, |s| s.start))
+                    .map(|(i, _)| i)
+            })?;
+        let range = self.index().blocks.get(ix)?;
+        let source = leaf_start(&self.document.blocks[ix], offset)?;
+        Some(
+            self.index()
+                .leaves
+                .iter()
+                .filter(|l| {
+                    range.start <= l.range.start
+                        && l.range.end <= range.end
+                        && l.key.source_start() == source
+                })
+                .min_by_key(|l| l.range.start)
+                .map_or(range.start, |l| {
+                    let local = l
+                        .source_segments
+                        .iter()
+                        .find(|s| s.source.start <= offset && offset < s.source.end)
+                        .map_or(0, |s| {
+                            s.rendered.start
+                                + if s.source.len() == s.rendered.len() {
+                                    offset - s.source.start
+                                } else {
+                                    0
+                                }
+                        });
+                    l.range.start + local
+                }),
+        )
     }
 
     /// The length of the rendered text, in bytes.
@@ -181,6 +259,7 @@ struct LeafSpan {
     /// Inline objects in the leaf's text, in leaf offsets. They paint as
     /// objects rather than as text, so no highlight paints them.
     objects: Vec<Range<usize>>,
+    source_segments: Vec<SourceSegment>,
 }
 
 impl LeafSpan {
@@ -364,6 +443,7 @@ impl IndexBuilder {
                     &code_block.code(),
                     code_block.span.map(|span| TextLeafKey::block(span.start)),
                     Vec::new(),
+                    Vec::new(),
                 );
             }
             BlockNode::Custom(node) => self.text.push_str(node.as_text()),
@@ -380,16 +460,27 @@ impl IndexBuilder {
     fn push_paragraph(&mut self, paragraph: &Paragraph, key: Option<TextLeafKey>) {
         let mut text = String::new();
         let mut objects = Vec::new();
+        let mut source_segments = vec![];
         for child in &paragraph.children {
+            source_segments.extend(child.source_segments.iter().map(|s| SourceSegment {
+                rendered: text.len() + s.rendered.start..text.len() + s.rendered.end,
+                source: s.source.clone(),
+            }));
             if child.custom.is_some() {
                 objects.push(text.len()..text.len() + child.text.len());
             }
             text.push_str(&child.text);
         }
-        self.push_leaf(&text, key, objects);
+        self.push_leaf(&text, key, objects, source_segments);
     }
 
-    fn push_leaf(&mut self, text: &str, key: Option<TextLeafKey>, objects: Vec<Range<usize>>) {
+    fn push_leaf(
+        &mut self,
+        text: &str,
+        key: Option<TextLeafKey>,
+        objects: Vec<Range<usize>>,
+        source_segments: Vec<SourceSegment>,
+    ) {
         let start = self.text.len();
         self.text.push_str(text);
         if let Some(key) = key
@@ -399,6 +490,7 @@ impl IndexBuilder {
                 range: start..self.text.len(),
                 key,
                 objects,
+                source_segments,
             });
         }
     }
@@ -959,6 +1051,9 @@ pub(crate) struct RevealRequest {
 }
 
 impl RevealRequest {
+    pub(crate) fn source_start(&self) -> usize {
+        self.key.block_start()
+    }
     /// The start of the reveal, when it is in `key`'s text between `start`
     /// and `end`, rebased to `start`.
     pub(crate) fn at(

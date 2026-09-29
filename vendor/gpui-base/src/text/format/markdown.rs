@@ -21,10 +21,229 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
     let options = cx.markdown_extensions.parse_options();
     let mut root =
         markdown::to_mdast(source, &options).map_err(|e| SharedString::from(e.to_string()))?;
+    fn link_definitions(node: &Node, cx: &mut NodeContext) {
+        if let Node::Definition(d) = node {
+            cx.add_ref(
+                d.identifier.clone().into(),
+                LinkMark {
+                    url: d.url.clone().into(),
+                    identifier: Some(d.identifier.clone().into()),
+                    title: d.title.clone().map(Into::into),
+                },
+            );
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                link_definitions(child, cx);
+            }
+        }
+    }
+    link_definitions(&root, cx);
+    cx.footnotes.clear();
+    fn definitions<'a>(
+        node: &'a Node,
+        out: &mut std::collections::HashMap<String, node::FootnoteInfo>,
+        bodies: &mut std::collections::HashMap<String, &'a mdast::FootnoteDefinition>,
+        offset: usize,
+    ) {
+        if let Node::FootnoteDefinition(n) = node
+            && let Some(p) = &n.position
+        {
+            bodies.entry(n.identifier.clone()).or_insert(n);
+            out.entry(n.identifier.clone())
+                .or_insert(node::FootnoteInfo {
+                    definition: p.start.offset + offset,
+                    ..Default::default()
+                });
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                definitions(child, out, bodies, offset);
+            }
+        }
+    }
+    fn footnote_references(
+        node: &Node,
+        out: &mut std::collections::HashMap<String, node::FootnoteInfo>,
+        queue: &mut Vec<String>,
+        offset: usize,
+    ) {
+        if matches!(node, Node::FootnoteDefinition(_)) {
+            return;
+        }
+        if let Node::FootnoteReference(n) = node
+            && let Some(p) = &n.position
+            && let Some(info) = out.get_mut(&n.identifier)
+        {
+            if info.number == 0 {
+                info.number = queue.len() + 1;
+                queue.push(n.identifier.clone());
+            }
+            info.references.push(p.start.offset + offset);
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                footnote_references(child, out, queue, offset);
+            }
+        }
+    }
+    {
+        let mut bodies = std::collections::HashMap::new();
+        definitions(&root, &mut cx.footnotes, &mut bodies, cx.offset);
+        let mut queue = vec![];
+        footnote_references(&root, &mut cx.footnotes, &mut queue, cx.offset);
+        let mut number = 0;
+        while number < queue.len() {
+            let id = queue[number].clone();
+            if let Some(body) = bodies.get(&id) {
+                for child in &body.children {
+                    footnote_references(child, &mut cx.footnotes, &mut queue, cx.offset);
+                }
+            }
+            number += 1;
+        }
+    }
+    cx.footnote_starts = cx
+        .footnotes
+        .values()
+        .filter(|f| f.number > 0)
+        .map(|f| f.definition)
+        .collect();
+    cx.callouts.clear();
+    let mut masked = source.as_bytes().to_vec();
+    fn collect(
+        node: &Node,
+        source: &str,
+        masked: &mut [u8],
+        out: &mut std::collections::HashMap<usize, node::CalloutHeader>,
+    ) {
+        if let Node::Blockquote(quote) = node
+            && let (Some(position), Some(Node::Paragraph(first))) =
+                (&quote.position, quote.children.first())
+            && let Some(first_pos) = &first.position
+            && first_pos.start.line == position.start.line
+        {
+            let start = first_pos.start.offset;
+            let end = source[start..]
+                .find('\n')
+                .map_or(source.len(), |n| start + n);
+            let raw = source[start..end].trim_end_matches(['\r', ' ', '\t']);
+            if let Some(rest) = raw.strip_prefix("[!")
+                && let Some(close) = rest.find(']')
+            {
+                let kind = rest[..close].split('|').next().unwrap_or_default();
+                if !kind.is_empty()
+                    && kind
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || matches!(c, '-' | '_'))
+                {
+                    let mut marker_end = close + 3;
+                    let collapsed = match raw.as_bytes().get(marker_end) {
+                        Some(b'+') => {
+                            marker_end += 1;
+                            Some(false)
+                        }
+                        Some(b'-') => {
+                            marker_end += 1;
+                            Some(true)
+                        }
+                        _ => None,
+                    };
+                    let title_start =
+                        marker_end + raw[marker_end..].len() - raw[marker_end..].trim_start().len();
+                    let title = start + title_start..start + raw.len();
+                    fn refs(
+                        node: &Node,
+                        line: usize,
+                        out: &mut Vec<String>,
+                        feet: &mut Vec<String>,
+                    ) {
+                        if node.position().is_some_and(|p| p.start.line > line) {
+                            return;
+                        }
+                        match node {
+                            Node::LinkReference(n) => out.push(n.identifier.clone()),
+                            Node::ImageReference(n) => out.push(n.identifier.clone()),
+                            Node::FootnoteReference(n) => feet.push(n.identifier.clone()),
+                            _ => {}
+                        }
+                        if let Some(children) = node.children() {
+                            for child in children {
+                                refs(child, line, out, feet);
+                            }
+                        }
+                    }
+                    let mut references = vec![];
+                    let mut footnotes = vec![];
+                    for child in &first.children {
+                        refs(child, first_pos.start.line, &mut references, &mut footnotes);
+                    }
+                    references.sort();
+                    references.dedup();
+                    out.insert(
+                        position.start.offset,
+                        node::CalloutHeader {
+                            meta: node::Callout {
+                                kind: kind.to_lowercase(),
+                                marker: raw[..marker_end].into(),
+                                collapsed,
+                                default_title: title.is_empty(),
+                            },
+                            title,
+                            line: first_pos.start.line,
+                            range: position.start.offset..position.end.offset,
+                            references,
+                            footnotes,
+                        },
+                    );
+                    // Preserve byte offsets and quote structure. The spaces force a
+                    // hard break so header markup cannot span into the body.
+                    masked[start..start + raw.len()].fill(b' ');
+                    masked[start] = b'x';
+                }
+            }
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                collect(child, source, masked, out);
+            }
+        }
+    }
+    collect(&root, source, &mut masked, &mut cx.callouts);
+    if !cx.callouts.is_empty() {
+        root = markdown::to_mdast(std::str::from_utf8(&masked).unwrap_or(source), &options)
+            .map_err(|e| SharedString::from(e.to_string()))?;
+    }
     let mut prose = options;
     prose.constructs.math_text = false;
     prose.constructs.math_flow = false;
     flatten_unclaimed_math(&mut root, source, &prose, cx);
+    fn take_footnotes(node: &mut Node, out: &mut Vec<Node>) {
+        if let Some(children) = node.children_mut() {
+            let mut i = 0;
+            while i < children.len() {
+                if matches!(&children[i], Node::FootnoteDefinition(_)) {
+                    let mut def = children.remove(i);
+                    take_footnotes(&mut def, out);
+                    out.push(def);
+                } else {
+                    take_footnotes(&mut children[i], out);
+                    i += 1;
+                }
+            }
+        }
+    }
+    let mut footnotes = vec![];
+    take_footnotes(&mut root, &mut footnotes);
+    footnotes.sort_by_key(|n| match n {
+        Node::FootnoteDefinition(n) => cx.footnotes.get(&n.identifier).map_or(usize::MAX, |f| {
+            if f.number == 0 { usize::MAX } else { f.number }
+        }),
+        _ => usize::MAX,
+    });
+    if let Some(children) = root.children_mut() {
+        children.extend(footnotes);
+    }
     Ok(ast_to_document(source, root, cx))
 }
 
@@ -832,14 +1051,49 @@ fn parse_paragraph(
             }
         },
         Node::FootnoteReference(foot) => {
-            let prefix = format!("[{}]", foot.identifier);
-            paragraph.push(mapped_inline(source, prefix.clone(), node, cx).marks(vec![(
+            let info = cx.footnotes.get(&foot.identifier);
+            let prefix = info.map_or_else(
+                || {
+                    foot.position
+                        .as_ref()
+                        .and_then(|p| source.get(p.start.offset..p.end.offset))
+                        .map(str::to_string)
+                        .unwrap_or_else(|| format!("[^{}]", foot.identifier))
+                },
+                |f| f.number.to_string(),
+            );
+            let mut inline = mapped_inline(source, prefix.clone(), node, cx);
+            if let Some(span) = new_span(foot.position.clone(), cx) {
+                inline = inline.source_segments(vec![SourceSegment {
+                    rendered: 0..prefix.len(),
+                    source: span.start..span.end,
+                }]);
+            }
+            if let Some(info) = info {
+                let mut custom = crate::text::MarkdownNode::new("__gpui_footnote", ())
+                    .text(prefix.clone())
+                    .accessibility_label(format!("脚注 {}", info.number))
+                    .with_inline_source(
+                        foot.position
+                            .as_ref()
+                            .and_then(|p| source.get(p.start.offset..p.end.offset))
+                            .unwrap_or_default(),
+                    );
+                custom.set_span(new_span(foot.position.clone(), cx));
+                inline.custom = Some(custom);
+            }
+            paragraph.push(inline.marks(vec![(
                 0..prefix.len(),
                 TextMark {
-                    italic: true,
+                    link: info.map(|f| LinkMark {
+                        url: format!("gpui-footnote:{}", f.definition).into(),
+                        identifier: None,
+                        title: Some(format!("脚注 {}", f.number).into()),
+                    }),
                     ..Default::default()
                 },
             )]));
+            text.push_str(&prefix);
         }
         Node::LinkReference(link) => {
             let link_mark = LinkMark {
@@ -911,15 +1165,111 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
             paragraph.span = new_span(val.position, cx);
             BlockNode::Paragraph(paragraph)
         }
-        Node::Blockquote(val) => {
-            let children = val
+        Node::Blockquote(mut val) => {
+            let header = val
+                .position
+                .as_ref()
+                .and_then(|p| cx.callouts.get(&p.start.offset))
+                .cloned();
+            if let Some(header) = &header
+                && let Some(Node::Paragraph(first)) = val.children.first_mut()
+            {
+                first
+                    .children
+                    .retain(|n| n.position().is_some_and(|p| p.start.line > header.line));
+                if first.children.is_empty() {
+                    val.children.remove(0);
+                } else if let (Some(position), Some(child)) = (
+                    &mut first.position,
+                    first.children.first().and_then(Node::position),
+                ) {
+                    position.start = child.start.clone();
+                }
+            }
+            let mut children: Vec<_> = val
                 .children
                 .into_iter()
                 .map(|c| ast_to_node(source, c, cx))
                 .collect();
+            if let Some(header) = &header {
+                let mut title = Paragraph::default();
+                if header.meta.default_title {
+                    let mut chars = header.meta.kind.chars();
+                    let label = chars
+                        .next()
+                        .map(|c| c.to_uppercase().collect::<String>())
+                        .unwrap_or_default()
+                        + chars.as_str();
+                    title = Paragraph::new(label);
+                } else {
+                    // Prefix prose to parse an inline title even when it starts
+                    // with a block marker. Dummy definitions only preserve the
+                    // reference node kind; real URLs resolve from the full document.
+                    let mut inline_source = format!("x {}", &source[header.title.clone()]);
+                    for identifier in &header.references {
+                        inline_source.push_str(&format!(
+                            "\n\n[{}]: inkstone-reference-placeholder",
+                            identifier.replace('\\', "\\\\").replace(']', "\\]")
+                        ));
+                    }
+                    for identifier in &header.footnotes {
+                        inline_source.push_str(&format!(
+                            "\n\n[^{}]: placeholder",
+                            identifier.replace('\\', "\\\\").replace(']', "\\]")
+                        ));
+                    }
+                    if let Ok(mut root) =
+                        markdown::to_mdast(&inline_source, &cx.markdown_extensions.parse_options())
+                    {
+                        if let Some(Node::Paragraph(p)) =
+                            root.children_mut().and_then(|n| n.first_mut())
+                            && let Some(Node::Text(t)) = p.children.first_mut()
+                        {
+                            t.value = t.value.strip_prefix("x ").unwrap_or(&t.value).to_string();
+                            if let Some(pos) = &mut t.position {
+                                pos.start.offset += 2;
+                                pos.start.column += 2;
+                            }
+                            if t.value.is_empty() {
+                                p.children.remove(0);
+                            }
+                        }
+                        let line_start = source[..header.title.start]
+                            .rfind('\n')
+                            .map_or(0, |n| n + 1);
+                        shift_positions(
+                            &mut root,
+                            &Point {
+                                line: header.line,
+                                column: header.title.start - line_start - 1,
+                                offset: header.title.start - 2,
+                            },
+                        );
+                        if let Some(inline) = root
+                            .children()
+                            .and_then(|n| n.first())
+                            .and_then(Node::children)
+                        {
+                            parse_inline_children(source, &mut title, inline, cx);
+                        }
+                    }
+                }
+                title.span = Some(Span {
+                    start: header.title.start + cx.offset,
+                    end: header.title.end + cx.offset,
+                });
+                children.insert(0, BlockNode::Paragraph(title));
+            }
             BlockNode::Blockquote {
                 children,
-                span: new_span(val.position, cx),
+                span: header
+                    .as_ref()
+                    .map(|h| Span {
+                        start: h.range.start + cx.offset,
+                        end: h.range.end + cx.offset,
+                    })
+                    .or_else(|| new_span(val.position, cx)),
+                callout: header.map(|h| h.meta),
             }
         }
         Node::List(list) => {
@@ -1041,19 +1391,56 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
             BlockNode::Table(table)
         }
         Node::FootnoteDefinition(def) => {
+            let span = new_span(def.position.clone(), cx);
+            let Some(info) = cx
+                .footnotes
+                .get(&def.identifier)
+                .cloned()
+                .filter(|f| f.number > 0 && span.is_some_and(|s| s.start == f.definition))
+            else {
+                return BlockNode::Root {
+                    children: vec![],
+                    span,
+                };
+            };
             let mut paragraph = Paragraph::default();
-            let prefix = format!("[{}]: ", def.identifier);
-            paragraph.push(InlineNode::new(&prefix).marks(vec![(
-                0..prefix.len(),
-                TextMark {
-                    italic: true,
-                    ..Default::default()
-                },
-            )]));
-
-            parse_inline_children(source, &mut paragraph, &def.children, cx);
-            paragraph.span = new_span(def.position, cx);
-            BlockNode::Paragraph(paragraph)
+            paragraph.push(InlineNode::new(format!("{}. ", info.number)));
+            let mut body = def.children.into_iter();
+            let first = body.next();
+            if let Some(Node::Paragraph(p)) = &first {
+                parse_inline_children(source, &mut paragraph, &p.children, cx);
+            }
+            for (i, target) in info.references.iter().enumerate() {
+                let text = if i == 0 {
+                    " ↩".to_string()
+                } else {
+                    format!(" ↩{}", i + 1)
+                };
+                paragraph.push(InlineNode::new(&text).marks(vec![(
+                    0..text.len(),
+                    TextMark {
+                        link: Some(LinkMark {
+                            url: format!("gpui-footnote:{target}").into(),
+                            identifier: None,
+                            title: Some(format!("返回正文第 {} 处引用", i + 1).into()),
+                        }),
+                        ..Default::default()
+                    },
+                )]));
+            }
+            paragraph.span = span;
+            let mut children = vec![];
+            if info.number == 1 {
+                children.push(BlockNode::HorizontalRule { span: None });
+            }
+            children.push(BlockNode::Paragraph(paragraph));
+            if let Some(first) = first
+                && !matches!(first, Node::Paragraph(_))
+            {
+                children.push(ast_to_node(source, first, cx));
+            }
+            children.extend(body.map(|n| ast_to_node(source, n, cx)));
+            BlockNode::Root { children, span }
         }
         Node::Definition(def) => {
             cx.add_ref(

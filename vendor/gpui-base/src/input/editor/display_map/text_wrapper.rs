@@ -4,13 +4,13 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::rc::Rc;
 
+use super::grapheme_wrap::grapheme_safe_boundaries;
 use gpui::{
     App, Font, LineFragment, Pixels, Point, ShapedLine, Size, TextAlign, Window, point, px, size,
 };
 use ropey::Rope;
 use smallvec::SmallVec;
 use sum_tree::{Bias, Dimensions, SumTree};
-use super::grapheme_wrap::grapheme_safe_boundaries;
 
 use crate::input::{
     Point as TreeSitterPoint, RopeExt,
@@ -153,6 +153,7 @@ pub(crate) struct TextWrapper {
     pub(crate) lines: SumTree<LineItem>,
 
     inline_metrics: Rc<[(Range<usize>, Pixels)]>,
+    pub(super) typography: Rc<[crate::input::LineTypography]>,
     _initialized: bool,
 }
 
@@ -167,6 +168,7 @@ impl TextWrapper {
             wrapping_indent: WrappingIndent::default(),
             lines: SumTree::new(&()),
             inline_metrics: Rc::from([]),
+            typography: Rc::from([]),
             _initialized: false,
         }
     }
@@ -294,15 +296,25 @@ impl TextWrapper {
         new_text: &Rope,
         cx: &mut App,
     ) {
-        let mut line_wrapper = cx
-            .text_system()
-            .line_wrapper(self.font.clone(), self.font_size);
+        let text_system = cx.text_system().clone();
+        let font = self.font.clone();
+        let font_size = self.font_size;
+        let mut wrappers = std::collections::HashMap::new();
+        let typography = self.typography.clone();
+        let current_text = changed_text.clone();
         let metrics = self.inline_metrics.clone();
         self._update(
             changed_text,
             range,
             new_text,
             &mut |line_str, wrap_width, line_start| {
+                let row = current_text.offset_to_point(line_start).row;
+                let scale =
+                    crate::input::line_typography::for_line(&typography, &current_text, row)
+                        .map_or(1., |s| s.font_scale);
+                let line_wrapper = wrappers
+                    .entry(scale.to_bits())
+                    .or_insert_with(|| text_system.line_wrapper(font.clone(), font_size * scale));
                 let mut fragments = Vec::new();
                 let mut offset = 0;
                 let first = metrics.partition_point(|(r, _)| r.end <= line_start);
@@ -338,6 +350,45 @@ impl TextWrapper {
         );
     }
 
+    pub(super) fn set_line_typography(
+        &mut self,
+        styles: Rc<[crate::input::LineTypography]>,
+        cx: &mut App,
+    ) {
+        if self.typography == styles {
+            return;
+        }
+        let text = self.text.clone();
+        let mut rows: Vec<_> = self
+            .typography
+            .iter()
+            .chain(styles.iter())
+            .map(|s| text.offset_to_point(s.anchor.start.min(text.len())).row)
+            .collect();
+        rows.sort_unstable();
+        rows.dedup();
+        self.typography = styles;
+        for row in rows {
+            let start = text.line_start_offset(row);
+            let end = text.line_end_offset(row);
+            self.update(
+                &text,
+                &(start..end),
+                &Rope::from(text.slice(start..end).to_string()),
+                cx,
+            );
+        }
+    }
+    pub(super) fn adjust_typography(&mut self, text: &Rope, range: &Range<usize>, len: usize) {
+        if !self.typography.is_empty() {
+            self.typography =
+                crate::input::line_typography::rebase(&self.typography, text, range, len);
+        }
+    }
+    pub(super) fn line_scales(&self, row: usize) -> (f32, f32) {
+        crate::input::line_typography::for_line(&self.typography, &self.text, row)
+            .map_or((1., 1.), |s| (s.font_scale, s.height_scale))
+    }
     pub(crate) fn adjust_inline_metrics(&mut self, range: &Range<usize>, new_len: usize) {
         if self.inline_metrics.is_empty() {
             return;
@@ -424,8 +475,35 @@ impl TextWrapper {
     ) where
         F: FnMut(&str, Pixels, usize) -> Vec<gpui::Boundary>,
     {
+        let metrics = self.inline_metrics.clone();
         let mut wrap_line = |text: &str, width, start| {
-            grapheme_safe_boundaries(text, raw_wrap_line(text, width, start))
+            let boundaries = grapheme_safe_boundaries(text, raw_wrap_line(text, width, start));
+            if metrics.is_empty() {
+                return boundaries;
+            }
+            let mut previous = 0;
+            boundaries
+                .into_iter()
+                .filter(|boundary| {
+                    let mut visible_start = start + previous;
+                    let end = start + boundary.ix;
+                    let first = metrics.partition_point(|(r, _)| r.end <= visible_start);
+                    for (range, width) in &metrics[first..] {
+                        if range.start > visible_start || *width > px(0.) {
+                            break;
+                        }
+                        visible_start = visible_start.max(range.end);
+                        if visible_start >= end {
+                            break;
+                        }
+                    }
+                    if visible_start >= end {
+                        return false;
+                    }
+                    previous = boundary.ix;
+                    true
+                })
+                .collect()
         };
         // Remove the old changed lines.
         let buffer_line_count = self.lines_count();
@@ -652,6 +730,7 @@ pub(crate) struct LineLayout {
     /// Whether any run of this line carries a background color, so [`Self::paint_background`]
     /// can skip the glyph walk for the common case of a line without highlights.
     has_background: bool,
+    row_height: Option<Pixels>,
 }
 
 impl LineLayout {
@@ -664,7 +743,15 @@ impl LineLayout {
             whitespace_chars: Vec::new(),
             whitespace_indicators: None,
             has_background: false,
+            row_height: None,
         }
+    }
+    pub(crate) fn with_row_height(mut self, height: Pixels) -> Self {
+        self.row_height = Some(height);
+        self
+    }
+    pub(crate) fn row_height(&self, fallback: Pixels) -> Pixels {
+        self.row_height.unwrap_or(fallback)
     }
 
     /// Record whether any run of this line carries a background color.
@@ -791,7 +878,7 @@ impl LineLayout {
             // Always advance by actual line length. The last line gets +1 so the
             // cursor can be placed after the final character.
             acc_len += if is_last { line.len + 1 } else { line.len };
-            offset_y += last_layout.line_height;
+            offset_y += self.row_height(last_layout.line_height);
         }
 
         None
@@ -832,7 +919,7 @@ impl LineLayout {
         let x_offset = last_layout.alignment_offset(self.longest_width);
 
         for (i, line) in self.wrapped_lines.iter().enumerate() {
-            let line_bottom = line_top + last_layout.line_height;
+            let line_bottom = line_top + self.row_height(last_layout.line_height);
             if pos.y >= line_top && pos.y < line_bottom {
                 return Some((i, offset, pos.x - x_offset - self.line_indent(i)));
             }
@@ -916,7 +1003,10 @@ impl LineLayout {
             .map(|(ix, line)| line.width + self.line_indent(ix))
             .max()
             .unwrap_or(self.longest_width);
-        size(width, self.wrapped_lines.len() * line_height)
+        size(
+            width,
+            self.wrapped_lines.len() * self.row_height(line_height),
+        )
     }
 
     /// Paint only the glyph background quads of this line.
@@ -938,6 +1028,7 @@ impl LineLayout {
             return;
         }
 
+        let line_height = self.row_height(line_height);
         for (ix, line) in self.wrapped_lines.iter().enumerate() {
             _ = line.paint_background(
                 pos + point(self.line_indent(ix), ix * line_height),
@@ -959,6 +1050,7 @@ impl LineLayout {
         window: &mut Window,
         cx: &mut App,
     ) {
+        let line_height = self.row_height(line_height);
         for (ix, line) in self.wrapped_lines.iter().enumerate() {
             _ = line.paint(
                 pos + point(self.line_indent(ix), ix * line_height),
