@@ -1210,6 +1210,19 @@ impl Workspace {
         self.open_current_note(path, history, window, cx);
     }
 
+    fn navigate_to_new_tab(&mut self, target: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(source) = self.current_pane() else {
+            return;
+        };
+        if source.read(cx).navigation.entries.get(target).is_none() {
+            return;
+        }
+        self.open_current_note_in_new_tab(window, cx);
+        if self.current_pane().is_some_and(|pane| pane != source) {
+            self.navigate_to(target, window, cx);
+        }
+    }
+
     fn focus_navigation_pane(
         &mut self,
         pane: &Entity<EditorPane>,
@@ -1279,11 +1292,23 @@ impl Workspace {
                 )
             })
             .child(tool(id, name, tip).disabled(disabled).on_click(cx.listener(
-                move |this, _, window, cx| {
+                move |this, event: &ClickEvent, window, cx| {
                     if let Some(pane) = &click_pane
                         && this.focus_navigation_pane(pane, window, cx)
                     {
-                        this.navigate(forward, window, cx);
+                        if event.modifiers().secondary() {
+                            let cursor = pane.read(cx).navigation.cursor;
+                            let target = if forward {
+                                cursor.checked_add(1)
+                            } else {
+                                cursor.checked_sub(1)
+                            };
+                            if let Some(target) = target {
+                                this.navigate_to_new_tab(target, window, cx);
+                            }
+                        } else {
+                            this.navigate(forward, window, cx);
+                        }
                     }
                 },
             )));
@@ -1306,7 +1331,7 @@ impl Workspace {
                     let weak = weak.clone();
                     let pane = pane.clone();
                     menu = menu.item(PopupMenuItem::new(label).icon(icon("file")).on_click(
-                        move |_, window, cx| {
+                        move |event, window, cx| {
                             let _ = weak.update(cx, |this, cx| {
                                 let Some(pane) = &pane else { return };
                                 let history = &pane.read(cx).navigation;
@@ -1319,7 +1344,11 @@ impl Workspace {
                                     return;
                                 }
                                 if this.focus_navigation_pane(pane, window, cx) {
-                                    this.navigate_to(target, window, cx);
+                                    if event.modifiers().secondary() {
+                                        this.navigate_to_new_tab(target, window, cx);
+                                    } else {
+                                        this.navigate_to(target, window, cx);
+                                    }
                                 }
                             });
                         },

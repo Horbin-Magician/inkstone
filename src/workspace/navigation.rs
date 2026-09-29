@@ -367,6 +367,82 @@ mod tests {
     }
 
     #[gpui::test]
+    fn control_navigation_copies_the_view_and_menu_preserves_mouse_modifiers(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let root = fixture("ctrl-history");
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                w.open_note("b.md".into(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let original = handle
+            .update(cx, |w, _, cx| {
+                let pane = w.current_pane().unwrap();
+                pane.read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.set_selected_range(1..1, cx));
+                pane
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let position = visual.debug_bounds("main-history-back").unwrap().center();
+        let modifiers = Modifiers {
+            control: true,
+            ..Default::default()
+        };
+        visual.simulate_click(position, modifiers);
+        visual.run_until_parked();
+        let earlier = handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.tabs.len(), 2);
+                assert_eq!(w.tabs[0].pane, original);
+                assert_eq!(original.read(cx).navigation.cursor, 1);
+                assert_eq!(original.read(cx).editor.read(cx).selected_range(), 1..1);
+                let pane = w.current_pane().unwrap();
+                assert_eq!(pane.read(cx).current_path, PathBuf::from("a.md"));
+                assert_eq!(pane.read(cx).navigation.cursor, 0);
+                pane
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let position = visual
+            .debug_bounds("main-history-forward")
+            .unwrap()
+            .center();
+        visual.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
+        visual.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let selector = format!("popup-menu-item-{:?}", ElementId::from(0usize));
+        let position = visual
+            .debug_bounds(Box::leak(selector.into_boxed_str()))
+            .unwrap()
+            .center();
+        visual.simulate_click(position, modifiers);
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.tabs.len(), 3);
+                assert_eq!(earlier.read(cx).navigation.cursor, 0);
+                assert_eq!(original.read(cx).navigation.cursor, 1);
+                let pane = w.current_pane().unwrap();
+                assert_ne!(pane, original);
+                assert_ne!(pane, earlier);
+                assert_eq!(pane.read(cx).current_path, PathBuf::from("b.md"));
+                assert_eq!(pane.read(cx).navigation.cursor, 1);
+                assert_eq!(pane.read(cx).editor.read(cx).selected_range(), 1..1);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn history_menu_selects_older_visit_and_restores_same_file_position(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let root = fixture("menu");

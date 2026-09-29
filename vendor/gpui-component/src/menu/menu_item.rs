@@ -93,8 +93,10 @@ impl ParentElement for MenuItemElement {
 
 impl RenderOnce for MenuItemElement {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let selector = format!("popup-menu-item-{:?}", self.id);
         h_flex()
             .id(self.id)
+            .debug_selector(move || selector.clone())
             .test_support()
             .role(Role::MenuItem)
             .when_some(self.aria_label, |this, label| this.aria_label(label))
