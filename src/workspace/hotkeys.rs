@@ -177,7 +177,11 @@ impl Workspace {
     }
     pub(super) fn settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
-            .w(px(140.))
+            .id("settings-navigation")
+            .w(px(220.))
+            .flex_shrink_0()
+            .min_h_0()
+            .overflow_y_scrollbar()
             .p_3()
             .bg(self.side())
             .rounded(px(6.))
@@ -196,6 +200,7 @@ impl Workspace {
                             .label(title)
                             .on_click(cx.listener(move |this, _, w, cx| {
                                 this.ui.settings_tab = i;
+                                this.ui.settings_scroll.set_offset(Point::default());
                                 if i == 2 {
                                     this.prepare_file_settings(w, cx);
                                 }
@@ -217,10 +222,18 @@ impl Workspace {
         div()
             .flex()
             .gap_4()
-            .min_h(px(330.))
+            .flex_1()
+            .min_h_0()
             .child(self.settings_nav(cx))
             .child(
                 div()
+                    .id("settings-content")
+                    .track_scroll(&self.ui.settings_scroll)
+                    .relative()
+                    .vertical_scrollbar(&self.ui.settings_scroll)
+                    .overflow_y_scroll()
+                    .min_h_0()
+                    .h_full()
                     .flex_1()
                     .min_w_0()
                     .flex()

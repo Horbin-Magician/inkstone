@@ -110,6 +110,7 @@ pub(super) struct UiState {
     pub command: Entity<InputState>,
     pub selected: usize,
     pub modal_scroll: ScrollHandle,
+    pub settings_scroll: ScrollHandle,
     pub tab_scroll: ScrollHandle,
     pub tab_scroll_key: Option<TabScrollKey>,
     pub last_revealed_file: Option<(u64, PathBuf)>,
@@ -371,6 +372,7 @@ impl UiState {
             command,
             selected: 0,
             modal_scroll: ScrollHandle::new(),
+            settings_scroll: ScrollHandle::new(),
             tab_scroll: ScrollHandle::new(),
             tab_scroll_key: None,
             last_revealed_file: None,
@@ -3300,8 +3302,10 @@ impl Workspace {
             .track_focus(&self.ui.modal_focus)
             .flex()
             .flex_col()
-            .w(px(if self.ui.settings { 700. } else { 580. }))
-            .max_h(px(650.).min(available_height))
+            .w(px(if self.ui.settings { 900. } else { 580. }))
+            .max_w((window.viewport_size().width - px(32.)).max(px(280.)))
+            .max_h(px(if self.ui.settings { 700. } else { 650. }).min(available_height))
+            .when(self.ui.settings, |s| s.h(px(700.).min(available_height)))
             .p_3()
             .gap_2()
             .rounded(px(12.))
@@ -3780,10 +3784,18 @@ impl Workspace {
         div()
             .flex()
             .gap_4()
-            .min_h(px(330.))
+            .flex_1()
+            .min_h_0()
             .child(self.settings_nav(cx))
             .child(
                 div()
+                    .id("settings-content")
+                    .track_scroll(&self.ui.settings_scroll)
+                    .relative()
+                    .vertical_scrollbar(&self.ui.settings_scroll)
+                    .overflow_y_scroll()
+                    .min_h_0()
+                    .h_full()
                     .flex_1()
                     .p_3()
                     .flex()
