@@ -10,6 +10,7 @@ enum Pattern {
 }
 enum Field {
     Text,
+    Content,
     File,
     Path,
     Tag,
@@ -96,7 +97,13 @@ impl Pattern {
 impl Term {
     fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
         let found = match self.field {
-            Field::Text => self.pattern.matches(text),
+            Field::Text => {
+                self.pattern.matches(text)
+                    || self
+                        .pattern
+                        .matches(&path.file_name().unwrap_or_default().to_string_lossy())
+            }
+            Field::Content => self.pattern.matches(text),
             Field::File => self
                 .pattern
                 .matches(&path.file_name().unwrap_or_default().to_string_lossy()),
@@ -262,7 +269,7 @@ impl Query {
                                 "file" => Field::File,
                                 "path" => Field::Path,
                                 "tag" => Field::Tag,
-                                _ => Field::Text,
+                                _ => Field::Content,
                             };
                         }
                         _ => break,
@@ -331,7 +338,7 @@ impl Query {
             .iter()
             .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
             .flat_map(|group| group.iter())
-            .filter(|term| !term.exclude && matches!(term.field, Field::Text))
+            .filter(|term| !term.exclude && matches!(term.field, Field::Text | Field::Content))
             .map(|term| &term.pattern)
             .collect()
     }
