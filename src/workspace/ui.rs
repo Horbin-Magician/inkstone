@@ -554,6 +554,8 @@ impl Workspace {
             return;
         }
         self.ui.prefs.open_paths = self.tabs.iter().map(|t| t.path.clone()).collect();
+        self.ui.prefs.left_panel = self.ui.left_mode;
+        self.ui.prefs.right_panel = self.ui.right_mode;
         self.ui.prefs.active_path = self
             .active
             .and_then(|i| self.tabs.get(i))

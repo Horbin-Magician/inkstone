@@ -644,6 +644,10 @@ impl Workspace {
                         let restore_active = prefs.active_path.clone();
                         let restore_active_index = prefs.active_tab_index;
                         this.ui.prefs = prefs;
+                        this.ui.left_mode = this.ui.prefs.left_panel;
+                        this.ui.right_mode = this.ui.prefs.right_panel;
+                        this.fulltext = this.ui.left_mode == 1;
+                        this.search.update(cx, |s, cx| s.set_value("", window, cx));
                         this.ui.link_update = None;
                         this.graph_open = false;
                         this.graph = None;
@@ -3790,6 +3794,8 @@ mod tests {
             active_path: Some("b.md".into()),
             light: true,
             font_size: 20.,
+            left_panel: 1,
+            right_panel: 4,
             ..Default::default()
         };
         prefs.save(&root.join(".inkstone-workspace.json")).unwrap();
@@ -3804,13 +3810,23 @@ mod tests {
                 assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("b.md"));
                 assert_eq!(w.tabs[0].pane.read(cx).font_size, 20.);
                 assert!(w.ui.prefs.light);
+                assert_eq!(w.ui.left_mode, 1);
+                assert_eq!(w.ui.right_mode, 4);
+                assert!(w.fulltext);
                 let tree = w.tree.read(cx);
                 let id: SharedString = "空文件夹".into();
                 assert!(tree.entry(tree.index_of(&id).unwrap()).unwrap().is_folder());
                 w.watcher = None;
+                w.ui.left_mode = 2;
+                w.ui.right_mode = 3;
+                w.persist_workspace(cx);
             })
             .unwrap();
         cx.run_until_parked();
+        let saved =
+            inkstone::preferences::Preferences::load(&root.join(".inkstone-workspace.json"));
+        assert_eq!(saved.left_panel, 2);
+        assert_eq!(saved.right_panel, 3);
         std::fs::remove_dir_all(root).unwrap();
     }
 
