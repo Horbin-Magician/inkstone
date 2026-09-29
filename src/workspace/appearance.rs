@@ -4,6 +4,26 @@ use gpui_component::{button::Button, slider::Slider, switch::Switch};
 use inkstone::preferences::ThemeMode;
 
 impl Workspace {
+    pub(super) fn resolved_font(&self, requested: &str, fallback: &str) -> SharedString {
+        self.ui
+            .available_fonts
+            .iter()
+            .find(|font| font.eq_ignore_ascii_case(requested))
+            .map_or_else(|| fallback.to_string(), Clone::clone)
+            .into()
+    }
+    pub(super) fn apply_font_preferences(&self, cx: &mut App) {
+        let interface = self.resolved_font(&self.ui.prefs.interface_font, &self.ui.default_fonts.0);
+        let mono = self.resolved_font(&self.ui.prefs.monospace_font, &self.ui.default_fonts.1);
+        let current = gpui_component::Theme::global(cx);
+        if current.font_family == interface && current.mono_font_family == mono {
+            return;
+        }
+        gpui_component::Theme::update(cx, |theme| {
+            theme.font_family = interface;
+            theme.mono_font_family = mono;
+        });
+    }
     pub(super) fn system_light(window: &Window) -> bool {
         matches!(
             window.appearance(),
@@ -99,6 +119,73 @@ impl Workspace {
                                 .items_center()
                                 .child("基础主题")
                                 .child(theme),
+                        )
+                        .children(
+                            [
+                                (0, "界面字体", &self.ui.prefs.interface_font),
+                                (1, "正文字体", &self.ui.prefs.text_font),
+                                (2, "等宽字体", &self.ui.prefs.monospace_font),
+                            ]
+                            .into_iter()
+                            .map(|(role, label, selected)| {
+                                let selected = selected.clone();
+                                let names = self.ui.available_fonts.clone();
+                                let weak = cx.entity().downgrade();
+                                div()
+                                    .flex()
+                                    .justify_between()
+                                    .items_center()
+                                    .child(label)
+                                    .child(
+                                        Button::new(("font-family", role as usize))
+                                            .label(if selected.is_empty() {
+                                                "默认".to_string()
+                                            } else {
+                                                selected.clone()
+                                            })
+                                            .dropdown_menu(move |mut menu, _, _| {
+                                                for font in std::iter::once(String::new())
+                                                    .chain(names.iter().cloned())
+                                                {
+                                                    let weak = weak.clone();
+                                                    menu = menu.item(
+                                                        PopupMenuItem::new(if font.is_empty() {
+                                                            "默认".to_string()
+                                                        } else {
+                                                            font.clone()
+                                                        })
+                                                        .checked(font == selected)
+                                                        .on_click(move |_, window, cx| {
+                                                            let _ = weak.update(cx, |this, cx| {
+                                                                match role {
+                                                                    0 => {
+                                                                        this.ui
+                                                                            .prefs
+                                                                            .interface_font =
+                                                                            font.clone()
+                                                                    }
+                                                                    1 => {
+                                                                        this.ui.prefs.text_font =
+                                                                            font.clone()
+                                                                    }
+                                                                    _ => {
+                                                                        this.ui
+                                                                            .prefs
+                                                                            .monospace_font =
+                                                                            font.clone()
+                                                                    }
+                                                                }
+                                                                this.apply_editor_preferences(
+                                                                    window, cx,
+                                                                );
+                                                            });
+                                                        }),
+                                                    );
+                                                }
+                                                menu
+                                            }),
+                                    )
+                            }),
                         )
                         .child(
                             div()

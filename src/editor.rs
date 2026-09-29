@@ -39,6 +39,7 @@ pub struct EditorPane {
     pub parsed: ParsedNote,
     pub reading: bool,
     pub font_size: f32,
+    pub text_font: SharedString,
     pub readable_width: bool,
     pub strict_line_breaks: bool,
     pub indentation: gpui_base::input::TabSize,
@@ -504,6 +505,7 @@ impl EditorPane {
             parsed: ParsedNote::default(),
             reading: false,
             font_size: 16.,
+            text_font: "Microsoft YaHei UI".into(),
             readable_width: true,
             strict_line_breaks: false,
             indentation,
@@ -822,6 +824,7 @@ impl Render for EditorPane {
         let weak = cx.entity().downgrade();
         let font_size = self.font_size;
         let preview = TextView::new(&self.preview)
+            .font_family(self.text_font.clone())
             .markdown_extensions(
                 gpui_base::text::MarkdownExtensions::default()
                     .soft_line_breaks(!self.strict_line_breaks),
@@ -1045,7 +1048,7 @@ impl Render for EditorPane {
                                     })
                                     .appearance(false)
                                     .bordered(false)
-                                    .font_family("Microsoft YaHei UI")
+                                    .font_family(self.text_font.clone())
                                     .h_full()
                                     .text_size(px(self.font_size)),
                             )

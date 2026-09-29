@@ -49,6 +49,8 @@ impl PartialEq<PathBuf> for ClosedTab {
 
 pub(super) struct UiState {
     pub prefs: Preferences,
+    pub available_fonts: Arc<Vec<String>>,
+    pub default_fonts: (SharedString, SharedString),
     _appearance_subscription: Subscription,
     pub tab_width: Entity<SliderState>,
     pub font_size_slider: Entity<SliderState>,
@@ -134,7 +136,14 @@ impl UiState {
             light: Workspace::system_light(window),
             ..Default::default()
         };
+        let mut available_fonts = cx.text_system().all_font_names();
+        available_fonts.sort_by_key(|name| name.to_lowercase());
+        available_fonts.dedup();
         apply_theme(prefs.light, cx);
+        let default_fonts = {
+            let theme = gpui_component::Theme::global(cx);
+            (theme.font_family.clone(), theme.mono_font_family.clone())
+        };
         let weak = cx.entity().downgrade();
         let appearance_subscription = window.observe_window_appearance(move |window, cx| {
             let _ = weak.update(cx, |this, cx| {
@@ -341,6 +350,8 @@ impl UiState {
             });
         Self {
             prefs,
+            available_fonts: Arc::new(available_fonts),
+            default_fonts,
             _appearance_subscription: appearance_subscription,
             tab_width,
             font_size_slider,
@@ -694,6 +705,8 @@ impl Workspace {
         .detach();
     }
     pub(super) fn apply_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_font_preferences(cx);
+        let text_font = self.resolved_font(&self.ui.prefs.text_font, "Microsoft YaHei UI");
         let p = self.ui.prefs.clone();
         self.ui
             .font_size_slider
@@ -713,6 +726,7 @@ impl Workspace {
         for pane in panes {
             pane.update(cx, |pane, cx| {
                 pane.font_size = p.font_size;
+                pane.text_font = text_font.clone();
                 pane.readable_width = p.readable_width;
                 pane.strict_line_breaks = p.strict_line_breaks;
                 pane.light = p.light;

@@ -673,6 +673,7 @@ impl Workspace {
                         this.ui.prefs.light =
                             this.ui.prefs.theme.is_light(Self::system_light(window));
                         ui::apply_theme(this.ui.prefs.light, cx);
+                        this.apply_font_preferences(cx);
                         this.ui.history = Default::default();
                         this.ui.closed.clear();
                         this.ui.inline_title = None;
@@ -1742,6 +1743,45 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn font_preferences_reach_split_views_and_missing_fonts_fall_back(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let chosen = w.ui.available_fonts.first().cloned().unwrap_or_default();
+                w.ui.prefs.interface_font = chosen.clone();
+                w.ui.prefs.text_font = chosen.clone();
+                w.ui.prefs.monospace_font = chosen;
+                w.add_tab("a.md".into(), Some("中文😀".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                let expected = w.resolved_font(&w.ui.prefs.text_font, "Microsoft YaHei UI");
+                assert_eq!(w.tabs[0].pane.read(cx).text_font, expected);
+                assert_eq!(
+                    w.views.split.as_ref().unwrap().pane.read(cx).text_font,
+                    expected
+                );
+                assert_eq!(
+                    gpui_component::Theme::global(cx).font_family,
+                    w.resolved_font(&w.ui.prefs.interface_font, &w.ui.default_fonts.0)
+                );
+                assert_eq!(
+                    gpui_component::Theme::global(cx).mono_font_family,
+                    w.resolved_font(&w.ui.prefs.monospace_font, &w.ui.default_fonts.1)
+                );
+                w.ui.prefs.text_font = "inkstone-nonexistent-font-123".into();
+                w.apply_editor_preferences(window, cx);
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).text_font.as_ref(),
+                    "Microsoft YaHei UI"
+                );
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).value().as_ref(),
+                    "中文😀"
+                );
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn system_theme_updates_views_but_respects_manual_override(cx: &mut TestAppContext) {
         use inkstone::preferences::ThemeMode;

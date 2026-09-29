@@ -73,6 +73,9 @@ pub struct Preferences {
     pub light: bool,
     pub theme: ThemeMode,
     pub font_size: f32,
+    pub interface_font: String,
+    pub text_font: String,
+    pub monospace_font: String,
     pub line_numbers: bool,
     pub readable_width: bool,
     pub strict_line_breaks: bool,
@@ -130,6 +133,9 @@ impl Default for Preferences {
             light: false,
             theme: ThemeMode::System,
             font_size: 16.,
+            interface_font: String::new(),
+            text_font: String::new(),
+            monospace_font: String::new(),
             line_numbers: false,
             readable_width: true,
             strict_line_breaks: false,
@@ -392,6 +398,9 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
         prefs.font_size = 10.;
+        prefs.interface_font = "Segoe UI".into();
+        prefs.text_font = "Microsoft YaHei UI".into();
+        prefs.monospace_font = "Consolas".into();
         prefs.default_live_preview = false;
         prefs.default_reading = true;
         prefs.use_tabs = false;
@@ -456,6 +465,9 @@ mod tests {
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 10.);
+        assert_eq!(Preferences::load(&path).interface_font, "Segoe UI");
+        assert_eq!(Preferences::load(&path).text_font, "Microsoft YaHei UI");
+        assert_eq!(Preferences::load(&path).monospace_font, "Consolas");
         assert!(!Preferences::load(&path).default_live_preview);
         assert!(Preferences::load(&path).default_reading);
         assert!(!Preferences::load(&path).use_tabs);
