@@ -323,6 +323,7 @@ impl Workspace {
             p.set_paths(paths);
             p.editor.update(cx, |s, cx| {
                 s.set_line_number(prefs.line_numbers, window, cx);
+                s.set_indent_guides(prefs.show_indent_guides, window, cx);
                 s.set_tab_size(p.indentation, cx);
                 s.set_selected_range(selection, cx);
             });

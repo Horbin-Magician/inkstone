@@ -683,6 +683,7 @@ impl Workspace {
                 };
                 pane.editor.update(cx, |editor, cx| {
                     editor.set_line_number(p.line_numbers, window, cx);
+                    editor.set_indent_guides(p.show_indent_guides, window, cx);
                     editor.set_tab_size(pane.indentation, cx);
                 });
                 cx.notify();
@@ -3880,6 +3881,22 @@ impl Workspace {
                                     .checked(self.ui.prefs.use_tabs)
                                     .on_click(cx.listener(|this, enabled: &bool, window, cx| {
                                         this.ui.prefs.use_tabs = *enabled;
+                                        this.apply_editor_preferences(window, cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("显示缩进参考线")
+                            .child(
+                                gpui_component::switch::Switch::new("indent-guides-setting")
+                                    .accessibility_label("显示缩进参考线")
+                                    .checked(self.ui.prefs.show_indent_guides)
+                                    .on_click(cx.listener(|this, enabled: &bool, window, cx| {
+                                        this.ui.prefs.show_indent_guides = *enabled;
                                         this.apply_editor_preferences(window, cx);
                                     })),
                             ),
