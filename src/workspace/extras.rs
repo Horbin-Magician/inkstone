@@ -408,6 +408,7 @@ impl Workspace {
             s.set_value(display, w, cx);
             s.focus(w, cx);
         });
+        self.sync_property_dates(w, cx);
         if self.effective_property_kind(cx) == inkstone::properties::Kind::Checkbox {
             w.focus(&self.ui.modal_focus, cx);
         }
@@ -422,6 +423,54 @@ impl Workspace {
         } else {
             self.ui.property_kind
         }
+    }
+    pub(super) fn sync_property_dates(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        use gpui_component::date_picker::DateTime;
+        let value = self.ui.property_value.read(cx).value();
+        let date = chrono::NaiveDate::parse_from_str(&value, "%Y-%m-%d")
+            .ok()
+            .and_then(|date| date.and_hms_opt(0, 0, 0));
+        let time = chrono::NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
+            .ok()
+            .or_else(|| chrono::NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M").ok());
+        for (picker, value) in self
+            .ui
+            .property_dates
+            .iter()
+            .zip([date.or(time), time.or(date)])
+        {
+            picker.update(cx, |s, cx| s.set_date_time(DateTime::Single(value), w, cx));
+        }
+    }
+    pub(super) fn accept_property_date(
+        &mut self,
+        index: usize,
+        value: gpui_component::date_picker::DateTime,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use inkstone::properties::Kind;
+        let kind = self.effective_property_kind(cx);
+        if !self.ui.property_open || !matches!((index, kind), (0, Kind::Date) | (1, Kind::DateTime))
+        {
+            return;
+        }
+        let text = value
+            .start()
+            .map(|date| {
+                date.format(if index == 0 {
+                    "%Y-%m-%d"
+                } else {
+                    "%Y-%m-%dT%H:%M:%S"
+                })
+                .to_string()
+            })
+            .unwrap_or_default();
+        self.ui
+            .property_value
+            .update(cx, |s, cx| s.set_value(text, w, cx));
+        self.ui.property_error.clear();
+        cx.notify();
     }
     pub(super) fn save_property(&mut self, w: &mut Window, cx: &mut Context<Self>) {
         self.apply_property(false, w, cx);

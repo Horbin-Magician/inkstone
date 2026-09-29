@@ -1,4 +1,5 @@
 use super::*;
+use gpui_component::date_picker::{DatePicker, DatePickerEvent, DatePickerState};
 use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_component::{
     Disableable, Icon, TitleBar,
@@ -79,6 +80,8 @@ pub(super) struct UiState {
     pub property_kind: inkstone::properties::Kind,
     pub property_error: String,
     _property_subscriptions: Vec<Subscription>,
+    pub property_dates: [Entity<DatePickerState>; 2],
+    _property_date_subscriptions: Vec<Subscription>,
     pub property_original: Option<String>,
     pub property_baseline: Option<(usize, String)>,
     pub property_key: Entity<InputState>,
@@ -114,6 +117,32 @@ impl UiState {
             InputState::new(window, cx).placeholder("属性值；列表用逗号分隔，项目内含逗号时加引号")
         });
         let command = cx.new(|cx| InputState::new(window, cx).placeholder("输入命令…"));
+        let property_dates = [false, true].map(|time| {
+            cx.new(|cx| {
+                let state = DatePickerState::new(window, cx);
+                if time {
+                    state
+                        .time_precision(gpui_component::time_field::TimePrecision::Second)
+                        .date_format("%Y-%m-%d %H:%M:%S")
+                } else {
+                    state.date_format("%Y-%m-%d")
+                }
+            })
+        });
+        let property_date_subscriptions = property_dates
+            .iter()
+            .enumerate()
+            .map(|(i, picker)| {
+                cx.subscribe_in(
+                    picker,
+                    window,
+                    move |this, _, event: &DatePickerEvent, w, cx| {
+                        let DatePickerEvent::Change(value) = event;
+                        this.accept_property_date(i, *value, w, cx);
+                    },
+                )
+            })
+            .collect();
         let property_subscriptions = [&property_key, &property_value]
             .into_iter()
             .map(|input| {
@@ -123,6 +152,7 @@ impl UiState {
                     |this, _, event: &InputEvent, w, cx| match event {
                         InputEvent::Change => {
                             this.ui.property_error.clear();
+                            this.sync_property_dates(w, cx);
                             cx.notify();
                         }
                         InputEvent::PressEnter { .. } if this.ui.property_open => {
@@ -255,6 +285,8 @@ impl UiState {
             property_kind: Default::default(),
             property_error: String::new(),
             _property_subscriptions: property_subscriptions,
+            property_dates,
+            _property_date_subscriptions: property_date_subscriptions,
             property_original: None,
             property_baseline: None,
             property_key,
@@ -2728,6 +2760,23 @@ impl Workspace {
                 s.child(Input::new(&self.ui.property_key))
                     .child(self.property_type_control(cx))
                     .when(
+                        matches!(
+                            self.effective_property_kind(cx),
+                            inkstone::properties::Kind::Date | inkstone::properties::Kind::DateTime
+                        ),
+                        |s| {
+                            let i = usize::from(
+                                self.effective_property_kind(cx)
+                                    == inkstone::properties::Kind::DateTime,
+                            );
+                            s.child(
+                                DatePicker::new(&self.ui.property_dates[i])
+                                    .placeholder("选择日期")
+                                    .cleanable(true),
+                            )
+                        },
+                    )
+                    .when(
                         self.effective_property_kind(cx) != inkstone::properties::Kind::Checkbox,
                         |s| s.child(Input::new(&self.ui.property_value)),
                     )
@@ -2854,6 +2903,7 @@ impl Workspace {
                                         let _ = weak.update(cx, |this, cx| {
                                             this.ui.property_kind = choice;
                                             this.ui.property_error.clear();
+                                            this.sync_property_dates(w, cx);
                                             if choice == Kind::Checkbox {
                                                 this.ui.property_value.update(cx, |s, cx| {
                                                     s.set_value(
