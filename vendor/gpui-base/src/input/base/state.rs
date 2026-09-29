@@ -1270,6 +1270,97 @@ impl<M: InputModeKind> InputBaseState<M> {
         true
     }
 
+    /// Synchronize another view's edits while retaining every local selection.
+    pub fn apply_synced_text(
+        &mut self,
+        value: &str,
+        edits: &[(Range<usize>, String)],
+        record_history: bool,
+        advance_on_insert: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.ime_marked_range.is_some() {
+            return false;
+        }
+        let source = self.text.to_string();
+        let mut previous_end = 0;
+        for (range, _) in edits {
+            if range.start < previous_end
+                || range.start > range.end
+                || !source.is_char_boundary(range.start)
+                || !source.is_char_boundary(range.end)
+            {
+                return false;
+            }
+            previous_end = range.end;
+        }
+        let mut result = source;
+        for (range, replacement) in edits.iter().rev() {
+            result.replace_range(range.clone(), replacement);
+        }
+        if result != value {
+            return false;
+        }
+        let before: Vec<_> = self.selections.iter().copied().collect();
+        let map = |offset: usize| {
+            let mut delta = 0isize;
+            for (range, replacement) in edits {
+                if offset < range.start
+                    || (offset == range.start && !(advance_on_insert && range.is_empty()))
+                {
+                    break;
+                }
+                if offset < range.end {
+                    return (range.start + replacement.len()).saturating_add_signed(delta);
+                }
+                delta += replacement.len() as isize - range.len() as isize;
+            }
+            offset.saturating_add_signed(delta)
+        };
+        let after: Vec<_> = before
+            .iter()
+            .map(|old| {
+                let mut selected = *old;
+                selected.start = map(old.start);
+                selected.end = map(old.end);
+                selected.column_anchor = None;
+                selected
+            })
+            .collect();
+        let scroll = self.scroll_offset();
+        if record_history {
+            self.undo_manager.begin_transaction();
+            self.undo_manager
+                .record_selections(before.clone(), before.clone());
+            self.replace_text_in_ranges(edits, window, cx);
+        } else {
+            self.set_value(value, window, cx);
+        }
+        let after: Vec<_> = after
+            .into_iter()
+            .map(|mut selected| {
+                let collapsed = selected.is_empty();
+                selected.start = self.cursor_boundary(selected.start, Bias::Left);
+                selected.end = if collapsed {
+                    selected.start
+                } else {
+                    self.cursor_boundary(selected.end, Bias::Right)
+                };
+                selected
+            })
+            .collect();
+        self.selections.replace_all(after.clone());
+        self.selections.merge_overlapping();
+        if record_history {
+            self.undo_manager.record_selections(before, after);
+            self.undo_manager.commit_transaction();
+        }
+        self.set_scroll_offset(scroll, cx);
+        cx.notify();
+        true
+    }
+
     fn replace_text(
         &mut self,
         text: impl Into<SharedString>,

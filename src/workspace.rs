@@ -1752,6 +1752,49 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn split_multiple_carets_survive_undo_redo_and_further_input(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let editor = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("中\n文".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                let editor = w.views.split.as_ref().unwrap().pane.read(cx).editor.clone();
+                editor.update(cx, |s, cx| {
+                    s.set_selected_range(3..3, cx);
+                    s.focus(window, cx);
+                });
+                editor
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-alt-down");
+        visual.simulate_input("😀");
+        visual.run_until_parked();
+        visual.simulate_keystrokes("ctrl-z");
+        visual.run_until_parked();
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "中\n文");
+            assert!(s.has_multiple_selections());
+        });
+        visual.simulate_keystrokes("ctrl-y");
+        visual.run_until_parked();
+        visual.simulate_input("Y");
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(editor.read(cx).value(), "中😀Y\n文😀Y");
+                assert!(editor.read(cx).has_multiple_selections());
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).value(),
+                    "中😀Y\n文😀Y"
+                );
+                assert!(w.views.secondary_focused);
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn background_counts_from_split_do_not_change_active_view(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);

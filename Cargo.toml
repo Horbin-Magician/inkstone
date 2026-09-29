@@ -24,6 +24,7 @@ lsp-types = "=0.97.0"
 percent-encoding = "=2.3.2"
 regex = "=1.13.1"
 chrono = "=0.4.45"
+similar = "=2.7.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }

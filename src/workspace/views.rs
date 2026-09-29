@@ -15,35 +15,6 @@ pub(super) struct Views {
     pub vertical: bool,
 }
 
-fn change(before: &str, after: &str) -> (std::ops::Range<usize>, String) {
-    let start = before
-        .chars()
-        .zip(after.chars())
-        .take_while(|(a, b)| a == b)
-        .map(|(ch, _)| ch.len_utf8())
-        .sum::<usize>();
-    let suffix = before[start..]
-        .chars()
-        .rev()
-        .zip(after[start..].chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(ch, _)| ch.len_utf8())
-        .sum::<usize>();
-    (
-        start..before.len() - suffix,
-        after[start..after.len() - suffix].to_string(),
-    )
-}
-fn map_offset(offset: usize, range: &std::ops::Range<usize>, new_len: usize) -> usize {
-    if offset <= range.start {
-        offset
-    } else if offset >= range.end {
-        offset - range.len() + new_len
-    } else {
-        range.start + new_len
-    }
-}
-
 impl Workspace {
     pub(super) fn request_window_close(
         &mut self,
@@ -432,19 +403,12 @@ impl Workspace {
         if before == after {
             return;
         }
-        let (range, replacement) = change(&before, &after);
-        let len = replacement.len();
-        canonical.update(cx, |state, cx| {
-            let selection = state.selected_range();
-            let scroll = state.scroll_offset();
-            state.set_selected_range(range.clone(), cx);
-            state.replace(replacement, window, cx);
-            state.set_selected_range(
-                map_offset(selection.start, &range, len)..map_offset(selection.end, &range, len),
-                cx,
-            );
-            state.set_scroll_offset(scroll, cx);
-        });
+        let edits = inkstone::text_changes::diff(&before, &after);
+        if !canonical.update(cx, |state, cx| {
+            state.apply_synced_text(&after, &edits, true, false, window, cx)
+        }) {
+            return;
+        }
         tab.dirty = tab.baseline.as_deref() != Some(after.as_ref());
         cx.notify();
     }
@@ -470,17 +434,16 @@ impl Workspace {
         if editor.update(cx, |s, cx| s.marked_text_range(window, cx).is_some()) {
             return;
         }
-        let (range, replacement) = change(&before, &after);
-        let len = replacement.len();
+        let edits = inkstone::text_changes::diff(&before, &after);
         editor.update(cx, |state, cx| {
-            let selection = state.selected_range();
-            let scroll = state.scroll_offset();
-            state.set_value(after, window, cx);
-            state.set_selected_range(
-                map_offset(selection.start, &range, len)..map_offset(selection.end, &range, len),
+            state.apply_synced_text(
+                &after,
+                &edits,
+                false,
+                self.views.secondary_focused,
+                window,
                 cx,
             );
-            state.set_scroll_offset(scroll, cx);
         });
     }
     pub(super) fn close_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -506,19 +469,5 @@ impl Workspace {
         }
         self.persist_workspace(cx);
         cx.notify();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::prelude::v1::test;
-    #[test]
-    fn minimal_changes_preserve_unicode_boundaries() {
-        assert_eq!(
-            change("中文😀 hello", "中文😀 world"),
-            ("中文😀 ".len().."中文😀 hello".len(), "world".into())
-        );
-        assert_eq!(change("a😀b", "a👩‍💻b"), (1..5, "👩‍💻".into()));
     }
 }
