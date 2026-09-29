@@ -887,7 +887,16 @@ impl Workspace {
                     cx.notify();
                 }
             });
+        let mut counted_selection = 0..0;
         let focus = cx.observe_in(&editor, window, move |this, editor, w, cx| {
+            let selected = editor.read(cx).selected_range();
+            let selected = if selected.is_empty() { 0..0 } else { selected };
+            if selected != counted_selection {
+                counted_selection = selected;
+                if editor.read(cx).focus_handle(cx).is_focused(w) {
+                    cx.notify();
+                }
+            }
             if editor.read(cx).focus_handle(cx).is_focused(w)
                 && this.views.split.is_some()
                 && (this.views.secondary_focused || this.views.main != Some(id))
