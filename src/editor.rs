@@ -212,6 +212,26 @@ impl EditorPane {
             return;
         }
         if state.has_multiple_selections() {
+            if matches!(key, inkstone::markdown_edit::Key::Enter) {
+                let indent = self.indentation;
+                if self.editor.update(cx, |state, cx| {
+                    state.apply_selection_transform(
+                        |text, selections| {
+                            inkstone::markdown_edit::enter_at_selections(
+                                text,
+                                selections,
+                                indent.tab_size,
+                                indent.hard_tabs,
+                            )
+                        },
+                        window,
+                        cx,
+                    )
+                }) {
+                    cx.stop_propagation();
+                }
+                return;
+            }
             if matches!(key, inkstone::markdown_edit::Key::SoftEnter) {
                 self.editor.update(cx, |state, cx| {
                     state.apply_selection_replacements(
@@ -1719,6 +1739,39 @@ mod tests {
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn multiple_carets_continue_numbered_lists_and_undo_together(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "8. a\n9. b";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(4..4, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-alt-down enter");
+        editor.read_with(&visual, |s, _| {
+            assert!(s.has_multiple_selections());
+            assert_eq!(s.value(), "8. a\n9. \n10. b\n11. ");
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| {
+            assert!(s.has_multiple_selections());
+            assert_eq!(s.value(), source);
+        });
+        visual.simulate_keystrokes("ctrl-y");
+        visual.simulate_input("中");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "8. a\n9. 中\n10. b\n11. 中")
+        });
     }
 
     #[gpui::test]
