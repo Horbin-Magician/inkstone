@@ -866,6 +866,22 @@ impl PopupMenu {
         self.confirm_click(&ClickEvent::default(), window, cx);
     }
 
+    pub(super) fn confirm_held_pointer(
+        &mut self,
+        event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.bounds.contains(&event.position())
+            && self
+                .selected_index
+                .and_then(|index| self.menu_items.get(index))
+                .is_some_and(|item| item.is_clickable())
+        {
+            self.confirm_click(event, window, cx);
+        }
+    }
+
     fn confirm_click(&mut self, event: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         match self.selected_index {
             Some(index) => {

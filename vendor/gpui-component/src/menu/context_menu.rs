@@ -1,14 +1,15 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    time::Duration,
 };
 
 use gpui::{
-    Anchor, AnyElement, App, Bounds, Context, DismissEvent, Element, ElementId, Entity,
+    Anchor, AnyElement, App, Bounds, ClickEvent, Context, DismissEvent, Element, ElementId, Entity,
     FocusHandle, Focusable, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId,
-    InteractiveElement, IntoElement, LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels,
-    Point, Position, Style, StyleRefinement, Styled, Subscription, Window, anchored, deferred, div,
-    px,
+    InteractiveElement, IntoElement, LayoutId, MouseButton, MouseClickEvent, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Position, Style, StyleRefinement,
+    Styled, Subscription, Task, Window, anchored, deferred, div, px,
 };
 
 use crate::menu::PopupMenu;
@@ -50,6 +51,7 @@ pub struct ContextMenu<E: ParentElement + Styled + Sized> {
     // This is not in use, just for style refinement forwarding.
     _ignore_style: StyleRefinement,
     anchor: Anchor,
+    long_press: Option<Duration>,
 }
 
 impl<E: ParentElement + Styled> ContextMenu<E> {
@@ -60,6 +62,7 @@ impl<E: ParentElement + Styled> ContextMenu<E> {
             element: Some(element),
             menu: None,
             anchor: Anchor::TopLeft,
+            long_press: None,
             _ignore_style: StyleRefinement::default(),
         }
     }
@@ -71,6 +74,12 @@ impl<E: ParentElement + Styled> ContextMenu<E> {
         F: Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
     {
         self.menu = Some(Rc::new(builder));
+        self
+    }
+
+    /// Also open below the trigger after a left-button hold, or a downward drag.
+    pub fn long_press(mut self, delay: Duration) -> Self {
+        self.long_press = Some(delay);
         self
     }
 
@@ -122,6 +131,10 @@ struct ContextMenuSharedState {
     menu_view: Option<Entity<PopupMenu>>,
     open: bool,
     position: Point<Pixels>,
+    trigger_position: Point<Pixels>,
+    press: Option<MouseDownEvent>,
+    press_task: Option<Task<()>>,
+    suppress_release: bool,
     /// Registered on this element's dispatch node every frame and never
     /// focused, so the menu can resolve its shortcut hints against the
     /// trigger's key contexts on the frame it opens: GPUI looks a handle up in
@@ -152,11 +165,92 @@ impl Default for ContextMenuState {
                 menu_view: None,
                 open: false,
                 position: Default::default(),
+                trigger_position: Default::default(),
+                press: None,
+                press_task: None,
+                suppress_release: false,
                 trigger_focus_handle: None,
                 _subscription: None,
             })),
         }
     }
+}
+
+fn open_context_menu(
+    shared_state: Rc<RefCell<ContextMenuSharedState>>,
+    builder: Option<Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu>>,
+    trigger_position: Point<Pixels>,
+    position: Point<Pixels>,
+    held: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    // Capture the focused element to restore focus to on dismiss.
+    // If focus is still on the previous menu, keep its captured focus.
+    let previous_focus_handle = window.focused(cx).and_then(|focused| {
+        let shared_state = shared_state.borrow();
+        match shared_state.menu_view.as_ref() {
+            Some(menu) if menu.read(cx).focus_handle == focused => {
+                menu.read(cx).previous_focus_handle.clone()
+            }
+            _ => Some(focused),
+        }
+    });
+
+    {
+        let mut shared_state = shared_state.borrow_mut();
+        // Clear any existing menu view to allow immediate replacement
+        // Set the new position and open the menu
+        shared_state.menu_view = None;
+        shared_state._subscription = None;
+        shared_state.position = position;
+        shared_state.trigger_position = trigger_position;
+        shared_state.suppress_release = held;
+        shared_state.open = true;
+    }
+
+    // Use defer to build the menu in the next frame, avoiding race conditions
+    window.defer(cx, {
+        let shared_state = shared_state.clone();
+        let builder = builder.clone();
+        move |window, cx| {
+            let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
+                let Some(build) = &builder else {
+                    return menu;
+                };
+                build(menu, window, cx)
+            });
+            let trigger_focus_handle = shared_state.borrow().trigger_focus_handle.clone();
+            menu.update(cx, |menu, cx| {
+                menu.set_trigger_focus(trigger_focus_handle, cx);
+                menu.set_previous_focus(previous_focus_handle, cx);
+            });
+
+            // Set up the subscription for dismiss handling.
+            // Hold a Weak here, not a strong clone: the closure
+            // would otherwise close the cycle
+            // `shared_state -> _subscription -> closure ->
+            // shared_state`, so a menu left open when the window
+            // closes leaks its PopupMenu entity.
+            let _subscription = window.subscribe(&menu, cx, {
+                let shared_state = Rc::downgrade(&shared_state);
+                move |_, _: &DismissEvent, window, _cx| {
+                    if let Some(shared_state) = shared_state.upgrade() {
+                        shared_state.borrow_mut().open = false;
+                        window.refresh();
+                    }
+                }
+            });
+
+            // Update the shared state with the built menu and subscription
+            {
+                let mut state = shared_state.borrow_mut();
+                state.menu_view = Some(menu.clone());
+                state._subscription = Some(_subscription);
+                window.refresh();
+            }
+        }
+    });
 }
 
 /// The deferred menu layer of one trigger.
@@ -356,7 +450,7 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
         {
             window.set_focus_handle(trigger_focus, cx);
         }
-        let position = request_layout.shared_state.borrow().position;
+        let position = request_layout.shared_state.borrow().trigger_position;
         request_layout.draws_menu.set(bounds.contains(&position));
         if let Some(element) = &mut request_layout.element {
             element.prepaint(window, cx);
@@ -378,92 +472,131 @@ impl<E: ParentElement + Styled + IntoElement + 'static> Element for ContextMenu<
             element.paint(window, cx);
         }
 
-        // Take the builder before setting up element state to avoid borrow issues
         let builder = self.menu.clone();
-
-        self.with_element_state(
-            id.unwrap(),
-            window,
-            cx,
-            |_view, state: &mut ContextMenuState, window, _| {
-                let shared_state = state.shared_state.clone();
-
-                let hitbox = hitbox.clone();
-                // When right mouse click, to build content menu, and show it at the mouse position.
+        let delay = self.long_press;
+        self.with_element_state(id.unwrap(), window, cx, |_, state, window, _| {
+            let shared = state.shared_state.clone();
+            let bounds = hitbox.bounds;
+            let hitbox = hitbox.clone();
+            if let Some(delay) = delay {
+                let press_state = shared.clone();
+                let press_builder = builder.clone();
+                let press_hitbox = hitbox.clone();
                 window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
-                    if phase.bubble()
-                        && event.button == MouseButton::Right
-                        && hitbox.is_hovered(window)
+                    if !phase.capture()
+                        || event.button != MouseButton::Left
+                        || !press_hitbox.is_hovered(window)
                     {
-                        // Capture the focused element to restore focus to on dismiss.
-                        // If focus is still on the previous menu, keep its captured focus.
-                        let previous_focus_handle = window.focused(cx).and_then(|focused| {
-                            let shared_state = shared_state.borrow();
-                            match shared_state.menu_view.as_ref() {
-                                Some(menu) if menu.read(cx).focus_handle == focused => {
-                                    menu.read(cx).previous_focus_handle.clone()
-                                }
-                                _ => Some(focused),
+                        return;
+                    }
+                    {
+                        let mut state = press_state.borrow_mut();
+                        state.press = Some(event.clone());
+                        state.suppress_release = false;
+                        state.press_task = None;
+                    }
+                    let weak = Rc::downgrade(&press_state);
+                    let builder = press_builder.clone();
+                    let position = event.position;
+                    let task = window.spawn(cx, async move |cx| {
+                        cx.background_executor().timer(delay).await;
+                        let _ = cx.update(|window, cx| {
+                            let Some(shared) = weak.upgrade() else { return };
+                            if shared.borrow().press.is_none() {
+                                return;
                             }
+                            open_context_menu(
+                                shared,
+                                builder,
+                                position,
+                                bounds.bottom_left(),
+                                true,
+                                window,
+                                cx,
+                            );
                         });
-
-                        {
-                            let mut shared_state = shared_state.borrow_mut();
-                            // Clear any existing menu view to allow immediate replacement
-                            // Set the new position and open the menu
-                            shared_state.menu_view = None;
-                            shared_state._subscription = None;
-                            shared_state.position = event.position;
-                            shared_state.open = true;
+                    });
+                    press_state.borrow_mut().press_task = Some(task);
+                });
+                let move_state = shared.clone();
+                let move_builder = builder.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                    if !phase.capture() {
+                        return;
+                    }
+                    let press = {
+                        let state = move_state.borrow();
+                        if state.suppress_release {
+                            return;
                         }
-
-                        // Use defer to build the menu in the next frame, avoiding race conditions
-                        window.defer(cx, {
-                            let shared_state = shared_state.clone();
-                            let builder = builder.clone();
-                            move |window, cx| {
-                                let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
-                                    let Some(build) = &builder else {
-                                        return menu;
-                                    };
-                                    build(menu, window, cx)
-                                });
-                                let trigger_focus_handle =
-                                    shared_state.borrow().trigger_focus_handle.clone();
-                                menu.update(cx, |menu, cx| {
-                                    menu.set_trigger_focus(trigger_focus_handle, cx);
-                                    menu.set_previous_focus(previous_focus_handle, cx);
-                                });
-
-                                // Set up the subscription for dismiss handling.
-                                // Hold a Weak here, not a strong clone: the closure
-                                // would otherwise close the cycle
-                                // `shared_state -> _subscription -> closure ->
-                                // shared_state`, so a menu left open when the window
-                                // closes leaks its PopupMenu entity.
-                                let _subscription = window.subscribe(&menu, cx, {
-                                    let shared_state = Rc::downgrade(&shared_state);
-                                    move |_, _: &DismissEvent, window, _cx| {
-                                        if let Some(shared_state) = shared_state.upgrade() {
-                                            shared_state.borrow_mut().open = false;
-                                            window.refresh();
-                                        }
-                                    }
-                                });
-
-                                // Update the shared state with the built menu and subscription
-                                {
-                                    let mut state = shared_state.borrow_mut();
-                                    state.menu_view = Some(menu.clone());
-                                    state._subscription = Some(_subscription);
-                                    window.refresh();
-                                }
-                            }
-                        });
+                        state.press.clone()
+                    };
+                    let Some(press) = press else { return };
+                    let dx = f32::from(event.position.x - press.position.x);
+                    let dy = f32::from(event.position.y - press.position.y);
+                    if event.pressed_button != Some(MouseButton::Left) || dx * dx + dy * dy > 25. {
+                        move_state.borrow_mut().press_task = None;
+                        if event.pressed_button == Some(MouseButton::Left)
+                            && dy > 0.
+                            && dy > dx.abs()
+                        {
+                            open_context_menu(
+                                move_state.clone(),
+                                move_builder.clone(),
+                                press.position,
+                                bounds.bottom_left(),
+                                true,
+                                window,
+                                cx,
+                            );
+                        } else {
+                            move_state.borrow_mut().press = None;
+                        }
                     }
                 });
-            },
-        );
+                let release_state = shared.clone();
+                window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                    if !phase.capture() || event.button != MouseButton::Left {
+                        return;
+                    }
+                    let (press, suppress, menu) = {
+                        let mut state = release_state.borrow_mut();
+                        state.press_task = None;
+                        let suppress = std::mem::take(&mut state.suppress_release);
+                        (state.press.take(), suppress, state.menu_view.clone())
+                    };
+                    if suppress {
+                        cx.stop_propagation();
+                        window.prevent_default();
+                        if let (Some(down), Some(menu)) = (press, menu) {
+                            let event = ClickEvent::Mouse(MouseClickEvent {
+                                down,
+                                up: event.clone(),
+                            });
+                            menu.update(cx, |menu, cx| {
+                                menu.confirm_held_pointer(&event, window, cx)
+                            });
+                        }
+                    }
+                });
+            }
+            window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+                if phase.bubble() && event.button == MouseButton::Right && hitbox.is_hovered(window)
+                {
+                    shared.borrow_mut().press_task = None;
+                    shared.borrow_mut().press = None;
+                    open_context_menu(
+                        shared.clone(),
+                        builder.clone(),
+                        event.position,
+                        event.position,
+                        false,
+                        window,
+                        cx,
+                    );
+                }
+            });
+        });
     }
 }
 

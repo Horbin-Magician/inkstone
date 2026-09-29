@@ -367,6 +367,96 @@ mod tests {
     }
 
     #[gpui::test]
+    fn history_hold_and_drag_open_without_an_extra_navigation(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = fixture("hold-history");
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                w.open_note("b.md".into(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let selector =
+            Box::leak(format!("popup-menu-item-{:?}", ElementId::from(0usize)).into_boxed_str());
+        let back = visual.debug_bounds("main-history-back").unwrap().center();
+        visual.simulate_mouse_down(back, MouseButton::Left, Modifiers::default());
+        visual.run_until_parked();
+        visual.executor().advance_clock(Duration::from_millis(399));
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(selector).is_none());
+        visual.executor().advance_clock(Duration::from_millis(1));
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(selector).is_some());
+        visual.simulate_mouse_up(back, MouseButton::Left, Modifiers::default());
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.current_pane().unwrap().read(cx).navigation.cursor, 1);
+            })
+            .unwrap();
+        visual.simulate_keystrokes("escape");
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_click(back, Modifiers::default());
+        visual.run_until_parked();
+        visual.executor().advance_clock(Duration::from_millis(500));
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(selector).is_none());
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.current_pane().unwrap().read(cx).navigation.cursor, 0);
+            })
+            .unwrap();
+        let forward = visual
+            .debug_bounds("main-history-forward")
+            .unwrap()
+            .center();
+        visual.simulate_mouse_down(forward, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(
+            forward + point(px(0.), px(6.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let item = visual.debug_bounds(selector).unwrap().center();
+        visual.simulate_mouse_move(item, Some(MouseButton::Left), Modifiers::default());
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_mouse_up(item, MouseButton::Left, Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(selector).is_none());
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.current_pane().unwrap().read(cx).navigation.cursor, 1);
+                assert_eq!(w.tabs.len(), 1);
+            })
+            .unwrap();
+        let back = visual.debug_bounds("main-history-back").unwrap().center();
+        visual.simulate_mouse_down(back, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(
+            back + point(px(7.), px(0.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        visual.executor().advance_clock(Duration::from_millis(500));
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(selector).is_none());
+        visual.simulate_mouse_up(
+            back + point(px(80.), px(0.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+    }
+
+    #[gpui::test]
     fn control_navigation_copies_the_view_and_menu_preserves_mouse_modifiers(
         cx: &mut TestAppContext,
     ) {
