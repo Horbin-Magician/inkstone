@@ -14,6 +14,7 @@ use gpui::{
 use ropey::Rope;
 use smallvec::SmallVec;
 use std::{ops::Range, rc::Rc};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     Scrollbar,
@@ -132,6 +133,15 @@ pub(super) struct LongestLineKey {
     text_size: Pixels,
     wrap_width: Option<Pixels>,
     concealment_active: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct DisplayMetricsKey {
+    document_revision: u64,
+    presentation_revision: u64,
+    font: gpui::Font,
+    font_size: Pixels,
+    tab_size: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1611,12 +1621,79 @@ impl<M: InputModeKind> TextElement<M> {
             state.is_single_line() || !state.soft_wrap,
         );
         if !state.tokens_visible() {
-            let metrics = if state.masked || !state.mask_pattern.is_none() {
+            let metrics_key = DisplayMetricsKey {
+                document_revision: state.document_revision,
+                presentation_revision: state.presentation_revision,
+                font: style.font(),
+                font_size: style.font_size.to_pixels(window.rem_size()),
+                tab_size: state.mode.tab_size().tab_size.max(1),
+            };
+            let metrics = if state.masked || !state.mask_pattern.is_none() || state.is_single_line()
+            {
                 Rc::from([])
+            } else if state.display_metrics_key.as_ref() == Some(&metrics_key) {
+                state.display_metrics.clone()
             } else {
-                state.concealment.clone()
+                let space = window
+                    .text_system()
+                    .shape_line(
+                        " ".into(),
+                        metrics_key.font_size,
+                        &[TextRun {
+                            len: 1,
+                            font: metrics_key.font.clone(),
+                            color: gpui::black(),
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        }],
+                        None,
+                    )
+                    .width;
+                let mut metrics = state.concealment.to_vec();
+                let mut offset = 0;
+                let mut column = 0;
+                let mut row = 0;
+                let mut hidden = 0;
+                let source = state.text.to_string();
+                for ch in source.graphemes(true) {
+                    match ch {
+                        "\n" | "\r\n" => {
+                            column = 0;
+                            row += 1;
+                        }
+                        "\t" => {
+                            let columns = metrics_key.tab_size - column % metrics_key.tab_size;
+                            while hidden < state.concealment.len()
+                                && state.concealment[hidden].0.end <= offset
+                            {
+                                hidden += 1;
+                            }
+                            if hidden == state.concealment.len()
+                                || state.concealment[hidden].0.start > offset
+                            {
+                                let scale = state.display_map.line_scales(row).0;
+                                metrics.push((offset..offset + 1, space * columns as f32 * scale));
+                            }
+                            column += columns;
+                        }
+                        _ => column += 1,
+                    }
+                    offset += ch.len();
+                }
+                metrics.sort_by_key(|(range, _)| range.start);
+                Rc::from(metrics)
             };
             self.state.update(cx, |state, cx| {
+                if state.display_metrics != metrics {
+                    state.longest_line_width.take();
+                }
+                state.display_metrics = metrics.clone();
+                state.display_metrics_key = if state.masked || !state.mask_pattern.is_none() {
+                    None
+                } else {
+                    Some(metrics_key)
+                };
                 state.display_map.set_inline_metrics(metrics, cx)
             });
             return Default::default();
@@ -1872,7 +1949,7 @@ impl<M: InputModeKind> TextElement<M> {
         window: &mut Window,
     ) -> Vec<LineLayout> {
         use crate::input::display_map::{InlineFragment, InputLine};
-        let spans = &state.concealment;
+        let spans = &state.display_metrics;
         let mut run_offset = 0;
         last_layout
             .visible_buffer_lines
@@ -1893,11 +1970,11 @@ impl<M: InputModeKind> TextElement<M> {
                     let mut fragments = vec![];
                     let mut offset = range.start;
                     let mut x = px(0.);
-                    let mut append = |part: std::ops::Range<usize>, hidden: bool| {
+                    let mut append = |part: std::ops::Range<usize>, reserved: Option<Pixels>| {
                         if part.is_empty() {
                             return;
                         }
-                        let shaped = if hidden {
+                        let shaped = if reserved.is_some() {
                             None
                         } else {
                             let mut line_runs = runs_for_range(runs, run_offset, &part);
@@ -1916,7 +1993,8 @@ impl<M: InputModeKind> TextElement<M> {
                                 None,
                             ))
                         };
-                        let width = shaped.as_ref().map_or(px(0.), |line| line.width);
+                        let width = reserved
+                            .unwrap_or_else(|| shaped.as_ref().map_or(px(0.), |line| line.width));
                         fragments.push(InlineFragment {
                             range: part.start - range.start..part.end - range.start,
                             x,
@@ -1926,20 +2004,20 @@ impl<M: InputModeKind> TextElement<M> {
                         x += width;
                     };
                     let first = spans.partition_point(|(r, _)| r.end <= start + range.start);
-                    for (span, _) in spans[first..]
+                    for (span, width) in spans[first..]
                         .iter()
                         .take_while(|(r, _)| r.start < start + range.end)
                     {
                         let local = span.start.saturating_sub(start).max(range.start)
                             ..span.end.saturating_sub(start).min(range.end);
                         if offset < local.start {
-                            append(offset..local.start, false);
+                            append(offset..local.start, None);
                         }
-                        append(local.clone(), true);
+                        append(local.clone(), Some(*width));
                         offset = offset.max(local.end);
                     }
                     if offset < range.end {
-                        append(offset..range.end, false);
+                        append(offset..range.end, None);
                     }
                     lines.push(InputLine::inline(
                         text[range.clone()].to_owned().into(),
@@ -2038,7 +2116,7 @@ impl<M: InputModeKind> TextElement<M> {
             return Self::layout_token_lines(state, last_layout, font_size, runs, window);
         }
 
-        if (!state.concealment.is_empty() || !state.line_typography.is_empty())
+        if (!state.display_metrics.is_empty() || !state.line_typography.is_empty())
             && !state.masked
             && state.mask_pattern.is_none()
         {
@@ -2782,7 +2860,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 font: style.font(),
                 text_size,
                 wrap_width,
-                concealment_active: (!state.concealment.is_empty()
+                concealment_active: (!state.display_metrics.is_empty()
                     || !state.line_typography.is_empty())
                     && !state.masked
                     && state.mask_pattern.is_none(),
@@ -2793,7 +2871,8 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 .filter(|(cached_key, _)| *cached_key == key);
             longest_line_width = match cached {
                 Some((_, width)) => width,
-                None if (!state.concealment.is_empty() || !state.line_typography.is_empty())
+                None if (!state.display_metrics.is_empty()
+                    || !state.line_typography.is_empty())
                     && !state.masked
                     && state.mask_pattern.is_none() =>
                 {
@@ -2822,13 +2901,16 @@ impl<M: InputModeKind> Element for TextElement<M> {
                                 )
                                 .width
                         };
-                        let first = state.concealment.partition_point(|(r, _)| r.end <= start);
-                        for (range, _) in state.concealment[first..]
+                        let first = state
+                            .display_metrics
+                            .partition_point(|(r, _)| r.end <= start);
+                        for (range, reserved) in state.display_metrics[first..]
                             .iter()
                             .take_while(|(r, _)| r.start < start + text.len())
                         {
                             let local = range.start - start..range.end - start;
                             width += measure(&text[offset..local.start]);
+                            width += *reserved;
                             offset = local.end;
                         }
                         width += measure(&text[offset..]);

@@ -1804,6 +1804,87 @@ mod tests {
         }
     }
     #[gpui::test]
+    fn tab_display_width_updates_geometry_wrapping_and_mouse_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "\t中文😀\n \tsecond\n**bold**\tend\né👩‍💻\tend";
+        let handle = cx.add_window(|w, cx| {
+            let state = cx.new(|cx| {
+                EditorState::new(w, cx)
+                    .default_value(source)
+                    .line_number(false)
+            });
+            state.update(cx, |s, cx| {
+                s.set_tab_size(
+                    gpui_base::input::TabSize {
+                        tab_size: 2,
+                        hard_tabs: true,
+                    },
+                    cx,
+                );
+                s.focus(w, cx);
+            });
+            ConcealProbe { state }
+        });
+        let state = handle.update(cx, |p, _, _| p.state.clone()).unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(700.), px(300.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let small = state.read_with(&visual, |s, _| s.range_to_bounds(&(0..1)).unwrap());
+        assert!(small.size.width > px(0.));
+        state.update(&mut visual, |s, cx| {
+            s.set_tab_size(
+                gpui_base::input::TabSize {
+                    tab_size: 8,
+                    hard_tabs: true,
+                },
+                cx,
+            );
+            let start = source.find("**bold").unwrap();
+            s.set_concealed_ranges(vec![start..start + 2, start + 6..start + 8], cx);
+        });
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let large = state.read_with(&visual, |s, _| {
+            let tab = s.range_to_bounds(&(0..1)).unwrap();
+            assert!((f32::from(tab.size.width) - f32::from(small.size.width) * 4.).abs() < 0.1);
+            let space = source.find(" \t").unwrap();
+            let after_space = s.range_to_bounds(&(space + 1..space + 2)).unwrap();
+            assert!(
+                (f32::from(after_space.size.width) - f32::from(tab.size.width) * 7. / 8.).abs()
+                    < 0.1
+            );
+            let marker = source.find("**bold").unwrap();
+            let unicode_tab = source.rfind('\t').unwrap();
+            let unicode_width = s
+                .range_to_bounds(&(unicode_tab..unicode_tab + 1))
+                .unwrap()
+                .size
+                .width;
+            assert!((f32::from(unicode_width) - f32::from(tab.size.width) * 6. / 8.).abs() < 0.1);
+            assert_eq!(
+                s.range_to_bounds(&(marker..marker + 2)).unwrap().size.width,
+                px(0.)
+            );
+            tab
+        });
+        visual.simulate_click(
+            large.origin + point(large.size.width - px(1.), px(8.)),
+            Modifiers::default(),
+        );
+        state.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 1..1));
+        visual.simulate_resize(size(px(75.), px(300.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        state.read_with(&visual, |s, _| {
+            let before = s.range_to_bounds(&(0..0)).unwrap();
+            let after = s.range_to_bounds(&(7..7)).unwrap();
+            assert!(after.origin.y > before.origin.y);
+            assert_eq!(s.value().as_ref(), source);
+        });
+        visual.simulate_keystrokes("ctrl-a ctrl-c");
+        visual
+            .update(|_, cx| assert_eq!(cx.read_from_clipboard().unwrap().text().unwrap(), source));
+    }
+
+    #[gpui::test]
     fn concealment_removes_marker_width_without_changing_source_or_copy(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "**中文😀** [[很长的路径/笔记|别名]]";
