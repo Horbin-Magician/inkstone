@@ -198,6 +198,7 @@ impl Workspace {
                         ),
                     )
                     .into_any_element(),
+                self.ribbon_settings(cx),
             ]
         } else {
             let mut fonts: Vec<_> = [
