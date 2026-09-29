@@ -661,6 +661,8 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (80, "选择所有相同文本", "Ctrl+Shift+L"),
     (81, "上移当前行", "Alt+Up"),
     (82, "下移当前行", "Alt+Down"),
+    (83, "向上复制当前行", "Alt+Shift+Up"),
+    (84, "向下复制当前行", "Alt+Shift+Down"),
 ];
 
 #[derive(Clone)]
@@ -1144,7 +1146,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=82)
+        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=84)
         {
             self.graph_open = false;
         }
@@ -1353,6 +1355,11 @@ impl Workspace {
             81..=82 => {
                 if let Some(pane) = self.current_pane() {
                     pane.update(cx, |pane, cx| pane.move_lines(id == 82, window, cx));
+                }
+            }
+            83..=84 => {
+                if let Some(pane) = self.current_pane() {
+                    pane.update(cx, |pane, cx| pane.copy_lines(id == 84, window, cx));
                 }
             }
             _ => (),

@@ -1,11 +1,12 @@
 use std::ops::Range;
 
-/// Move selected blocks of logical lines, retaining newline styles by position.
-pub fn move_lines(
-    text: &str,
-    selections: &[Range<usize>],
-    down: bool,
-) -> Option<(String, Vec<Range<usize>>)> {
+struct SelectedLines<'a> {
+    lines: Vec<(&'a str, &'a str, usize)>,
+    spans: Vec<(usize, usize, bool)>,
+    groups: Vec<Range<usize>>,
+}
+
+fn selected_lines<'a>(text: &'a str, selections: &[Range<usize>]) -> Option<SelectedLines<'a>> {
     if selections.is_empty()
         || selections.iter().any(|r| {
             r.start > r.end || !text.is_char_boundary(r.start) || !text.is_char_boundary(r.end)
@@ -59,8 +60,26 @@ pub fn move_lines(
             merged.push(group);
         }
     }
+    Some(SelectedLines {
+        lines,
+        spans,
+        groups: merged,
+    })
+}
+
+/// Move selected blocks of logical lines, retaining newline styles by position.
+pub fn move_lines(
+    text: &str,
+    selections: &[Range<usize>],
+    down: bool,
+) -> Option<(String, Vec<Range<usize>>)> {
+    let SelectedLines {
+        lines,
+        spans,
+        groups,
+    } = selected_lines(text, selections)?;
     let mut order: Vec<_> = (0..lines.len()).collect();
-    for group in merged {
+    for group in groups {
         if down && group.end < lines.len() {
             order[group.start..=group.end].rotate_right(1);
         } else if !down && group.start > 0 {
@@ -100,10 +119,95 @@ pub fn move_lines(
     Some((result, mapped))
 }
 
+/// Duplicate selected line blocks and keep selections on the requested side.
+pub fn copy_lines(
+    text: &str,
+    selections: &[Range<usize>],
+    down: bool,
+) -> Option<(String, Vec<Range<usize>>)> {
+    let SelectedLines { lines, groups, .. } = selected_lines(text, selections)?;
+    let default_newline = lines
+        .iter()
+        .find(|line| !line.1.is_empty())
+        .map_or("\n", |line| line.1);
+    let mut insertions = Vec::with_capacity(groups.len());
+    for group in groups {
+        let start = lines[group.start].2;
+        let last = &lines[group.end - 1];
+        let end = last.2 + last.0.len();
+        let newline = if lines[group.start].1.is_empty() {
+            default_newline
+        } else {
+            lines[group.start].1
+        };
+        let body = &text[start..end];
+        insertions.push(if down {
+            (start, format!("{body}{newline}"))
+        } else {
+            (end, format!("{newline}{body}"))
+        });
+    }
+    let added: usize = insertions
+        .iter()
+        .map(|(_, insertion)| insertion.len())
+        .sum();
+    let mut result = String::with_capacity(text.len() + added);
+    let mut prefix_lengths = vec![0];
+    let mut previous = 0;
+    for (offset, insertion) in &insertions {
+        result.push_str(&text[previous..*offset]);
+        result.push_str(insertion);
+        prefix_lengths.push(prefix_lengths.last().copied().unwrap() + insertion.len());
+        previous = *offset;
+    }
+    result.push_str(&text[previous..]);
+    let map_offset = |offset| {
+        offset
+            + prefix_lengths
+                [insertions.partition_point(|(at, _)| *at < offset || (down && *at == offset))]
+    };
+    let mapped = selections
+        .iter()
+        .map(|range| map_offset(range.start)..map_offset(range.end))
+        .collect();
+    Some((result, mapped))
+}
+
 #[cfg(test)]
 #[allow(clippy::single_range_in_vec_init)] // Fixtures contain selection ranges, not integer sequences.
 mod tests {
     use super::*;
+    #[test]
+    fn copies_crlf_blocks_and_keeps_the_requested_side() {
+        assert_eq!(
+            copy_lines("甲\r\n乙", &[5..8], true).unwrap(),
+            ("甲\r\n乙\r\n乙".into(), vec![10..13])
+        );
+        assert_eq!(
+            copy_lines("甲\r\n乙", &[5..8], false).unwrap(),
+            ("甲\r\n乙\r\n乙".into(), vec![5..8])
+        );
+        assert_eq!(
+            copy_lines("a\nb\nc", &[0..4], true).unwrap(),
+            ("a\nb\na\nb\nc".into(), vec![4..8])
+        );
+        assert_eq!(
+            copy_lines("", &[0..0], true).unwrap(),
+            ("\n".into(), vec![1..1])
+        );
+    }
+
+    #[test]
+    fn copies_disjoint_blocks_without_duplicating_a_shared_line() {
+        assert_eq!(
+            copy_lines("a\nb\nc\nd", &[0..0, 4..4], true).unwrap(),
+            ("a\na\nb\nc\nc\nd".into(), vec![2..2, 8..8])
+        );
+        assert_eq!(
+            copy_lines("abc", &[0..0, 2..2], false).unwrap(),
+            ("abc\nabc".into(), vec![0..0, 2..2])
+        );
+    }
     #[test]
     fn moves_unicode_blocks_and_excludes_the_next_line_boundary() {
         assert_eq!(
