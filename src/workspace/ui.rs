@@ -674,6 +674,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (93, "切换到第 8 个标签页", "Ctrl+8"),
     (94, "切换到最后一个标签页", "Ctrl+9"),
     (95, "删除当前行", "Ctrl+Shift+K"),
+    (96, "选中当前行", "Alt+L"),
 ];
 
 #[derive(Clone)]
@@ -1155,7 +1156,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=84)
+        if self.graph_open
+            && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=84 | 95..=96)
         {
             self.graph_open = false;
         }
@@ -1372,12 +1374,16 @@ impl Workspace {
                 }
             }
             85 => self.open_current_note_in_new_tab(window, cx),
-            95 => {
+            95..=96 => {
                 if let Some(pane) = self.current_pane() {
                     pane.update(cx, |pane, cx| {
                         if !pane.reading {
                             pane.editor.update(cx, |editor, cx| {
-                                editor.delete_lines(window, cx);
+                                if id == 95 {
+                                    editor.delete_lines(window, cx);
+                                } else {
+                                    editor.select_lines(window, cx);
+                                }
                                 editor.focus(window, cx);
                             });
                         }

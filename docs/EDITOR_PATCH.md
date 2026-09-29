@@ -144,6 +144,11 @@
 - `InputBaseState::delete_lines` 按选区计算逻辑行块，正确删除相邻换行符并保留 CRLF，不对预编辑或只读内容执行删除。
 - 通过已有显示行定位保留横向位置，再映射到删除后的文档；事务记录完整多选区，撤销恢复原视图选择。
 
+## 选中逻辑行
+
+- `select_lines` 与 `delete_lines` 共用选中行块计算，保留分离块并合并相邻块，完整包含实际 LF/CRLF。
+- 选择改变打断文本输入的撤销合并，不修改正文；应用通过命令与平台快捷键调用。
+
 ## 命令触发补全
 
 - `input/editor/lsp/completions.rs` 增加显式 `request_completions`，使用 LSP Invoked 触发类型，不伪造键入字符，并清除旧触发位置。
