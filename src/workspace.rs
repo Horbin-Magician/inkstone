@@ -1752,6 +1752,57 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn closing_an_unchanged_split_cannot_revert_a_new_primary_edit(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-stale-split-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                let primary = w.tabs[0].pane.read(cx).editor.clone();
+                w.split_active(false, window, cx);
+                w.focus_primary(0, window, cx);
+                primary.update(cx, |s, cx| {
+                    s.set_selected_range(6..6, cx);
+                    s.replace_text_in_range(None, "X", window, cx);
+                });
+                w.close_split(window, cx);
+                assert!(w.views.split.is_none());
+                assert_eq!(primary.read(cx).value(), "原文X");
+                assert!(!w.request_window_close(window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "原文X");
+    }
+
+    #[gpui::test]
+    fn unchanged_primary_cannot_overwrite_a_new_split_edit(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                let primary = w.tabs[0].pane.read(cx).editor.clone();
+                w.split_active(false, window, cx);
+                let mirror = w.views.split.as_ref().unwrap().pane.read(cx).editor.clone();
+                mirror.update(cx, |s, cx| {
+                    s.set_selected_range(6..6, cx);
+                    s.replace_text_in_range(None, "X", window, cx);
+                });
+                w.sync_to_split(w.tabs[0].id, window, cx);
+                assert_eq!(mirror.read(cx).value(), "原文X");
+                w.close_split(window, cx);
+                assert_eq!(primary.read(cx).value(), "原文X");
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn primary_composition_stays_local_until_commit(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
