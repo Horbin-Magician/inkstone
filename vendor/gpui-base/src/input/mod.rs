@@ -62,6 +62,8 @@ mod mode;
 mod movement;
 #[path = "base/native.rs"]
 mod native;
+#[path = "base/occurrences.rs"]
+mod occurrences;
 #[path = "base/rope_ext.rs"]
 mod rope_ext;
 #[path = "editor/search.rs"]

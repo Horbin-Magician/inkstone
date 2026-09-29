@@ -17,6 +17,7 @@ use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
 use sum_tree::Bias;
+use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::*;
 
 use super::{
@@ -2724,7 +2725,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         }
     }
 
-    /// Select all literal matches of a single non-empty selection.
+    /// Select all compatibility-normalized matches of a single non-empty selection.
     pub fn select_all_occurrences(
         &mut self,
         _: &SelectAllOccurrences,
@@ -2740,10 +2741,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         }
         let original = *self.active_selection();
         let source = self.text.to_string();
-        let needle = &source[original.start..original.end];
-        let ranges: Vec<_> = source
-            .match_indices(needle)
-            .map(|(start, _)| start..start + needle.len())
+        let needle: String = source[original.start..original.end].nfkd().collect();
+        let occurrences = super::occurrences::Occurrences::new(&source);
+        let ranges: Vec<_> = occurrences
+            .ranges(&needle)
             .filter(|range| {
                 self.cursor_boundary(range.start, Bias::Left) == range.start
                     && self.cursor_boundary(range.end, Bias::Right) == range.end
@@ -2842,15 +2843,15 @@ impl<M: InputModeKind> InputBaseState<M> {
                 .map(|selection| selection.end)
                 .max()
                 .unwrap();
-            let found = source[from..]
-                .match_indices(needle)
-                .map(|(offset, _)| from + offset)
+            let normalized: String = needle.nfkd().collect();
+            let occurrences = super::occurrences::Occurrences::new(&source);
+            let found = occurrences
+                .ranges_from(&normalized, from)
                 .chain(
-                    source[..from]
-                        .match_indices(needle)
-                        .map(|(offset, _)| offset),
+                    occurrences
+                        .ranges(&normalized)
+                        .filter(|range| range.end <= from),
                 )
-                .map(|start| start..start + needle.len())
                 .find(|candidate| {
                     !self.selections.iter().any(|selection| {
                         candidate.start < selection.end && selection.start < candidate.end
