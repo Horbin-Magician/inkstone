@@ -2709,7 +2709,8 @@ impl<M: InputModeKind> InputBaseState<M> {
         }
     }
 
-    pub(super) fn select_next_occurrence(
+    /// Select the word at collapsed carets, or add the next matching selection.
+    pub fn select_next_occurrence(
         &mut self,
         _: &SelectNextOccurrence,
         _: &mut Window,
