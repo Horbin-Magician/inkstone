@@ -870,6 +870,32 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn regex_results_use_multiline_anchors_and_ignore_empty_matches() {
+        let mut index = Index::default();
+        index.update("note.md".into(), "alpha\nbeta\nalpha\nbeta\n".into());
+        assert_eq!(index.search("/^alpha/").len(), 2);
+        assert_eq!(
+            index
+                .search("/(?m)^alpha/")
+                .iter()
+                .map(|h| h.line)
+                .collect::<Vec<_>>(),
+            [1, 3]
+        );
+        assert_eq!(
+            index
+                .search("/alpha\\nbeta/")
+                .iter()
+                .map(|h| h.line)
+                .collect::<Vec<_>>(),
+            [1, 3]
+        );
+        assert!(index.search("/$/").is_empty());
+        assert!(index.search("//").is_empty());
+        index.update("note.md".into(), "ab a\ncb".into());
+        assert_eq!(index.search("/(?s)a.*?b|c/").len(), 1);
+    }
+    #[test]
     fn cross_line_queries_show_all_terms_and_skip_false_or_branches() {
         let mut index = Index::default();
         let source = "前言\n😀alpha\nblocked\n中文beta\ngamma\n";
