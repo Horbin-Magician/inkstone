@@ -192,11 +192,23 @@ impl Workspace {
                                         .items_center()
                                         .child(label)
                                         .child(
-                                            Select::new(&self.ui.font_selects[role])
+                                            div()
                                                 .w(px(240.))
-                                                .accessibility_label(label)
-                                                .search_placeholder("搜索字体…")
-                                                .empty(|_, _| div().p_3().child("未找到字体")),
+                                                .flex_shrink_0()
+                                                .debug_selector(move || match role {
+                                                    0 => "font-interface-trigger".into(),
+                                                    1 => "font-text-trigger".into(),
+                                                    _ => "font-monospace-trigger".into(),
+                                                })
+                                                .child(
+                                                    Select::new(&self.ui.font_selects[role])
+                                                        .w_full()
+                                                        .accessibility_label(label)
+                                                        .search_placeholder("搜索字体…")
+                                                        .empty(|_, _| {
+                                                            div().p_3().child("未找到字体")
+                                                        }),
+                                                ),
                                         )
                                 }),
                         )

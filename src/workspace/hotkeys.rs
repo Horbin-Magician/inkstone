@@ -187,7 +187,7 @@ impl Workspace {
             .rounded(px(6.))
             .flex()
             .flex_col()
-            .gap_2()
+            .gap_0()
             .children(
                 [
                     (5, "外观"),
@@ -202,9 +202,19 @@ impl Workspace {
                 .map(|(i, title)| {
                     Button::new(("settings-tab", i))
                         .ghost()
+                        .h(px(28.))
+                        .w_full()
                         .selected(self.ui.settings_tab == i)
                         .toggled(self.ui.settings_tab == i)
-                        .label(title)
+                        .when(self.ui.settings_tab == i, |button| {
+                            button.bg(rgb(if self.ui.prefs.light {
+                                0xe8e8e8
+                            } else {
+                                0x333333
+                            }))
+                        })
+                        .accessibility_label(title)
+                        .child(div().w_full().text_left().child(title))
                         .on_click(cx.listener(move |this, _, w, cx| {
                             this.ui.settings_tab = i;
                             this.ui.settings_scroll.set_offset(Point::default());
