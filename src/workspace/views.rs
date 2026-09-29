@@ -192,7 +192,24 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if let Some(tab) = self.tabs.iter().find(|t| t.id == id) {
+        let Some(document) = self
+            .tabs
+            .iter()
+            .find(|tab| tab.id == id)
+            .map(|tab| tab.save.clone())
+        else {
+            return false;
+        };
+        if document.editor.update(cx, |editor, cx| {
+            editor.marked_text_range(window, cx).is_some()
+        }) {
+            return true;
+        }
+        for tab in self
+            .tabs
+            .iter()
+            .filter(|tab| std::rc::Rc::ptr_eq(&tab.save, &document))
+        {
             if tab.pane.update(cx, |p, cx| p.footnote_pending(window, cx)) {
                 return true;
             }
@@ -204,7 +221,11 @@ impl Workspace {
         self.views
             .split
             .as_ref()
-            .filter(|s| s.source == id)
+            .filter(|s| {
+                self.tabs
+                    .iter()
+                    .any(|tab| tab.id == s.source && std::rc::Rc::ptr_eq(&tab.save, &document))
+            })
             .is_some_and(|s| {
                 if s.pane.update(cx, |p, cx| p.footnote_pending(window, cx)) {
                     return true;
@@ -213,6 +234,28 @@ impl Workspace {
                 editor.update(cx, |s, cx| s.marked_text_range(window, cx).is_some())
             })
     }
+    pub(super) fn remove_missing_views(&mut self) {
+        if self
+            .views
+            .split
+            .as_ref()
+            .is_some_and(|split| !self.tabs.iter().any(|tab| tab.id == split.source))
+        {
+            self.views.split = None;
+            self.views.secondary_focused = false;
+        }
+        if self
+            .views
+            .main
+            .is_some_and(|id| !self.tabs.iter().any(|tab| tab.id == id))
+        {
+            self.views.main = self
+                .active
+                .and_then(|index| self.tabs.get(index))
+                .map(|tab| tab.id);
+        }
+    }
+
     pub(super) fn current_pane(&self) -> Option<Entity<EditorPane>> {
         if self.views.secondary_focused
             && let Some(split) = &self.views.split

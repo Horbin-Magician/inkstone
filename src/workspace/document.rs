@@ -4,6 +4,7 @@ use std::cell::{Cell, RefCell};
 
 /// Shared contents, history and save state, independent of any one view.
 pub(super) struct DocumentState {
+    pub path: RefCell<std::path::PathBuf>,
     pub editor: Entity<EditorState>,
     pub baseline: RefCell<Option<String>>,
     pub dirty: Cell<bool>,
@@ -16,12 +17,14 @@ pub(super) struct DocumentState {
 
 impl DocumentState {
     pub(super) fn new(
+        path: std::path::PathBuf,
         baseline: Option<String>,
         dirty: bool,
         editor: Entity<EditorState>,
         changes: Subscription,
     ) -> Self {
         Self {
+            path: RefCell::new(path),
             editor,
             baseline: RefCell::new(baseline),
             dirty: Cell::new(dirty),
@@ -37,6 +40,21 @@ impl DocumentState {
 use super::*;
 
 impl Workspace {
+    pub(super) fn relocate_document(
+        &mut self,
+        document: &std::rc::Rc<DocumentState>,
+        path: std::path::PathBuf,
+    ) {
+        document.path.replace(path.clone());
+        for tab in self
+            .tabs
+            .iter_mut()
+            .filter(|tab| std::rc::Rc::ptr_eq(&tab.save, document))
+        {
+            tab.path = path.clone();
+        }
+    }
+
     pub(super) fn document_changed(
         &mut self,
         owner: Entity<EditorState>,

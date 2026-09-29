@@ -309,6 +309,7 @@ impl Workspace {
                             if let Ok(suffix) = tab.path.strip_prefix(&old) {
                                 if let Some(new) = &new {
                                     tab.path = new.join(suffix);
+                                    tab.save.path.replace(tab.path.clone());
                                 } else if tab.save.dirty.get() {
                                     tab.save.conflict.set(true);
                                     return true;
@@ -353,6 +354,7 @@ impl Workspace {
                         this.active = active
                             .and_then(|id| this.tabs.iter().position(|t| t.id == id))
                             .or_else(|| (!this.tabs.is_empty()).then_some(0));
+                        this.remove_missing_views();
                         this.status = if new.is_some() {
                             "文件夹已移动。".into()
                         } else {
