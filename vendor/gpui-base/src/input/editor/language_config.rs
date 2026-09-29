@@ -87,6 +87,10 @@ pub struct LanguageConfig {
     pub surround_selection: bool,
     /// Only skip closing delimiters inserted by this editor, and consume that permission once.
     pub skip_only_generated: bool,
+    /// Closers placed on a following line (for example Markdown code fences).
+    pub newline_closers: Vec<SharedString>,
+    /// Capture 1 is retained; capture 2 is replaced by equal-width spaces.
+    pub continuation_prefix: Option<Regex>,
 }
 
 impl Default for LanguageConfig {
@@ -118,11 +122,22 @@ impl Default for LanguageConfig {
             indentation_rules: None,
             surround_selection: false,
             skip_only_generated: false,
+            newline_closers: Vec::new(),
+            continuation_prefix: None,
         }
     }
 }
 
 impl LanguageConfig {
+    pub fn newline_closers(
+        mut self,
+        closers: impl IntoIterator<Item = SharedString>,
+        prefix: Regex,
+    ) -> Self {
+        self.newline_closers = closers.into_iter().collect();
+        self.continuation_prefix = Some(prefix);
+        self
+    }
     pub fn skip_only_generated(mut self, enabled: bool) -> Self {
         self.skip_only_generated = enabled;
         self

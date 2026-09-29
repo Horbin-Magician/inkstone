@@ -82,11 +82,17 @@ impl EditorPane {
                     .map(|marker| AutoClosingPair::new(marker, marker)),
             );
         }
-        let config = LanguageConfig::default()
+        let mut config = LanguageConfig::default()
             .brackets([])
             .surround_selection(true)
             .skip_only_generated(true)
             .auto_closing_pairs(pairs);
+        if markdown {
+            static PREFIX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+                regex::Regex::new(r"^([>\s]*)([*+-] |[0-9]+[.)] )?").unwrap()
+            });
+            config = config.newline_closers(["```".into()], PREFIX.clone());
+        }
         self.editor
             .update(cx, |editor, cx| editor.set_editing_rules(Some(config), cx));
     }
@@ -1550,6 +1556,64 @@ mod tests {
             assert_eq!(s.value(), source);
         });
     }
+    #[gpui::test]
+    fn triple_backticks_insert_a_closing_fence_and_preserve_context(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                p.set_auto_pairing(true, true, cx);
+                for (prefix, continuation) in [
+                    ("", ""),
+                    ("  ", "  "),
+                    ("> ", "> "),
+                    ("- ", "  "),
+                    ("> 12. ", ">     "),
+                    ("- [ ] ", "  "),
+                ] {
+                    p.editor.update(cx, |s, cx| {
+                        s.set_value(prefix, w, cx);
+                        s.set_selected_range(prefix.len()..prefix.len(), cx);
+                        for _ in 0..3 {
+                            s.replace_text_in_range(None, "`", w, cx);
+                        }
+                        let expected = format!("{prefix}```\n{continuation}```");
+                        assert_eq!(s.value(), expected);
+                        assert_eq!(s.selected_range(), prefix.len() + 3..prefix.len() + 3);
+                        let end = expected.len() - 3;
+                        s.set_selected_range(end..end, cx);
+                        s.replace_text_in_range(None, "`", w, cx);
+                        assert_eq!(s.value(), expected);
+                        assert_eq!(s.selected_range(), expected.len()..expected.len());
+                    });
+                }
+                p.editor.update(cx, |s, cx| {
+                    s.set_value("before\r\n", w, cx);
+                    s.set_selected_range(8..8, cx);
+                    for _ in 0..3 {
+                        s.replace_text_in_range(None, "`", w, cx);
+                    }
+                    assert_eq!(s.value(), "before\r\n```\r\n```");
+                    s.focus(w, cx);
+                });
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_keystrokes("ctrl-z");
+        handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(p.editor.read(cx).value(), "before\r\n``")
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-y");
+        handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(p.editor.read(cx).value(), "before\r\n```\r\n```");
+                assert_eq!(p.editor.read(cx).selected_range(), 11..11);
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn paired_closers_skip_once_but_existing_text_is_never_swallowed(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

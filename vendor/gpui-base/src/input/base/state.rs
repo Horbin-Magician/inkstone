@@ -1854,7 +1854,19 @@ impl<M: InputModeKind> InputBaseState<M> {
                 if self.is_escaped_at(cursor - index) {
                     continue;
                 }
-                return Some(cursor + new_text.len());
+                return Some(
+                    cursor
+                        + if generated
+                            && rules
+                                .newline_closers
+                                .iter()
+                                .any(|value| value.as_ref() == close)
+                        {
+                            close.len() - index
+                        } else {
+                            new_text.len()
+                        },
+                );
             }
         }
         None
@@ -4270,12 +4282,43 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                     );
                 } else if let Some((open_len, closer)) = self.auto_close_target(&range, new_text) {
                     // One edit keeps the pair atomic even at undo coalescing limits.
-                    let replacement = format!("{new_text}{closer}");
+                    let padding =
+                        self.mode
+                            .language_config()
+                            .and_then(|rules| {
+                                if !rules.newline_closers.contains(&closer) {
+                                    return None;
+                                }
+                                let row = self.text.offset_to_point(range.start).row;
+                                let line = self.text.slice_line(row).to_string();
+                                let prefix = rules
+                                    .continuation_prefix
+                                    .as_ref()
+                                    .and_then(|re| re.captures(&line))
+                                    .map(|captures| {
+                                        format!(
+                                            "{}{}",
+                                            captures.get(1).map_or("", |part| part.as_str()),
+                                            " ".repeat(captures.get(2).map_or(0, |part| {
+                                                part.as_str().chars().count()
+                                            }))
+                                        )
+                                    })
+                                    .unwrap_or_default();
+                                let newline = if self.text.to_string().contains("\r\n") {
+                                    "\r\n"
+                                } else {
+                                    "\n"
+                                };
+                                Some(format!("{newline}{prefix}"))
+                            })
+                            .unwrap_or_default();
+                    let replacement = format!("{new_text}{padding}{closer}");
                     self.replace_text_in_ranges(&[(range.clone(), replacement)], window, cx);
                     let cursor = range.start + new_text.len();
                     self.mode.track_auto_closed_pair(
                         cursor - open_len..cursor,
-                        cursor..cursor + closer.len(),
+                        cursor + padding.len()..cursor + padding.len() + closer.len(),
                     );
                     self.undo_manager
                         .record_auto_closed_pairs_after(self.mode.auto_closed_pairs().clone());
