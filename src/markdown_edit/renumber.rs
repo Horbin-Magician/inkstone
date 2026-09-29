@@ -1,9 +1,84 @@
 use super::{Edit, prefix};
 use markdown_parser::mdast::Node;
 
+pub(super) fn removal_anchors(source: &str, edits: &[(usize, Edit)]) -> Vec<(usize, Option<u32>)> {
+    let removals: Vec<_> = edits
+        .iter()
+        .map(|(_, edit)| edit)
+        .filter(|edit| {
+            !edit.range.is_empty() && edit.replacement.trim_matches([' ', '\t', '>']).is_empty()
+        })
+        .collect();
+    if removals.is_empty() {
+        return Vec::new();
+    }
+    fn walk(
+        node: &Node,
+        source: &str,
+        removals: &[&Edit],
+        anchors: &mut Vec<(usize, Option<u32>)>,
+    ) {
+        if let Node::List(list) = node
+            && list.ordered
+        {
+            let mut first_number = None;
+            let mut any_survivor = false;
+            let mut previous_removed = false;
+            for item in &list.children {
+                let Some(position) = item.position() else {
+                    continue;
+                };
+                let start = source[..position.start.offset]
+                    .rfind('\n')
+                    .map_or(0, |i| i + 1);
+                let end = source[start..]
+                    .find('\n')
+                    .map_or(source.len(), |i| start + i);
+                let Some(p) = prefix(&source[start..end]) else {
+                    continue;
+                };
+                let Some(digits) = p.marker.strip_suffix(['.', ')']) else {
+                    continue;
+                };
+                let Ok(number) = digits.parse::<u32>() else {
+                    continue;
+                };
+                first_number.get_or_insert(number);
+                let marker = start + p.quote.len() + p.indent.len();
+                let removed = removals.iter().any(|edit| {
+                    edit.range.start <= marker && marker + p.marker.len() <= edit.range.end
+                });
+                if !removed {
+                    if previous_removed {
+                        anchors.push((
+                            position.start.offset,
+                            (!any_survivor).then_some(first_number.unwrap()),
+                        ));
+                    }
+                    any_survivor = true;
+                }
+                previous_removed = removed;
+            }
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                walk(child, source, removals, anchors);
+            }
+        }
+    }
+    let mut anchors = Vec::new();
+    let mut options = markdown_parser::ParseOptions::gfm();
+    options.constructs.frontmatter = true;
+    if let Ok(root) = markdown_parser::to_mdast(source, &options) {
+        walk(&root, source, &removals, &mut anchors);
+    }
+    anchors
+}
+
 pub(super) fn at_rows(
     source: &str,
     rows: &std::collections::BTreeSet<usize>,
+    starts: &std::collections::BTreeMap<usize, u32>,
 ) -> Vec<(std::ops::Range<usize>, String)> {
     fn number(source: &str, item: &Node) -> Option<(std::ops::Range<usize>, u32)> {
         let position = item.position()?;
@@ -22,6 +97,7 @@ pub(super) fn at_rows(
         node: &Node,
         source: &str,
         rows: &std::collections::BTreeSet<usize>,
+        starts: &std::collections::BTreeMap<usize, u32>,
         changes: &mut Vec<(std::ops::Range<usize>, String)>,
     ) {
         if let Node::List(list) = node
@@ -34,6 +110,11 @@ pub(super) fn at_rows(
         {
             if index > 0 {
                 next += 1;
+            } else if let Some(value) = list.children[index]
+                .position()
+                .and_then(|p| starts.get(&p.start.line))
+            {
+                next = *value;
             }
             for item in &list.children[index..] {
                 if next > 999_999_999 {
@@ -49,7 +130,7 @@ pub(super) fn at_rows(
         }
         if let Some(children) = node.children() {
             for child in children {
-                walk(child, source, rows, changes);
+                walk(child, source, rows, starts, changes);
             }
         }
     }
@@ -57,7 +138,7 @@ pub(super) fn at_rows(
     let mut options = markdown_parser::ParseOptions::gfm();
     options.constructs.frontmatter = true;
     if let Ok(root) = markdown_parser::to_mdast(source, &options) {
-        walk(&root, source, rows, &mut changes);
+        walk(&root, source, rows, starts, &mut changes);
     }
     changes.sort_by_key(|(range, _)| range.start);
     changes

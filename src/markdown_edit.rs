@@ -757,6 +757,27 @@ fn edit_in_context(
 mod tests {
     use super::*;
     #[test]
+    fn multi_enter_renumbers_after_empty_ordered_items_and_mixed_insertions() {
+        for (source, carets, expected) in [
+            ("7. \n8. b\n9. ", vec![3..3, 12..12], "\n7. b\n"),
+            ("1. a\n2. \n3. b\n4. ", vec![8..8, 17..17], "1. a\n\n2. b\n"),
+            ("1. a\n2. \n3. b", vec![4..4, 8..8], "1. a\n2. \n\n3. b"),
+            ("7. \n8. b", vec![3..3, 8..8], "\n7. b\n8. "),
+        ] {
+            let (text, selections) = enter_at_selections(source, &carets, 4, true).unwrap();
+            assert_eq!(text, expected);
+            assert!(
+                selections
+                    .iter()
+                    .all(|r| r.is_empty() && text.is_char_boundary(r.start))
+            );
+        }
+        let source = "> 7) \r\n> 8) b\r\n\r\n1. \r\n2. c";
+        let second = source.find("1. ").unwrap() + 3;
+        let (text, _) = enter_at_selections(source, &[5..5, second..second], 4, true).unwrap();
+        assert_eq!(text, "> \r\n> 7) b\r\n\r\n\r\n1. c");
+    }
+    #[test]
     fn multi_enter_continues_lists_and_maps_number_width_changes() {
         let source = "8. a\n9. b";
         let (text, selections) = enter_at_selections(source, &[4..4, 9..9], 4, true).unwrap();

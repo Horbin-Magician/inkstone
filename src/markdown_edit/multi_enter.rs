@@ -42,17 +42,41 @@ pub fn enter_at_selections(
         delta += edit.replacement.len() as isize - edit.range.len() as isize;
     }
     let mut result = text.to_string();
+    let anchors: Vec<_> = renumber::removal_anchors(text, &edits)
+        .into_iter()
+        .map(|(offset, number)| {
+            let mut delta = 0isize;
+            for (_, edit) in &edits {
+                if offset < edit.range.start {
+                    break;
+                }
+                if offset < edit.range.end {
+                    return (edit.range.start.saturating_add_signed(delta), number);
+                }
+                delta += edit.replacement.len() as isize - edit.range.len() as isize;
+            }
+            (offset.saturating_add_signed(delta), number)
+        })
+        .collect();
     for (_, edit) in edits.into_iter().rev() {
         result.replace_range(edit.range, &edit.replacement);
     }
     let line_starts: Vec<_> = std::iter::once(0)
         .chain(result.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
-    let rows: BTreeSet<_> = selected
+    let mut rows: BTreeSet<_> = selected
         .iter()
         .map(|r| line_starts.partition_point(|start| *start <= r.start))
         .collect();
-    let changes = renumber::at_rows(&result, &rows);
+    let mut starts = std::collections::BTreeMap::new();
+    for (offset, number) in anchors {
+        let row = line_starts.partition_point(|start| *start <= offset);
+        rows.insert(row);
+        if let Some(number) = number {
+            starts.insert(row, number);
+        }
+    }
+    let changes = renumber::at_rows(&result, &rows, &starts);
     let map = |position: usize| {
         let mut delta = 0isize;
         for (range, replacement) in &changes {
