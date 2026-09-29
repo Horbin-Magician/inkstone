@@ -661,6 +661,21 @@ impl Workspace {
         self.persist_workspace(cx);
         cx.notify();
     }
+    pub(super) fn set_default_editing_mode(&mut self, live: bool, cx: &mut Context<Self>) {
+        self.ui.prefs.default_live_preview = live;
+        let mut panes: Vec<_> = self.tabs.iter().map(|tab| tab.pane.clone()).collect();
+        if let Some(split) = &self.views.split {
+            panes.push(split.pane.clone());
+        }
+        for pane in panes {
+            pane.update(cx, |pane, cx| {
+                pane.live = live;
+                cx.notify();
+            });
+        }
+        self.persist_workspace(cx);
+        cx.notify();
+    }
     fn filtered_commands(&self, cx: &App) -> Vec<(usize, &'static str, &'static str)> {
         let query = self.ui.command.read(cx).value().to_lowercase();
         COMMANDS
@@ -3644,6 +3659,22 @@ impl Workspace {
         if self.ui.settings_tab == 1 {
             return self.hotkey_settings_panel(cx);
         }
+        let live = self.ui.prefs.default_live_preview;
+        let weak = cx.entity().downgrade();
+        let editing_mode = Button::new("default-editing-mode")
+            .label(if live { "实时预览" } else { "源码模式" })
+            .dropdown_menu(move |mut menu, _, _| {
+                for (value, label) in [(true, "实时预览"), (false, "源码模式")] {
+                    let weak = weak.clone();
+                    menu = menu.item(PopupMenuItem::new(label).checked(live == value).on_click(
+                        move |_, _, cx| {
+                            let _ = weak
+                                .update(cx, |this, cx| this.set_default_editing_mode(value, cx));
+                        },
+                    ));
+                }
+                menu
+            });
         let theme = Button::new("theme-setting")
             .label(if self.ui.prefs.light {
                 "浅色"
@@ -3704,6 +3735,14 @@ impl Workspace {
                             .items_center()
                             .child("基础主题")
                             .child(theme),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("默认编辑模式")
+                            .child(editing_mode),
                     )
                     .child(
                         div()

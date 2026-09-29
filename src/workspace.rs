@@ -825,7 +825,11 @@ impl Workspace {
             self.views.main = None;
         }
         let target_split = self.views.secondary_focused && self.views.split.is_some();
-        let pane = cx.new(|cx| EditorPane::new(baseline.as_deref().unwrap_or(""), window, cx));
+        let pane = cx.new(|cx| {
+            let mut pane = EditorPane::new(baseline.as_deref().unwrap_or(""), window, cx);
+            pane.live = self.ui.prefs.default_live_preview;
+            pane
+        });
         pane.update(cx, |pane, _| pane.set_paths(self.link_paths_for(&path)));
         if let Some(vault) = &self.vault {
             pane.update(cx, |pane, _| {
@@ -1727,6 +1731,47 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn default_editing_mode_updates_open_views_and_preserves_reading_state(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.prefs.default_live_preview = false;
+                w.add_tab("a.md".into(), Some("# A".into()), false, window, cx);
+                let a = w.current_pane().unwrap();
+                assert!(!a.read(cx).live);
+                w.execute_command(7, window, cx);
+                w.apply_editor_preferences(window, cx);
+                assert!(a.read(cx).live);
+                w.add_tab("b.md".into(), Some("# B".into()), false, window, cx);
+                assert!(!w.current_pane().unwrap().read(cx).live);
+                assert!(a.read(cx).live);
+                w.split_active(false, window, cx);
+                a.update(cx, |pane, _| pane.reading = true);
+                w.set_default_editing_mode(true, cx);
+                assert!(a.read(cx).reading && a.read(cx).live);
+                assert!(w.views.split.as_ref().unwrap().pane.read(cx).live);
+                w.set_default_editing_mode(false, cx);
+                assert!(a.read(cx).reading && !a.read(cx).live);
+                assert!(!w.views.split.as_ref().unwrap().pane.read(cx).live);
+                Workspace::restore_view_state(
+                    &a,
+                    &inkstone::preferences::ViewState {
+                        reading: true,
+                        live: true,
+                        ..Default::default()
+                    },
+                    cx,
+                );
+                assert!(a.read(cx).live);
+                assert!(!w.ui.prefs.default_live_preview);
+                assert_eq!(a.read(cx).editor.read(cx).value().as_ref(), "# A");
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn search_validation_reports_inline_errors_without_overwriting_other_status(
         cx: &mut TestAppContext,
