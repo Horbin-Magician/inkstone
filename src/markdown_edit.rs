@@ -454,16 +454,36 @@ fn literal_ranges(text: &str) -> Vec<Range<usize>> {
     ranges
 }
 
-fn outdent(indent: &str) -> &str {
+fn outdent(indent: &str, width: usize) -> &str {
     if let Some(rest) = indent.strip_prefix('\t') {
         rest
     } else {
-        &indent[indent.bytes().take_while(|b| *b == b' ').take(4).count()..]
+        &indent[indent
+            .bytes()
+            .take_while(|b| *b == b' ')
+            .take(width)
+            .count()..]
     }
 }
 
 /// Return `None` to let the ordinary editor handle the key.
 pub fn edit(text: &str, selection: Range<usize>, key: Key) -> Option<Edit> {
+    edit_with_indent(text, selection, key, 4, false)
+}
+
+pub fn edit_with_indent(
+    text: &str,
+    selection: Range<usize>,
+    key: Key,
+    width: usize,
+    use_tabs: bool,
+) -> Option<Edit> {
+    let width = width.clamp(2, 8);
+    let indent = if use_tabs {
+        "\t".into()
+    } else {
+        " ".repeat(width)
+    };
     if selection.start > selection.end
         || !text.is_char_boundary(selection.start)
         || !text.is_char_boundary(selection.end)
@@ -509,7 +529,7 @@ pub fn edit(text: &str, selection: Range<usize>, key: Key) -> Option<Edit> {
                     format!(
                         "{}{}{}{}{}",
                         p.quote,
-                        outdent(p.indent),
+                        outdent(p.indent, width),
                         p.marker,
                         p.gap,
                         if p.task { "[ ] " } else { "" }
@@ -554,7 +574,7 @@ pub fn edit(text: &str, selection: Range<usize>, key: Key) -> Option<Edit> {
                 format!(
                     "{}{}{}",
                     p.quote,
-                    outdent(p.indent),
+                    outdent(p.indent, width),
                     &line[p.quote.len() + p.indent.len()..p.end]
                 )
             } else if !p.marker.is_empty() {
@@ -584,16 +604,9 @@ pub fn edit(text: &str, selection: Range<usize>, key: Key) -> Option<Edit> {
                 }
                 let at = offset + row_prefix.quote.len();
                 let (removed, inserted) = match key {
-                    Key::Indent => (
-                        0,
-                        if row_prefix.indent.starts_with('\t') {
-                            "\t"
-                        } else {
-                            "    "
-                        },
-                    ),
+                    Key::Indent => (0, indent.as_str()),
                     _ => (
-                        row_prefix.indent.len() - outdent(row_prefix.indent).len(),
+                        row_prefix.indent.len() - outdent(row_prefix.indent, width).len(),
                         "",
                     ),
                 };
@@ -635,6 +648,31 @@ pub fn edit(text: &str, selection: Range<usize>, key: Key) -> Option<Edit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn configured_indentation_preserves_unicode_quotes_and_line_endings() {
+        let apply = |text: &str, selection, key, width, tabs| {
+            let edit = edit_with_indent(text, selection, key, width, tabs)
+                .unwrap_or_else(|| panic!("no edit for {text:?}"));
+            let mut result = text.to_string();
+            result.replace_range(edit.range, &edit.replacement);
+            assert!(result.is_char_boundary(edit.selection.start));
+            assert!(result.is_char_boundary(edit.selection.end));
+            (result, edit.selection)
+        };
+        let text = "> - 中文😀\r\n> - second";
+        let (indented, selected) = apply(text, 0..text.len(), Key::Indent, 2, false);
+        assert_eq!(indented, ">   - 中文😀\r\n>   - second");
+        assert_eq!(apply(&indented, selected, Key::Outdent, 2, false).0, text);
+        let text = "- parent\n- 中文\n- second";
+        let (indented, selected) = apply(text, 9..text.len(), Key::Indent, 8, true);
+        assert_eq!(indented, "- parent\n\t- 中文\n\t- second");
+        assert_eq!(apply(&indented, selected, Key::Outdent, 8, true).0, text);
+        assert_eq!(apply("  - ", 4..4, Key::Enter, 2, false).0, "- ");
+        assert_eq!(
+            apply("- parent\n      - text", 17..17, Key::Backspace, 6, false).0,
+            "- parent\n- text"
+        );
+    }
     #[test]
     fn footnote_insertion_preserves_selection_text_and_uses_next_definition_id() {
         let text = "中文😀\n\n[^02]: existing\n\n`[^99]: code`\n\n```\n[^100]: code\n```\n";

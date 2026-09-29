@@ -58,6 +58,8 @@ pub struct Preferences {
     pub readable_width: bool,
     pub default_live_preview: bool,
     pub default_reading: bool,
+    pub use_tabs: bool,
+    pub tab_size: usize,
     pub show_inline_title: bool,
     pub show_view_header: bool,
     pub expanded_folders: Vec<PathBuf>,
@@ -105,6 +107,8 @@ impl Default for Preferences {
             readable_width: true,
             default_live_preview: true,
             default_reading: false,
+            use_tabs: true,
+            tab_size: 4,
             show_inline_title: true,
             show_view_header: true,
             expanded_folders: vec![],
@@ -149,6 +153,7 @@ impl Preferences {
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
         value.font_size = value.font_size.clamp(12., 30.);
+        value.tab_size = value.tab_size.clamp(2, 8);
         value.graph.normalize();
         value.local_graph.normalize();
         value.left_width = value.left_width.clamp(180., 500.);
@@ -316,6 +321,8 @@ mod tests {
         prefs.font_size = 23.;
         prefs.default_live_preview = false;
         prefs.default_reading = true;
+        prefs.use_tabs = false;
+        prefs.tab_size = 6;
         prefs.search_case_sensitive = true;
         prefs.search_sort_by = crate::file_order::SortBy::Modified;
         prefs.search_descending = true;
@@ -371,6 +378,8 @@ mod tests {
         assert_eq!(Preferences::load(&path).font_size, 23.);
         assert!(!Preferences::load(&path).default_live_preview);
         assert!(Preferences::load(&path).default_reading);
+        assert!(!Preferences::load(&path).use_tabs);
+        assert_eq!(Preferences::load(&path).tab_size, 6);
         assert!(Preferences::load(&path).search_case_sensitive);
         assert_eq!(
             Preferences::load(&path).search_sort_by,

@@ -315,10 +315,15 @@ impl Workspace {
             p.font_size = prefs.font_size;
             p.light = prefs.light;
             p.readable_width = prefs.readable_width;
+            p.indentation = gpui_base::input::TabSize {
+                tab_size: prefs.tab_size.clamp(2, 8),
+                hard_tabs: prefs.use_tabs,
+            };
             p.history_owner = Some(canonical);
             p.set_paths(paths);
             p.editor.update(cx, |s, cx| {
                 s.set_line_number(prefs.line_numbers, window, cx);
+                s.set_tab_size(p.indentation, cx);
                 s.set_selected_range(selection, cx);
             });
             p

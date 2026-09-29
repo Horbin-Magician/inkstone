@@ -645,6 +645,9 @@ impl Workspace {
                         let restore_active = prefs.active_path.clone();
                         let restore_active_index = prefs.active_tab_index;
                         this.ui.prefs = prefs;
+                        this.ui.tab_width.update(cx, |slider, cx| {
+                            slider.set_value(this.ui.prefs.tab_size as f32, window, cx);
+                        });
                         this.ui.left_mode = this.ui.prefs.left_panel;
                         this.ui.right_mode = this.ui.prefs.right_panel;
                         this.ui.tags_selected = None;
@@ -1732,6 +1735,46 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn indentation_settings_update_existing_and_new_split_views(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("- 中文".into()), false, window, cx);
+                let a = w.current_pane().unwrap();
+                w.ui.prefs.use_tabs = false;
+                w.ui.prefs.tab_size = 6;
+                w.apply_editor_preferences(window, cx);
+                w.split_active(false, window, cx);
+                assert_eq!(
+                    w.views
+                        .split
+                        .as_ref()
+                        .unwrap()
+                        .pane
+                        .read(cx)
+                        .indentation
+                        .tab_size,
+                    6
+                );
+                w.ui.tab_width.update(cx, |_, cx| {
+                    cx.emit(gpui_component::slider::SliderEvent::Change(2f32.into()))
+                });
+                assert_eq!(a.read(cx).editor.read(cx).value().as_ref(), "- 中文");
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.ui.prefs.tab_size, 2);
+                for pane in [&w.tabs[0].pane, &w.views.split.as_ref().unwrap().pane] {
+                    assert_eq!(pane.read(cx).indentation.tab_size, 2);
+                    assert!(!pane.read(cx).indentation.hard_tabs);
+                }
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn default_view_applies_to_opened_notes_but_preserves_new_and_restored_views(
         cx: &mut TestAppContext,

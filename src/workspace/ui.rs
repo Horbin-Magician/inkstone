@@ -1,6 +1,7 @@
 use super::*;
 use gpui_component::date_picker::{DatePicker, DatePickerEvent, DatePickerState};
 use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
+use gpui_component::slider::{Slider, SliderEvent, SliderState};
 use gpui_component::{
     Disableable, Icon, Selectable, TitleBar,
     button::*,
@@ -48,6 +49,8 @@ impl PartialEq<PathBuf> for ClosedTab {
 
 pub(super) struct UiState {
     pub prefs: Preferences,
+    pub tab_width: Entity<SliderState>,
+    _tab_width_subscription: Subscription,
     pub history: Navigation,
     pub closed: Vec<ClosedTab>,
     pub close_pending: std::collections::BTreeSet<usize>,
@@ -124,6 +127,23 @@ pub(super) struct UiState {
 impl UiState {
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
         apply_theme(false, cx);
+        let tab_width = cx.new(|_| {
+            SliderState::new()
+                .min(2.)
+                .max(8.)
+                .step(1.)
+                .default_value(4.)
+        });
+        let tab_width_subscription = cx.subscribe_in(
+            &tab_width,
+            window,
+            |this, _, event: &SliderEvent, window, cx| {
+                if let SliderEvent::Change(value) = event {
+                    this.ui.prefs.tab_size = (value.start().round() as usize).clamp(2, 8);
+                    this.apply_editor_preferences(window, cx);
+                }
+            },
+        );
         let workspace_focus = cx.focus_handle();
         window.focus(&workspace_focus, cx);
         let property_key = cx
@@ -290,6 +310,8 @@ impl UiState {
             });
         Self {
             prefs: Preferences::default(),
+            tab_width,
+            _tab_width_subscription: tab_width_subscription,
             history: Navigation::default(),
             closed: vec![],
             close_pending: Default::default(),
@@ -638,6 +660,9 @@ impl Workspace {
     }
     pub(super) fn apply_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let p = self.ui.prefs.clone();
+        self.ui.tab_width.update(cx, |slider, cx| {
+            slider.set_value(p.tab_size as f32, window, cx);
+        });
         if let Some(graph) = &self.graph {
             graph.update(cx, |g, cx| g.set_index(self.index.clone(), p.light, cx));
         }
@@ -652,8 +677,13 @@ impl Workspace {
                 pane.font_size = p.font_size;
                 pane.readable_width = p.readable_width;
                 pane.light = p.light;
+                pane.indentation = gpui_base::input::TabSize {
+                    tab_size: p.tab_size.clamp(2, 8),
+                    hard_tabs: p.use_tabs,
+                };
                 pane.editor.update(cx, |editor, cx| {
-                    editor.set_line_number(p.line_numbers, window, cx)
+                    editor.set_line_number(p.line_numbers, window, cx);
+                    editor.set_tab_size(pane.indentation, cx);
                 });
                 cx.notify();
             });
@@ -3837,6 +3867,30 @@ impl Workspace {
                                         cx.notify();
                                     })),
                             ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("使用制表符")
+                            .child(
+                                gpui_component::switch::Switch::new("use-tabs-setting")
+                                    .accessibility_label("使用制表符")
+                                    .checked(self.ui.prefs.use_tabs)
+                                    .on_click(cx.listener(|this, enabled: &bool, window, cx| {
+                                        this.ui.prefs.use_tabs = *enabled;
+                                        this.apply_editor_preferences(window, cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child(format!("制表符宽度  {}", self.ui.prefs.tab_size))
+                            .child(div().w(px(160.)).child(Slider::new(&self.ui.tab_width))),
                     )
                     .child(
                         Button::new("settings-recovery")
