@@ -31,15 +31,29 @@ pub(super) struct TabScrollKey {
 #[derive(Clone, Debug)]
 pub(super) struct ClosedTab {
     pub view: inkstone::preferences::ViewState,
+    pub history: inkstone::preferences::Navigation,
+}
+impl ClosedTab {
+    pub fn new(
+        view: inkstone::preferences::ViewState,
+        mut history: inkstone::preferences::Navigation,
+    ) -> Self {
+        if history.entries.is_empty() {
+            history.visit(view.path.clone());
+        }
+        history.record_at(history.cursor, view.clone());
+        Self { view, history }
+    }
 }
 impl From<&str> for ClosedTab {
     fn from(path: &str) -> Self {
-        Self {
-            view: inkstone::preferences::ViewState {
+        Self::new(
+            inkstone::preferences::ViewState {
                 path: path.into(),
                 ..Default::default()
             },
-        }
+            Default::default(),
+        )
     }
 }
 impl PartialEq<PathBuf> for ClosedTab {
@@ -133,6 +147,13 @@ pub(super) struct UiState {
     _command_subscription: Subscription,
 }
 impl UiState {
+    pub(super) fn remember_closed(&mut self, closed: ClosedTab) {
+        self.closed.push(closed);
+        if self.closed.len() > 10 {
+            self.closed.drain(..self.closed.len() - 10);
+        }
+    }
+
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
         let prefs = Preferences {
             light: Workspace::system_light(window),
@@ -1447,12 +1468,7 @@ impl Workspace {
             }
             17 => {
                 if let Some(closed) = self.ui.closed.pop() {
-                    self.open_note_with_view(
-                        closed.view.path.clone(),
-                        Some(closed.view),
-                        window,
-                        cx,
-                    );
+                    self.open_note_with_view(closed.view.path.clone(), Some(closed), window, cx);
                 }
             }
             18 => {

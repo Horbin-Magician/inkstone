@@ -694,7 +694,10 @@ impl Workspace {
         let tab = &mut self.tabs[index];
         let closed = Self::snapshot_view(tab.path.clone(), &tab.pane, cx);
         if !tab.path.as_os_str().is_empty() {
-            self.ui.closed.push(ui::ClosedTab { view: closed });
+            self.ui.remember_closed(ui::ClosedTab::new(
+                closed,
+                tab.pane.read(cx).navigation.clone(),
+            ));
         }
         tab.pane = split.pane;
         tab.pinned = split.pinned;
@@ -732,6 +735,15 @@ impl Workspace {
             return;
         }
         self.sync_from_split(window, cx);
+        if let Some(split) = &self.views.split
+            && let Some(tab) = self.tabs.iter().find(|tab| tab.id == split.source)
+            && !tab.path.as_os_str().is_empty()
+        {
+            self.ui.remember_closed(ui::ClosedTab::new(
+                Self::snapshot_view(tab.path.clone(), &split.pane, cx),
+                split.pane.read(cx).navigation.clone(),
+            ));
+        }
         self.views.split = None;
         self.views.secondary_focused = false;
         if let Some(index) = self
