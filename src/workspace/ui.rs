@@ -1548,7 +1548,7 @@ impl Workspace {
                 };
                 (
                     tab.id,
-                    format!("{name}{}", if tab.dirty { " •" } else { "" }),
+                    format!("{name}{}", if tab.save.dirty.get() { " •" } else { "" }),
                     self.ui.prefs.pinned_paths.contains(&tab.path),
                 )
             })
@@ -1672,9 +1672,9 @@ impl Workspace {
                                 } else {
                                     t.path.file_stem().unwrap_or_default().to_string_lossy()
                                 },
-                                if t.conflict || t.error.is_some() {
+                                if t.save.conflict.get() || t.save.error.borrow().is_some() {
                                     " ⚠"
-                                } else if t.dirty {
+                                } else if t.save.dirty.get() {
                                     " •"
                                 } else {
                                     ""
@@ -3171,7 +3171,7 @@ impl Render for Workspace {
                 format!("{} 个词  {} 个字符", counts.words, counts.characters)
             })
             .unwrap_or_default();
-        let error = active.and_then(|t| t.error.clone());
+        let error = active.and_then(|t| t.save.error.borrow().clone());
         _window.set_window_title(&format!(
             "{} - 砚台",
             if self.graph_open {

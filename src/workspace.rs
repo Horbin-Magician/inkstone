@@ -1,5 +1,6 @@
 mod appearance;
 mod daily;
+mod document;
 mod extras;
 mod file_settings;
 mod hotkeys;
@@ -57,12 +58,7 @@ struct Tab {
     id: usize,
     path: PathBuf,
     pane: Entity<EditorPane>,
-    baseline: Option<String>,
-    dirty: bool,
-    saving: bool,
-    conflict: bool,
-    error: Option<String>,
-    recovery_text: String,
+    save: std::rc::Rc<document::DocumentSaveState>,
     _subscription: Subscription,
     _links: Subscription,
     _focus: Subscription,
@@ -200,7 +196,7 @@ impl Workspace {
         let requests: Vec<_> = self
             .tabs
             .iter()
-            .map(|t| (t.id, t.path.clone(), t.baseline.clone()))
+            .map(|t| (t.id, t.path.clone(), t.save.baseline.borrow().clone()))
             .collect();
         let task = cx.background_executor().spawn(async move {
             let index = if rescan {
@@ -238,15 +234,15 @@ impl Workspace {
                         for (id, path, baseline, disk) in documents {
                             let split_pending=this.has_pending_input(id,window,cx);
                             let Some(tab) = this.tabs.iter_mut().find(|t|t.id == id) else { continue; };
-                            if tab.saving || tab.path!=path || tab.baseline != baseline { this.refresh_requested = true; continue; }
-                            if disk == tab.baseline { continue; }
-                            if tab.dirty || split_pending || disk.is_none() {
-                                tab.conflict = true; tab.dirty = true;
+                            if tab.save.saving.get() || tab.path!=path || *tab.save.baseline.borrow() != baseline { this.refresh_requested = true; continue; }
+                            if disk == *tab.save.baseline.borrow() { continue; }
+                            if tab.save.dirty.get() || split_pending || disk.is_none() {
+                                tab.save.conflict.set(true); tab.save.dirty.set(true);
                                 this.status = format!("{} 在外部发生变化。编辑内容已保留；可用“另存为副本”保存当前版本。", tab.path.display());
                             } else if let Some(text) = disk {
                                 let editor = tab.pane.read(cx).editor.clone();
                                 let selection = editor.read(cx).selected_range();
-                                tab.baseline = Some(text.clone());
+                                tab.save.baseline.replace(Some(text.clone()));
                                 editor.update(cx, |state, cx| { state.set_value(text, window, cx); state.set_selected_range(selection, cx); });
                                 this.status = format!("已重新加载外部修改：{}", tab.path.display());
                             }
@@ -313,7 +309,12 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        if !trash && self.tabs.iter().any(|t| t.dirty || t.saving || t.conflict) {
+        if !trash
+            && self
+                .tabs
+                .iter()
+                .any(|t| t.save.dirty.get() || t.save.saving.get() || t.save.conflict.get())
+        {
             self.status = "请先保存打开的笔记，再重命名并更新内部链接。".into();
             self.save_all(window, cx);
             return;
@@ -321,12 +322,12 @@ impl Workspace {
         let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id) else {
             return;
         };
-        if tab.dirty || tab.saving || tab.conflict {
+        if tab.save.dirty.get() || tab.save.saving.get() || tab.save.conflict.get() {
             self.status = "请先保存并处理冲突，再重命名或移入回收区。".into();
             cx.notify();
             return;
         }
-        let Some(baseline) = tab.baseline.clone() else {
+        let Some(baseline) = tab.save.baseline.borrow().clone() else {
             return;
         };
         let mut name = requested_name;
@@ -342,7 +343,7 @@ impl Workspace {
         let path = tab.path.clone();
         let id = tab.id;
         let generation = self.generation;
-        tab.saving = true;
+        tab.save.saving.set(true);
         self.ui.file_operation = true;
         self.ui.pending_file_writes += 1;
         let task = cx.background_executor().spawn(async move {
@@ -368,12 +369,12 @@ impl Workspace {
                 let Some(index) = this.tabs.iter().position(|t| t.id == id) else {
                     return;
                 };
-                this.tabs[index].saving = false;
+                this.tabs[index].save.saving.set(false);
                 match result {
                     Ok((true, path, _)) => {
                         this.status = format!("已移入可恢复回收区：{}", path.display());
-                        if this.tabs[index].dirty {
-                            this.tabs[index].conflict = true;
+                        if this.tabs[index].save.dirty.get() {
+                            this.tabs[index].save.conflict.set(true);
                             this.status
                                 .push_str("；操作期间的新编辑已保留，可另存副本。");
                         } else {
@@ -548,7 +549,12 @@ impl Workspace {
         }
     }
     fn choose_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.pending_file_writes > 0 || self.tabs.iter().any(|t| t.dirty || t.saving) {
+        if self.ui.pending_file_writes > 0
+            || self
+                .tabs
+                .iter()
+                .any(|t| t.save.dirty.get() || t.save.saving.get())
+        {
             self.status = "请先保存当前笔记，再切换笔记库。".into();
             cx.notify();
             return;
@@ -570,7 +576,12 @@ impl Workspace {
         .detach();
     }
     fn load_vault(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.pending_file_writes > 0 || self.tabs.iter().any(|t| t.dirty || t.saving) {
+        if self.ui.pending_file_writes > 0
+            || self
+                .tabs
+                .iter()
+                .any(|t| t.save.dirty.get() || t.save.saving.get())
+        {
             self.status = "当前仍有未保存内容，已取消切换笔记库。".into();
             cx.notify();
             return;
@@ -625,7 +636,11 @@ impl Workspace {
                     return;
                 }
                 this.loading = false;
-                if this.ui.pending_file_writes > 0 || this.tabs.iter().any(|t| t.dirty || t.saving)
+                if this.ui.pending_file_writes > 0
+                    || this
+                        .tabs
+                        .iter()
+                        .any(|t| t.save.dirty.get() || t.save.saving.get())
                 {
                     this.status = "读取期间产生了新编辑，已保留当前笔记库。".into();
                     cx.notify();
@@ -883,7 +898,10 @@ impl Workspace {
                 if matches!(event, InputEvent::Change)
                     && let Some(tab) = this.tabs.iter_mut().find(|t| t.id == id)
                 {
-                    tab.dirty = tab.baseline.as_deref() != Some(editor.read(cx).value().as_ref());
+                    tab.save.dirty.set(
+                        tab.save.baseline.borrow().as_deref()
+                            != Some(editor.read(cx).value().as_ref()),
+                    );
                     this.sync_to_split(id, window, cx);
                     cx.notify();
                 }
@@ -913,12 +931,7 @@ impl Workspace {
             id,
             path,
             pane,
-            baseline,
-            dirty: new,
-            saving: false,
-            conflict: false,
-            error: None,
-            recovery_text: String::new(),
+            save: std::rc::Rc::new(document::DocumentSaveState::new(baseline, new)),
             _subscription: subscription,
             _links: links,
             _focus: focus,
@@ -982,8 +995,8 @@ impl Workspace {
             return;
         }
         for tab in &mut self.tabs {
-            if !tab.conflict {
-                tab.error = None;
+            if !tab.save.conflict.get() {
+                tab.save.error.replace(None);
             }
         }
         self.save_pending(window, cx);
@@ -1002,22 +1015,28 @@ impl Workspace {
             }) {
                 continue;
             }
-            if tab.dirty && (tab.conflict || tab.error.is_some()) {
+            if tab.save.dirty.get()
+                && (tab.save.conflict.get() || tab.save.error.borrow().is_some())
+            {
                 let text = tab.pane.read(cx).editor.read(cx).value().to_string();
-                if text != tab.recovery_text {
-                    tab.recovery_text = text.clone();
+                if text != tab.save.recovery_text.borrow().as_str() {
+                    tab.save.recovery_text.replace(text.clone());
                     let vault = vault.clone();
                     let path = tab.path.clone();
-                    let baseline = tab.baseline.clone();
-                    let id = tab.id;
+                    let baseline = tab.save.baseline.borrow().clone();
+                    let save = tab.save.clone();
                     let task = cx
                         .background_executor()
                         .spawn(async move { vault.journal(&path, baseline.as_deref(), &text) });
                     cx.spawn(async move |this, cx| {
                         if let Err(error) = task.await {
                             let _ = this.update(cx, |this, cx| {
-                                if let Some(tab) = this.tabs.iter_mut().find(|t| t.id == id) {
-                                    tab.recovery_text.clear();
+                                if let Some(tab) = this
+                                    .tabs
+                                    .iter_mut()
+                                    .find(|t| std::rc::Rc::ptr_eq(&t.save, &save))
+                                {
+                                    tab.save.recovery_text.borrow_mut().clear();
                                 }
                                 this.status = format!("恢复副本写入失败：{error}");
                                 cx.notify();
@@ -1027,13 +1046,18 @@ impl Workspace {
                     .detach();
                 }
             }
-            if !tab.dirty || tab.saving || tab.conflict || tab.error.is_some() {
+            if !tab.save.dirty.get()
+                || tab.save.saving.get()
+                || tab.save.conflict.get()
+                || tab.save.error.borrow().is_some()
+            {
                 continue;
             }
-            tab.saving = true;
-            let (id, generation) = (tab.id, self.generation);
+            tab.save.saving.set(true);
+            let generation = self.generation;
+            let save = tab.save.clone();
             let path = tab.path.clone();
-            let baseline = tab.baseline.clone();
+            let baseline = tab.save.baseline.borrow().clone();
             let text = tab.pane.read(cx).editor.read(cx).value().to_string();
             let vault = vault.clone();
             let task = cx.background_executor().spawn(async move {
@@ -1049,16 +1073,22 @@ impl Workspace {
                     if this.generation != generation {
                         return;
                     }
-                    let Some(tab) = this.tabs.iter_mut().find(|t| t.id == id) else {
+                    let Some(tab) = this
+                        .tabs
+                        .iter_mut()
+                        .find(|t| std::rc::Rc::ptr_eq(&t.save, &save))
+                    else {
                         return;
                     };
-                    tab.saving = false;
+                    tab.save.saving.set(false);
                     match result {
                         Ok(receipt) => {
-                            tab.error = None;
-                            tab.baseline = Some(receipt.text);
-                            tab.dirty = tab.baseline.as_deref()
-                                != Some(tab.pane.read(cx).editor.read(cx).value().as_ref());
+                            tab.save.error.replace(None);
+                            tab.save.baseline.replace(Some(receipt.text));
+                            tab.save.dirty.set(
+                                tab.save.baseline.borrow().as_deref()
+                                    != Some(tab.pane.read(cx).editor.read(cx).value().as_ref()),
+                            );
                             if !this.files.contains(&tab.path) {
                                 this.files.push(tab.path.clone());
                                 this.files.sort();
@@ -1066,12 +1096,12 @@ impl Workspace {
                             this.status = format!("已保存 {}", tab.path.display());
                         }
                         Err(error) => {
-                            tab.conflict = matches!(
+                            tab.save.conflict.set(matches!(
                                 error,
                                 VaultError::Conflict { .. } | VaultError::RaceConflict { .. }
-                            );
+                            ));
                             this.status = error.to_string();
-                            tab.error = Some(this.status.clone());
+                            tab.save.error.replace(Some(this.status.clone()));
                         }
                     }
                     this.finish_pending_closes(window, cx);
@@ -1328,14 +1358,16 @@ impl Workspace {
             cx.notify();
             return;
         }
-        tab.dirty =
-            tab.baseline.as_deref() != Some(tab.pane.read(cx).editor.read(cx).value().as_ref());
-        if tab.conflict || tab.error.is_some() {
+        tab.save.dirty.set(
+            tab.save.baseline.borrow().as_deref()
+                != Some(tab.pane.read(cx).editor.read(cx).value().as_ref()),
+        );
+        if tab.save.conflict.get() || tab.save.error.borrow().is_some() {
             self.status = "请先处理保存错误或另存副本，再关闭标签。".into();
             cx.notify();
             return;
         }
-        if tab.dirty || tab.saving {
+        if tab.save.dirty.get() || tab.save.saving.get() {
             self.ui.close_pending.insert(tab.id);
             self.status = "正在保存，成功后关闭标签…".into();
             self.save_all(window, cx);
@@ -1406,10 +1438,10 @@ impl Workspace {
             .enumerate()
             .filter(|(_, t)| {
                 self.ui.close_pending.contains(&t.id)
-                    && !t.dirty
-                    && !t.saving
-                    && !t.conflict
-                    && t.error.is_none()
+                    && !t.save.dirty.get()
+                    && !t.save.saving.get()
+                    && !t.save.conflict.get()
+                    && t.save.error.borrow().is_none()
                     && !self.ui.prefs.pinned_paths.contains(&t.path)
                     && !self.has_pending_input(t.id, window, cx)
             })
@@ -1688,7 +1720,7 @@ impl Workspace {
         let Some(tab) = self.active.and_then(|i| self.tabs.get_mut(i)) else {
             return;
         };
-        if tab.saving {
+        if tab.save.saving.get() {
             return;
         }
         let stem = tab
@@ -1703,10 +1735,10 @@ impl Workspace {
             .as_nanos();
         tab.path
             .set_file_name(format!("{stem}-副本-{timestamp}.md"));
-        tab.baseline = None;
-        tab.conflict = false;
-        tab.error = None;
-        tab.dirty = true;
+        tab.save.baseline.replace(None);
+        tab.save.conflict.set(false);
+        tab.save.error.replace(None);
+        tab.save.dirty.set(true);
         self.sync_reference_contexts(cx);
         self.save_all(window, cx);
         cx.notify();
@@ -1751,6 +1783,62 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn shared_document_save_survives_removing_the_originating_view(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-shared-save-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.tabs[1].save = w.tabs[0].save.clone();
+                for tab in &w.tabs {
+                    tab.pane
+                        .read(cx)
+                        .editor
+                        .clone()
+                        .update(cx, |s, cx| s.set_value("原文新", window, cx));
+                }
+                w.tabs[0].save.dirty.set(true);
+                w.save_all(window, cx);
+                assert!(w.tabs.iter().all(|tab| tab.save.saving.get()));
+                // Closing one view must not orphan the document's pending save.
+                w.tabs.remove(0);
+                w.active = Some(0);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.md")).unwrap(),
+            "原文新"
+        );
+        handle
+            .update(cx, |w, window, cx| {
+                let tab = &w.tabs[0];
+                assert!(!tab.save.saving.get());
+                assert!(!tab.save.dirty.get());
+                assert!(!tab.save.conflict.get());
+                assert!(tab.save.error.borrow().is_none());
+                assert_eq!(tab.save.baseline.borrow().as_deref(), Some("原文新"));
+                tab.pane.read(cx).editor.clone().update(cx, |s, cx| {
+                    s.select_all(window, cx);
+                    s.replace_text_in_range(None, "继续", window, cx);
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.save_all(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "继续");
+    }
+
     #[gpui::test]
     fn closing_an_unchanged_split_cannot_revert_a_new_primary_edit(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -1912,7 +2000,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert_eq!(w.tabs[0].pane.read(cx).editor.read(cx).value(), "原文你");
-                assert!(w.tabs[0].dirty);
+                assert!(w.tabs[0].save.dirty.get());
                 w.save_all(window, cx);
             })
             .unwrap();
@@ -3437,14 +3525,17 @@ mod tests {
                 assert_eq!(w.tabs.len(), 2);
                 let old = w.tabs.iter().find(|t| t.id == original).unwrap();
                 assert_eq!(old.path, PathBuf::from("folder/source.md"));
-                assert_eq!(old.baseline.as_deref(), Some("original"));
+                assert_eq!(old.save.baseline.borrow().as_deref(), Some("original"));
                 assert_eq!(
                     old.pane.read(cx).editor.read(cx).value(),
                     "original 新编辑😀"
                 );
                 let copy = &w.tabs[w.active.unwrap()];
                 assert_eq!(copy.path, PathBuf::from("folder/source 副本.md"));
-                assert_eq!(copy.baseline.as_deref(), Some("original 新编辑😀"));
+                assert_eq!(
+                    copy.save.baseline.borrow().as_deref(),
+                    Some("original 新编辑😀")
+                );
                 assert_eq!(
                     std::fs::read_to_string(root.join(&copy.path)).unwrap(),
                     "original 新编辑😀"
@@ -3753,7 +3844,7 @@ mod tests {
                 assert!(w.ui.file_operation);
                 assert_eq!(w.ui.pending_file_writes, 1);
                 w.save_all(window, cx);
-                assert!(!w.tabs[0].saving);
+                assert!(!w.tabs[0].save.saving.get());
             })
             .unwrap();
         cx.run_until_parked();
@@ -3772,9 +3863,9 @@ mod tests {
                 assert_eq!(w.ui.prefs.daily.template, "archive/new/target");
                 let disk = std::fs::read_to_string(root.join("archive/new/note.md")).unwrap();
                 assert_eq!(disk, "[[/archive/new/target]] [outside](../../outside.md)");
-                assert_eq!(w.tabs[0].baseline.as_ref(), Some(&disk));
+                assert_eq!(w.tabs[0].save.baseline.borrow().as_ref(), Some(&disk));
                 assert_eq!(w.tabs[0].pane.read(cx).editor.read(cx).value(), disk);
-                assert!(!w.tabs[0].conflict);
+                assert!(!w.tabs[0].save.conflict.get());
                 assert_eq!(
                     std::fs::read_to_string(root.join("outside.md")).unwrap(),
                     "[[/archive/new/note|alias]]"
@@ -3790,9 +3881,9 @@ mod tests {
                     s.set_selected_range(end..end, cx);
                     s.replace(" 新编辑😀", window, cx);
                 });
-                w.tabs[0].dirty = true;
+                w.tabs[0].save.dirty.set(true);
                 w.save_pending(window, cx);
-                assert!(!w.tabs[0].saving);
+                assert!(!w.tabs[0].save.saving.get());
                 w.refresh_requested = true;
                 w.refresh(window, cx);
                 assert!(w.refresh_requested);
@@ -3802,7 +3893,7 @@ mod tests {
         handle
             .update(cx, |w, _, cx| {
                 assert_eq!(w.tabs[0].path, PathBuf::from("final/note.md"));
-                assert!(w.tabs[0].conflict);
+                assert!(w.tabs[0].save.conflict.get());
                 assert!(
                     w.tabs[0]
                         .pane
@@ -3932,7 +4023,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert!(w.views.secondary_focused);
-                assert!(w.tabs[0].dirty);
+                assert!(w.tabs[0].save.dirty.get());
                 let canonical = w.tabs[0].pane.read(cx).editor.clone();
                 assert_eq!(canonical.read(cx).value().as_ref(), "中文😀 新文本");
                 assert_eq!(canonical.read(cx).selected_range(), 0..0);
@@ -3944,7 +4035,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 let mirror = w.views.split.as_ref().unwrap().pane.read(cx).editor.clone();
                 assert_eq!(mirror.read(cx).value().as_ref(), "中文😀");
-                assert!(!w.tabs[0].dirty);
+                assert!(!w.tabs[0].save.dirty.get());
                 w.tabs[0]
                     .pane
                     .read(cx)
@@ -4110,7 +4201,7 @@ mod tests {
             .update(&mut visual, |w, _, _| {
                 assert_eq!(w.tabs.len(), 2);
                 assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("c.md"));
-                w.tabs[0].conflict = true;
+                w.tabs[0].save.conflict.set(true);
             })
             .unwrap();
         for _ in 0..3 {
@@ -4220,7 +4311,7 @@ mod tests {
                 w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
                 w.new_blank(window, cx);
                 assert!(w.tabs[0].path.as_os_str().is_empty());
-                assert!(!w.tabs[0].dirty);
+                assert!(!w.tabs[0].save.dirty.get());
                 w.focus_new(window, cx);
                 assert_eq!(w.tabs.len(), 1);
                 assert_eq!(w.tabs[0].path, PathBuf::from("未命名.md"));
@@ -4346,7 +4437,7 @@ mod tests {
                     .update(cx, |s, cx| s.replace("不能丢失😀", window, cx));
                 w.close_tab(window, cx);
                 assert_eq!(w.tabs.len(), 1);
-                assert!(w.tabs[0].saving);
+                assert!(w.tabs[0].save.saving.get());
             })
             .unwrap();
         cx.run_until_parked();
@@ -4378,7 +4469,7 @@ mod tests {
         handle
             .update(cx, |w, _, _| {
                 assert_eq!(w.tabs.len(), 1);
-                assert!(w.tabs[0].conflict);
+                assert!(w.tabs[0].save.conflict.get());
             })
             .unwrap();
         assert_eq!(
@@ -4419,7 +4510,7 @@ mod tests {
                     w.tabs[0].pane.read(cx).editor.read(cx).value().as_ref(),
                     "原文"
                 );
-                assert!(!w.tabs[0].dirty);
+                assert!(!w.tabs[0].save.dirty.get());
                 w.close_split(window, cx);
                 assert!(w.views.split.is_some());
                 std::fs::write(root.join("a.md"), "外部更新").unwrap();
@@ -4429,7 +4520,7 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, window, cx| {
-                assert!(w.tabs[0].conflict);
+                assert!(w.tabs[0].save.conflict.get());
                 w.current_pane()
                     .unwrap()
                     .read(cx)
@@ -4474,10 +4565,10 @@ mod tests {
                 w.close_tab_group(Some(a), 0, window, cx);
                 assert_eq!(w.tabs.len(), 2);
                 assert_eq!(w.tabs[w.active.unwrap()].id, a);
-                w.tabs[0].conflict = true;
+                w.tabs[0].save.conflict.set(true);
                 w.close_tab_group(None, 2, window, cx);
                 assert_eq!(w.tabs.len(), 2);
-                w.tabs[0].conflict = false;
+                w.tabs[0].save.conflict.set(false);
                 w.close_tab_group(None, 2, window, cx);
                 assert_eq!(w.tabs.len(), 1);
                 assert_eq!(w.tabs[0].path, PathBuf::from("b.md"));
@@ -4809,8 +4900,8 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |workspace, window, cx| {
-                assert!(workspace.tabs[0].dirty);
-                workspace.tabs[0].baseline = Some(
+                assert!(workspace.tabs[0].save.dirty.get());
+                workspace.tabs[0].save.baseline.replace(Some(
                     workspace.tabs[0]
                         .pane
                         .read(cx)
@@ -4818,8 +4909,8 @@ mod tests {
                         .read(cx)
                         .value()
                         .to_string(),
-                );
-                workspace.tabs[0].dirty = false;
+                ));
+                workspace.tabs[0].save.dirty.set(false);
                 workspace.execute_command(27, window, cx);
                 workspace.close_tab(window, cx);
                 assert_eq!(workspace.tabs.len(), 1);
@@ -5087,7 +5178,11 @@ mod tests {
             .update(cx, |workspace, _, cx| {
                 let tab = &workspace.tabs[workspace.active.unwrap()];
                 assert_ne!(tab.path, std::path::Path::new("原件.md"));
-                assert!(!tab.dirty && !tab.saving && tab.error.is_none());
+                assert!(
+                    !tab.save.dirty.get()
+                        && !tab.save.saving.get()
+                        && tab.save.error.borrow().is_none()
+                );
                 assert_eq!(tab.pane.read(cx).editor.read(cx).value().as_ref(), draft);
                 let path = root.join(&tab.path);
                 workspace.watcher = None;
@@ -5145,7 +5240,7 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |workspace, window, cx| {
-                assert!(workspace.tabs[0].dirty);
+                assert!(workspace.tabs[0].save.dirty.get());
                 workspace.save_all(window, cx);
             })
             .unwrap();
@@ -5154,7 +5249,7 @@ mod tests {
         assert_eq!(persisted, "# 中文😀\r\n**原文**\r\n");
         handle
             .update(cx, |workspace, window, cx| {
-                assert!(!workspace.tabs[0].dirty);
+                assert!(!workspace.tabs[0].save.dirty.get());
                 workspace.tabs.clear();
                 workspace.active = None;
                 workspace.open_note(PathBuf::from("测试.md"), window, cx);
@@ -5178,8 +5273,8 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |workspace, _, cx| {
-                assert!(workspace.tabs[0].conflict);
-                assert!(workspace.tabs[0].dirty);
+                assert!(workspace.tabs[0].save.conflict.get());
+                assert!(workspace.tabs[0].save.dirty.get());
                 assert!(
                     workspace.tabs[0]
                         .pane
