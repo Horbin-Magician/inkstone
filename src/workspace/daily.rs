@@ -25,8 +25,8 @@ impl Workspace {
                     ("模板文件位置", "首次创建日记时插入；支持 {{date}}、{{time}}、{{title}} 和 {{date:YYYY-MM-DD}}。"),
                 ].into_iter().enumerate().map(|(i, (title, description))| {
                     div().flex().items_center().justify_between().gap_4().pb_4()
-                        .child(div().flex_1().child(title).child(div().text_xs().text_color(rgb(0x999999)).child(description)))
-                        .child(div().w(px(220.)).child(Input::new(&self.ui.daily_inputs[i])))
+                        .child(div().flex_1().min_w_0().child(title).child(div().text_size(px(13.)).line_height(relative(1.4)).whitespace_normal().text_color(rgb(0x999999)).child(description)))
+                        .child(div().w(px(220.)).flex_shrink_0().child(Input::new(&self.ui.daily_inputs[i])))
                 }))
                 .child(div().text_sm().child(preview))
                 .when_some(self.ui.prefs.daily.template_path().err(), |s, error| s.child(div().text_sm().child(error)))
