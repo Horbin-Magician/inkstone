@@ -33,6 +33,11 @@ pub use semantic_tokens::*;
 pub type ShowDocumentHandler =
     Rc<dyn Fn(&lsp_types::ShowDocumentParams, &mut Window, &mut App) -> bool>;
 
+/// Host hook retaining the modifiers from the originating pointer event.
+pub type ShowDocumentWithModifiersHandler = Rc<
+    dyn Fn(&lsp_types::ShowDocumentParams, Option<gpui::Modifiers>, &mut Window, &mut App) -> bool,
+>;
+
 /// LSP ServerCapabilities
 ///
 /// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#serverCapabilities
@@ -54,6 +59,7 @@ pub struct Lsp {
     ///
     /// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#window_showDocument
     pub show_document: Option<ShowDocumentHandler>,
+    pub show_document_with_modifiers: Option<ShowDocumentWithModifiersHandler>,
 
     /// Display options for the completion popover.
     pub completion_menu: CompletionMenuOptions,
@@ -80,6 +86,7 @@ impl Default for Lsp {
             completion_menu: CompletionMenuOptions::default(),
             semantic_tokens_provider: None,
             show_document: None,
+            show_document_with_modifiers: None,
             document_colors: vec![],
             semantic_tokens: vec![],
             _hover_task: Task::ready(Ok(())),
