@@ -41,6 +41,7 @@ impl Default for ViewState {
 #[serde(default)]
 pub struct Preferences {
     pub daily: crate::daily::Settings,
+    pub templates: crate::templates::Settings,
     pub hotkeys: std::collections::BTreeMap<usize, Vec<String>>,
     pub graph: crate::graph::Options,
     pub local_graph: crate::graph::Options,
@@ -77,6 +78,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             daily: Default::default(),
+            templates: Default::default(),
             hotkeys: Default::default(),
             graph: Default::default(),
             local_graph: Default::default(),
@@ -215,6 +217,9 @@ mod tests {
         prefs.daily.folder = "日记".into();
         prefs.daily.format = "YYYY/MM/DD".into();
         prefs.daily.template = "模板/日记.md".into();
+        prefs.templates.folder = "模板".into();
+        prefs.templates.date_format = "YYYY年MM月DD日".into();
+        prefs.templates.time_format = "HH:mm:ss".into();
         prefs.always_update_links = true;
         prefs.use_markdown_links = true;
         prefs.auto_reveal_file = true;
@@ -252,6 +257,12 @@ mod tests {
         assert_eq!(Preferences::load(&path).daily.folder, "日记");
         assert_eq!(Preferences::load(&path).daily.format, "YYYY/MM/DD");
         assert_eq!(Preferences::load(&path).daily.template, "模板/日记.md");
+        assert_eq!(Preferences::load(&path).templates.folder, "模板");
+        assert_eq!(
+            Preferences::load(&path).templates.date_format,
+            "YYYY年MM月DD日"
+        );
+        assert_eq!(Preferences::load(&path).templates.time_format, "HH:mm:ss");
         assert_eq!(
             Preferences::load(&path).views[0].callout_states.get(&42),
             Some(&true)
