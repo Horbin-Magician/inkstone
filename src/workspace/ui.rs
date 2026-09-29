@@ -11,7 +11,7 @@ use gpui_component::{
     tree::Tree,
 };
 use inkstone::file_order::SortBy;
-use inkstone::preferences::{Navigation, Preferences};
+use inkstone::preferences::Preferences;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum NameMode {
@@ -59,7 +59,6 @@ pub(super) struct UiState {
     pub font_size_slider: Entity<SliderState>,
     _font_size_subscription: Subscription,
     _tab_width_subscription: Subscription,
-    pub history: Navigation,
     pub closed: Vec<ClosedTab>,
     pub close_pending: std::collections::BTreeSet<usize>,
     pub window_close_requested: bool,
@@ -405,7 +404,6 @@ impl UiState {
             font_size_slider,
             _font_size_subscription: font_size_subscription,
             _tab_width_subscription: tab_width_subscription,
-            history: Navigation::default(),
             closed: vec![],
             close_pending: Default::default(),
             window_close_requested: false,
@@ -1156,13 +1154,20 @@ impl Workspace {
         cx.notify();
     }
     fn navigate(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pane) = self.current_pane() else {
+            return;
+        };
+        let mut history = pane.read(cx).navigation.clone();
         let path = if forward {
-            self.ui.history.forward()
+            history.forward()
         } else {
-            self.ui.history.back()
+            history.back()
         };
         if let Some(path) = path {
-            self.open_note(path, window, cx);
+            self.navigation_generation += 1;
+            self.pending_navigation = None;
+            self.pending_jump = None;
+            self.open_current_note(path, history, window, cx);
         }
     }
     fn cycle_tab(&mut self, backwards: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -3411,17 +3416,33 @@ impl Workspace {
                         .gap_1()
                         .child(
                             tool("back", "arrow-left", "返回 Alt+Left")
-                                .disabled(self.ui.history.cursor == 0)
-                                .on_click(
-                                    cx.listener(|this, _, w, cx| this.navigate(false, w, cx)),
-                                ),
+                                .disabled(
+                                    pane.as_ref()
+                                        .is_none_or(|p| p.read(cx).navigation.cursor == 0),
+                                )
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    if secondary {
+                                        this.focus_secondary(cx);
+                                    } else if let Some(index) = index {
+                                        this.focus_primary(index, w, cx);
+                                    }
+                                    this.navigate(false, w, cx)
+                                })),
                         )
                         .child(
                             tool("forward", "arrow-right", "前进 Alt+Right")
-                                .disabled(
-                                    self.ui.history.cursor + 1 >= self.ui.history.entries.len(),
-                                )
-                                .on_click(cx.listener(|this, _, w, cx| this.navigate(true, w, cx))),
+                                .disabled(pane.as_ref().is_none_or(|p| {
+                                    let history = &p.read(cx).navigation;
+                                    history.cursor + 1 >= history.entries.len()
+                                }))
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    if secondary {
+                                        this.focus_secondary(cx);
+                                    } else if let Some(index) = index {
+                                        this.focus_primary(index, w, cx);
+                                    }
+                                    this.navigate(true, w, cx)
+                                })),
                         )
                         .child(
                             div()

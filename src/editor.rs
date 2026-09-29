@@ -40,6 +40,7 @@ struct CountSnapshot {
 }
 
 pub struct EditorPane {
+    pub navigation: inkstone::preferences::Navigation,
     count_cache: Option<CountSnapshot>,
     count_task: Option<Task<()>>,
     count_revision: u64,
@@ -672,6 +673,7 @@ impl EditorPane {
             parse_task: None,
             parsed: ParsedNote::default(),
             reading: false,
+            navigation: Default::default(),
             font_size: 16.,
             quick_font_size: false,
             font_zoom: Default::default(),

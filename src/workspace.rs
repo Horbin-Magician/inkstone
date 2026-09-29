@@ -6,6 +6,7 @@ mod file_settings;
 mod hotkeys;
 mod inline_title;
 mod link_updates;
+mod navigation;
 mod templates;
 mod ui;
 mod views;
@@ -94,6 +95,7 @@ pub struct Workspace {
     _name_subscription: Subscription,
     _tree_subscription: Subscription,
     pending_jump: Option<(PathBuf, usize)>,
+    pending_navigation: Option<navigation::PendingNavigation>,
     backlinks: Vec<PathBuf>,
     backlink_scroll: UniformListScrollHandle,
     tree: Entity<TreeState>,
@@ -178,6 +180,7 @@ impl Workspace {
             self.refresh(window, cx);
         }
         self.save_pending(window, cx);
+        self.finish_pending_navigation(window, cx);
         self.finish_pending_closes(window, cx);
         self.persist_workspace(cx);
         self.finish_window_close(window, cx);
@@ -423,13 +426,18 @@ impl Workspace {
                             .bookmarks
                             .iter_mut()
                             .chain(this.ui.prefs.pinned_paths.iter_mut())
-                            .chain(this.ui.history.entries.iter_mut())
                         {
                             if *item == old {
                                 *item = path.clone();
                             }
                         }
                         this.relocate_document(&document, path);
+                        this.relocate_navigation(
+                            &old,
+                            Some(&this.tabs[index].path.clone()),
+                            false,
+                            cx,
+                        );
                         this.persist_workspace(cx);
                         this.sync_reference_contexts(cx);
                         if focus_after && let Some(pane) = this.current_pane() {
@@ -554,6 +562,7 @@ impl Workspace {
             _name_subscription: name_subscription,
             _tree_subscription: tree_subscription,
             pending_jump: None,
+            pending_navigation: None,
             backlinks: vec![],
             backlink_scroll: UniformListScrollHandle::new(),
             tree,
@@ -705,7 +714,7 @@ impl Workspace {
                         ui::apply_theme(this.ui.prefs.light, cx);
                         this.apply_font_preferences(cx);
                         this.sync_font_selects(window, cx);
-                        this.ui.history = Default::default();
+                        this.pending_navigation = None;
                         this.ui.closed.clear();
                         this.ui.inline_title = None;
                         this.ui.close_pending.clear();
@@ -909,6 +918,16 @@ impl Workspace {
         }
         self.navigation_generation += 1;
         let navigation_generation = self.navigation_generation;
+        self.pending_navigation = None;
+        let force_new = force_new || (view.is_none() && self.current_view_pinned());
+        if view.is_none()
+            && !force_new
+            && let Some(pane) = self.current_pane()
+        {
+            let history = pane.read(cx).navigation.clone();
+            self.open_current_note(path, history, window, cx);
+            return;
+        }
         if let Some(i) = self.existing_note_target(&path) {
             self.open_existing_note(i, view.as_ref(), force_new, window, cx);
             return;
@@ -1000,6 +1019,9 @@ impl Workspace {
             .unwrap_or_else(|| baseline.clone().unwrap_or_default().into());
         let pane = cx.new(|cx| {
             let mut pane = EditorPane::new(&initial_text, window, cx);
+            if !path.as_os_str().is_empty() {
+                pane.navigation.visit(path.clone());
+            }
             pane.live = self.ui.prefs.default_live_preview;
             pane.reading = self.ui.prefs.default_reading && !new && !path.as_os_str().is_empty();
             pane
@@ -1136,11 +1158,6 @@ impl Workspace {
         }
         self.close_quick_search(window, cx);
         self.ui.name_mode = None;
-        if !self.tabs.last().unwrap().path.as_os_str().is_empty() {
-            self.ui
-                .history
-                .visit(self.tabs.last().unwrap().path.clone());
-        }
         self.apply_editor_preferences(window, cx);
         if let Some((path, command)) = self.ui.pending_command.take()
             && self
@@ -1297,6 +1314,7 @@ impl Workspace {
                         }
                     }
                     this.finish_pending_closes(window, cx);
+                    this.finish_pending_navigation(window, cx);
                     cx.notify();
                 });
             })
@@ -1402,6 +1420,10 @@ impl Workspace {
         self.create_note(window, cx);
     }
     fn activate_tab(&mut self, mut index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.active != Some(index) {
+            self.navigation_generation += 1;
+            self.pending_navigation = None;
+        }
         self.graph_open = false;
         let id = self.tabs[index].id;
         if self
@@ -1425,9 +1447,6 @@ impl Workspace {
         }
         self.active = Some(index);
         self.close_quick_search(window, cx);
-        if !self.tabs[index].path.as_os_str().is_empty() {
-            self.ui.history.visit(self.tabs[index].path.clone());
-        }
         if self.views.secondary_focused && self.views.split.is_some() {
             if self
                 .views
@@ -5590,9 +5609,11 @@ mod tests {
                 w.new_blank(window, cx);
                 assert_eq!(w.tabs.len(), 2);
                 w.open_note("未命名.md".into(), window, cx);
-                assert_eq!(w.tabs.len(), 1);
+                assert_eq!(w.tabs.len(), 2);
+                assert_eq!(w.tabs[1].path, PathBuf::from("未命名.md"));
+                assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
                 w.focus_new(window, cx);
-                assert_eq!(w.tabs[1].path, PathBuf::from("未命名 1.md"));
+                assert_eq!(w.tabs[2].path, PathBuf::from("未命名 1.md"));
             })
             .unwrap();
         cx.run_until_parked();
@@ -6247,7 +6268,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn reopening_existing_tab_moves_keyboard_focus(cx: &mut TestAppContext) {
+    fn opening_existing_document_replaces_current_view_and_focuses_it(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
         handle
@@ -6264,8 +6285,11 @@ mod tests {
                         .is_focused(window)
                 );
                 workspace.open_note("a.md".into(), window, cx);
+                assert_eq!(workspace.tabs.len(), 2);
+                assert_eq!(workspace.active, Some(1));
+                assert_eq!(workspace.tabs[1].path, PathBuf::from("a.md"));
                 assert!(
-                    workspace.tabs[0]
+                    workspace.tabs[1]
                         .pane
                         .read(cx)
                         .editor

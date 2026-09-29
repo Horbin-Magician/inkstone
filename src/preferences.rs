@@ -293,7 +293,7 @@ fn relocate_setting(value: &mut String, old: &Path, new: &Path, folder: bool, ma
     *value = target.to_string_lossy().replace('\\', "/");
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Navigation {
     pub entries: Vec<PathBuf>,
     pub cursor: usize,
