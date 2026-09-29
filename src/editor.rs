@@ -197,12 +197,13 @@ impl EditorPane {
             cx.stop_propagation();
             return;
         }
-        let Some(edit) = inkstone::markdown_edit::edit_with_indent(
+        let Some(edit) = inkstone::markdown_edit::edit_with_options(
             &state.value(),
             state.selected_range(),
             key,
             self.indentation.tab_size,
             self.indentation.hard_tabs,
+            self.smart_lists,
         ) else {
             return;
         };
@@ -1630,6 +1631,34 @@ mod tests {
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn exiting_an_ordered_item_restores_numbers_and_caret_on_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "1. 中文\n2. \n3. following";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(13..13, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("enter");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "1. 中文\n\n2. following");
+            assert_eq!(s.selected_range(), 10..10);
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), source);
+            assert_eq!(s.selected_range(), 13..13);
+        });
     }
 
     #[gpui::test]
