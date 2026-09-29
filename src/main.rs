@@ -28,7 +28,6 @@ fn main() {
                 KeyBinding::new("ctrl-\\", workspace::SplitRight, None),
                 KeyBinding::new("ctrl-t", workspace::NewTab, None),
                 KeyBinding::new("ctrl-w", workspace::CloseTab, None),
-                KeyBinding::new("ctrl-shift-l", workspace::ToggleLeft, None),
                 KeyBinding::new("ctrl-shift-r", workspace::ToggleRight, None),
                 KeyBinding::new("ctrl-,", workspace::Settings, None),
                 KeyBinding::new("alt-left", workspace::NavigateBack, None),

@@ -214,8 +214,10 @@ impl Selections {
         let mut merged: Vec<CursorSelection> = Vec::with_capacity(self.selections.len());
         for selection in &self.selections {
             if let Some(last) = merged.last_mut() {
-                if selection.start <= last.end {
-                    // Overlapping or adjacent, extend the last one.
+                if selection.start < last.end
+                    || (selection.is_empty() && selection.start == last.end)
+                {
+                    // Distinct adjacent non-empty ranges remain independently editable.
                     let did_merge = selection.start != last.start || selection.end != last.end;
                     last.end = last.end.max(selection.end);
                     if selection.id == active_id {

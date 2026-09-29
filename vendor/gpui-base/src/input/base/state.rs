@@ -93,6 +93,7 @@ actions!(
         AddCursorAbove,
         AddCursorBelow,
         SelectNextOccurrence,
+        SelectAllOccurrences,
         SelectAll,
         SelectToStartOfLine,
         SelectToEndOfLine,
@@ -257,6 +258,10 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("cmd-d", SelectNextOccurrence, Some(CONTEXT)),
         #[cfg(not(target_os = "macos"))]
         KeyBinding::new("ctrl-d", SelectNextOccurrence, Some(CONTEXT)),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-shift-l", SelectAllOccurrences, Some(CONTEXT)),
+        #[cfg(not(target_os = "macos"))]
+        KeyBinding::new("ctrl-shift-l", SelectAllOccurrences, Some(CONTEXT)),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-c", Copy, Some(CONTEXT)),
         #[cfg(not(target_os = "macos"))]
@@ -2707,6 +2712,60 @@ impl<M: InputModeKind> InputBaseState<M> {
                 handler(NativeMenu::new(), capabilities, position, window, cx);
             });
         }
+    }
+
+    /// Select all literal matches of a single non-empty selection.
+    pub fn select_all_occurrences(
+        &mut self,
+        _: &SelectAllOccurrences,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.is_multi_line()
+            || self.ime_marked_range.is_some()
+            || !self.selections.is_single()
+            || self.active_selection().is_empty()
+        {
+            return;
+        }
+        let original = *self.active_selection();
+        let source = self.text.to_string();
+        let needle = &source[original.start..original.end];
+        let ranges: Vec<_> = source
+            .match_indices(needle)
+            .map(|(start, _)| start..start + needle.len())
+            .filter(|range| {
+                self.cursor_boundary(range.start, Bias::Left) == range.start
+                    && self.cursor_boundary(range.end, Bias::Right) == range.end
+            })
+            .take(1002)
+            .collect();
+        // The reference aborts when another match follows 1001 selections.
+        if ranges.is_empty() || ranges.len() > 1001 {
+            return;
+        }
+        let active = ranges
+            .iter()
+            .position(|range| range.start == original.start)
+            .unwrap_or(0);
+        let mut selections = Vec::with_capacity(ranges.len());
+        for (index, range) in ranges.into_iter().enumerate() {
+            let id = if index == active {
+                original.id
+            } else {
+                self.selections.generate_id()
+            };
+            self.unfold_offset(range.start, cx);
+            self.unfold_offset(range.end, cx);
+            selections.push(CursorSelection::new(id, range.start, range.end));
+        }
+        selections.swap(0, active);
+        self.undo_manager.break_transaction_coalescing();
+        self.selections.replace_all(selections);
+        self.selected_word_range = None;
+        self.pause_blink_cursor(cx);
+        self.update_preferred_column();
+        cx.notify();
     }
 
     /// Select the word at collapsed carets, or add the next matching selection.
@@ -5344,6 +5403,7 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
                     .on_action(window.listener_for(&entity, InputBaseState::add_cursor_above))
                     .on_action(window.listener_for(&entity, InputBaseState::add_cursor_below))
                     .on_action(window.listener_for(&entity, InputBaseState::select_next_occurrence))
+                    .on_action(window.listener_for(&entity, InputBaseState::select_all_occurrences))
             })
             .on_action(window.listener_for(&entity, InputBaseState::on_action_select_all))
             .on_action(window.listener_for(&entity, InputBaseState::select_to_start_of_line))

@@ -8,6 +8,10 @@ impl Workspace {
         if id == 79 {
             return vec!["cmd-d".into()];
         }
+        #[cfg(target_os = "macos")]
+        if id == 80 {
+            return vec!["cmd-shift-l".into()];
+        }
         if id == 39 {
             return vec!["ctrl-p".into(), "ctrl-shift-p".into()];
         }
@@ -169,7 +173,7 @@ impl Workspace {
             .map(|c| c.0)
         {
             cx.stop_propagation();
-            if id == 79
+            if matches!(id, 79..=80)
                 && !self.current_pane().is_some_and(|pane| {
                     let pane = pane.read(cx);
                     !pane.reading && pane.editor.read(cx).focus_handle(cx).is_focused(window)
@@ -374,6 +378,36 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn all_occurrences_default_and_custom_sidebar_binding_do_not_conflict(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let editor = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("note.md".into(), Some("cat cat".into()), false, window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                editor.update(cx, |s, cx| s.set_selected_range(0..3, cx));
+                w.ui.prefs.left_open = true;
+                editor
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-shift-l");
+        editor.read_with(&visual, |s, _| assert!(s.has_multiple_selections()));
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert!(w.ui.prefs.left_open);
+                w.ui.prefs.hotkeys.insert(12, vec!["ctrl-shift-l".into()]);
+                assert!(w.hotkeys(80).is_empty());
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-shift-l");
+        handle
+            .update(&mut visual, |w, _, _| assert!(!w.ui.prefs.left_open))
+            .unwrap();
+    }
+
     #[gpui::test]
     fn occurrence_hotkeys_are_customizable_and_only_target_the_focused_editor(
         cx: &mut TestAppContext,

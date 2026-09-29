@@ -2533,6 +2533,72 @@ mod tests {
     }
 
     #[gpui::test]
+    fn select_all_occurrences_keeps_adjacent_ranges_and_undoes_once(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (source, selection, expected) in [
+            ("cat scatter cat Cat", 12..15, "x sxter x Cat"),
+            ("中文中文", 0..6, "xx"),
+            ("e\u{301}e\u{301}", 0..3, "xx"),
+            ("😀😀", 0..4, "xx"),
+        ] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            let editor = handle
+                .update(cx, |p, w, cx| {
+                    p.editor.update(cx, |s, cx| {
+                        s.set_selected_range(selection.clone(), cx);
+                        s.focus(w, cx);
+                    });
+                    p.editor.clone()
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.simulate_keystrokes("ctrl-shift-l");
+            handle
+                .update(&mut visual, |_, w, cx| {
+                    editor.update(cx, |s, cx| {
+                        assert!(s.has_multiple_selections());
+                        assert_eq!(s.selected_range(), selection);
+                        s.replace_text_in_range(None, "x", w, cx);
+                        assert_eq!(s.value(), expected);
+                    });
+                })
+                .unwrap();
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), source);
+                assert_eq!(s.selected_range(), selection);
+                assert!(s.has_multiple_selections());
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn select_all_occurrences_respects_empty_selection_and_reference_limit(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    for count in [1001, 1002] {
+                        let source = "a ".repeat(count);
+                        s.set_value(&source, w, cx);
+                        s.set_selected_range(0..0, cx);
+                        s.select_all_occurrences(&gpui_base::input::SelectAllOccurrences, w, cx);
+                        assert_eq!(s.selected_range(), 0..0);
+                        s.set_selected_range(0..1, cx);
+                        s.select_all_occurrences(&gpui_base::input::SelectAllOccurrences, w, cx);
+                        assert_eq!(s.has_multiple_selections(), count == 1001);
+                        assert_eq!(s.value(), source);
+                    }
+                });
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn ctrl_d_selects_words_wraps_and_edits_all_occurrences(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "cat scatter cat Cat cat";
