@@ -399,11 +399,7 @@ impl Workspace {
             self.current_pane()
                 .map(|pane| (tab.id, pane.read(cx).editor.read(cx).value().to_string()))
         });
-        let display = if value == "null" {
-            String::new()
-        } else {
-            serde_json::from_str::<String>(value).unwrap_or_else(|_| value.to_string())
-        };
+        let display = self.ui.property_kind.editor_value(value);
         self.ui
             .property_key
             .update(cx, |s, cx| s.set_value(name.to_string(), w, cx));
@@ -433,6 +429,48 @@ impl Workspace {
         } else {
             self.ui.property_kind
         }
+    }
+    pub(super) fn change_property_kind(
+        &mut self,
+        kind: inkstone::properties::Kind,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use inkstone::properties::Kind;
+        let previous = self.effective_property_kind(cx);
+        if previous == kind {
+            return;
+        }
+        if previous == Kind::List && !self.add_property_list_item(w, cx) {
+            return;
+        }
+        if kind == Kind::List {
+            let value = self.ui.property_value.read(cx).value().to_string();
+            let items = if value.is_empty() {
+                vec![]
+            } else {
+                vec![value]
+            };
+            self.ui.property_value.update(cx, |s, cx| {
+                s.set_value(serde_json::to_string(&items).unwrap(), w, cx)
+            });
+        }
+        self.ui.property_kind = kind;
+        self.ui.property_error.clear();
+        self.sync_property_dates(w, cx);
+        if kind == Kind::Checkbox {
+            self.ui.property_value.update(cx, |s, cx| {
+                s.set_value((s.value().as_ref() == "true").to_string(), w, cx)
+            });
+            w.focus(&self.ui.modal_focus, cx);
+        } else if kind == Kind::List {
+            self.ui
+                .property_list_entry
+                .update(cx, |s, cx| s.focus(w, cx));
+        } else {
+            self.ui.property_value.update(cx, |s, cx| s.focus(w, cx));
+        }
+        cx.notify();
     }
     pub(super) fn sync_property_dates(&mut self, w: &mut Window, cx: &mut Context<Self>) {
         use gpui_component::date_picker::DateTime;

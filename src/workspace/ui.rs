@@ -2987,20 +2987,7 @@ impl Workspace {
                                     .checked(kind == choice)
                                     .on_click(move |_, w, cx| {
                                         let _ = weak.update(cx, |this, cx| {
-                                            this.ui.property_kind = choice;
-                                            this.ui.property_error.clear();
-                                            this.sync_property_dates(w, cx);
-                                            if choice == Kind::Checkbox {
-                                                this.ui.property_value.update(cx, |s, cx| {
-                                                    s.set_value(
-                                                        (s.value().as_ref() == "true").to_string(),
-                                                        w,
-                                                        cx,
-                                                    )
-                                                });
-                                                w.focus(&this.ui.modal_focus, cx);
-                                            }
-                                            cx.notify();
+                                            this.change_property_kind(choice, w, cx);
                                         });
                                     }),
                             );
