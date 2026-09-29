@@ -173,7 +173,7 @@ impl Workspace {
             .map(|c| c.0)
         {
             cx.stop_propagation();
-            if matches!(id, 79..=80)
+            if matches!(id, 79..=82)
                 && !self.current_pane().is_some_and(|pane| {
                     let pane = pane.read(cx);
                     !pane.reading && pane.editor.read(cx).focus_handle(cx).is_focused(window)
@@ -378,6 +378,55 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn line_move_shortcuts_preserve_crlf_direction_and_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let source = "甲\r\n乙\r\n丙";
+        let editor = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                editor.update(cx, |s, cx| s.set_selected_range(8..8, cx));
+                editor
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("shift-left alt-up");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "乙\r\n甲\r\n丙");
+            assert_eq!(s.selected_range(), 0..3);
+        });
+        visual.simulate_keystrokes("shift-right");
+        editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 3..3));
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), source);
+            assert_eq!(s.selected_range(), 5..8);
+        });
+        visual.simulate_keystrokes("alt-down");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "甲\r\n丙\r\n乙");
+            assert_eq!(s.selected_range(), 10..13);
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), source));
+        handle
+            .update(&mut visual, |_, window, cx| {
+                editor.update(cx, |s, cx| {
+                    s.set_value("同\n同", window, cx);
+                    s.set_selected_range(0..0, cx);
+                });
+            })
+            .unwrap();
+        visual.simulate_keystrokes("alt-down");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "同\n同");
+            assert_eq!(s.selected_range(), 4..4);
+        });
+    }
+
     #[gpui::test]
     fn all_occurrences_default_and_custom_sidebar_binding_do_not_conflict(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

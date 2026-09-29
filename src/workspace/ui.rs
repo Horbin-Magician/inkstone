@@ -659,6 +659,8 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (78, "打开下一篇日记", ""),
     (79, "选择下一个相同文本", "Ctrl+D"),
     (80, "选择所有相同文本", "Ctrl+Shift+L"),
+    (81, "上移当前行", "Alt+Up"),
+    (82, "下移当前行", "Alt+Down"),
 ];
 
 #[derive(Clone)]
@@ -1142,7 +1144,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=80)
+        if self.graph_open && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=82)
         {
             self.graph_open = false;
         }
@@ -1346,6 +1348,11 @@ impl Workspace {
                             });
                         }
                     });
+                }
+            }
+            81..=82 => {
+                if let Some(pane) = self.current_pane() {
+                    pane.update(cx, |pane, cx| pane.move_lines(id == 82, window, cx));
                 }
             }
             _ => (),
