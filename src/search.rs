@@ -1,6 +1,7 @@
 //! Obsidian-style text terms, quoted phrases, OR, exclusions and field filters.
 use regex::{Regex, RegexBuilder};
 use std::path::Path;
+mod group;
 
 enum Pattern {
     Text(String),
@@ -115,6 +116,7 @@ impl Term {
 }
 pub struct Query {
     groups: Vec<Vec<Term>>,
+    expression: Option<group::Expression>,
 }
 pub struct LineMatch {
     pub offset: usize,
@@ -128,6 +130,15 @@ impl Query {
         Self::parse_with_case(input, false)
     }
     pub fn parse_with_case(input: &str, case_sensitive: bool) -> Result<Self, String> {
+        if let Some(expression) = group::parse(input, case_sensitive)? {
+            return Ok(Self {
+                groups: vec![],
+                expression: Some(expression),
+            });
+        }
+        Self::parse_flat(input, case_sensitive)
+    }
+    fn parse_flat(input: &str, case_sensitive: bool) -> Result<Self, String> {
         let mut words = vec![];
         let mut current = String::new();
         let mut quote = false;
@@ -293,21 +304,36 @@ impl Query {
         if groups.len() > 1 && groups.last().is_some_and(Vec::is_empty) {
             return Err("OR 后缺少搜索条件".into());
         }
-        Ok(Self { groups })
+        Ok(Self {
+            groups,
+            expression: None,
+        })
     }
     pub fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
+        if let Some(expression) = &self.expression {
+            return expression.matches(path, text, tags);
+        }
         self.groups.iter().any(|group| {
             !group.is_empty() && group.iter().all(|term| term.matches(path, text, tags))
         })
     }
     pub fn first_offset(&self, path: &Path, text: &str, tags: &[String]) -> Option<usize> {
+        self.patterns(path, text, tags)
+            .into_iter()
+            .filter_map(|pattern| pattern.first_offset(text))
+            .min()
+    }
+    fn patterns<'a>(&'a self, path: &Path, text: &str, tags: &[String]) -> Vec<&'a Pattern> {
+        if let Some(expression) = &self.expression {
+            return expression.patterns(path, text, tags);
+        }
         self.groups
             .iter()
             .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
             .flat_map(|group| group.iter())
             .filter(|term| !term.exclude && matches!(term.field, Field::Text))
-            .filter_map(|term| term.pattern.first_offset(text))
-            .min()
+            .map(|term| &term.pattern)
+            .collect()
     }
     /// Only terms from Boolean branches satisfied by the whole document may produce hits.
     pub fn matching_lines(
@@ -317,14 +343,7 @@ impl Query {
         tags: &[String],
         limit: usize,
     ) -> Vec<LineMatch> {
-        let patterns: Vec<_> = self
-            .groups
-            .iter()
-            .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
-            .flat_map(|group| group.iter())
-            .filter(|term| !term.exclude && matches!(term.field, Field::Text))
-            .map(|term| &term.pattern)
-            .collect();
+        let patterns = self.patterns(path, text, tags);
         if patterns.is_empty() || limit == 0 {
             return vec![];
         }
@@ -414,6 +433,36 @@ impl Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn grouped_boolean_queries_support_precedence_negation_and_scoped_prefixes() {
+        let path = Path::new("Note.md");
+        let grouped = Query::parse("(alpha OR beta) project").unwrap();
+        assert!(grouped.matches(path, "alpha project", &[]));
+        assert!(grouped.matches(path, "beta project", &[]));
+        assert!(!grouped.matches(path, "alpha", &[]));
+        assert!(
+            Query::parse("alpha OR (beta project)")
+                .unwrap()
+                .matches(path, "alpha", &[])
+        );
+        let excluded = Query::parse("-(draft OR archive) project").unwrap();
+        assert!(excluded.matches(path, "project", &[]));
+        assert!(!excluded.matches(path, "draft project", &[]));
+        let scoped =
+            Query::parse("file:(Note OR Other) match-case:(Alpha OR ignore-case:beta)").unwrap();
+        assert!(scoped.matches(path, "Alpha", &[]));
+        assert!(scoped.matches(path, "BETA", &[]));
+        assert!(!scoped.matches(path, "alpha", &[]));
+        assert!(
+            Query::parse("(\"literal (value)\" OR /a(b|c)/)")
+                .unwrap()
+                .matches(path, "literal (value)", &[])
+        );
+        for invalid in ["(alpha", "alpha)", "()", "(alpha OR)", "OR (alpha)"] {
+            assert!(Query::parse(invalid).is_err(), "{invalid}");
+        }
+        assert!(Query::parse(&format!("{}alpha{}", "(".repeat(70), ")".repeat(70))).is_err());
+    }
     #[test]
     fn case_and_content_prefixes_respect_scope_spaces_and_quoted_literals() {
         let path = Path::new("Note.md");
