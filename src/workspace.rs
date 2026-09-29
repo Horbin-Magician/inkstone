@@ -728,12 +728,53 @@ impl Workspace {
                             "笔记库已打开。每 2 秒自动保存，恢复副本在应用恢复区。".into();
                         this.loading = true;
                         let mut restored_active = None;
+                        let saved_views = this.ui.prefs.views.clone();
+                        let mut used_views = std::collections::HashSet::new();
+                        let mut view_restores = Vec::new();
+                        let mut restored_slots = vec![None; this.ui.prefs.open_paths.len()];
                         for (saved_index, path, text) in restored {
+                            let view_index = saved_views
+                                .get(saved_index)
+                                .filter(|view| {
+                                    view.path == path && !used_views.contains(&saved_index)
+                                })
+                                .map(|_| saved_index)
+                                .or_else(|| {
+                                    saved_views
+                                        .iter()
+                                        .enumerate()
+                                        .find(|(index, view)| {
+                                            view.path == path && !used_views.contains(index)
+                                        })
+                                        .map(|(index, _)| index)
+                                });
                             this.add_tab(path, Some(text), false, window, cx);
+                            restored_slots[saved_index] = this.active;
+                            if let Some(view_index) = view_index {
+                                used_views.insert(view_index);
+                                if let Some(tab) =
+                                    this.active.and_then(|index| this.tabs.get(index))
+                                {
+                                    view_restores.push((tab.pane.clone(), view_index));
+                                }
+                            }
                             if Some(saved_index) == restore_active_index {
                                 restored_active = this.active;
                             }
                         }
+                        for (pane, view_index) in view_restores {
+                            Self::restore_view_state(&pane, &saved_views[view_index], cx);
+                        }
+                        this.ui.prefs.main_tab_index = this
+                            .ui
+                            .prefs
+                            .main_tab_index
+                            .and_then(|index| restored_slots.get(index).copied().flatten());
+                        this.ui.prefs.split_source_tab_index = this
+                            .ui
+                            .prefs
+                            .split_source_tab_index
+                            .and_then(|index| restored_slots.get(index).copied().flatten());
                         this.loading = false;
                         if let Some(i) = restored_active.or_else(|| {
                             restore_active.and_then(|p| this.tabs.iter().position(|t| t.path == p))
@@ -1885,6 +1926,84 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn session_restores_duplicate_note_views_and_split_after_missing_file(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-duplicate-session-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "甲\n乙").unwrap();
+        let prefs = inkstone::preferences::Preferences {
+            open_paths: vec!["missing.md".into(), "a.md".into(), "a.md".into()],
+            active_path: Some("a.md".into()),
+            active_tab_index: Some(2),
+            main_path: Some("a.md".into()),
+            main_tab_index: Some(1),
+            split_source_tab_index: Some(2),
+            views: vec![
+                inkstone::preferences::ViewState {
+                    path: "missing.md".into(),
+                    ..Default::default()
+                },
+                inkstone::preferences::ViewState {
+                    path: "a.md".into(),
+                    reading: true,
+                    selection: 0..0,
+                    ..Default::default()
+                },
+                inkstone::preferences::ViewState {
+                    path: "a.md".into(),
+                    live: false,
+                    selection: 4..4,
+                    ..Default::default()
+                },
+            ],
+            split_view: Some(inkstone::preferences::ViewState {
+                path: "a.md".into(),
+                selection: 7..7,
+                ..Default::default()
+            }),
+            split_focused: true,
+            ..Default::default()
+        };
+        prefs.save(&root.join(".inkstone-workspace.json")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        for _ in 0..2 {
+            handle
+                .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, _, cx| {
+                    assert_eq!(w.tabs.len(), 2);
+                    assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
+                    assert!(w.tabs[0].pane.read(cx).reading);
+                    assert_eq!(
+                        w.tabs[0].pane.read(cx).editor.read(cx).selected_range(),
+                        0..0
+                    );
+                    assert!(!w.tabs[1].pane.read(cx).reading);
+                    assert!(!w.tabs[1].pane.read(cx).live);
+                    assert_eq!(
+                        w.tabs[1].pane.read(cx).editor.read(cx).selected_range(),
+                        4..4
+                    );
+                    assert_eq!(w.active, Some(1));
+                    assert_eq!(w.main_tab(), Some(0));
+                    let split = w.views.split.as_ref().unwrap();
+                    assert_eq!(split.source, w.tabs[1].id);
+                    assert_eq!(split.pane.read(cx).editor.read(cx).selected_range(), 7..7);
+                    assert!(w.views.secondary_focused);
+                })
+                .unwrap();
+        }
+        let saved =
+            inkstone::preferences::Preferences::load(&root.join(".inkstone-workspace.json"));
+        assert_eq!(saved.main_tab_index, Some(0));
+        assert_eq!(saved.split_source_tab_index, Some(1));
+        assert_eq!(saved.open_paths.len(), 2);
+    }
+
     #[gpui::test]
     fn new_tab_command_shares_document_and_keeps_independent_view_state(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

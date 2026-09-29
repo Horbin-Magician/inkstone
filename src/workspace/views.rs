@@ -141,6 +141,12 @@ impl Workspace {
         }
     }
     pub(super) fn snapshot_views(&mut self, cx: &App) {
+        self.ui.prefs.main_tab_index = self.main_tab();
+        self.ui.prefs.split_source_tab_index = self
+            .views
+            .split
+            .as_ref()
+            .and_then(|split| self.tabs.iter().position(|tab| tab.id == split.source));
         self.ui.prefs.views = self
             .tabs
             .iter()
@@ -190,17 +196,32 @@ impl Workspace {
     }
     pub(super) fn restore_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prefs = self.ui.prefs.clone();
-        for state in &prefs.views {
-            if let Some(tab) = self.tabs.iter().find(|t| t.path == state.path) {
-                Self::restore_view_state(&tab.pane, state, cx);
-            }
-        }
+        let was_loading = std::mem::replace(&mut self.loading, true);
         if let Some(state) = prefs.split_view
-            && let Some(index) = self.tabs.iter().position(|t| t.path == state.path)
+            && let Some(index) = prefs
+                .split_source_tab_index
+                .filter(|index| {
+                    self.tabs
+                        .get(*index)
+                        .is_some_and(|tab| tab.path == state.path)
+                })
+                .or_else(|| self.tabs.iter().position(|t| t.path == state.path))
         {
             let main = prefs
-                .main_path
-                .and_then(|p| self.tabs.iter().position(|t| t.path == p))
+                .main_tab_index
+                .filter(|index| {
+                    self.tabs.get(*index).is_some_and(|tab| {
+                        prefs
+                            .main_path
+                            .as_ref()
+                            .is_none_or(|path| tab.path == *path)
+                    })
+                })
+                .or_else(|| {
+                    prefs
+                        .main_path
+                        .and_then(|p| self.tabs.iter().position(|t| t.path == p))
+                })
                 .unwrap_or(self.active.unwrap_or(index));
             self.views.main = Some(self.tabs[main].id);
             self.views.vertical = prefs.split_vertical;
@@ -215,6 +236,8 @@ impl Workspace {
         if let Some(pane) = self.current_pane() {
             pane.update(cx, |p, cx| p.focus_view(window, cx));
         }
+        self.loading = was_loading;
+        self.persist_workspace(cx);
     }
     pub(super) fn has_pending_input(
         &self,
