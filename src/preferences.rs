@@ -56,6 +56,7 @@ pub struct Preferences {
     pub font_size: f32,
     pub line_numbers: bool,
     pub readable_width: bool,
+    pub default_live_preview: bool,
     pub show_inline_title: bool,
     pub show_view_header: bool,
     pub expanded_folders: Vec<PathBuf>,
@@ -101,6 +102,7 @@ impl Default for Preferences {
             font_size: 16.,
             line_numbers: false,
             readable_width: true,
+            default_live_preview: true,
             show_inline_title: true,
             show_view_header: true,
             expanded_folders: vec![],
@@ -310,6 +312,7 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
         prefs.font_size = 23.;
+        prefs.default_live_preview = false;
         prefs.search_case_sensitive = true;
         prefs.search_sort_by = crate::file_order::SortBy::Modified;
         prefs.search_descending = true;
@@ -363,6 +366,7 @@ mod tests {
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 23.);
+        assert!(!Preferences::load(&path).default_live_preview);
         assert!(Preferences::load(&path).search_case_sensitive);
         assert_eq!(
             Preferences::load(&path).search_sort_by,
