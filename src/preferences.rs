@@ -112,6 +112,8 @@ pub struct Preferences {
     pub views: Vec<ViewState>,
     pub split_view: Option<ViewState>,
     pub main_path: Option<PathBuf>,
+    pub main_tab_index: Option<usize>,
+    pub split_source_tab_index: Option<usize>,
     pub split_vertical: bool,
     pub split_focused: bool,
 }
@@ -172,6 +174,8 @@ impl Default for Preferences {
             views: vec![],
             split_view: None,
             main_path: None,
+            main_tab_index: None,
+            split_source_tab_index: None,
             split_vertical: false,
             split_focused: false,
         }
