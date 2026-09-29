@@ -131,6 +131,28 @@ pub struct LineMatch {
     pub range: std::ops::Range<usize>,
     pub highlights: Vec<std::ops::Range<usize>>,
 }
+struct ScopedPattern<'a> {
+    pattern: Option<&'a Pattern>,
+    range: std::ops::Range<usize>,
+}
+impl ScopedPattern<'_> {
+    fn first_offset(&self, text: &str) -> Option<usize> {
+        self.pattern.map_or(Some(self.range.start), |pattern| {
+            pattern
+                .first_offset(&text[self.range.clone()])
+                .map(|offset| offset + self.range.start)
+        })
+    }
+    fn visit_ranges(&self, text: &str, mut visit: impl FnMut(std::ops::Range<usize>) -> bool) {
+        if let Some(pattern) = self.pattern {
+            pattern.visit_ranges(&text[self.range.clone()], |range| {
+                visit(self.range.start + range.start..self.range.start + range.end)
+            });
+        } else {
+            visit(self.range.start..self.range.start);
+        }
+    }
+}
 
 impl Query {
     pub fn parse(input: &str) -> Result<Self, String> {
@@ -374,7 +396,7 @@ impl Query {
         }
         merged
     }
-    fn patterns<'a>(&'a self, path: &Path, text: &str, tags: &[String]) -> Vec<&'a Pattern> {
+    fn patterns<'a>(&'a self, path: &Path, text: &str, tags: &[String]) -> Vec<ScopedPattern<'a>> {
         if let Some(expression) = &self.expression {
             return expression.patterns(path, text, tags);
         }
@@ -383,7 +405,10 @@ impl Query {
             .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
             .flat_map(|group| group.iter())
             .filter(|term| !term.exclude && matches!(term.field, Field::Text | Field::Content))
-            .map(|term| &term.pattern)
+            .map(|term| ScopedPattern {
+                pattern: Some(&term.pattern),
+                range: 0..text.len(),
+            })
             .collect()
     }
     /// Only terms from Boolean branches satisfied by the whole document may produce hits.
@@ -484,6 +509,26 @@ impl Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn line_scope_accepts_single_terms_groups_and_case_prefixes() {
+        let path = Path::new("Alpha.md");
+        let query = Query::parse("match-case:line:(Alpha beta)").unwrap();
+        assert!(query.matches(path, "Alpha beta", &[]));
+        assert!(!query.matches(path, "alpha beta", &[]));
+        assert!(!query.matches(path, "Alpha\nbeta", &[]));
+        assert!(
+            Query::parse("line: beta")
+                .unwrap()
+                .matches(path, "Alpha\nbeta", &[])
+        );
+        assert!(
+            Query::parse("\"line:alpha\"")
+                .unwrap()
+                .matches(path, "line:alpha", &[])
+        );
+        assert!(Query::parse("line:").is_err());
+        assert!(Query::parse("file:line:Alpha").is_err());
+    }
     #[test]
     fn grouped_boolean_queries_support_precedence_negation_and_scoped_prefixes() {
         let path = Path::new("Note.md");

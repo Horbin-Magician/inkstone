@@ -1,5 +1,5 @@
 //! Parenthesized search expressions without expanding Boolean combinations.
-use super::{Pattern, Query};
+use super::{Query, ScopedPattern};
 use std::path::Path;
 
 pub(super) enum Expression {
@@ -7,6 +7,7 @@ pub(super) enum Expression {
     All(Vec<Expression>),
     Any(Vec<Expression>),
     Not(Box<Expression>),
+    Line(Box<Expression>),
 }
 impl Expression {
     pub(super) fn title_highlights(
@@ -24,7 +25,7 @@ impl Expression {
                 .iter()
                 .flat_map(|item| item.title_highlights(path, text, tags))
                 .collect(),
-            Self::Not(_) => vec![],
+            Self::Not(_) | Self::Line(_) => vec![],
         }
     }
     pub(super) fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
@@ -33,6 +34,7 @@ impl Expression {
             Self::All(items) => items.iter().all(|item| item.matches(path, text, tags)),
             Self::Any(items) => items.iter().any(|item| item.matches(path, text, tags)),
             Self::Not(item) => !item.matches(path, text, tags),
+            Self::Line(item) => text.split('\n').any(|line| item.matches(path, line, tags)),
         }
     }
     pub(super) fn patterns<'a>(
@@ -40,7 +42,7 @@ impl Expression {
         path: &Path,
         text: &str,
         tags: &[String],
-    ) -> Vec<&'a Pattern> {
+    ) -> Vec<ScopedPattern<'a>> {
         if !self.matches(path, text, tags) {
             return vec![];
         }
@@ -51,6 +53,28 @@ impl Expression {
                 .flat_map(|item| item.patterns(path, text, tags))
                 .collect(),
             Self::Not(_) => vec![],
+            Self::Line(item) => {
+                let mut result = vec![];
+                let mut offset = 0;
+                for line in text.split('\n') {
+                    if item.matches(path, line, tags) {
+                        let mut patterns = item.patterns(path, line, tags);
+                        if patterns.is_empty() {
+                            patterns.push(ScopedPattern {
+                                pattern: None,
+                                range: 0..line.len(),
+                            });
+                        }
+                        for pattern in &mut patterns {
+                            pattern.range.start += offset;
+                            pattern.range.end += offset;
+                        }
+                        result.extend(patterns);
+                    }
+                    offset += line.len() + 1;
+                }
+                result
+            }
         }
     }
 }
@@ -121,6 +145,19 @@ struct Parser {
     at: usize,
     case_sensitive: bool,
 }
+fn line_parts(word: &str) -> Option<(&str, &str)> {
+    let mut start = 0;
+    while let Some((prefix, rest)) = word[start..].split_once(':') {
+        match prefix.to_ascii_lowercase().as_str() {
+            "line" => return Some((&word[..start], rest)),
+            "match-case" | "ignore-case" | "file" | "path" | "content" | "tag" => {
+                start += prefix.len() + 1
+            }
+            _ => break,
+        }
+    }
+    None
+}
 impl Parser {
     fn expression(&mut self, scope: &str, depth: usize) -> Result<Expression, String> {
         let mut branches = vec![self.conjunction(scope, depth)?];
@@ -173,6 +210,24 @@ impl Parser {
                     return Err("搜索表达式嵌套过深。".into());
                 }
                 let word = &word[negatives..];
+                if let Some((prefix, rest)) = line_parts(word) {
+                    let scope = format!("{scope}{prefix}content:");
+                    let inner = if rest.is_empty() {
+                        self.primary(&scope, depth + negatives + 1)?
+                    } else {
+                        let mut parser = Parser {
+                            tokens: tokens(rest),
+                            at: 0,
+                            case_sensitive: self.case_sensitive,
+                        };
+                        parser.expression(&scope, depth + negatives + 1)?
+                    };
+                    let mut expression = Expression::Line(Box::new(inner));
+                    for _ in 0..negatives {
+                        expression = Expression::Not(Box::new(expression));
+                    }
+                    return Ok(expression);
+                }
                 let prefix = word.strip_suffix(':').is_some_and(|prefix| {
                     prefix.split(':').all(|part| {
                         matches!(
@@ -200,7 +255,7 @@ pub(super) fn parse(input: &str, case_sensitive: bool) -> Result<Option<Expressi
     let tokens = tokens(input);
     if !tokens
         .iter()
-        .any(|token| matches!(token, Token::Open | Token::Close))
+        .any(|token| matches!(token, Token::Open | Token::Close) || matches!(token, Token::Word(word) if line_parts(word.trim_start_matches('-')).is_some()))
     {
         return Ok(None);
     }

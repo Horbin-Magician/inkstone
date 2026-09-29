@@ -921,6 +921,42 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn line_scope_requires_same_line_and_preserves_global_offsets() {
+        let mut index = Index::default();
+        let source = "alpha\r\nbeta\r\n😀alpha beta\r\nalpha skip\r\n";
+        index.update("FilenameOnly.md".into(), source.into());
+        let hits = index.search("line:(alpha beta)");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, 3);
+        assert_eq!(hits[0].offset, source.find("😀alpha").unwrap() + "😀".len());
+        assert_eq!(
+            hits[0]
+                .highlights
+                .iter()
+                .map(|range| &hits[0].excerpt[range.clone()])
+                .collect::<Vec<_>>(),
+            ["alpha", "beta"]
+        );
+        assert_eq!(
+            index
+                .search("line:(alpha -skip)")
+                .iter()
+                .map(|hit| hit.line)
+                .collect::<Vec<_>>(),
+            [1, 3]
+        );
+        assert_eq!(
+            index
+                .search("line:-skip")
+                .iter()
+                .map(|hit| hit.line)
+                .collect::<Vec<_>>(),
+            [1, 2, 3, 5]
+        );
+        assert!(index.search("line:FilenameOnly").is_empty());
+        assert!(index.search("-line:(alpha beta)").is_empty());
+    }
+    #[test]
     fn filename_and_path_highlights_follow_successful_query_scopes() {
         let mut index = Index::default();
         let path = PathBuf::from("资料/İdea.md");
