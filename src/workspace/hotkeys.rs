@@ -5,6 +5,10 @@ use gpui_component::button::*;
 impl Workspace {
     fn default_hotkeys(id: usize) -> Vec<String> {
         #[cfg(target_os = "macos")]
+        if (86..=94).contains(&id) {
+            return vec![format!("cmd-{}", id - 85)];
+        }
+        #[cfg(target_os = "macos")]
         if id == 79 {
             return vec!["cmd-d".into()];
         }
@@ -173,6 +177,14 @@ impl Workspace {
             .map(|c| c.0)
         {
             cx.stop_propagation();
+            if matches!(id, 86..=94)
+                && (self.ui.settings
+                    || self.ui.name_mode.is_some()
+                    || self.ui.property_open
+                    || self.ui.trash_open)
+            {
+                return;
+            }
             if matches!(id, 79..=84)
                 && !self.current_pane().is_some_and(|pane| {
                     let pane = pane.read(cx);
@@ -378,6 +390,78 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn numbered_tab_shortcuts_follow_visible_order_and_custom_bindings(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-1 ctrl-9");
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert!(w.active.is_none());
+                for index in 0..10 {
+                    w.add_tab(
+                        format!("note{index}.md").into(),
+                        Some(String::new()),
+                        false,
+                        window,
+                        cx,
+                    );
+                }
+            })
+            .unwrap();
+        for (key, index) in [("ctrl-1", 0), ("ctrl-8", 7), ("ctrl-9", 9)] {
+            visual.simulate_keystrokes(key);
+            handle
+                .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(index)))
+                .unwrap();
+        }
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.tabs.swap(0, 9);
+                w.focus_primary(0, window, cx);
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-9");
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("note0.md"));
+                w.tabs.truncate(3);
+                w.focus_primary(0, window, cx);
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-8");
+        handle
+            .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(0)))
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-9");
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.active, Some(2));
+                w.ui.prefs.hotkeys.insert(86, vec!["ctrl-alt-1".into()]);
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-1");
+        handle
+            .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(2)))
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-alt-1");
+        handle
+            .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(0)))
+            .unwrap();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.settings = true;
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-9");
+        handle
+            .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(0)))
+            .unwrap();
+    }
+
     #[gpui::test]
     fn line_copy_shortcuts_preserve_selection_and_multiple_carets(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

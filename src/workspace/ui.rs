@@ -664,6 +664,15 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (83, "向上复制当前行", "Alt+Shift+Up"),
     (84, "向下复制当前行", "Alt+Shift+Down"),
     (85, "在新标签页中打开当前笔记", ""),
+    (86, "切换到第 1 个标签页", "Ctrl+1"),
+    (87, "切换到第 2 个标签页", "Ctrl+2"),
+    (88, "切换到第 3 个标签页", "Ctrl+3"),
+    (89, "切换到第 4 个标签页", "Ctrl+4"),
+    (90, "切换到第 5 个标签页", "Ctrl+5"),
+    (91, "切换到第 6 个标签页", "Ctrl+6"),
+    (92, "切换到第 7 个标签页", "Ctrl+7"),
+    (93, "切换到第 8 个标签页", "Ctrl+8"),
+    (94, "切换到最后一个标签页", "Ctrl+9"),
 ];
 
 #[derive(Clone)]
@@ -1362,6 +1371,16 @@ impl Workspace {
                 }
             }
             85 => self.open_current_note_in_new_tab(window, cx),
+            86..=94 => {
+                let index = if id == 94 {
+                    self.tabs.len().checked_sub(1)
+                } else {
+                    (id - 86 < self.tabs.len()).then_some(id - 86)
+                };
+                if let Some(index) = index {
+                    self.focus_primary(index, window, cx);
+                }
+            }
             _ => (),
         }
         self.persist_workspace(cx);
