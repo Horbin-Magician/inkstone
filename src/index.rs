@@ -44,6 +44,7 @@ pub struct ParsedNote {
     pub links: Vec<WikiLink>,
     pub headings: Vec<Heading>,
     pub tags: Vec<String>,
+    pub tag_counts: BTreeMap<String, usize>,
     pub aliases: Vec<String>,
     pub standard_links: Vec<(String, usize)>,
     pub destinations: Vec<(Range<usize>, String)>,
@@ -341,6 +342,9 @@ pub fn parse(source: &str) -> ParsedNote {
         let mut defs = BTreeMap::new();
         definitions(&root, &mut defs);
         references(&root, &defs, &mut result.standard_links);
+    }
+    for tag in &result.tags {
+        *result.tag_counts.entry(tag.clone()).or_default() += 1;
     }
     result.tags.sort();
     result.tags.dedup();
@@ -860,6 +864,15 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tag_index_keeps_occurrences_separate_from_search_tags() {
+        let parsed = parse(
+            "---\ntags: [work, work]\nAliases: ['Case Alias']\n---\n#work #work `#work` \\#work",
+        );
+        assert_eq!(parsed.tags, ["work"]);
+        assert_eq!(parsed.tag_counts["work"], 4);
+        assert_eq!(parsed.aliases, ["Case Alias"]);
+    }
     #[test]
     fn yaml_aliases_with_punctuation_participate_in_search_and_backlinks() {
         let mut index = Index::default();
