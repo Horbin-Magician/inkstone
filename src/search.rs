@@ -133,8 +133,13 @@ impl Query {
         let mut quote = false;
         let mut regex = false;
         let mut escape = false;
+        let (mut literal_prefix, mut quoted_value) = (false, false);
+        let mut first_quote = None;
         for ch in input.chars() {
             if escape {
+                if quote && !regex {
+                    current.pop();
+                }
                 current.push(ch);
                 escape = false;
                 continue;
@@ -145,17 +150,33 @@ impl Query {
                 continue;
             }
             if ch == '"' && !regex {
+                if !quote {
+                    quoted_value = true;
+                    first_quote.get_or_insert(current.len());
+                    literal_prefix |= current.is_empty() || current == "-";
+                }
                 quote = !quote;
                 continue;
             }
-            if ch == '/' && !quote && (regex || current.is_empty() || current == "-") {
+            if ch == '/'
+                && !quote
+                && (regex || current.is_empty() || current == "-" || current.ends_with(':'))
+            {
                 regex = !regex;
                 current.push(ch);
                 continue;
             }
             if ch.is_whitespace() && !quote && !regex {
                 if !current.is_empty() {
-                    words.push(std::mem::take(&mut current));
+                    words.push((
+                        std::mem::take(&mut current),
+                        literal_prefix,
+                        quoted_value,
+                        first_quote,
+                    ));
+                    literal_prefix = false;
+                    quoted_value = false;
+                    first_quote = None;
                 }
             } else {
                 current.push(ch);
@@ -165,34 +186,91 @@ impl Query {
             return Err("搜索表达式中有未闭合的引号或正则表达式".into());
         }
         if !current.is_empty() {
-            words.push(current);
+            words.push((current, literal_prefix, quoted_value, first_quote));
         }
         let mut groups = vec![vec![]];
-        for word in words {
-            if word == "OR" {
+        let mut words = words.into_iter();
+        while let Some((mut word, literal_prefix, mut quoted_value, mut first_quote)) = words.next()
+        {
+            if word == "OR" && !literal_prefix {
                 if groups.last().is_some_and(Vec::is_empty) {
                     return Err("OR 前缺少搜索条件".into());
                 }
                 groups.push(vec![]);
                 continue;
             }
-            let (exclude, word) = word
-                .strip_prefix('-')
-                .map_or((false, word.as_str()), |s| (true, s));
-            let (field, value) = if let Some(s) = word.strip_prefix("file:") {
-                (Field::File, s)
-            } else if let Some(s) = word.strip_prefix("path:") {
-                (Field::Path, s)
-            } else if let Some(s) = word.strip_prefix("tag:") {
-                (Field::Tag, s.trim_start_matches('#'))
+            while !literal_prefix
+                && !quoted_value
+                && word.strip_suffix(':').is_some_and(|prefix| {
+                    prefix.trim_start_matches('-').split(':').all(|part| {
+                        matches!(
+                            part.to_ascii_lowercase().as_str(),
+                            "file" | "path" | "tag" | "content" | "match-case" | "ignore-case"
+                        )
+                    })
+                })
+            {
+                let Some((next, quoted, value_quoted, next_quote)) = words.next() else {
+                    return Err("搜索条件不能为空".into());
+                };
+                if next == "OR" && !quoted {
+                    return Err("搜索条件不能为空".into());
+                }
+                if first_quote.is_none() {
+                    first_quote = next_quote.map(|offset| word.len() + offset);
+                }
+                word.push_str(&next);
+                quoted_value |= value_quoted;
+            }
+            let (exclude, word) = if first_quote == Some(0) {
+                (false, word.as_str())
             } else {
-                (Field::Text, word)
+                word.strip_prefix('-')
+                    .map_or((false, word.as_str()), |s| (true, s))
             };
+            let first_quote = first_quote.map(|offset| offset.saturating_sub(usize::from(exclude)));
+            let (mut field, mut value, mut term_case_sensitive) =
+                (Field::Text, word, case_sensitive);
+            let mut field_set = false;
+            if !literal_prefix {
+                while let Some((prefix, rest)) = value.split_once(':') {
+                    if first_quote
+                        .is_some_and(|offset| word.len() - value.len() + prefix.len() + 1 > offset)
+                    {
+                        break;
+                    }
+                    match prefix.to_ascii_lowercase().as_str() {
+                        "match-case" => term_case_sensitive = true,
+                        "ignore-case" => term_case_sensitive = false,
+                        "file" | "path" | "tag" | "content" => {
+                            if field_set {
+                                return Err("文件、路径、标签和正文条件不能互相嵌套。".into());
+                            }
+                            field_set = true;
+                            field = match prefix.to_ascii_lowercase().as_str() {
+                                "file" => Field::File,
+                                "path" => Field::Path,
+                                "tag" => Field::Tag,
+                                _ => Field::Text,
+                            };
+                        }
+                        _ => break,
+                    }
+                    value = rest;
+                }
+            }
+            if matches!(field, Field::Tag) {
+                value = value.trim_start_matches('#');
+                term_case_sensitive = false;
+            }
             if value.is_empty() {
                 return Err("搜索条件不能为空".into());
             }
-            let term_case_sensitive = case_sensitive && !matches!(field, Field::Tag);
-            let pattern = if value.starts_with('/') && value.ends_with('/') && value.len() > 1 {
+            let pattern = if !quoted_value
+                && value.starts_with('/')
+                && value.ends_with('/')
+                && value.len() > 1
+            {
                 Pattern::Regex(
                     RegexBuilder::new(&value[1..value.len() - 1])
                         .case_insensitive(!term_case_sensitive)
@@ -336,6 +414,73 @@ impl Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn case_and_content_prefixes_respect_scope_spaces_and_quoted_literals() {
+        let path = Path::new("Note.md");
+        assert!(
+            Query::parse("match-case:Alpha ignore-case:BETA")
+                .unwrap()
+                .matches(path, "Alpha beta", &[])
+        );
+        assert!(
+            !Query::parse("match-case:alpha")
+                .unwrap()
+                .matches(path, "Alpha", &[])
+        );
+        assert!(
+            Query::parse_with_case("ignore-case:alpha", true)
+                .unwrap()
+                .matches(path, "Alpha", &[])
+        );
+        assert!(
+            Query::parse("match-case:file: Note")
+                .unwrap()
+                .matches(path, "", &[])
+        );
+        assert!(
+            !Query::parse("content:Note")
+                .unwrap()
+                .matches(path, "body", &[])
+        );
+        assert!(
+            Query::parse("content:/alpha beta/")
+                .unwrap()
+                .matches(path, "ALPHA BETA", &[])
+        );
+        for (query, text) in [
+            ("\"OR\"", "OR"),
+            ("\"file:missing\"", "file:missing"),
+            ("content:\"/foo/\"", "/foo/"),
+            ("match-case: \"file:\"", "file:"),
+        ] {
+            assert!(
+                Query::parse(query).unwrap().matches(path, text, &[]),
+                "{query}"
+            );
+        }
+        assert!(
+            !Query::parse("content:\"/foo/\"")
+                .unwrap()
+                .matches(path, "foo", &[])
+        );
+        assert!(Query::parse("match-case:").is_err());
+        assert!(Query::parse("file:path:note").is_err());
+        assert!(
+            Query::parse("myfile: value")
+                .unwrap()
+                .matches(path, "myfile: other value", &[])
+        );
+        assert!(
+            Query::parse(r#""say \"hi\"""#)
+                .unwrap()
+                .matches(path, "say \"hi\"", &[])
+        );
+        assert!(
+            Query::parse("\"-blocked\"")
+                .unwrap()
+                .matches(path, "-blocked", &[])
+        );
+    }
     #[test]
     fn case_setting_affects_content_regex_and_paths_but_not_tags() {
         let path = Path::new("Folder/Note.md");
