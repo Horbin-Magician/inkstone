@@ -9,6 +9,24 @@ pub(super) enum Expression {
     Not(Box<Expression>),
 }
 impl Expression {
+    pub(super) fn title_highlights(
+        &self,
+        path: &Path,
+        text: &str,
+        tags: &[String],
+    ) -> Vec<std::ops::Range<usize>> {
+        if !self.matches(path, text, tags) {
+            return vec![];
+        }
+        match self {
+            Self::Leaf(query) => query.title_highlights(path, text, tags),
+            Self::All(items) | Self::Any(items) => items
+                .iter()
+                .flat_map(|item| item.title_highlights(path, text, tags))
+                .collect(),
+            Self::Not(_) => vec![],
+        }
+    }
     pub(super) fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
         match self {
             Self::Leaf(query) => query.matches(path, text, tags),

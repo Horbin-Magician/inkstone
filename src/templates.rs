@@ -84,6 +84,7 @@ pub fn search(
                     line: 1,
                     excerpt: String::new(),
                     highlights: vec![],
+                    title_highlights: vec![],
                 })
         })
         .take(200)

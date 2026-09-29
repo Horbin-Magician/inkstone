@@ -1963,6 +1963,7 @@ impl Workspace {
                     line: 1,
                     excerpt: String::new(),
                     highlights: vec![],
+                    title_highlights: vec![],
                 })
                 .collect()
         } else {
@@ -2105,6 +2106,8 @@ impl Workspace {
                 let fold_path = path.clone();
                 let open_path = path.clone();
                 let offset = hits[0].offset;
+                let title = path.to_string_lossy().replace('\\', "/");
+                let title_highlights = hits[0].title_highlights.clone();
                 div()
                     .id(("search-group", i))
                     .mb_2()
@@ -2135,7 +2138,26 @@ impl Workspace {
                                     .min_w_0()
                                     .justify_start()
                                     .overflow_hidden()
-                                    .label(path.to_string_lossy().to_string())
+                                    .accessibility_label(format!("打开 {title}"))
+                                    .child(StyledText::new(title).with_highlights(
+                                        title_highlights.into_iter().map(|range| {
+                                            (
+                                                range,
+                                                HighlightStyle {
+                                                    background_color: Some(
+                                                        rgba(if self.ui.prefs.light {
+                                                            0xf4d03f66
+                                                        } else {
+                                                            0x9e7d2866
+                                                        })
+                                                        .into(),
+                                                    ),
+                                                    font_weight: Some(FontWeight::SEMIBOLD),
+                                                    ..Default::default()
+                                                },
+                                            )
+                                        }),
+                                    ))
                                     .on_click(cx.listener(move |this, _, w, cx| {
                                         this.pending_jump = Some((open_path.clone(), offset));
                                         this.open_note(open_path.clone(), w, cx);
