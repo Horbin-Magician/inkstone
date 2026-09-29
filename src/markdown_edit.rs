@@ -1,5 +1,6 @@
 //! Source edits for Markdown list and quote keystrokes.
 use std::ops::Range;
+mod indentation;
 mod renumber;
 
 #[derive(Clone, Copy)]
@@ -492,16 +493,20 @@ pub fn edit_with_options(
     smart_lists: bool,
 ) -> Option<Edit> {
     let width = width.clamp(2, 8);
-    let indent = if use_tabs {
-        "\t".into()
-    } else {
-        " ".repeat(width)
-    };
     if selection.start > selection.end
         || !text.is_char_boundary(selection.start)
         || !text.is_char_boundary(selection.end)
     {
         return None;
+    }
+    if matches!(key, Key::Indent | Key::Outdent) {
+        return indentation::lines(
+            text,
+            selection,
+            width,
+            use_tabs,
+            matches!(key, Key::Outdent),
+        );
     }
     let start = text[..selection.start].rfind('\n').map_or(0, |i| i + 1);
     let end = text[selection.start..]
@@ -517,7 +522,6 @@ pub fn edit_with_options(
         {
             return None;
         }
-        Key::Indent | Key::Outdent if p.marker.is_empty() => return None,
         _ => {}
     }
     let literals = literal_ranges(text);
@@ -633,70 +637,33 @@ pub fn edit_with_options(
                 },
             )
         }
-        Key::Indent | Key::Outdent => {
-            let last_cursor = if !selection.is_empty() && text[..selection.end].ends_with('\n') {
-                selection.end - 1
-            } else {
-                selection.end
-            };
-            let last = text[last_cursor..]
-                .find('\n')
-                .map_or(text.len(), |i| last_cursor + i);
-            let mut replacement = String::new();
-            let mut mapped = selection.clone();
-            let mut offset = start;
-            let mut delta = 0isize;
-            for row in text[start..last].split_inclusive('\n') {
-                let row_prefix = prefix(row)?;
-                if row_prefix.marker.is_empty() || literal_at(offset + row_prefix.end) {
-                    return None;
-                }
-                let at = offset + row_prefix.quote.len();
-                let (removed, inserted) = match key {
-                    Key::Indent => (0, indent.as_str()),
-                    _ => (
-                        row_prefix.indent.len() - outdent(row_prefix.indent, width).len(),
-                        "",
-                    ),
-                };
-                let map = |pos: usize| {
-                    if pos < at {
-                        pos.saturating_add_signed(delta)
-                    } else {
-                        (pos.saturating_sub(removed).max(at) + inserted.len())
-                            .saturating_add_signed(delta)
-                    }
-                };
-                if selection.start >= offset && selection.start <= offset + row.len() {
-                    mapped.start = map(selection.start);
-                }
-                if selection.end >= offset && selection.end <= offset + row.len() {
-                    mapped.end = map(selection.end);
-                }
-                replacement.push_str(&row[..row_prefix.quote.len()]);
-                replacement.push_str(inserted);
-                replacement.push_str(&row[row_prefix.quote.len() + removed..]);
-                delta += inserted.len() as isize - removed as isize;
-                offset += row.len();
-            }
-            if selection.end > last {
-                mapped.end = selection.end.saturating_add_signed(delta);
-            }
-            if replacement == text[start..last] {
-                return None;
-            }
-            Some(Edit {
-                range: start..last,
-                replacement,
-                selection: mapped,
-            })
-        }
+        Key::Indent | Key::Outdent => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn indentation_handles_paragraphs_quotes_mixed_whitespace_and_selection_edges() {
+        assert_eq!(press("中|文", Key::Indent), "    中|文");
+        assert_eq!(press("> 中|文", Key::Indent), ">     中|文");
+        assert_eq!(press("  > 中|文", Key::Outdent), "> 中|文");
+        assert_eq!(press(" \t  中|文", Key::Outdent), "  中|文");
+        assert_eq!(press("text  |here", Key::Outdent), "text  |here");
+        assert_eq!(
+            press("- parent|\n    - child", Key::Indent),
+            "    - parent|\n    - child"
+        );
+        let text = "> - parent\r\n>   continuation\r\nnext";
+        let end = text.find("next").unwrap();
+        let edit = edit_with_indent(text, 0..end, Key::Indent, 2, false).unwrap();
+        let mut result = text.to_string();
+        result.replace_range(edit.range, &edit.replacement);
+        assert_eq!(result, ">   - parent\r\n>     continuation\r\nnext");
+        assert_eq!(edit.selection.end, result.find("next").unwrap());
+        assert_eq!(press("text\n|", Key::Indent), "text\n    |");
+    }
     #[test]
     fn removing_ordered_markers_closes_number_gaps() {
         assert_eq!(press("1. a\n2. |\n3. b", Key::Enter), "1. a\n|\n2. b");

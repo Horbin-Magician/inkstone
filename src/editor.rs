@@ -175,6 +175,7 @@ impl EditorPane {
             || !state.focus_handle(cx).is_focused(window)
             || state.completion_menu_state().open
             || state.code_action_menu_state().open
+            || state.has_multiple_selections()
         {
             return;
         }
@@ -205,6 +206,12 @@ impl EditorPane {
             self.indentation.hard_tabs,
             self.smart_lists,
         ) else {
+            if matches!(
+                key,
+                inkstone::markdown_edit::Key::Indent | inkstone::markdown_edit::Key::Outdent
+            ) {
+                cx.stop_propagation();
+            }
             return;
         };
         if self.editor.update(cx, |s, cx| {
@@ -1631,6 +1638,36 @@ mod tests {
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn tab_indents_the_line_from_the_middle_of_plain_text(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "> 中文";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(5..5, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("tab");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "> \t中文");
+            assert_eq!(s.selected_range(), 6..6);
+        });
+        visual.simulate_keystrokes("shift-tab");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), source);
+            assert_eq!(s.selected_range(), 5..5);
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "> \t中文"));
     }
 
     #[gpui::test]
