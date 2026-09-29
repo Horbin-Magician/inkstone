@@ -764,16 +764,40 @@ impl Index {
         query: &str,
         case_sensitive: bool,
     ) -> Result<Vec<SearchHit>, String> {
+        self.search_ordered(
+            query,
+            case_sensitive,
+            crate::file_order::SortBy::Name,
+            false,
+        )
+    }
+    pub fn search_ordered(
+        &self,
+        query: &str,
+        case_sensitive: bool,
+        by: crate::file_order::SortBy,
+        descending: bool,
+    ) -> Result<Vec<SearchHit>, String> {
         fn excerpt(text: &str, at: usize) -> String {
             let skip = text[..at].chars().count().saturating_sub(40);
             text.chars().skip(skip).take(120).collect()
         }
         let query = crate::search::Query::parse_with_case(query, case_sensitive)?;
         let mut hits = vec![];
-        for (path, note) in &self.notes {
-            if !query.matches(path, &note.text, &note.parsed.tags) {
-                continue;
-            }
+        let mut notes: Vec<_> = self
+            .notes
+            .iter()
+            .filter(|(path, note)| query.matches(path, &note.text, &note.parsed.tags))
+            .collect();
+        notes.sort_by(|(a, an), (b, bn)| {
+            crate::file_order::compare(
+                (&a.to_string_lossy(), false, an.times),
+                (&b.to_string_lossy(), false, bn.times),
+                by,
+                descending,
+            )
+        });
+        for (path, note) in notes {
             let before = hits.len();
             for found in query.matching_lines(path, &note.text, &note.parsed.tags, 200 - hits.len())
             {
@@ -876,6 +900,33 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_sorting_happens_before_the_result_limit() {
+        use crate::file_order::SortBy;
+        let mut index = Index::default();
+        for i in 0..210 {
+            index.update(format!("note{i}.md").into(), "match".into());
+        }
+        index
+            .notes
+            .get_mut(Path::new("note209.md"))
+            .unwrap()
+            .times
+            .modified = Some(std::time::SystemTime::UNIX_EPOCH);
+        let newest = index
+            .search_ordered("match", false, SortBy::Modified, true)
+            .unwrap();
+        assert_eq!(newest.len(), 200);
+        assert_eq!(newest[0].path, Path::new("note209.md"));
+        let natural = index
+            .search_ordered("match", false, SortBy::Name, false)
+            .unwrap();
+        assert_eq!(natural[2].path, Path::new("note2.md"));
+        let reverse = index
+            .search_ordered("match", false, SortBy::Name, true)
+            .unwrap();
+        assert_eq!(reverse[0].path, Path::new("note209.md"));
+    }
     #[test]
     fn regex_results_use_multiline_anchors_and_ignore_empty_matches() {
         let mut index = Index::default();
