@@ -17,6 +17,36 @@ pub(super) struct Views {
 }
 
 impl Workspace {
+    pub(super) fn open_current_note_in_new_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.active.and_then(|index| self.tabs.get(index)) else {
+            return;
+        };
+        let id = tab.id;
+        let path = tab.path.clone();
+        if path.as_os_str().is_empty() {
+            return;
+        }
+        if self.has_pending_input(id, window, cx) {
+            self.status = "请完成当前编辑后再打开新标签。".into();
+            cx.notify();
+            return;
+        }
+        self.document_view_changed(id, window, cx);
+        self.sync_from_split(window, cx);
+        let Some(pane) = self.current_pane() else {
+            return;
+        };
+        let state = Self::snapshot_view(path.clone(), &pane, cx);
+        self.views.secondary_focused = false;
+        self.add_tab(path, None, false, window, cx);
+        self.apply_reopened_view(Some(&state), window, cx);
+        cx.notify();
+    }
+
     pub(super) fn request_window_close(
         &mut self,
         window: &mut Window,
