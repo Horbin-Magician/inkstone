@@ -189,31 +189,38 @@ impl Workspace {
             .flex_col()
             .gap_2()
             .children(
-                ["编辑器与外观", "快捷键", "文件与链接", "日记", "模板"]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, title)| {
-                        Button::new(("settings-tab", i))
-                            .ghost()
-                            .selected(self.ui.settings_tab == i)
-                            .toggled(self.ui.settings_tab == i)
-                            .label(title)
-                            .on_click(cx.listener(move |this, _, w, cx| {
-                                this.ui.settings_tab = i;
-                                this.ui.settings_scroll.set_offset(Point::default());
-                                if i == 2 {
-                                    this.prepare_file_settings(w, cx);
-                                }
-                                if i == 3 {
-                                    this.prepare_daily_settings(w, cx);
-                                }
-                                if i == 4 {
-                                    this.prepare_template_settings(w, cx);
-                                }
-                                this.ui.hotkey_recording = None;
-                                cx.notify();
-                            }))
-                    }),
+                [
+                    (5, "外观"),
+                    (6, "界面"),
+                    (0, "编辑器"),
+                    (2, "文件与链接"),
+                    (1, "快捷键"),
+                    (3, "日记"),
+                    (4, "模板"),
+                ]
+                .into_iter()
+                .map(|(i, title)| {
+                    Button::new(("settings-tab", i))
+                        .ghost()
+                        .selected(self.ui.settings_tab == i)
+                        .toggled(self.ui.settings_tab == i)
+                        .label(title)
+                        .on_click(cx.listener(move |this, _, w, cx| {
+                            this.ui.settings_tab = i;
+                            this.ui.settings_scroll.set_offset(Point::default());
+                            if i == 2 {
+                                this.prepare_file_settings(w, cx);
+                            }
+                            if i == 3 {
+                                this.prepare_daily_settings(w, cx);
+                            }
+                            if i == 4 {
+                                this.prepare_template_settings(w, cx);
+                            }
+                            this.ui.hotkey_recording = None;
+                            cx.notify();
+                        }))
+                }),
             )
             .into_any_element()
     }

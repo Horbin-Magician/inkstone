@@ -1,3 +1,4 @@
+mod appearance;
 mod daily;
 mod extras;
 mod file_settings;
@@ -1776,7 +1777,7 @@ mod tests {
                 assert!(last.top() + scroll.offset().y >= scroll.bounds().top());
             })
             .unwrap();
-        for tab in 1..5 {
+        for tab in 1..7 {
             handle
                 .update(&mut visual, |w, _, _| {
                     w.ui.settings_tab = tab;

@@ -3690,6 +3690,9 @@ impl Workspace {
             .into_any_element()
     }
     fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        if matches!(self.ui.settings_tab, 5 | 6) {
+            return self.appearance_settings_panel(self.ui.settings_tab == 6, cx);
+        }
         if self.ui.settings_tab == 4 {
             return self.template_settings_panel(cx);
         }
@@ -3740,27 +3743,6 @@ impl Workspace {
                 }
                 menu
             });
-        let theme = Button::new("theme-setting")
-            .label(if self.ui.prefs.light {
-                "浅色"
-            } else {
-                "深色"
-            })
-            .on_click(cx.listener(|this, _, w, cx| this.execute_command(22, w, cx)));
-        let minus = Button::new("font-minus")
-            .accessibility_label("减小正文字号")
-            .label("−")
-            .on_click(cx.listener(|this, _, w, cx| {
-                this.ui.prefs.font_size = (this.ui.prefs.font_size - 1.).max(12.);
-                this.apply_editor_preferences(w, cx);
-            }));
-        let plus = Button::new("font-plus")
-            .accessibility_label("增大正文字号")
-            .label("+")
-            .on_click(cx.listener(|this, _, w, cx| {
-                this.ui.prefs.font_size = (this.ui.prefs.font_size + 1.).min(30.);
-                this.apply_editor_preferences(w, cx);
-            }));
         let numbers = Button::new("line-number-setting")
             .label(if self.ui.prefs.line_numbers {
                 "开启"
@@ -3806,14 +3788,6 @@ impl Workspace {
                             .flex()
                             .justify_between()
                             .items_center()
-                            .child("基础主题")
-                            .child(theme),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
                             .child("默认编辑模式")
                             .child(editing_mode),
                     )
@@ -3824,14 +3798,6 @@ impl Workspace {
                             .items_center()
                             .child("新标签页默认视图")
                             .child(default_view),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child(format!("正文字号  {}", self.ui.prefs.font_size))
-                            .child(div().flex().gap_2().child(minus).child(plus)),
                     )
                     .child(
                         div()
@@ -3861,24 +3827,6 @@ impl Workspace {
                                     .checked(self.ui.prefs.show_inline_title)
                                     .on_click(cx.listener(|this, enabled: &bool, _, cx| {
                                         this.ui.prefs.show_inline_title = *enabled;
-                                        this.persist_workspace(cx);
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .items_center()
-                            .child("显示标签页标题栏")
-                            .child(
-                                gpui_component::switch::Switch::new("view-header-setting")
-                                    .accessibility_label("显示标签页标题栏")
-                                    .checked(self.ui.prefs.show_view_header)
-                                    .on_click(cx.listener(|this, enabled: &bool, _, cx| {
-                                        this.ui.prefs.show_view_header = *enabled;
-                                        this.ui.more = false;
                                         this.persist_workspace(cx);
                                         cx.notify();
                                     })),
