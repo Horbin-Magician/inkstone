@@ -916,6 +916,24 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn default_search_includes_filename_while_content_scope_excludes_it() {
+        let mut index = Index::default();
+        index.update("Meeting.md".into(), "正文\nproject target\n尾行".into());
+        assert_eq!(index.search("meeting").len(), 1);
+        assert_eq!(index.search("meeting")[0].offset, 0);
+        assert!(index.search("content:meeting").is_empty());
+        let combined = index.search("meeting project");
+        assert_eq!(combined.len(), 1);
+        assert_eq!(combined[0].line, 2);
+        assert_eq!(
+            &combined[0].excerpt[combined[0].highlights[0].clone()],
+            "project"
+        );
+        assert!(index.search("project -meeting").is_empty());
+        assert!(index.search_with_case("meeting", true).unwrap().is_empty());
+        assert_eq!(index.search("/Meet.*\\.md/").len(), 1);
+    }
+    #[test]
     fn grouped_queries_highlight_only_successful_positive_branches() {
         let mut index = Index::default();
         index.update("note.md".into(), "alpha\nblocked\ngamma\ntarget".into());
