@@ -3,6 +3,7 @@ use super::*;
 pub(super) struct SplitPane {
     pub source: usize,
     pub pane: Entity<EditorPane>,
+    last_synced_text: SharedString,
     _changes: Subscription,
     _links: Subscription,
     _focus: Subscription,
@@ -380,6 +381,7 @@ impl Workspace {
         self.views.split = Some(SplitPane {
             source: id,
             pane: pane.clone(),
+            last_synced_text: text,
             _changes: changes,
             _links: links,
             _focus: focus,
@@ -399,13 +401,17 @@ impl Workspace {
         if editor.update(cx, |s, cx| s.marked_text_range(window, cx).is_some()) {
             return;
         }
+        let after = editor.read(cx).value();
+        if after == split.last_synced_text {
+            return;
+        }
         let Some(tab) = self.tabs.iter_mut().find(|t| t.id == source) else {
             return;
         };
         let canonical = tab.pane.read(cx).editor.clone();
         let before = canonical.read(cx).value();
-        let after = editor.read(cx).value();
         if before == after {
+            self.views.split.as_mut().unwrap().last_synced_text = after;
             return;
         }
         let edits = inkstone::text_changes::diff(&before, &after);
@@ -419,6 +425,7 @@ impl Workspace {
             return;
         }
         tab.dirty = tab.baseline.as_deref() != Some(after.as_ref());
+        self.views.split.as_mut().unwrap().last_synced_text = after;
         cx.notify();
     }
     pub(super) fn sync_to_split(
@@ -440,17 +447,21 @@ impl Workspace {
             return;
         }
         let after = canonical.read(cx).value();
-        let editor = split.pane.read(cx).editor.clone();
-        let before = editor.read(cx).value();
-        if before == after {
+        if after == split.last_synced_text {
             return;
         }
+        let editor = split.pane.read(cx).editor.clone();
+        let before = editor.read(cx).value();
         // Composition belongs to the view receiving input; don't replace its preedit text.
         if editor.update(cx, |s, cx| s.marked_text_range(window, cx).is_some()) {
             return;
         }
+        if before == after {
+            self.views.split.as_mut().unwrap().last_synced_text = after;
+            return;
+        }
         let edits = inkstone::text_changes::diff(&before, &after);
-        editor.update(cx, |state, cx| {
+        let applied = editor.update(cx, |state, cx| {
             state.apply_synced_text(
                 &after,
                 &edits,
@@ -458,8 +469,11 @@ impl Workspace {
                 self.views.secondary_focused,
                 window,
                 cx,
-            );
+            )
         });
+        if applied {
+            self.views.split.as_mut().unwrap().last_synced_text = after;
+        }
     }
     pub(super) fn close_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self
