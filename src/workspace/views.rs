@@ -247,6 +247,11 @@ impl Workspace {
         let Some(index) = self.active else {
             return;
         };
+        if self.has_pending_input(self.tabs[index].id, window, cx) {
+            self.status = "请完成当前编辑后再操作分屏。".into();
+            cx.notify();
+            return;
+        }
         if self.views.split.is_none() {
             self.views.main = Some(self.tabs[index].id);
         }
@@ -428,7 +433,13 @@ impl Workspace {
         let Some(tab) = self.tabs.iter().find(|t| t.id == source) else {
             return;
         };
-        let after = tab.pane.read(cx).editor.read(cx).value();
+        let canonical = tab.pane.read(cx).editor.clone();
+        if canonical.update(cx, |state, cx| {
+            state.marked_text_range(window, cx).is_some()
+        }) {
+            return;
+        }
+        let after = canonical.read(cx).value();
         let editor = split.pane.read(cx).editor.clone();
         let before = editor.read(cx).value();
         if before == after {
