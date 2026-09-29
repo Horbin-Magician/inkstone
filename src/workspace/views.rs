@@ -72,7 +72,7 @@ impl Workspace {
                 return false;
             }
         }
-        self.sync_from_split(window, cx);
+        self.flush_document_views(window, cx);
         for tab in &mut self.tabs {
             tab.save.dirty.set(
                 tab.save.baseline.borrow().as_deref()
