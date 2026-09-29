@@ -1752,6 +1752,82 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn primary_composition_stays_local_until_commit(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let (primary, mirror) = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                let primary = w.tabs[0].pane.read(cx).editor.clone();
+                w.split_active(false, window, cx);
+                let mirror = w.views.split.as_ref().unwrap().pane.read(cx).editor.clone();
+                w.focus_primary(0, window, cx);
+                primary.update(cx, |s, cx| {
+                    s.set_selected_range(6..6, cx);
+                    s.replace_and_mark_text_in_range(None, "ni", Some(2..2), window, cx);
+                });
+                w.sync_to_split(w.tabs[0].id, window, cx);
+                (primary, mirror)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        mirror.read_with(cx, |s, _| assert_eq!(s.value(), "原文"));
+        handle
+            .update(cx, |_, window, cx| {
+                primary.update(cx, |s, cx| s.replace_text_in_range(None, "", window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        mirror.read_with(cx, |s, _| assert_eq!(s.value(), "原文"));
+        handle
+            .update(cx, |_, window, cx| {
+                primary.update(cx, |s, cx| {
+                    s.replace_and_mark_text_in_range(None, "你", Some(1..1), window, cx)
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        mirror.read_with(cx, |s, _| assert_eq!(s.value(), "原文"));
+        handle
+            .update(cx, |_, window, cx| {
+                primary.update(cx, |s, cx| s.unmark_text(window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        mirror.read_with(cx, |s, _| assert_eq!(s.value(), "原文你"));
+        handle
+            .update(cx, |_, window, cx| {
+                primary.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        mirror.read_with(cx, |s, _| assert_eq!(s.value(), "原文"));
+    }
+
+    #[gpui::test]
+    fn split_creation_waits_for_committed_text(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                let editor = w.tabs[0].pane.read(cx).editor.clone();
+                editor.update(cx, |s, cx| {
+                    s.set_selected_range(6..6, cx);
+                    s.replace_and_mark_text_in_range(None, "你", Some(1..1), window, cx);
+                });
+                w.split_active(false, window, cx);
+                assert!(w.views.split.is_none());
+                assert!(editor.update(cx, |s, cx| s.marked_text_range(window, cx).is_some()));
+                editor.update(cx, |s, cx| s.unmark_text(window, cx));
+                w.split_active(false, window, cx);
+                let split = w.views.split.as_ref().unwrap();
+                assert_eq!(split.pane.read(cx).editor.read(cx).value(), "原文你");
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn split_unmark_commits_and_saves_without_an_additional_text_edit(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let root =
