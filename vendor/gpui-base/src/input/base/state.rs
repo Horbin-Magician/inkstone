@@ -4478,9 +4478,17 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
             .map(|range| self.range_to_utf16(&range.into()))
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
-        self.ime_marked_range = None;
+    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let committed = self.ime_marked_range.take().is_some();
         self.undo_manager.commit_transaction();
+        if committed {
+            // The bytes can stay identical while the preedit becomes committed.
+            // Subscribers waiting for composition to end must see that transition.
+            if self.emit_events {
+                cx.emit(InputEvent::Change);
+            }
+            cx.notify();
+        }
     }
 
     /// Replace text in range.
