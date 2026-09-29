@@ -1078,6 +1078,82 @@ impl<M: InputModeKind> InputBaseState<M> {
         true
     }
 
+    /// Apply a host transformation once per selected logical line, preserving every caret.
+    pub fn apply_line_edits(
+        &mut self,
+        mut transform: impl FnMut(&str) -> Option<(Range<usize>, String)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_editable() || !self.is_multi_line() || self.ime_marked_range.is_some() {
+            return false;
+        }
+        let before: Vec<_> = self.selections.iter().copied().collect();
+        let mut rows = std::collections::BTreeSet::new();
+        for selection in &before {
+            let first = self.text.offset_to_point(selection.start).row;
+            let mut last = self.text.offset_to_point(selection.end).row;
+            if !selection.is_empty() && self.text.line_start_offset(last) == selection.end {
+                last = last.saturating_sub(1);
+            }
+            rows.extend(first..=last);
+        }
+        let mut edits = Vec::new();
+        for row in rows {
+            let line = self.text.slice_line(row).to_string();
+            if let Some((range, replacement)) = transform(&line) {
+                if range.start > range.end
+                    || !line.is_char_boundary(range.start)
+                    || !line.is_char_boundary(range.end)
+                {
+                    return false;
+                }
+                if line[range.clone()] == replacement {
+                    continue;
+                }
+                let start = self.text.line_start_offset(row);
+                edits.push((start + range.start..start + range.end, replacement));
+            }
+        }
+        if edits.is_empty() {
+            return false;
+        }
+        let map = |offset: usize| {
+            let mut delta = 0isize;
+            for (range, inserted) in &edits {
+                if offset < range.start {
+                    break;
+                }
+                if offset <= range.end {
+                    return (range.start + inserted.len()).saturating_add_signed(delta);
+                }
+                delta += inserted.len() as isize - range.len() as isize;
+            }
+            offset.saturating_add_signed(delta)
+        };
+        let after: Vec<_> = before
+            .iter()
+            .map(|selection| {
+                let mut result = *selection;
+                result.start = map(selection.start);
+                result.end = map(selection.end);
+                result.column_anchor = None;
+                result
+            })
+            .collect();
+        self.undo_manager.begin_transaction();
+        self.undo_manager
+            .record_selections(before.clone(), before.clone());
+        self.replace_text_in_ranges(&edits, window, cx);
+        self.selections.replace_all(after.clone());
+        self.undo_manager.record_selections(before, after);
+        self.undo_manager.commit_transaction();
+        self.scroll_to(self.cursor(), None, cx);
+        self.pause_blink_cursor(cx);
+        cx.notify();
+        true
+    }
+
     fn replace_text(
         &mut self,
         text: impl Into<SharedString>,

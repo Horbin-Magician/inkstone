@@ -3,6 +3,16 @@ use std::ops::Range;
 mod indentation;
 mod renumber;
 
+/// A minimal indentation change for one line, with offsets relative to that line.
+pub fn indentation_change(
+    line: &str,
+    width: usize,
+    tabs: bool,
+    outdent: bool,
+) -> Option<(Range<usize>, String)> {
+    indentation::line_change(line, width.clamp(2, 8), tabs, outdent)
+}
+
 #[derive(Clone, Copy)]
 pub enum Key {
     Enter,

@@ -175,8 +175,31 @@ impl EditorPane {
             || !state.focus_handle(cx).is_focused(window)
             || state.completion_menu_state().open
             || state.code_action_menu_state().open
-            || state.has_multiple_selections()
         {
+            return;
+        }
+        if state.has_multiple_selections() {
+            if matches!(
+                key,
+                inkstone::markdown_edit::Key::Indent | inkstone::markdown_edit::Key::Outdent
+            ) {
+                let indent = self.indentation;
+                self.editor.update(cx, |state, cx| {
+                    state.apply_line_edits(
+                        |line| {
+                            inkstone::markdown_edit::indentation_change(
+                                line,
+                                indent.tab_size,
+                                indent.hard_tabs,
+                                matches!(key, inkstone::markdown_edit::Key::Outdent),
+                            )
+                        },
+                        window,
+                        cx,
+                    );
+                });
+                cx.stop_propagation();
+            }
             return;
         }
         if matches!(
@@ -1638,6 +1661,52 @@ mod tests {
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn multiple_carets_indent_quote_lines_once_and_undo_together(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "> 中文\n> 中文";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(5..5, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-alt-down tab");
+        editor.read_with(&visual, |s, _| {
+            assert!(s.has_multiple_selections());
+            assert_eq!(s.value(), "> \t中文\n> \t中文");
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| {
+            assert!(s.has_multiple_selections());
+            assert_eq!(s.value(), source);
+        });
+        visual.simulate_keystrokes("ctrl-y shift-tab");
+        editor.read_with(&visual, |s, _| {
+            assert!(s.has_multiple_selections());
+            assert_eq!(s.value(), source);
+        });
+        editor.update(&mut visual, |s, cx| s.set_selected_range(2..2, cx));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let at = editor.read_with(&visual, |s, _| s.range_to_bounds(&(5..5)).unwrap().origin);
+        visual.simulate_click(
+            at + point(px(1.), px(8.)),
+            Modifiers {
+                alt: true,
+                ..Default::default()
+            },
+        );
+        editor.read_with(&visual, |s, _| assert!(s.has_multiple_selections()));
+        visual.simulate_keystrokes("tab");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "> \t中文\n> 中文"));
     }
 
     #[gpui::test]
