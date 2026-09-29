@@ -3117,13 +3117,10 @@ impl Render for Workspace {
         let pane = self.current_pane();
         let count = pane
             .as_ref()
+            .filter(|_| !self.graph_open)
             .map(|p| {
-                let text = p.read(cx).editor.read(cx).value();
-                format!(
-                    "{} 词  {} 字符",
-                    text.split_whitespace().count(),
-                    text.chars().count()
-                )
+                let counts = p.read(cx).text_counts(cx);
+                format!("{} 个词  {} 个字符", counts.words, counts.characters)
             })
             .unwrap_or_default();
         let error = active.and_then(|t| t.error.clone());

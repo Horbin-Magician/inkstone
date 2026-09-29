@@ -28,6 +28,13 @@ struct PresentationSnapshot {
 }
 
 pub struct EditorPane {
+    count_cache: RefCell<
+        Option<(
+            SharedString,
+            std::ops::Range<usize>,
+            inkstone::word_count::Counts,
+        )>,
+    >,
     footnote_edit: Option<footnotes::FootnoteEdit>,
     pub editor: Entity<EditorState>,
     decorations: TextDecorationCollection,
@@ -70,6 +77,29 @@ pub struct EditorPane {
 }
 
 impl EditorPane {
+    pub fn text_counts(&self, cx: &App) -> inkstone::word_count::Counts {
+        let editor = self.editor.read(cx);
+        let source = editor.value();
+        let selection = if self.reading || editor.selected_range().is_empty() {
+            0..0
+        } else {
+            editor.selected_range()
+        };
+        if let Some((old, range, counts)) = self.count_cache.borrow().as_ref()
+            && old == &source
+            && range == &selection
+        {
+            return *counts;
+        }
+        let text = if selection.is_empty() {
+            inkstone::word_count::document_body(&source)
+        } else {
+            &source[selection.clone()]
+        };
+        let counts = inkstone::word_count::count(text);
+        *self.count_cache.borrow_mut() = Some((source, selection, counts));
+        counts
+    }
     pub fn set_fold_options(
         &mut self,
         headings: bool,
@@ -542,6 +572,7 @@ impl EditorPane {
         Self {
             editor,
             footnote_edit: None,
+            count_cache: RefCell::new(None),
             decorations,
             live: true,
             parse_source: "".into(),
@@ -1737,6 +1768,62 @@ mod tests {
             .update(&mut visual, |p, _, cx| {
                 assert_eq!(p.editor.read(cx).value(), "before\r\n```\r\n```");
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn text_counts_track_selection_reading_mode_and_source_changes(cx: &mut TestAppContext) {
+        use inkstone::word_count::Counts;
+        cx.update(gpui_kit::init);
+        let source = "---\ntitle: Secret\n---\n你好 world😀";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 3,
+                        characters: 10
+                    }
+                );
+                let emoji = source.find('😀').unwrap();
+                p.editor
+                    .update(cx, |s, cx| s.set_selected_range(emoji..source.len(), cx));
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 0,
+                        characters: 2
+                    }
+                );
+                let secret = source.find("Secret").unwrap();
+                p.editor
+                    .update(cx, |s, cx| s.set_selected_range(secret..secret + 6, cx));
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 1,
+                        characters: 6
+                    }
+                );
+                p.reading = true;
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 3,
+                        characters: 10
+                    }
+                );
+                p.editor
+                    .update(cx, |s, cx| s.set_value(format!("{source} ok"), w, cx));
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 4,
+                        characters: 13
+                    }
+                );
             })
             .unwrap();
     }

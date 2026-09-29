@@ -356,7 +356,16 @@ impl Workspace {
                 this.sync_from_split(w, cx);
             }
         });
+        let mut counted_selection = 0..0;
         let focus = cx.observe_in(&editor, window, move |this, editor, w, cx| {
+            let selected = editor.read(cx).selected_range();
+            let selected = if selected.is_empty() { 0..0 } else { selected };
+            if selected != counted_selection {
+                counted_selection = selected;
+                if editor.read(cx).focus_handle(cx).is_focused(w) {
+                    cx.notify();
+                }
+            }
             if !this.views.secondary_focused
                 && editor.read(cx).focus_handle(cx).is_focused(w)
                 && this.views.split.as_ref().is_some_and(|s| {
