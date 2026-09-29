@@ -1154,10 +1154,10 @@ impl Workspace {
         cx.notify();
     }
     fn navigate(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(pane) = self.current_pane() else {
+        if self.current_pane().is_none() {
             return;
-        };
-        let mut history = pane.read(cx).navigation.clone();
+        }
+        let mut history = self.navigation_with_current_state(cx);
         let path = if forward {
             history.forward()
         } else {

@@ -920,11 +920,8 @@ impl Workspace {
         let navigation_generation = self.navigation_generation;
         self.pending_navigation = None;
         let force_new = force_new || (view.is_none() && self.current_view_pinned());
-        if view.is_none()
-            && !force_new
-            && let Some(pane) = self.current_pane()
-        {
-            let history = pane.read(cx).navigation.clone();
+        if view.is_none() && !force_new && self.current_pane().is_some() {
+            let history = self.navigation_with_current_state(cx);
             self.open_current_note(path, history, window, cx);
             return;
         }
