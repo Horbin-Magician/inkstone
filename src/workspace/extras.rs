@@ -442,7 +442,7 @@ impl Workspace {
             .and_then(|t| t.path.file_stem())
             .unwrap_or_default()
             .to_string_lossy();
-        let text = match inkstone::daily::expand_template(&note.text, &title, &now) {
+        let text = match self.ui.prefs.templates.expand(&note.text, &title, &now) {
             Ok(text) => text,
             Err(error) => {
                 self.status = error;

@@ -117,6 +117,15 @@ impl Settings {
     }
 }
 pub fn expand_template(source: &str, title: &str, now: &DateTime<Local>) -> Result<String, String> {
+    expand_template_with_formats(source, title, now, "YYYY-MM-DD", "HH:mm")
+}
+pub fn expand_template_with_formats(
+    source: &str,
+    title: &str,
+    now: &DateTime<Local>,
+    date_format: &str,
+    time_format: &str,
+) -> Result<String, String> {
     let pattern = regex::Regex::new(r"\{\{(title|date|time)(?::([^}]*))?\}\}").unwrap();
     let mut result = String::new();
     let mut end = 0;
@@ -132,9 +141,17 @@ pub fn expand_template(source: &str, title: &str, now: &DateTime<Local>) -> Resu
                     .get(2)
                     .map(|m| m.as_str())
                     .unwrap_or(if &captures[1] == "date" {
-                        "YYYY-MM-DD"
+                        if date_format.trim().is_empty() {
+                            "YYYY-MM-DD"
+                        } else {
+                            date_format
+                        }
                     } else {
-                        "HH:mm"
+                        if time_format.trim().is_empty() {
+                            "HH:mm"
+                        } else {
+                            time_format
+                        }
                     }),
             )?);
         }

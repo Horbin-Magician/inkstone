@@ -72,6 +72,8 @@ pub(super) struct UiState {
     pub attachment_folder_input: Entity<InputState>,
     pub daily_inputs: [Entity<InputState>; 3],
     _daily_subscriptions: Vec<Subscription>,
+    pub template_inputs: [Entity<InputState>; 3],
+    _template_subscriptions: Vec<Subscription>,
     _location_subscriptions: Vec<Subscription>,
     pub property_open: bool,
     pub property_key: Entity<InputState>,
@@ -151,6 +153,26 @@ impl UiState {
                 })
             })
             .collect();
+        let template_inputs = ["模板文件夹", "YYYY-MM-DD", "HH:mm"]
+            .map(|placeholder| cx.new(|cx| InputState::new(window, cx).placeholder(placeholder)));
+        let template_subscriptions = template_inputs
+            .iter()
+            .enumerate()
+            .map(|(i, input)| {
+                cx.subscribe(input, move |this, input, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let value = input.read(cx).value().to_string();
+                        match i {
+                            0 => this.ui.prefs.templates.folder = value,
+                            1 => this.ui.prefs.templates.date_format = value,
+                            _ => this.ui.prefs.templates.time_format = value,
+                        }
+                        this.persist_workspace(cx);
+                        cx.notify();
+                    }
+                })
+            })
+            .collect();
         let hotkey_filter_subscription = cx.observe(&hotkey_filter, |_, _, cx| cx.notify());
         let weak = cx.entity().downgrade();
         let window_id = window.window_handle().window_id();
@@ -201,6 +223,8 @@ impl UiState {
             attachment_folder_input,
             daily_inputs,
             _daily_subscriptions: daily_subscriptions,
+            template_inputs,
+            _template_subscriptions: template_subscriptions,
             _location_subscriptions: location_subscriptions,
             property_open: false,
             property_key,
@@ -866,6 +890,7 @@ impl Workspace {
             14 => {
                 self.prepare_file_settings(window, cx);
                 self.prepare_daily_settings(window, cx);
+                self.prepare_template_settings(window, cx);
                 self.ui.settings = true;
                 window.focus(&self.ui.modal_focus, cx);
             }
@@ -942,10 +967,7 @@ impl Workspace {
                 }
             }
             28 => self.open_daily(window, cx),
-            29 => {
-                self.focus_search(false, window, cx);
-                self.ui.template_mode = true;
-            }
+            29 => self.open_template_picker(window, cx),
             30 => self.choose_attachments(window, cx),
             31 => self.split_active(false, window, cx),
             32 => self.split_active(true, window, cx),
@@ -1708,13 +1730,10 @@ impl Workspace {
         cx.notify();
     }
     pub(super) fn open_selected_result(&mut self, w: &mut Window, cx: &mut Context<Self>) {
-        let hit = if self.search.read(cx).value().is_empty() && self.ui.quick_open {
-            self.files.get(self.ui.selected).map(|p| (p.clone(), 0))
-        } else {
-            self.search_results
-                .get(self.ui.selected)
-                .map(|h| (h.path.clone(), h.offset))
-        };
+        let hit = self
+            .visible_search_hits(self.ui.quick_open, cx)
+            .get(self.ui.selected)
+            .map(|h| (h.path.clone(), h.offset));
         if let Some((path, offset)) = hit {
             if self.ui.template_mode {
                 self.insert_template(&path, w, cx);
@@ -1725,8 +1744,11 @@ impl Workspace {
             self.apply_jump(w, cx);
         }
     }
-    fn search_list(&self, modal: bool, cx: &mut Context<Self>) -> AnyElement {
-        let hits: Vec<_> = if modal && self.search.read(cx).value().is_empty() {
+    fn visible_search_hits(&self, modal: bool, cx: &Context<Self>) -> Vec<SearchHit> {
+        if modal && self.ui.template_mode {
+            return self.search_results.clone();
+        }
+        if modal && self.search.read(cx).value().is_empty() {
             self.files
                 .iter()
                 .take(100)
@@ -1740,7 +1762,11 @@ impl Workspace {
                 .collect()
         } else {
             self.search_results.clone()
-        };
+        }
+    }
+    fn search_list(&self, modal: bool, cx: &mut Context<Self>) -> AnyElement {
+        let hits = self.visible_search_hits(modal, cx);
+        let empty_templates = modal && self.ui.template_mode && hits.is_empty();
         div()
             .id(if modal {
                 "quick-results"
@@ -1752,6 +1778,9 @@ impl Workspace {
             .min_h_0()
             .overflow_y_scroll()
             .p_2()
+            .when(empty_templates, |s| {
+                s.child(div().p_3().text_color(rgb(0x999999)).child("未找到模板"))
+            })
             .children(hits.into_iter().enumerate().map(|(i, hit)| {
                 let path = hit.path;
                 let offset = hit.offset;
@@ -2528,10 +2557,8 @@ impl Workspace {
                 let key = event.keystroke.key.as_str();
                 let n = if this.command_open {
                     this.filtered_commands(cx).len()
-                } else if this.search.read(cx).value().is_empty() {
-                    this.files.len().min(100)
                 } else {
-                    this.search_results.len()
+                    this.visible_search_hits(true, cx).len()
                 };
                 if key == "down" || key == "up" {
                     if n > 0 {
@@ -2726,6 +2753,9 @@ impl Workspace {
             .into_any_element()
     }
     fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.ui.settings_tab == 4 {
+            return self.template_settings_panel(cx);
+        }
         if self.ui.settings_tab == 3 {
             return self.daily_settings_panel(cx);
         }

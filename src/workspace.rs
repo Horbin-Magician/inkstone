@@ -4,6 +4,7 @@ mod file_settings;
 mod hotkeys;
 mod inline_title;
 mod link_updates;
+mod templates;
 mod ui;
 mod views;
 use crate::editor::{EditorEvent, EditorPane};
@@ -1403,6 +1404,10 @@ impl Workspace {
         let query = self.search.read(cx).value().to_string();
         let index = self.index.clone();
         let fulltext = self.fulltext;
+        let template_folder = self
+            .ui
+            .template_mode
+            .then(|| self.ui.prefs.templates.directory().ok());
         if fulltext && let Err(error) = inkstone::search::Query::parse(&query) {
             self.search_results.clear();
             self.status = error;
@@ -1415,7 +1420,11 @@ impl Workspace {
             .map(|t| t.path.clone());
         let task = cx.background_executor().spawn(async move {
             let backlinks = active.map(|p| index.backlinks(&p)).unwrap_or_default();
-            let hits = if query.trim().is_empty() {
+            let hits = if let Some(folder) = template_folder {
+                folder
+                    .map(|folder| inkstone::templates::search(&index, &folder, &query))
+                    .unwrap_or_default()
+            } else if query.trim().is_empty() {
                 vec![]
             } else if fulltext {
                 index.search(&query)
@@ -1625,6 +1634,59 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn template_picker_filters_empty_query_and_inserts_selected_template(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let root = std::env::temp_dir().join(format!("inkstone-templates-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("模板/子目录")).unwrap();
+        std::fs::write(root.join("a.md"), "").unwrap();
+        std::fs::write(
+            root.join("模板/子目录/会议.md"),
+            "# {{title}} {{date:YYYY}} {{time}}",
+        )
+        .unwrap();
+        handle
+            .update(cx, |w, window, cx| {
+                let vault = Vault::open(&root, root.with_extension("recovery")).unwrap();
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.files = w.index.notes.keys().cloned().collect();
+                w.vault = Some(vault);
+                w.add_tab("a.md".into(), Some(String::new()), false, window, cx);
+                w.execute_command(29, window, cx);
+                assert!(!w.ui.quick_open);
+                assert!(w.status.contains("指定模板文件夹"));
+                w.ui.prefs.templates.folder = "模板".into();
+                w.ui.prefs.templates.time_format = "[测试时间]".into();
+                w.execute_command(29, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.search_results.len(), 1);
+                assert_eq!(
+                    w.search_results[0].display_name.as_deref(),
+                    Some("子目录/会议")
+                );
+                w.open_selected_result(window, cx);
+                assert!(!w.ui.template_mode);
+                let text = w.current_pane().unwrap().read(cx).editor.read(cx).value();
+                assert!(text.starts_with("# a "));
+                assert!(text.ends_with(" 测试时间"));
+                w.ui.prefs.templates.folder = "缺失文件夹".into();
+                w.execute_command(29, window, cx);
+                assert!(!w.ui.quick_open);
+                assert!(w.status.contains("不存在"));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("模板/子目录/会议.md")).unwrap(),
+            "# {{title}} {{date:YYYY}} {{time}}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[gpui::test]
     fn daily_creation_uses_template_and_never_rewrites_existing_note(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
