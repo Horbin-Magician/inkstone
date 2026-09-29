@@ -1820,6 +1820,37 @@ mod tests {
     }
 
     #[gpui::test]
+    fn synchronized_text_keeps_selection_on_grapheme_boundaries(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("a", w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(1..1, cx);
+                    assert!(s.apply_synced_text(
+                        "a\u{301}",
+                        &[(1..1, "\u{301}".into())],
+                        false,
+                        false,
+                        w,
+                        cx
+                    ));
+                    assert_eq!(s.selected_range(), 0..0);
+                    assert!(!s.apply_synced_text(
+                        "wrong",
+                        &[(1..2, "bad".into())],
+                        false,
+                        false,
+                        w,
+                        cx
+                    ));
+                    assert_eq!(s.value(), "a\u{301}");
+                });
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn large_counts_are_deferred_and_old_requests_do_not_replace_new_selection(
         cx: &mut TestAppContext,
     ) {
