@@ -1,6 +1,7 @@
 use super::*;
 use gpui_component::date_picker::{DatePicker, DatePickerEvent, DatePickerState};
 use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
+use gpui_component::select::{SearchableVec, SelectEvent, SelectState};
 use gpui_component::slider::{Slider, SliderEvent, SliderState};
 use gpui_component::{
     Disableable, Icon, Selectable, TitleBar,
@@ -51,6 +52,8 @@ pub(super) struct UiState {
     pub prefs: Preferences,
     pub available_fonts: Arc<Vec<String>>,
     pub default_fonts: (SharedString, SharedString),
+    pub font_selects: [Entity<SelectState<SearchableVec<super::appearance::FontChoice>>>; 3],
+    _font_select_subscriptions: Vec<Subscription>,
     _appearance_subscription: Subscription,
     pub tab_width: Entity<SliderState>,
     pub font_size_slider: Entity<SliderState>,
@@ -139,6 +142,49 @@ impl UiState {
         let mut available_fonts = cx.text_system().all_font_names();
         available_fonts.sort_by_key(|name| name.to_lowercase());
         available_fonts.dedup();
+        let font_selects = std::array::from_fn(|_| {
+            let choices: Vec<_> = std::iter::once(String::new())
+                .chain(available_fonts.iter().cloned())
+                .map(|name| super::appearance::FontChoice {
+                    name,
+                    missing: false,
+                })
+                .collect();
+            cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(choices),
+                    Some(gpui_component::IndexPath::new(0)),
+                    window,
+                    cx,
+                )
+                .searchable(true)
+            })
+        });
+        let font_select_subscriptions = font_selects
+            .iter()
+            .enumerate()
+            .map(|(role, select)| {
+                cx.subscribe_in(
+                    select,
+                    window,
+                    move |this,
+                          _,
+                          event: &SelectEvent<SearchableVec<super::appearance::FontChoice>>,
+                          window,
+                          cx| {
+                        let SelectEvent::Confirm(Some(font)) = event else {
+                            return;
+                        };
+                        match role {
+                            0 => this.ui.prefs.interface_font = font.clone(),
+                            1 => this.ui.prefs.text_font = font.clone(),
+                            _ => this.ui.prefs.monospace_font = font.clone(),
+                        }
+                        this.apply_editor_preferences(window, cx);
+                    },
+                )
+            })
+            .collect();
         apply_theme(prefs.light, cx);
         let default_fonts = {
             let theme = gpui_component::Theme::global(cx);
@@ -352,6 +398,8 @@ impl UiState {
             prefs,
             available_fonts: Arc::new(available_fonts),
             default_fonts,
+            font_selects,
+            _font_select_subscriptions: font_select_subscriptions,
             _appearance_subscription: appearance_subscription,
             tab_width,
             font_size_slider,
@@ -706,6 +754,7 @@ impl Workspace {
     }
     pub(super) fn apply_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.apply_font_preferences(cx);
+        self.sync_font_selects(window, cx);
         let text_font = self.resolved_font(&self.ui.prefs.text_font, "Microsoft YaHei UI");
         let p = self.ui.prefs.clone();
         self.ui

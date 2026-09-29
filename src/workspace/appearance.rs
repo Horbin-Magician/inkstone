@@ -1,9 +1,70 @@
 use super::*;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_component::select::{SearchableVec, Select, SelectItem};
 use gpui_component::{button::Button, slider::Slider, switch::Switch};
 use inkstone::preferences::ThemeMode;
 
+#[derive(Clone)]
+pub(super) struct FontChoice {
+    pub name: String,
+    pub missing: bool,
+}
+impl SelectItem for FontChoice {
+    type Value = String;
+    fn title(&self) -> SharedString {
+        if self.name.is_empty() {
+            "默认".into()
+        } else if self.missing {
+            format!("{}（未安装）", self.name).into()
+        } else {
+            self.name.clone().into()
+        }
+    }
+    fn value(&self) -> &String {
+        &self.name
+    }
+    fn disabled(&self) -> bool {
+        self.missing
+    }
+}
+
 impl Workspace {
+    pub(super) fn sync_font_selects(&self, window: &mut Window, cx: &mut Context<Self>) {
+        for (role, value) in [
+            &self.ui.prefs.interface_font,
+            &self.ui.prefs.text_font,
+            &self.ui.prefs.monospace_font,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let select = &self.ui.font_selects[role];
+            if select.read(cx).selected_value() == Some(value) {
+                continue;
+            }
+            let mut fonts: Vec<_> = std::iter::once(String::new())
+                .chain(self.ui.available_fonts.iter().cloned())
+                .map(|name| FontChoice {
+                    name,
+                    missing: false,
+                })
+                .collect();
+            if !fonts.iter().any(|font| &font.name == value) {
+                fonts.push(FontChoice {
+                    name: value.clone(),
+                    missing: !self
+                        .ui
+                        .available_fonts
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(value)),
+                });
+            }
+            select.update(cx, |state, cx| {
+                state.set_items(SearchableVec::new(fonts), window, cx);
+                state.set_selected_value(value, window, cx);
+            });
+        }
+    }
     pub(super) fn resolved_font(&self, requested: &str, fallback: &str) -> SharedString {
         self.ui
             .available_fonts
@@ -121,71 +182,23 @@ impl Workspace {
                                 .child(theme),
                         )
                         .children(
-                            [
-                                (0, "界面字体", &self.ui.prefs.interface_font),
-                                (1, "正文字体", &self.ui.prefs.text_font),
-                                (2, "等宽字体", &self.ui.prefs.monospace_font),
-                            ]
-                            .into_iter()
-                            .map(|(role, label, selected)| {
-                                let selected = selected.clone();
-                                let names = self.ui.available_fonts.clone();
-                                let weak = cx.entity().downgrade();
-                                div()
-                                    .flex()
-                                    .justify_between()
-                                    .items_center()
-                                    .child(label)
-                                    .child(
-                                        Button::new(("font-family", role as usize))
-                                            .label(if selected.is_empty() {
-                                                "默认".to_string()
-                                            } else {
-                                                selected.clone()
-                                            })
-                                            .dropdown_menu(move |mut menu, _, _| {
-                                                for font in std::iter::once(String::new())
-                                                    .chain(names.iter().cloned())
-                                                {
-                                                    let weak = weak.clone();
-                                                    menu = menu.item(
-                                                        PopupMenuItem::new(if font.is_empty() {
-                                                            "默认".to_string()
-                                                        } else {
-                                                            font.clone()
-                                                        })
-                                                        .checked(font == selected)
-                                                        .on_click(move |_, window, cx| {
-                                                            let _ = weak.update(cx, |this, cx| {
-                                                                match role {
-                                                                    0 => {
-                                                                        this.ui
-                                                                            .prefs
-                                                                            .interface_font =
-                                                                            font.clone()
-                                                                    }
-                                                                    1 => {
-                                                                        this.ui.prefs.text_font =
-                                                                            font.clone()
-                                                                    }
-                                                                    _ => {
-                                                                        this.ui
-                                                                            .prefs
-                                                                            .monospace_font =
-                                                                            font.clone()
-                                                                    }
-                                                                }
-                                                                this.apply_editor_preferences(
-                                                                    window, cx,
-                                                                );
-                                                            });
-                                                        }),
-                                                    );
-                                                }
-                                                menu
-                                            }),
-                                    )
-                            }),
+                            ["界面字体", "正文字体", "等宽字体"]
+                                .into_iter()
+                                .enumerate()
+                                .map(|(role, label)| {
+                                    div()
+                                        .flex()
+                                        .justify_between()
+                                        .items_center()
+                                        .child(label)
+                                        .child(
+                                            Select::new(&self.ui.font_selects[role])
+                                                .w(px(240.))
+                                                .accessibility_label(label)
+                                                .search_placeholder("搜索字体…")
+                                                .empty(|_, _| div().p_3().child("未找到字体")),
+                                        )
+                                }),
                         )
                         .child(
                             div()

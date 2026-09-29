@@ -674,6 +674,7 @@ impl Workspace {
                             this.ui.prefs.theme.is_light(Self::system_light(window));
                         ui::apply_theme(this.ui.prefs.light, cx);
                         this.apply_font_preferences(cx);
+                        this.sync_font_selects(window, cx);
                         this.ui.history = Default::default();
                         this.ui.closed.clear();
                         this.ui.inline_title = None;
@@ -1743,6 +1744,69 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn font_search_selects_by_keyboard_and_keeps_other_roles_unchanged(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let name = handle
+            .update(cx, |w, window, cx| {
+                w.ui.settings = true;
+                w.ui.settings_tab = 5;
+                let name = ".SystemUIFont".to_string();
+                // TestPlatform does not enumerate installed fonts; the virtual system family is portable.
+                w.ui.available_fonts = Arc::new(vec![name.clone()]);
+                for select in &w.ui.font_selects {
+                    select.update(cx, |state, cx| {
+                        state.set_items(
+                            gpui_component::select::SearchableVec::new(vec![
+                                appearance::FontChoice {
+                                    name: String::new(),
+                                    missing: false,
+                                },
+                                appearance::FontChoice {
+                                    name: name.clone(),
+                                    missing: false,
+                                },
+                            ]),
+                            window,
+                            cx,
+                        );
+                    });
+                }
+                window.focus(&w.ui.font_selects[1].read(cx).focus_handle(cx), cx);
+                name
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1100.), px(800.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("down");
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_input(&name);
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("enter");
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(w.ui.prefs.text_font, name);
+                assert!(w.ui.prefs.interface_font.is_empty());
+                assert!(w.ui.prefs.monospace_font.is_empty());
+                window.focus(&w.ui.font_selects[0].read(cx).focus_handle(cx), cx);
+            })
+            .unwrap();
+        visual.simulate_keystrokes("down");
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_input("默认");
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("enter");
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert!(w.ui.prefs.interface_font.is_empty());
+                assert_eq!(w.ui.prefs.text_font, name);
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn font_preferences_reach_split_views_and_missing_fonts_fall_back(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
