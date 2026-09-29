@@ -1637,6 +1637,39 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn property_list_items_add_remove_save_and_undo_without_losing_punctuation(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let source = "---\naliases: [原始]\n---\n正文";
+                w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
+                w.edit_property("aliases", "[\"原始\"]", window, cx);
+                w.ui.property_list_entry
+                    .update(cx, |s, cx| s.set_value("Smith, John", window, cx));
+                assert!(w.add_property_list_item(window, cx));
+                assert_eq!(w.property_list_values(cx).unwrap(), ["原始", "Smith, John"]);
+                w.remove_property_list_item(0, window, cx);
+                w.ui.property_list_entry
+                    .update(cx, |s, cx| s.set_value("含\"引号\"的项目", window, cx));
+                w.save_property(window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                assert_eq!(
+                    inkstone::index::parse(&editor.read(cx).value()).aliases,
+                    ["Smith, John", "含\"引号\"的项目"]
+                );
+                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+                assert_eq!(editor.read(cx).value().as_ref(), source);
+                w.edit_property("aliases", "[\"原始\"]", window, cx);
+                w.remove_property_list_item(0, window, cx);
+                w.close_overlays(window, cx);
+                assert_eq!(editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn property_calendar_syncs_manual_values_and_saves_selected_dates(cx: &mut TestAppContext) {
         use gpui_component::date_picker::{DatePickerEvent, DateTime};
         use inkstone::properties::Kind;

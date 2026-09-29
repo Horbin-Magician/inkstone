@@ -381,6 +381,9 @@ impl Workspace {
         }
         self.ui.property_open = true;
         self.ui.property_error.clear();
+        self.ui
+            .property_list_entry
+            .update(cx, |s, cx| s.set_value("", w, cx));
         self.ui.property_kind = if matches!(name, "tags" | "aliases" | "cssclasses") {
             inkstone::properties::Kind::List
         } else {
@@ -409,6 +412,13 @@ impl Workspace {
             s.focus(w, cx);
         });
         self.sync_property_dates(w, cx);
+        if self.effective_property_kind(cx) == inkstone::properties::Kind::List
+            && self.property_list_values(cx).is_ok()
+        {
+            self.ui
+                .property_list_entry
+                .update(cx, |s, cx| s.focus(w, cx));
+        }
         if self.effective_property_kind(cx) == inkstone::properties::Kind::Checkbox {
             w.focus(&self.ui.modal_focus, cx);
         }
@@ -473,7 +483,77 @@ impl Workspace {
         cx.notify();
     }
     pub(super) fn save_property(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        if self.effective_property_kind(cx) == inkstone::properties::Kind::List
+            && !self.add_property_list_item(w, cx)
+        {
+            return;
+        }
         self.apply_property(false, w, cx);
+    }
+    pub(super) fn property_list_values(&self, cx: &Context<Self>) -> Result<Vec<String>, String> {
+        let encoded =
+            inkstone::properties::Kind::List.encode(&self.ui.property_value.read(cx).value())?;
+        serde_json::from_str(&encoded).map_err(|e| e.to_string())
+    }
+    pub(super) fn add_property_list_item(
+        &mut self,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.ui.property_open
+            || self.effective_property_kind(cx) != inkstone::properties::Kind::List
+        {
+            return false;
+        }
+        let value = self
+            .ui
+            .property_list_entry
+            .read(cx)
+            .value()
+            .trim()
+            .to_string();
+        if value.is_empty() {
+            return true;
+        }
+        match self.property_list_values(cx) {
+            Ok(mut items) => {
+                items.push(value);
+                self.ui.property_value.update(cx, |s, cx| {
+                    s.set_value(serde_json::to_string(&items).unwrap(), w, cx)
+                });
+                self.ui.property_list_entry.update(cx, |s, cx| {
+                    s.set_value("", w, cx);
+                    s.focus(w, cx);
+                });
+                self.ui.property_error.clear();
+                cx.notify();
+                true
+            }
+            Err(error) => {
+                self.ui.property_error = error;
+                cx.notify();
+                false
+            }
+        }
+    }
+    pub(super) fn remove_property_list_item(
+        &mut self,
+        index: usize,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Ok(mut items) = self.property_list_values(cx)
+            && self.ui.property_open
+            && self.effective_property_kind(cx) == inkstone::properties::Kind::List
+            && index < items.len()
+        {
+            items.remove(index);
+            self.ui.property_value.update(cx, |s, cx| {
+                s.set_value(serde_json::to_string(&items).unwrap(), w, cx)
+            });
+            self.ui.property_error.clear();
+            cx.notify();
+        }
     }
     pub(super) fn delete_property(&mut self, w: &mut Window, cx: &mut Context<Self>) {
         self.apply_property(true, w, cx);
