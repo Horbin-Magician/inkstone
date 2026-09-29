@@ -11,6 +11,7 @@ use crate::editor::{EditorEvent, EditorPane};
 use gpui::{prelude::*, *};
 use gpui_component::{
     input::{Input, InputEvent, InputState},
+    scroll::ScrollableElement,
     tree::{TreeItem, TreeState},
 };
 use inkstone::index::{Index, Resolution, SearchHit};
@@ -1735,6 +1736,69 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn settings_content_scrolls_inside_short_windows(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            cx.bind_keys([KeyBinding::new("escape", ClosePalette, None)]);
+        });
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.settings = true;
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1000.), px(420.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, _, _| {
+                let scroll = &w.ui.settings_scroll;
+                let bounds = scroll.bounds();
+                assert!(
+                    bounds.size.height > px(80.) && bounds.bottom() <= px(404.),
+                    "{bounds:?}"
+                );
+                assert!(
+                    scroll.max_offset().y > px(0.),
+                    "settings must overflow vertically"
+                );
+                scroll.scroll_to_bottom();
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, _, _| {
+                let scroll = &w.ui.settings_scroll;
+                let last = scroll.bounds_for_item(scroll.children_count() - 1).unwrap();
+                assert!(last.bottom() + scroll.offset().y <= scroll.bounds().bottom() + px(1.));
+                assert!(last.top() + scroll.offset().y >= scroll.bounds().top());
+            })
+            .unwrap();
+        for tab in 1..5 {
+            handle
+                .update(&mut visual, |w, _, _| {
+                    w.ui.settings_tab = tab;
+                    w.ui.settings_scroll.set_offset(Point::default());
+                })
+                .unwrap();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |w, _, _| {
+                    let bounds = w.ui.settings_scroll.bounds();
+                    assert!(
+                        bounds.size.height > px(0.) && bounds.bottom() <= px(404.),
+                        "tab {tab}: {bounds:?}"
+                    );
+                })
+                .unwrap();
+        }
+        visual.simulate_keystrokes("escape");
+        handle
+            .update(&mut visual, |w, _, _| assert!(!w.ui.settings))
+            .unwrap();
+    }
     #[gpui::test]
     fn indentation_settings_update_existing_and_new_split_views(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

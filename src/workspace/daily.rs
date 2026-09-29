@@ -49,8 +49,8 @@ impl Workspace {
             .daily_path(&now)
             .map(|path| format!("当前预览：{}", path.display()))
             .unwrap_or_else(|error| error);
-        div().flex().gap_4().min_h(px(330.)).child(self.settings_nav(cx)).child(
-            div().flex_1().min_w_0().p_3().flex().flex_col().gap_5()
+        div().flex().gap_4().flex_1().min_h_0().child(self.settings_nav(cx)).child(
+            div().id("settings-content").track_scroll(&self.ui.settings_scroll).relative().vertical_scrollbar(&self.ui.settings_scroll).overflow_y_scroll().min_h_0().h_full().flex_1().min_w_0().p_3().flex().flex_col().gap_5()
                 .children([
                     ("日期格式", "支持 YYYY、MM、DD、HH、mm、ss；用 / 划分子文件夹，用 [文字] 保留文字。"),
                     ("新建日记的存放位置", "库内文件夹；留空沿用新建笔记的存放位置。"),
