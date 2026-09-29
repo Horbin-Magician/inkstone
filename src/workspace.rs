@@ -820,6 +820,7 @@ impl Workspace {
         &mut self,
         index: usize,
         view: Option<&inkstone::preferences::ViewState>,
+        force_new: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -833,6 +834,16 @@ impl Workspace {
             self.views.secondary_focused = false;
             self.add_tab(view.path.clone(), None, false, window, cx);
             self.apply_reopened_view(Some(view), window, cx);
+        } else if force_new {
+            if self.has_pending_input(self.tabs[index].id, window, cx) {
+                self.pending_jump = None;
+                self.status = "请完成当前编辑后再打开新标签。".into();
+                cx.notify();
+                return;
+            }
+            let path = self.tabs[index].path.clone();
+            self.views.secondary_focused = false;
+            self.add_tab(path, None, false, window, cx);
         } else {
             self.activate_tab(index, window, cx);
         }
@@ -842,6 +853,21 @@ impl Workspace {
         &mut self,
         path: PathBuf,
         view: Option<inkstone::preferences::ViewState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_note_target(path, view, false, window, cx);
+    }
+
+    fn open_link_note(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_note_target(path, None, self.current_view_pinned(), window, cx);
+    }
+
+    fn open_note_target(
+        &mut self,
+        path: PathBuf,
+        view: Option<inkstone::preferences::ViewState>,
+        force_new: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -864,7 +890,7 @@ impl Workspace {
         self.navigation_generation += 1;
         let navigation_generation = self.navigation_generation;
         if let Some(i) = self.tabs.iter().position(|t| t.path == path) {
-            self.open_existing_note(i, view.as_ref(), window, cx);
+            self.open_existing_note(i, view.as_ref(), force_new, window, cx);
             return;
         }
         let Some(vault) = self.vault.clone() else {
@@ -884,11 +910,14 @@ impl Workspace {
                     return;
                 }
                 if let Some(i) = this.tabs.iter().position(|t| t.path == path) {
-                    this.open_existing_note(i, view.as_ref(), window, cx);
+                    this.open_existing_note(i, view.as_ref(), force_new, window, cx);
                     return;
                 }
                 match result {
                     Ok(Some(text)) => {
+                        if force_new {
+                            this.views.secondary_focused = false;
+                        }
                         this.add_tab(path, Some(text), false, window, cx);
                         this.apply_reopened_view(view.as_ref(), window, cx);
                     }
@@ -967,8 +996,16 @@ impl Workspace {
         let id = self.next_id;
         self.next_id += 1;
         let links = cx.subscribe_in(&pane, window, move |this, _, event, window, cx| {
-            if let Some(tab) = this.tabs.iter().find(|t| t.id == id) {
-                let from = tab.path.clone();
+            if let Some(index) = this.tabs.iter().position(|t| t.id == id) {
+                let from = this.tabs[index].path.clone();
+                if matches!(
+                    event,
+                    EditorEvent::FollowLink(_)
+                        | EditorEvent::FollowMarkdownLink(_)
+                        | EditorEvent::FollowReference(_)
+                ) {
+                    this.focus_primary(index, window, cx);
+                }
                 match event {
                     EditorEvent::CountsChanged => cx.notify(),
                     EditorEvent::FollowLink(target) => {
@@ -1802,7 +1839,7 @@ impl Workspace {
                 {
                     self.pending_jump = Some((path.clone(), range.start));
                 }
-                self.open_note(path, window, cx);
+                self.open_link_note(path, window, cx);
                 self.apply_jump(window, cx);
             }
             Resolution::Missing(path) => {
@@ -1829,13 +1866,16 @@ impl Workspace {
                 {
                     self.pending_jump = Some((path.clone(), range.start));
                 }
-                self.open_note(path, window, cx);
+                self.open_link_note(path, window, cx);
                 self.apply_jump(window, cx);
             }
             Resolution::Missing(path) => {
-                if let Some(i) = self.tabs.iter().position(|t| t.path == path) {
-                    self.activate_tab(i, window, cx);
+                if self.tabs.iter().any(|t| t.path == path) {
+                    self.open_link_note(path, window, cx);
                 } else {
+                    if self.current_view_pinned() {
+                        self.views.secondary_focused = false;
+                    }
                     self.add_tab(path, None, true, window, cx);
                     self.save_all(window, cx);
                 }
@@ -1932,6 +1972,111 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn pinned_link_opens_an_independent_target_and_keeps_existing_selection(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let original = handle
+            .update(cx, |w, window, cx| {
+                let mut index = Index::default();
+                index.update("a.md".into(), "[[b#Target]]".into());
+                index.update("b.md".into(), "intro\n\n# Target\nbody".into());
+                w.index = Arc::new(index);
+                w.add_tab(
+                    "a.md".into(),
+                    Some("[[b#Target]]".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                let original = w.tabs[0].pane.clone();
+                w.add_tab(
+                    "b.md".into(),
+                    Some("intro\n\n# Target\nbody".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.tabs[1]
+                    .pane
+                    .read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.set_selected_range(0..0, cx));
+                w.split_active(false, window, cx);
+                w.focus_primary(0, window, cx);
+                w.execute_command(27, window, cx);
+                w.focus_secondary(cx);
+                original.update(cx, |_, cx| {
+                    cx.emit(EditorEvent::FollowLink("b#Target".into()))
+                });
+                original
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.tabs.len(), 3);
+                assert_eq!(w.active, Some(2));
+                assert!(w.tabs[0].pinned);
+                assert_eq!(w.tabs[0].pane.entity_id(), original.entity_id());
+                assert!(std::rc::Rc::ptr_eq(&w.tabs[1].save, &w.tabs[2].save));
+                assert!(!w.tabs[2].pinned);
+                assert_eq!(
+                    w.tabs[1].pane.read(cx).editor.read(cx).selected_range(),
+                    0..0
+                );
+                assert_eq!(
+                    w.tabs[2].pane.read(cx).editor.read(cx).selected_range(),
+                    7..7
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn pinned_split_link_preserves_source_while_loading_new_target(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-pinned-link-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "source").unwrap();
+        std::fs::write(root.join("b.md"), "intro\n\n# Target\nbody").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        let source = handle
+            .update(cx, |w, window, cx| {
+                let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.vault = Some(vault);
+                w.add_tab("a.md".into(), Some("source".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                w.execute_command(27, window, cx);
+                let source = w.views.split.as_ref().unwrap().pane.entity_id();
+                w.follow_markdown_link("a.md".into(), "b.md#Target", window, cx);
+                assert!(w.views.secondary_focused);
+                source
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.tabs.len(), 2);
+                assert_eq!(w.active, Some(1));
+                assert!(!w.views.secondary_focused);
+                let split = w.views.split.as_ref().unwrap();
+                assert_eq!(split.pane.entity_id(), source);
+                assert!(split.pinned);
+                assert_eq!(split.pane.read(cx).editor.read(cx).value(), "source");
+                assert_eq!(
+                    w.tabs[1].pane.read(cx).editor.read(cx).selected_range(),
+                    7..7
+                );
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn pinned_views_migrate_and_restore_independently(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

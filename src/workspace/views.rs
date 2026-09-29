@@ -18,6 +18,16 @@ pub(super) struct Views {
 }
 
 impl Workspace {
+    pub(super) fn current_view_pinned(&self) -> bool {
+        if self.views.secondary_focused {
+            self.views.split.as_ref().is_some_and(|split| split.pinned)
+        } else {
+            self.active
+                .and_then(|index| self.tabs.get(index))
+                .is_some_and(|tab| tab.pinned)
+        }
+    }
+
     pub(super) fn open_current_note_in_new_tab(
         &mut self,
         window: &mut Window,
