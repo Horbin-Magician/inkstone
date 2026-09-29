@@ -2204,37 +2204,21 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         }
 
-        // Pair deletion follows automatic closing rules, independently of
-        // structural brackets used by Enter.
+        // Pair deletion is all-or-nothing across carets. If even one caret
+        // is outside an empty pair, ordinary Backspace applies everywhere.
         if self.mode.is_auto_close()
-            && self.selections.is_single()
-            && self.active_selection().is_empty()
+            && self.selections.iter().all(|selection| {
+                selection.is_empty() && self.pair_deletion_at(selection.cursor_offset()).is_some()
+            })
         {
-            let off = self.cursor();
-            let deletion = self.mode.language_config().and_then(|rules| {
-                rules.closing_pairs().find_map(|(open, close, not_in)| {
-                    if !self.text_before_matches(off, open) || !self.text_after_matches(off, close)
-                    {
-                        return None;
-                    }
-                    let start = off - open.len();
-                    let generated = self
-                        .mode
-                        .auto_closed_pairs()
-                        .contains(start..off, off..off + close.len());
-                    if self.is_escaped_at(start)
-                        || (!generated && not_in.contains(&M::editing_syntax_context(self, start)))
-                    {
-                        return None;
-                    }
-                    Some(start..off + close.len())
-                })
-            });
-            if let Some(range) = deletion {
-                let utf16 = self.range_to_utf16(&range);
-                self.replace_text_in_range_silent(Some(utf16), "", window, cx);
-                return;
-            }
+            self.delete_selections(
+                true,
+                EditIntent::Atomic,
+                |state, offset| state.pair_deletion_at(offset).unwrap(),
+                window,
+                cx,
+            );
+            return;
         }
 
         self.delete_selections(
@@ -2244,6 +2228,30 @@ impl<M: InputModeKind> InputBaseState<M> {
             window,
             cx,
         );
+    }
+
+    fn pair_deletion_at(&self, offset: usize) -> Option<Range<usize>> {
+        self.mode
+            .language_config()?
+            .closing_pairs()
+            .find_map(|(open, close, not_in)| {
+                if !self.text_before_matches(offset, open)
+                    || !self.text_after_matches(offset, close)
+                {
+                    return None;
+                }
+                let start = offset - open.len();
+                let generated = self
+                    .mode
+                    .auto_closed_pairs()
+                    .contains(start..offset, offset..offset + close.len());
+                if self.is_escaped_at(start)
+                    || (!generated && not_in.contains(&M::editing_syntax_context(self, start)))
+                {
+                    return None;
+                }
+                Some(start..offset + close.len())
+            })
     }
 
     pub(super) fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
