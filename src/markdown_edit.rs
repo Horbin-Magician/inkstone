@@ -4,6 +4,7 @@ use std::ops::Range;
 #[derive(Clone, Copy)]
 pub enum Key {
     Enter,
+    SoftEnter,
     Indent,
     Outdent,
     Backspace,
@@ -499,7 +500,9 @@ pub fn edit_with_indent(
     // Ordinary Backspace within list text must not parse the document.
     match key {
         Key::Backspace if !selection.is_empty() || selection.start != start + p.end => return None,
-        Key::Enter if selection.start < start + p.end || selection.end > start + line.len() => {
+        Key::Enter | Key::SoftEnter
+            if selection.start < start + p.end || selection.end > start + line.len() =>
+        {
             return None;
         }
         Key::Indent | Key::Outdent if p.marker.is_empty() => return None,
@@ -523,6 +526,21 @@ pub fn edit_with_indent(
         }
     };
     match key {
+        Key::SoftEnter => {
+            if !selection.is_empty() {
+                return None;
+            }
+            let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+            let marker = &line[p.quote.len() + p.indent.len()..p.end];
+            let spaces: usize = marker
+                .chars()
+                .map(|ch| if ch == '\t' { 4 } else { 1 })
+                .sum();
+            Some(after(
+                selection,
+                format!("{newline}{}{}{}", p.quote, p.indent, " ".repeat(spaces)),
+            ))
+        }
         Key::Enter => {
             if selection.is_empty() && line[p.end..].trim().is_empty() {
                 let replacement = if !p.indent.is_empty() && !p.marker.is_empty() {
@@ -648,6 +666,21 @@ pub fn edit_with_indent(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn soft_enter_keeps_list_content_indentation_without_a_new_marker() {
+        for (source, expected) in [
+            ("- 中文", "- 中文\n  "),
+            ("> 12. [x] text", "> 12. [x] text\n>         "),
+            ("> quote", "> quote\n> "),
+            ("a\r\n- text", "a\r\n- text\r\n  "),
+        ] {
+            let edit = edit(source, source.len()..source.len(), Key::SoftEnter).unwrap();
+            let mut actual = source.to_string();
+            actual.replace_range(edit.range, &edit.replacement);
+            assert_eq!(actual, expected);
+            assert_eq!(edit.selection, expected.len()..expected.len());
+        }
+    }
     #[test]
     fn configured_indentation_preserves_unicode_quotes_and_line_endings() {
         let apply = |text: &str, selection, key, width, tabs| {

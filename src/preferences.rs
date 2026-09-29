@@ -62,6 +62,7 @@ pub struct Preferences {
     pub show_indent_guides: bool,
     pub auto_pair_brackets: bool,
     pub auto_pair_markdown: bool,
+    pub smart_lists: bool,
     pub tab_size: usize,
     pub show_inline_title: bool,
     pub show_view_header: bool,
@@ -114,6 +115,7 @@ impl Default for Preferences {
             show_indent_guides: true,
             auto_pair_brackets: true,
             auto_pair_markdown: true,
+            smart_lists: true,
             tab_size: 4,
             show_inline_title: true,
             show_view_header: true,
@@ -317,6 +319,7 @@ mod tests {
         assert!(p.show_view_header);
         assert!(p.show_indent_guides);
         assert!(p.auto_pair_brackets && p.auto_pair_markdown);
+        assert!(p.smart_lists);
         assert_eq!(p.link_format, crate::locations::LinkFormat::Shortest);
         assert_eq!(p.font_size, 20.);
     }
@@ -333,6 +336,7 @@ mod tests {
         prefs.show_indent_guides = false;
         prefs.auto_pair_brackets = false;
         prefs.auto_pair_markdown = false;
+        prefs.smart_lists = false;
         prefs.tab_size = 6;
         prefs.search_case_sensitive = true;
         prefs.search_sort_by = crate::file_order::SortBy::Modified;
@@ -393,6 +397,7 @@ mod tests {
         assert!(!Preferences::load(&path).show_indent_guides);
         assert!(!Preferences::load(&path).auto_pair_brackets);
         assert!(!Preferences::load(&path).auto_pair_markdown);
+        assert!(!Preferences::load(&path).smart_lists);
         assert_eq!(Preferences::load(&path).tab_size, 6);
         assert!(Preferences::load(&path).search_case_sensitive);
         assert_eq!(
