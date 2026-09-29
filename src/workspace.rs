@@ -1635,6 +1635,34 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn template_properties_and_body_are_one_undoable_edit(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let source = "---\ntags: [old]\n---\n中文😀结束";
+                w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
+                Arc::make_mut(&mut w.index)
+                    .update("template.md".into(), "---\ntags: [new]\n---\n插入".into());
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                let at = source.find("😀").unwrap();
+                editor.update(cx, |s, cx| s.set_selected_range(at..at + 4, cx));
+                w.insert_template(std::path::Path::new("template.md"), window, cx);
+                let merged = editor.read(cx).value();
+                assert!(merged.ends_with("中文插入结束"));
+                assert!(merged.contains("old") && merged.contains("new"));
+                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+                assert_eq!(editor.read(cx).value().as_ref(), source);
+                assert_eq!(editor.read(cx).selected_range(), at..at + 4);
+                Arc::make_mut(&mut w.index)
+                    .update("bad.md".into(), "---\ntags: [\n---\n破损".into());
+                w.insert_template(std::path::Path::new("bad.md"), window, cx);
+                assert_eq!(editor.read(cx).value().as_ref(), source);
+                assert!(w.status.contains("YAML"));
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn daily_navigation_opens_existing_neighbors_without_creating_notes(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);

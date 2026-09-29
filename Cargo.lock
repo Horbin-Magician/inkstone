@@ -3395,6 +3395,7 @@ dependencies = [
  "regex",
  "ropey",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "unicode-segmentation",
  "windows-sys 0.61.2",
