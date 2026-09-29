@@ -10,6 +10,7 @@ pub(super) enum Expression {
     Not(Box<Expression>),
     Line(Box<Expression>),
     Region(super::regions::Regions, Box<Expression>),
+    Section(super::sections::Sections, Box<Expression>),
 }
 impl Expression {
     pub(super) fn title_highlights(
@@ -27,16 +28,42 @@ impl Expression {
                 .iter()
                 .flat_map(|item| item.title_highlights(path, text, tags))
                 .collect(),
-            Self::Always | Self::Not(_) | Self::Line(_) | Self::Region(..) => vec![],
+            Self::Always | Self::Not(_) | Self::Line(_) | Self::Region(..) | Self::Section(..) => {
+                vec![]
+            }
         }
     }
     pub(super) fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
+        self.matches_in(path, text, tags, None)
+    }
+    fn matches_in<'t>(
+        &self,
+        path: &Path,
+        text: &'t str,
+        tags: &[String],
+        context: Option<&super::sections::Context<'t>>,
+    ) -> bool {
         match self {
             Self::Always => true,
             Self::Leaf(query) => query.matches(path, text, tags),
-            Self::All(items) => items.iter().all(|item| item.matches(path, text, tags)),
-            Self::Any(items) => items.iter().any(|item| item.matches(path, text, tags)),
-            Self::Not(item) => !item.matches(path, text, tags),
+            Self::All(items) => items
+                .iter()
+                .all(|item| item.matches_in(path, text, tags, context)),
+            Self::Any(items) => items
+                .iter()
+                .any(|item| item.matches_in(path, text, tags, context)),
+            Self::Not(item) => !item.matches_in(path, text, tags, context),
+            Self::Section(cache, item) => {
+                let view = super::sections::View::new(cache, text, context);
+                view.candidates.clone().any(|i| {
+                    item.matches_in(
+                        path,
+                        &view.source[view.sections[i].range.clone()],
+                        tags,
+                        Some(&view.context(i)),
+                    )
+                })
+            }
             Self::Line(item) => text.split('\n').any(|line| item.matches(path, line, tags)),
             Self::Region(regions, item) => regions
                 .ranges(text)
@@ -50,16 +77,49 @@ impl Expression {
         text: &str,
         tags: &[String],
     ) -> Vec<ScopedPattern<'a>> {
-        if !self.matches(path, text, tags) {
+        self.patterns_in(path, text, tags, None)
+    }
+    fn patterns_in<'a, 't>(
+        &'a self,
+        path: &Path,
+        text: &'t str,
+        tags: &[String],
+        context: Option<&super::sections::Context<'t>>,
+    ) -> Vec<ScopedPattern<'a>> {
+        if !self.matches_in(path, text, tags, context) {
             return vec![];
         }
         match self {
             Self::Leaf(query) => query.patterns(path, text, tags),
             Self::All(items) | Self::Any(items) => items
                 .iter()
-                .flat_map(|item| item.patterns(path, text, tags))
+                .flat_map(|item| item.patterns_in(path, text, tags, context))
                 .collect(),
             Self::Always | Self::Not(_) => vec![],
+            Self::Section(cache, item) => {
+                let view = super::sections::View::new(cache, text, context);
+                let mut result = vec![];
+                for i in view.candidates.clone() {
+                    let section = &view.sections[i];
+                    let body = &view.source[section.range.clone()];
+                    let context = view.context(i);
+                    if item.matches_in(path, body, tags, Some(&context)) {
+                        let mut patterns = item.patterns_in(path, body, tags, Some(&context));
+                        if patterns.is_empty() {
+                            patterns.push(ScopedPattern {
+                                pattern: None,
+                                range: 0..body.len(),
+                            });
+                        }
+                        for pattern in &mut patterns {
+                            pattern.range.start += section.range.start - view.base;
+                            pattern.range.end += section.range.start - view.base;
+                        }
+                        result.extend(patterns);
+                    }
+                }
+                result
+            }
             Self::Region(regions, item) => {
                 let mut result = vec![];
                 for range in regions.ranges(text).iter() {
@@ -177,6 +237,23 @@ enum Scope {
     Line,
     Task(Option<bool>),
     Block,
+    Section,
+}
+fn normalized_scope(scope: &str) -> String {
+    let mut result = String::new();
+    let mut section = false;
+    for part in scope.split_terminator(':') {
+        if part.eq_ignore_ascii_case("section") {
+            if !section {
+                result.push_str("content:");
+                section = true;
+            }
+        } else {
+            result.push_str(part);
+            result.push(':');
+        }
+    }
+    result
 }
 fn scope_parts(word: &str) -> Option<(&str, &str, Scope)> {
     let mut start = 0;
@@ -184,6 +261,7 @@ fn scope_parts(word: &str) -> Option<(&str, &str, Scope)> {
         match prefix.to_ascii_lowercase().as_str() {
             "line" => return Some((&word[..start], rest, Scope::Line)),
             "block" => return Some((&word[..start], rest, Scope::Block)),
+            "section" => return Some((&word[..start], rest, Scope::Section)),
             "task" => return Some((&word[..start], rest, Scope::Task(None))),
             "task-todo" => return Some((&word[..start], rest, Scope::Task(Some(false)))),
             "task-done" => return Some((&word[..start], rest, Scope::Task(Some(true)))),
@@ -248,8 +326,18 @@ impl Parser {
                 }
                 let word = &word[negatives..];
                 if let Some((prefix, rest, kind)) = scope_parts(word) {
-                    let scope = format!("{scope}{prefix}content:");
-                    Query::parse_flat(&format!("{scope}scope-check"), self.case_sensitive)?;
+                    let scope = format!(
+                        "{scope}{prefix}{}",
+                        if matches!(kind, Scope::Section) {
+                            "section:"
+                        } else {
+                            "content:"
+                        }
+                    );
+                    Query::parse_flat(
+                        &format!("{}scope-check", normalized_scope(&scope)),
+                        self.case_sensitive,
+                    )?;
                     let all_tasks = matches!(kind, Scope::Task(_))
                         && (rest == "\"\""
                             || (rest.is_empty()
@@ -279,6 +367,7 @@ impl Parser {
                             super::regions::Regions::new(super::regions::Kind::Block),
                             Box::new(inner),
                         ),
+                        Scope::Section => Expression::Section(Default::default(), Box::new(inner)),
                     };
                     for _ in 0..negatives {
                         expression = Expression::Not(Box::new(expression));
@@ -293,10 +382,10 @@ impl Parser {
                         )
                     })
                 });
-                let value = format!("{scope}{word}");
                 let mut expression = if prefix {
-                    self.primary(&value, depth + negatives + 1)?
+                    self.primary(&format!("{scope}{word}"), depth + negatives + 1)?
                 } else {
+                    let value = format!("{}{word}", normalized_scope(scope));
                     Expression::Leaf(Box::new(Query::parse_flat(&value, self.case_sensitive)?))
                 };
                 for _ in 0..negatives {

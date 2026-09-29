@@ -921,6 +921,33 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn section_search_respects_heading_boundaries_and_nested_descendants() {
+        let mut index = Index::default();
+        let source = "intro\n# Parent\nalpha\n\nbeta\n## Child\nchildword\n### Deep\ndeepword\n# Other\ngamma\n";
+        index.update("note.md".into(), source.into());
+        assert_eq!(
+            index
+                .search("section:(alpha beta)")
+                .iter()
+                .map(|hit| hit.line)
+                .collect::<Vec<_>>(),
+            [3, 5]
+        );
+        assert!(index.search("section:(alpha childword)").is_empty());
+        let nested = index.search("section:(Parent section:(match-case:Child section:deepword))");
+        assert_eq!(
+            nested.iter().map(|hit| hit.line).collect::<Vec<_>>(),
+            [2, 6, 9]
+        );
+        assert_eq!(nested[2].offset, source.find("deepword").unwrap());
+        assert_eq!(
+            &nested[2].excerpt[nested[2].highlights[0].clone()],
+            "deepword"
+        );
+        assert!(index.search("section:(Other section:childword)").is_empty());
+        assert!(index.search("section:(intro section:childword)").is_empty());
+    }
+    #[test]
     fn block_search_keeps_paragraphs_and_list_items_separate() {
         let mut index = Index::default();
         let source = "alpha\nbeta\n\nalpha\n\nbeta\n\n- item alpha\n  continuation beta\n- item only alpha\n- beta alone\n\n```\nalpha beta\n```\n";

@@ -3,6 +3,7 @@ use regex::{Regex, RegexBuilder};
 use std::path::Path;
 mod group;
 mod regions;
+mod sections;
 
 enum Pattern {
     Text(String),
@@ -510,6 +511,29 @@ impl Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn section_queries_handle_headingless_setext_and_code_content() {
+        let path = Path::new("note.md");
+        let query = Query::parse("section:(alpha beta)").unwrap();
+        assert!(query.matches(path, "alpha\n\nbeta", &[]));
+        assert!(
+            !Query::parse("section:(alpha section:beta)")
+                .unwrap()
+                .matches(path, "alpha\n\nbeta", &[])
+        );
+        assert!(query.matches(
+            path,
+            "Title\n=====\nalpha\n\nbeta\n\nOther\n=====\ngamma",
+            &[]
+        ));
+        assert!(!query.matches(path, "Title\n=====\nalpha\n\nOther\n=====\nbeta", &[]));
+        assert!(
+            !Query::parse("section:(Parent section:marker)")
+                .unwrap()
+                .matches(path, "# Parent\n```\n## Phantom\nmarker\n```", &[])
+        );
+        assert!(Query::parse("file:section:alpha").is_err());
+    }
     #[test]
     fn block_scopes_refresh_ranges_and_respect_case_and_negation() {
         let path = Path::new("alpha beta.md");
