@@ -480,6 +480,17 @@ pub fn edit_with_indent(
     width: usize,
     use_tabs: bool,
 ) -> Option<Edit> {
+    edit_with_options(text, selection, key, width, use_tabs, true)
+}
+
+pub fn edit_with_options(
+    text: &str,
+    selection: Range<usize>,
+    key: Key,
+    width: usize,
+    use_tabs: bool,
+    smart_lists: bool,
+) -> Option<Edit> {
     let width = width.clamp(2, 8);
     let indent = if use_tabs {
         "\t".into()
@@ -559,7 +570,14 @@ pub fn edit_with_indent(
                     // Leave one quote level at a time.
                     p.quote[..p.quote.rfind('>')?].to_string()
                 };
-                return Some(after(start..start + line.len(), replacement));
+                let edit = after(start..start + line.len(), replacement);
+                return Some(
+                    if smart_lists && p.indent.is_empty() && p.marker.ends_with(['.', ')']) {
+                        renumber::removed_item(text, edit)
+                    } else {
+                        edit
+                    },
+                );
             }
             let marker = if p.marker.ends_with(['.', ')']) {
                 let n = p.marker[..p.marker.len() - 1].parse::<u32>().ok()?;
@@ -587,7 +605,7 @@ pub fn edit_with_indent(
                     if p.task { "[ ] " } else { "" }
                 ),
             );
-            Some(if p.marker.ends_with(['.', ')']) {
+            Some(if smart_lists && p.marker.ends_with(['.', ')']) {
                 renumber::following_items(text, edit)
             } else {
                 edit
@@ -606,7 +624,14 @@ pub fn edit_with_indent(
             } else {
                 p.quote[..p.quote.rfind('>')?].to_string()
             };
-            Some(after(start..start + p.end, replacement))
+            let edit = after(start..start + p.end, replacement);
+            Some(
+                if smart_lists && p.indent.is_empty() && p.marker.ends_with(['.', ')']) {
+                    renumber::removed_item(text, edit)
+                } else {
+                    edit
+                },
+            )
         }
         Key::Indent | Key::Outdent => {
             let last_cursor = if !selection.is_empty() && text[..selection.end].ends_with('\n') {
@@ -672,6 +697,24 @@ pub fn edit_with_indent(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn removing_ordered_markers_closes_number_gaps() {
+        assert_eq!(press("1. a\n2. |\n3. b", Key::Enter), "1. a\n|\n2. b");
+        assert_eq!(press("7. |\n8. b\n9. c", Key::Enter), "|\n7. b\n8. c");
+        assert_eq!(
+            press("8. a\n9. |text\n10. next\n11. last", Key::Backspace),
+            "8. a\n|text\n9. next\n10. last"
+        );
+        assert_eq!(
+            press("> 1) a\r\n> 2) |\r\n> 3) b", Key::Enter),
+            "> 1) a\r\n> |\r\n> 2) b"
+        );
+        let source = "1. a\n2. b\n3. c";
+        let edit = edit_with_options(source, 8..8, Key::Backspace, 4, false, false).unwrap();
+        let mut actual = source.to_string();
+        actual.replace_range(edit.range, &edit.replacement);
+        assert_eq!(actual, "1. a\nb\n3. c");
+    }
     #[test]
     fn ordered_enter_renumbers_following_siblings_without_touching_other_blocks() {
         assert_eq!(
