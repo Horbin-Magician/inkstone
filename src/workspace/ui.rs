@@ -1967,55 +1967,61 @@ impl Workspace {
             .size_full()
             .min_h_0()
             .bg(self.bg())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(40.))
-                    .px_3()
-                    .gap_1()
-                    .child(
-                        tool("back", "arrow-left", "返回 Alt+Left")
-                            .disabled(self.ui.history.cursor == 0)
-                            .on_click(cx.listener(|this, _, w, cx| this.navigate(false, w, cx))),
-                    )
-                    .child(
-                        tool("forward", "arrow-right", "前进 Alt+Right")
-                            .disabled(self.ui.history.cursor + 1 >= self.ui.history.entries.len())
-                            .on_click(cx.listener(|this, _, w, cx| this.navigate(true, w, cx))),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_center()
-                            .text_size(px(13.))
-                            .text_color(rgb(0x999999))
-                            .child(breadcrumb),
-                    )
-                    .child(
-                        tool(
-                            "read-mode",
-                            if reading { "pencil" } else { "book-open" },
-                            "切换阅读视图 Ctrl+E",
+            .when(self.ui.prefs.show_view_header, |s| {
+                s.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .h(px(40.))
+                        .px_3()
+                        .gap_1()
+                        .child(
+                            tool("back", "arrow-left", "返回 Alt+Left")
+                                .disabled(self.ui.history.cursor == 0)
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.navigate(false, w, cx)),
+                                ),
                         )
-                        .on_click(cx.listener(|this, _, w, cx| this.execute_command(6, w, cx))),
-                    )
-                    .child(
-                        tool(
-                            if secondary {
-                                "secondary-file-menu"
-                            } else {
-                                "file-menu"
-                            },
-                            "ellipsis-vertical",
-                            "更多选项",
+                        .child(
+                            tool("forward", "arrow-right", "前进 Alt+Right")
+                                .disabled(
+                                    self.ui.history.cursor + 1 >= self.ui.history.entries.len(),
+                                )
+                                .on_click(cx.listener(|this, _, w, cx| this.navigate(true, w, cx))),
                         )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.ui.more = !this.ui.more;
-                            cx.notify();
-                        })),
-                    ),
-            )
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_center()
+                                .text_size(px(13.))
+                                .text_color(rgb(0x999999))
+                                .child(breadcrumb),
+                        )
+                        .child(
+                            tool(
+                                "read-mode",
+                                if reading { "pencil" } else { "book-open" },
+                                "切换阅读视图 Ctrl+E",
+                            )
+                            .on_click(cx.listener(|this, _, w, cx| this.execute_command(6, w, cx))),
+                        )
+                        .child(
+                            tool(
+                                if secondary {
+                                    "secondary-file-menu"
+                                } else {
+                                    "file-menu"
+                                },
+                                "ellipsis-vertical",
+                                "更多选项",
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.ui.more = !this.ui.more;
+                                cx.notify();
+                            })),
+                        ),
+                )
+            })
             .when(pane.is_some() && self.ui.prefs.show_inline_title, |s| {
                 s.child(div().px(px(48.)).pt(px(12.)).child(
                     if let Some(edit) = self.ui.inline_title.as_ref().filter(|edit| {
@@ -2796,6 +2802,23 @@ impl Workspace {
                                     .checked(self.ui.prefs.show_inline_title)
                                     .on_click(cx.listener(|this, enabled: &bool, _, cx| {
                                         this.ui.prefs.show_inline_title = *enabled;
+                                        this.persist_workspace(cx);
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .items_center()
+                            .child("显示标签页标题栏")
+                            .child(
+                                gpui_component::switch::Switch::new("view-header-setting")
+                                    .checked(self.ui.prefs.show_view_header)
+                                    .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                                        this.ui.prefs.show_view_header = *enabled;
+                                        this.ui.more = false;
                                         this.persist_workspace(cx);
                                         cx.notify();
                                     })),
