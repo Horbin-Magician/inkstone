@@ -1989,7 +1989,7 @@ mod tests {
         }
     }
     #[gpui::test]
-    fn font_search_selects_by_keyboard_and_keeps_other_roles_unchanged(cx: &mut TestAppContext) {
+    fn font_search_supports_mouse_and_keyboard_without_crossing_roles(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
         let name = handle
@@ -2024,7 +2024,13 @@ mod tests {
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.simulate_resize(size(px(1100.), px(800.)));
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("down");
+        let trigger = visual.debug_bounds("font-text-trigger").unwrap();
+        assert_eq!(trigger.size.width, px(240.));
+        let content = handle
+            .update(&mut visual, |w, _, _| w.ui.settings_scroll.bounds())
+            .unwrap();
+        assert!(trigger.left() >= content.center().x);
+        visual.simulate_click(trigger.center(), Modifiers::default());
         visual.update(|w, cx| w.draw(cx).clear(cx));
         visual.simulate_input(&name);
         visual.run_until_parked();
