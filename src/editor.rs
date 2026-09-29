@@ -6,10 +6,12 @@ use inkstone::index::{self, ParsedNote};
 use inkstone::markdown::{self, Kind};
 use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
+mod font_zoom;
 mod footnotes;
 
 pub enum EditorEvent {
     CountsChanged,
+    FontSizeDelta(i8),
     FollowLink(String),
     FollowLinkInNewTab(String),
     FollowMarkdownLink(String),
@@ -52,6 +54,8 @@ pub struct EditorPane {
     pub parsed: ParsedNote,
     pub reading: bool,
     pub font_size: f32,
+    pub quick_font_size: bool,
+    font_zoom: font_zoom::WheelZoom,
     pub text_font: SharedString,
     pub readable_width: bool,
     pub strict_line_breaks: bool,
@@ -669,6 +673,8 @@ impl EditorPane {
             parsed: ParsedNote::default(),
             reading: false,
             font_size: 16.,
+            quick_font_size: false,
+            font_zoom: Default::default(),
             text_font: "Microsoft YaHei UI".into(),
             readable_width: true,
             strict_line_breaks: false,
@@ -1111,6 +1117,7 @@ impl Render for EditorPane {
             });
         div()
             .id("editor-pane")
+            .relative()
             .capture_action(cx.listener(
                 |this, action: &gpui_component::input::Enter, window, cx| {
                     if !action.secondary {
@@ -1226,6 +1233,7 @@ impl Render for EditorPane {
                         }),
                 ),
             )
+            .child(font_zoom::capture(cx.entity().downgrade()))
     }
 }
 #[cfg(test)]

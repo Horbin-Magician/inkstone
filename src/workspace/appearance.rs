@@ -4,6 +4,24 @@ use gpui_component::select::{SearchableVec, Select, SelectItem};
 use gpui_component::{button::Button, slider::Slider};
 use inkstone::preferences::ThemeMode;
 
+impl Workspace {
+    pub(super) fn adjust_font_size(
+        &mut self,
+        delta: i8,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.ui.prefs.quick_font_size {
+            return;
+        }
+        let size = (self.ui.prefs.font_size + f32::from(delta)).clamp(10., 30.);
+        if size != self.ui.prefs.font_size {
+            self.ui.prefs.font_size = size;
+            self.apply_editor_preferences(window, cx);
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct FontChoice {
     pub name: String,
@@ -252,7 +270,23 @@ impl Workspace {
                         16.,
                     ))
                     .into_any_element(),
-                self.settings_group("字体", fonts),
+                self.settings_group("字体", {
+                    fonts.push(
+                        self.settings_row(
+                            "快速调整字体大小",
+                            "按住 Ctrl 并滚动鼠标滚轮，调整编辑和阅读视图的正文字号。",
+                            ui::setting_switch("quick-font-size")
+                                .checked(self.ui.prefs.quick_font_size)
+                                .on_click(cx.listener(|this, checked, window, cx| {
+                                    this.ui.prefs.quick_font_size = *checked;
+                                    this.apply_editor_preferences(window, cx);
+                                })),
+                            true,
+                            20.,
+                        ),
+                    );
+                    fonts
+                }),
             ]
         };
         div()

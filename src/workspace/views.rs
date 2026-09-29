@@ -417,6 +417,7 @@ impl Workspace {
             p.live = live;
             p.image_dir = image_dir;
             p.font_size = prefs.font_size;
+            p.quick_font_size = prefs.quick_font_size;
             p.text_font = text_font;
             p.light = prefs.light;
             p.readable_width = prefs.readable_width;
@@ -512,7 +513,10 @@ impl Workspace {
                 return;
             };
             let from = this.tabs[index].path.clone();
-            if !matches!(event, EditorEvent::CountsChanged) {
+            if !matches!(
+                event,
+                EditorEvent::CountsChanged | EditorEvent::FontSizeDelta(_)
+            ) {
                 if split_source.is_some() {
                     this.focus_secondary(cx);
                 } else {
@@ -521,6 +525,7 @@ impl Workspace {
             }
             match event {
                 EditorEvent::CountsChanged => cx.notify(),
+                EditorEvent::FontSizeDelta(delta) => this.adjust_font_size(*delta, w, cx),
                 EditorEvent::FollowLink(target) | EditorEvent::FollowLinkInNewTab(target) => this
                     .follow_link(
                         from,

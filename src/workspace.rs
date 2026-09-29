@@ -1023,6 +1023,7 @@ impl Workspace {
                 }
                 match event {
                     EditorEvent::CountsChanged => cx.notify(),
+                    EditorEvent::FontSizeDelta(delta) => this.adjust_font_size(*delta, window, cx),
                     EditorEvent::FollowLink(target) | EditorEvent::FollowLinkInNewTab(target) => {
                         this.follow_link(
                             from,
@@ -2005,6 +2006,100 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn quick_font_wheel_updates_views_and_respects_modal(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab(
+                    "zoom.md".into(),
+                    Some("正文\n".repeat(100)),
+                    false,
+                    window,
+                    cx,
+                );
+                w.split_active(true, window, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let position = handle
+            .update(&mut visual, |w, _, cx| {
+                w.views
+                    .split
+                    .as_ref()
+                    .unwrap()
+                    .pane
+                    .read(cx)
+                    .editor
+                    .read(cx)
+                    .input_bounds()
+                    .center()
+            })
+            .unwrap();
+        let wheel = |y| ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Pixels(point(px(0.), px(y))),
+            modifiers: Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            touch_phase: TouchPhase::Moved,
+        };
+        visual.simulate_event(wheel(80.));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(w.ui.prefs.font_size, 16.);
+                w.ui.prefs.quick_font_size = true;
+                w.apply_editor_preferences(window, cx);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_event(wheel(80.));
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.ui.prefs.font_size, 17.);
+                assert_eq!(w.tabs[0].pane.read(cx).font_size, 17.);
+                assert_eq!(w.views.split.as_ref().unwrap().pane.read(cx).font_size, 17.);
+                w.ui.settings = true;
+                cx.notify();
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_event(wheel(80.));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(w.ui.prefs.font_size, 17.);
+                w.ui.settings = false;
+                w.ui.prefs.font_size = 30.;
+                w.views.split.as_ref().unwrap().pane.update(cx, |p, cx| {
+                    p.reading = true;
+                    cx.notify();
+                });
+                w.apply_editor_preferences(window, cx);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_event(wheel(80.));
+        handle
+            .update(&mut visual, |w, _, _| assert_eq!(w.ui.prefs.font_size, 30.))
+            .unwrap();
+        visual.simulate_event(wheel(-80.));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(w.ui.prefs.font_size, 29.);
+                w.ui.prefs.font_size = 10.;
+                w.apply_editor_preferences(window, cx);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_event(wheel(-80.));
+        handle
+            .update(&mut visual, |w, _, _| assert_eq!(w.ui.prefs.font_size, 10.))
+            .unwrap();
+    }
+
     #[gpui::test]
     fn ribbon_drag_visibility_and_saved_order(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
