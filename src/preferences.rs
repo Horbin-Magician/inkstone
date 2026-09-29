@@ -114,6 +114,15 @@ impl Default for Preferences {
     }
 }
 impl Preferences {
+    /// Update configured vault paths only after a successful filesystem move.
+    pub fn relocate_paths(&mut self, old: &Path, new: &Path, folder: bool) {
+        if folder {
+            self.locations.relocate(old, new);
+            relocate_setting(&mut self.daily.folder, old, new, true, false);
+            relocate_setting(&mut self.templates.folder, old, new, true, false);
+        }
+        relocate_setting(&mut self.daily.template, old, new, folder, true);
+    }
     pub fn load(path: &Path) -> Self {
         let mut value: Self = std::fs::read(path)
             .ok()
@@ -142,6 +151,40 @@ impl Preferences {
         }
         std::fs::rename(pending, path)
     }
+}
+
+fn relocate_setting(value: &mut String, old: &Path, new: &Path, folder: bool, markdown: bool) {
+    if value.trim().is_empty() {
+        return;
+    }
+    let mut path = PathBuf::from(value.trim().replace('\\', "/"));
+    let omitted_extension = markdown && path.extension().is_none();
+    if omitted_extension {
+        path.set_extension("md");
+    }
+    let old = PathBuf::from(old.to_string_lossy().replace('\\', "/"));
+    let parts: Vec<_> = path.components().collect();
+    let prefix: Vec<_> = old.components().collect();
+    if prefix.is_empty()
+        || parts.len() < prefix.len()
+        || (!folder && parts.len() != prefix.len())
+        || !parts.iter().zip(&prefix).all(|(a, b)| {
+            a.as_os_str().to_string_lossy().to_lowercase()
+                == b.as_os_str().to_string_lossy().to_lowercase()
+        })
+    {
+        return;
+    }
+    let suffix: PathBuf = parts.into_iter().skip(prefix.len()).collect();
+    let mut target = if suffix.as_os_str().is_empty() {
+        new.to_path_buf()
+    } else {
+        new.join(suffix)
+    };
+    if omitted_extension && target.with_extension("").extension().is_none() {
+        target.set_extension("");
+    }
+    *value = target.to_string_lossy().replace('\\', "/");
 }
 
 #[derive(Default, Debug)]
@@ -182,6 +225,37 @@ impl Navigation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn relocation_keeps_daily_and_template_settings_attached_to_files() {
+        let mut prefs = Preferences::default();
+        prefs.daily.folder = "OLD\\日记".into();
+        prefs.templates.folder = "old/模板".into();
+        prefs.daily.template = "old/模板/每日".into();
+        prefs.relocate_paths(Path::new("old"), Path::new("归档/new"), true);
+        assert_eq!(prefs.daily.folder, "归档/new/日记");
+        assert_eq!(prefs.templates.folder, "归档/new/模板");
+        assert_eq!(prefs.daily.template, "归档/new/模板/每日");
+        prefs.relocate_paths(
+            Path::new("归档/new/模板/每日.md"),
+            Path::new("新模板/每天.v2.md"),
+            false,
+        );
+        assert_eq!(prefs.daily.template, "新模板/每天.v2.md");
+        prefs.daily.template = "old-other/template.md".into();
+        prefs.relocate_paths(Path::new("old"), Path::new("moved"), true);
+        assert_eq!(prefs.daily.template, "old-other/template.md");
+        prefs.daily.template = "模板/每日.md".into();
+        prefs.relocate_paths(
+            Path::new("模板/每日.md"),
+            Path::new("模板/每日新版.md"),
+            false,
+        );
+        assert_eq!(prefs.daily.template, "模板/每日新版.md");
+        prefs.daily.folder.clear();
+        prefs.templates.folder.clear();
+        prefs.relocate_paths(Path::new("模板"), Path::new("更名"), true);
+        assert!(prefs.daily.folder.is_empty() && prefs.templates.folder.is_empty());
+    }
     #[test]
     fn navigation_discards_forward_branch_and_deduplicates() {
         let mut h = Navigation::default();

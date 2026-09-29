@@ -298,7 +298,7 @@ impl Workspace {
                 match result {
                     Ok(edits) => {
                         if let Some(new) = &new {
-                            this.ui.prefs.locations.relocate(&old, new);
+                            this.ui.prefs.relocate_paths(&old, new, true);
                         }
                         let active = this.active.and_then(|i| this.tabs.get(i)).map(|t| t.id);
                         this.tabs.retain_mut(|tab| {
@@ -358,6 +358,7 @@ impl Workspace {
                         this.sync_reference_contexts(cx);
                         this.rescan = true;
                         this.refresh_requested = true;
+                        this.persist_workspace(cx);
                         this.tick(w, cx);
                     }
                     Err(e) => this.status = e.to_string(),
