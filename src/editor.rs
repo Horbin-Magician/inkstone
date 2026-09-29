@@ -112,7 +112,11 @@ impl EditorPane {
                     .map(|marker| AutoClosingPair::new(marker, marker)),
             );
         }
+        static LINE_START: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+            regex::Regex::new(r"^[>\s]*(?:(?:[*+-] |[0-9]+[.)] )(?:\[[^\r\n]\] )?)?").unwrap()
+        });
         let mut config = LanguageConfig::default()
+            .line_start_pattern(LINE_START.clone())
             .brackets([])
             .surround_selection(true)
             .skip_only_generated(true)
@@ -1704,6 +1708,73 @@ mod tests {
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn home_and_shift_home_respect_markdown_prefixes_and_soft_wrap(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "> - [!] 中文";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.live = false;
+                p.set_auto_pairing(false, false, cx);
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(source.len()..source.len(), cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("home");
+        editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 8..8));
+        visual.simulate_keystrokes("home");
+        editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 0..0));
+        visual.simulate_keystrokes("end shift-home");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.selected_range(), 8..source.len())
+        });
+        visual.simulate_keystrokes("shift-home");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.selected_range(), 0..source.len())
+        });
+        let long = format!("> - [!] {}", "长文本".repeat(80));
+        handle
+            .update(&mut visual, |_, w, cx| {
+                editor.update(cx, |s, cx| {
+                    s.set_value(long.clone(), w, cx);
+                    s.set_selected_range(long.len()..long.len(), cx);
+                })
+            })
+            .unwrap();
+        visual.simulate_resize(size(px(300.), px(400.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("home");
+        editor.read_with(&visual, |s, _| assert!(s.selected_range().start > 8));
+        visual.simulate_keystrokes("home");
+        editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 8..8));
+        visual.simulate_keystrokes("home");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.selected_range(), 0..0);
+            assert_eq!(s.value(), long);
+        });
+        handle
+            .update(&mut visual, |_, w, cx| {
+                editor.update(cx, |s, cx| {
+                    s.set_value("> - [!] a\n> - [!] b", w, cx);
+                    s.set_selected_range(9..9, cx);
+                })
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-alt-down home");
+        visual.simulate_input("X");
+        editor.read_with(&visual, |s, _| {
+            assert!(s.has_multiple_selections());
+            assert_eq!(s.value(), "> - [!] Xa\n> - [!] Xb");
+        });
     }
 
     #[gpui::test]

@@ -91,6 +91,8 @@ pub struct LanguageConfig {
     pub newline_closers: Vec<SharedString>,
     /// Capture 1 is retained; capture 2 is replaced by equal-width spaces.
     pub continuation_prefix: Option<Regex>,
+    /// Prefix skipped by the first Home key when starting inside line content.
+    pub line_start_pattern: Option<Regex>,
 }
 
 impl Default for LanguageConfig {
@@ -124,11 +126,16 @@ impl Default for LanguageConfig {
             skip_only_generated: false,
             newline_closers: Vec::new(),
             continuation_prefix: None,
+            line_start_pattern: None,
         }
     }
 }
 
 impl LanguageConfig {
+    pub fn line_start_pattern(mut self, pattern: Regex) -> Self {
+        self.line_start_pattern = Some(pattern);
+        self
+    }
     pub fn newline_closers(
         mut self,
         closers: impl IntoIterator<Item = SharedString>,

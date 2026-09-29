@@ -412,7 +412,8 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub(super) fn home(&mut self, _: &MoveHome, window: &mut Window, cx: &mut Context<Self>) {
         self.move_all_cursors(
             |s, sel| {
-                let offset = s.start_of_line_at(sel.cursor_offset(), s.line_end_affinity_for(sel));
+                let offset =
+                    s.smart_start_of_line_at(sel.cursor_offset(), s.line_end_affinity_for(sel));
                 (offset, s.preferred_column_for(offset), false)
             },
             Some(MoveDirection::Up),
