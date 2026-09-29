@@ -306,6 +306,7 @@ impl Workspace {
                             .child("使用双链语法")
                             .child(
                                 gpui_component::switch::Switch::new("use-wikilinks")
+                                    .accessibility_label("使用双链语法")
                                     .checked(!self.ui.prefs.use_markdown_links)
                                     .on_click(cx.listener(|s, checked: &bool, _, cx| {
                                         s.ui.prefs.use_markdown_links = !*checked;
@@ -330,6 +331,7 @@ impl Workspace {
                             )
                             .child(
                                 gpui_component::switch::Switch::new("always-update-links")
+                                    .accessibility_label("自动更新内部链接")
                                     .checked(self.ui.prefs.always_update_links)
                                     .on_click(cx.listener(|s, value: &bool, _, cx| {
                                         s.ui.prefs.always_update_links = *value;
