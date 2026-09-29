@@ -94,12 +94,20 @@ impl Workspace {
                                 .justify_between()
                                 .gap_4()
                                 .pb_4()
-                                .child(div().flex_1().child(title).child(
-                                    div().text_xs().text_color(rgb(0x999999)).child(description),
-                                ))
+                                .child(
+                                    div().flex_1().min_w_0().child(title).child(
+                                        div()
+                                            .text_size(px(13.))
+                                            .line_height(relative(1.4))
+                                            .whitespace_normal()
+                                            .text_color(rgb(0x999999))
+                                            .child(description),
+                                    ),
+                                )
                                 .child(
                                     div()
                                         .w(px(220.))
+                                        .flex_shrink_0()
                                         .child(Input::new(&self.ui.template_inputs[i])),
                                 )
                         }),
