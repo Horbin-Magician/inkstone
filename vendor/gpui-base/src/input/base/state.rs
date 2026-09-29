@@ -2449,13 +2449,9 @@ impl<M: InputModeKind> InputBaseState<M> {
             })
     }
 
-    /// Delete logical line blocks touched by selections as one undoable edit.
-    pub fn delete_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.is_editable() || !self.is_multi_line() || self.ime_marked_range.is_some() {
-            return;
-        }
-        let before: Vec<_> = self.selections.iter().copied().collect();
-        let mut groups: Vec<_> = before
+    fn selected_line_groups(&self) -> Vec<Range<usize>> {
+        let mut groups: Vec<_> = self
+            .selections
             .iter()
             .map(|selection| {
                 let start = self.text.offset_to_point(selection.start).row;
@@ -2478,6 +2474,44 @@ impl<M: InputModeKind> InputBaseState<M> {
                 merged.push(group);
             }
         }
+        merged
+    }
+
+    /// Select complete logical line blocks, including their trailing newline.
+    pub fn select_lines(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.is_multi_line() || self.ime_marked_range.is_some() {
+            return;
+        }
+        let first_id = self.active_selection().id;
+        let mut selections = Vec::new();
+        for (index, group) in self.selected_line_groups().into_iter().enumerate() {
+            let id = if index == 0 {
+                first_id
+            } else {
+                self.selections.generate_id()
+            };
+            selections.push(CursorSelection::new(
+                id,
+                self.text.line_start_offset(group.start),
+                self.text.line_start_offset(group.end),
+            ));
+        }
+        self.undo_manager.break_transaction_coalescing();
+        self.selections.replace_all(selections);
+        self.selected_word_range = None;
+        self.update_preferred_column();
+        self.scroll_to(self.cursor(), None, cx);
+        self.pause_blink_cursor(cx);
+        cx.notify();
+    }
+
+    /// Delete logical line blocks touched by selections as one undoable edit.
+    pub fn delete_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.is_editable() || !self.is_multi_line() || self.ime_marked_range.is_some() {
+            return;
+        }
+        let before: Vec<_> = self.selections.iter().copied().collect();
+        let merged = self.selected_line_groups();
         let content_end = |row| {
             let end = self.text.line_end_offset(row);
             if self.text.chars_at(end).reversed().next() == Some('\r') {
