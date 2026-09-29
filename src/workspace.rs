@@ -648,7 +648,9 @@ impl Workspace {
                         this.ui.right_mode = this.ui.prefs.right_panel;
                         this.ui.tags_selected = None;
                         this.fulltext = this.ui.left_mode == 1;
-                        this.search.update(cx, |s, cx| s.set_value("", window, cx));
+                        this.search.update(cx, |s, cx| {
+                            s.set_value(this.ui.prefs.search_query.clone(), window, cx)
+                        });
                         this.ui.tags_filter.update(cx, |s, cx| {
                             s.set_value(this.ui.prefs.tags.query.clone(), window, cx)
                         });
@@ -898,7 +900,7 @@ impl Workspace {
         } else {
             self.views.main = Some(id);
         }
-        self.ui.quick_open = false;
+        self.close_quick_search(window, cx);
         self.ui.name_mode = None;
         if !self.tabs.last().unwrap().path.as_os_str().is_empty() {
             self.ui
@@ -1052,7 +1054,17 @@ impl Workspace {
 }
 impl Workspace {
     fn focus_search(&mut self, fulltext: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.fulltext && !self.ui.quick_open {
+            self.ui.prefs.search_query = self.search.read(cx).value().to_string();
+        }
         self.fulltext = fulltext;
+        let value = if fulltext {
+            self.ui.prefs.search_query.clone()
+        } else {
+            String::new()
+        };
+        self.search
+            .update(cx, |s, cx| s.set_value(value, window, cx));
         if fulltext {
             self.ui.left_mode = 1;
             self.ui.prefs.left_open = true;
@@ -1065,6 +1077,18 @@ impl Workspace {
         self.search.update(cx, |state, cx| state.focus(window, cx));
         self.run_search(cx);
         cx.notify();
+    }
+    fn close_quick_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.ui.quick_open {
+            return;
+        }
+        self.ui.quick_open = false;
+        self.ui.template_mode = false;
+        self.fulltext = true;
+        let query = self.ui.prefs.search_query.clone();
+        self.search
+            .update(cx, |s, cx| s.set_value(query, window, cx));
+        self.run_search(cx);
     }
     pub(super) fn ensure_active_note(
         &mut self,
@@ -1148,7 +1172,7 @@ impl Workspace {
             index = self.tabs.iter().position(|t| t.id == id).unwrap();
         }
         self.active = Some(index);
-        self.ui.quick_open = false;
+        self.close_quick_search(window, cx);
         if !self.tabs[index].path.as_os_str().is_empty() {
             self.ui.history.visit(self.tabs[index].path.clone());
         }
@@ -1412,6 +1436,9 @@ impl Workspace {
         let revision = self.search_revision;
         let generation = self.generation;
         let query = self.search.read(cx).value().to_string();
+        if self.fulltext && !self.ui.quick_open {
+            self.ui.prefs.search_query = query.clone();
+        }
         let index = self.index.clone();
         let fulltext = self.fulltext;
         let template_folder = self
@@ -1645,6 +1672,36 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn quick_switch_and_template_queries_do_not_replace_fulltext_search(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.focus_search(true, window, cx);
+                w.search
+                    .update(cx, |s, cx| s.set_value("tag:work file:note", window, cx));
+                w.run_search(cx);
+                w.focus_search(false, window, cx);
+                assert!(w.search.read(cx).value().is_empty());
+                w.search
+                    .update(cx, |s, cx| s.set_value("filename query", window, cx));
+                w.run_search(cx);
+                w.close_overlays(window, cx);
+                assert_eq!(w.search.read(cx).value().as_ref(), "tag:work file:note");
+                assert!(w.fulltext);
+                w.focus_search(false, window, cx);
+                w.ui.template_mode = true;
+                w.search
+                    .update(cx, |s, cx| s.set_value("template query", window, cx));
+                w.close_overlays(window, cx);
+                assert_eq!(w.ui.prefs.search_query, "tag:work file:note");
+                w.focus_search(false, window, cx);
+                w.add_tab("note.md".into(), Some("body".into()), false, window, cx);
+                assert_eq!(w.search.read(cx).value().as_ref(), "tag:work file:note");
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn tag_search_combines_fulltext_filters_but_not_quick_switch_queries(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
@@ -1661,7 +1718,7 @@ mod tests {
                 w.search
                     .update(cx, |s, cx| s.set_value("temporary filename", window, cx));
                 w.search_tag("home", true, window, cx);
-                assert_eq!(w.search.read(cx).value().as_ref(), "tag:home");
+                assert_eq!(w.search.read(cx).value().as_ref(), "file:note tag:home");
                 assert!(w.fulltext);
             })
             .unwrap();
@@ -3846,6 +3903,7 @@ mod tests {
             font_size: 20.,
             left_panel: 1,
             right_panel: 4,
+            search_query: "tag:work".into(),
             tags: inkstone::tags::Options {
                 show_filter: true,
                 query: "work".into(),
@@ -3869,6 +3927,7 @@ mod tests {
                 assert_eq!(w.ui.right_mode, 4);
                 assert_eq!(w.ui.tags_filter.read(cx).value().as_ref(), "work");
                 assert!(w.fulltext);
+                assert_eq!(w.search.read(cx).value().as_ref(), "tag:work");
                 let tree = w.tree.read(cx);
                 let id: SharedString = "空文件夹".into();
                 assert!(tree.entry(tree.index_of(&id).unwrap()).unwrap().is_folder());
