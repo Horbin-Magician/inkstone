@@ -17,6 +17,50 @@ struct Term {
     pattern: Pattern,
     exclude: bool,
 }
+impl Pattern {
+    fn matches(&self, text: &str) -> bool {
+        match self {
+            Self::Text(s) => text.to_lowercase().contains(s),
+            Self::Regex(r) => r.is_match(text),
+        }
+    }
+    fn first_offset(&self, text: &str) -> Option<usize> {
+        match self {
+            Self::Regex(regex) => regex.find(text).map(|m| m.start()),
+            Self::Text(needle) => {
+                let offset = text.to_lowercase().find(needle)?;
+                let mut lower_offset = 0;
+                for (original, ch) in text.char_indices() {
+                    lower_offset += ch.to_lowercase().map(char::len_utf8).sum::<usize>();
+                    if lower_offset > offset {
+                        return Some(original);
+                    }
+                }
+                None
+            }
+        }
+    }
+}
+impl Term {
+    fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
+        let found = match self.field {
+            Field::Text => self.pattern.matches(text),
+            Field::File => self
+                .pattern
+                .matches(&path.file_name().unwrap_or_default().to_string_lossy()),
+            Field::Path => self
+                .pattern
+                .matches(&path.to_string_lossy().replace('\\', "/")),
+            Field::Tag => tags.iter().any(|tag| match &self.pattern {
+                Pattern::Text(s) => {
+                    tag.to_lowercase() == *s || tag.to_lowercase().starts_with(&format!("{s}/"))
+                }
+                Pattern::Regex(r) => r.is_match(tag),
+            }),
+        };
+        found != self.exclude
+    }
+}
 pub struct Query {
     groups: Vec<Vec<Term>>,
 }
@@ -109,41 +153,60 @@ impl Query {
         Ok(Self { groups })
     }
     pub fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
-        fn matches(pattern: &Pattern, text: &str) -> bool {
-            match pattern {
-                Pattern::Text(s) => text.to_lowercase().contains(s),
-                Pattern::Regex(r) => r.is_match(text),
-            }
-        }
         self.groups.iter().any(|group| {
-            !group.is_empty()
-                && group.iter().all(|term| {
-                    let found = match term.field {
-                        Field::Text => matches(&term.pattern, text),
-                        Field::File => matches(
-                            &term.pattern,
-                            &path.file_name().unwrap_or_default().to_string_lossy(),
-                        ),
-                        Field::Path => {
-                            matches(&term.pattern, &path.to_string_lossy().replace('\\', "/"))
-                        }
-                        Field::Tag => tags.iter().any(|tag| match &term.pattern {
-                            Pattern::Text(s) => {
-                                tag.to_lowercase() == *s
-                                    || tag.to_lowercase().starts_with(&format!("{s}/"))
-                            }
-                            Pattern::Regex(r) => r.is_match(tag),
-                        }),
-                    };
-                    found != term.exclude
-                })
+            !group.is_empty() && group.iter().all(|term| term.matches(path, text, tags))
         })
+    }
+    pub fn first_offset(&self, path: &Path, text: &str, tags: &[String]) -> Option<usize> {
+        self.groups
+            .iter()
+            .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
+            .flat_map(|group| group.iter())
+            .filter(|term| !term.exclude && matches!(term.field, Field::Text))
+            .filter_map(|term| term.pattern.first_offset(text))
+            .min()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn first_match_uses_original_bytes_and_matching_boolean_branches() {
+        let path = Path::new("note.md");
+        assert_eq!(
+            Query::parse("目标")
+                .unwrap()
+                .first_offset(path, "😀前缀目标", &[]),
+            Some("😀前缀".len())
+        );
+        assert_eq!(
+            Query::parse("x").unwrap().first_offset(path, "İx", &[]),
+            Some("İ".len())
+        );
+        assert_eq!(
+            Query::parse("i").unwrap().first_offset(path, "İx", &[]),
+            Some(0)
+        );
+        assert_eq!(
+            Query::parse("/目标\\d+/ OR missing")
+                .unwrap()
+                .first_offset(path, "前缀目标42", &[]),
+            Some("前缀".len())
+        );
+        assert_eq!(
+            Query::parse("absent prefix OR real")
+                .unwrap()
+                .first_offset(path, "prefix real", &[]),
+            Some(7)
+        );
+        assert_eq!(
+            Query::parse("file:note -absent")
+                .unwrap()
+                .first_offset(path, "body", &[]),
+            None
+        );
+    }
     #[test]
     fn phrases_paths_tags_boolean_and_regex() {
         let p = Path::new("项目/会议.md");
