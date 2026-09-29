@@ -1745,6 +1745,85 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn fonts_restore_across_vault_and_theme_changes(cx: &mut TestAppContext) {
+        use inkstone::preferences::{Preferences, ThemeMode};
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-font-session-{}", std::process::id()));
+        let first = root.join("first");
+        let second = root.join("second");
+        for vault in [&first, &second] {
+            std::fs::create_dir_all(vault).unwrap();
+            std::fs::write(vault.join("note.md"), "中文😀\n原文").unwrap();
+        }
+        let handle = cx.add_window(Workspace::new);
+        let font = handle
+            .update(cx, |w, _, _| {
+                let font = w.ui.default_fonts.0.to_string();
+                // TestPlatform has no font enumeration; use its already resolved interface family.
+                w.ui.available_fonts = Arc::new(vec![font.clone()]);
+                font
+            })
+            .unwrap();
+        for (vault, custom) in [(&first, true), (&second, false)] {
+            Preferences {
+                theme: if custom {
+                    ThemeMode::Dark
+                } else {
+                    ThemeMode::Light
+                },
+                interface_font: if custom { font.clone() } else { String::new() },
+                text_font: if custom { font.clone() } else { String::new() },
+                monospace_font: if custom { font.clone() } else { String::new() },
+                open_paths: vec!["note.md".into()],
+                ..Default::default()
+            }
+            .save(&vault.join(".inkstone-workspace.json"))
+            .unwrap();
+        }
+        for (vault, custom) in [(&first, true), (&second, false), (&first, true)] {
+            handle
+                .update(cx, |w, window, cx| w.load_vault(vault.clone(), window, cx))
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, window, cx| {
+                    assert_eq!(w.tabs.len(), 1);
+                    let expected = if custom { font.as_str() } else { "" };
+                    for selector in &w.ui.font_selects {
+                        assert_eq!(
+                            selector.read(cx).selected_value().map(String::as_str),
+                            Some(expected)
+                        );
+                    }
+                    assert_eq!(w.ui.prefs.text_font, expected);
+                    assert_eq!(
+                        w.tabs[0].pane.read(cx).text_font,
+                        w.resolved_font(expected, "Microsoft YaHei UI")
+                    );
+                    w.execute_command(22, window, cx);
+                    assert_eq!(
+                        w.tabs[0].pane.read(cx).text_font,
+                        w.resolved_font(expected, "Microsoft YaHei UI")
+                    );
+                    assert_eq!(
+                        w.tabs[0].pane.read(cx).editor.read(cx).value().as_ref(),
+                        "中文😀\n原文"
+                    );
+                    w.watcher = None;
+                    w.persist_workspace(cx);
+                })
+                .unwrap();
+            cx.run_until_parked();
+            let saved = Preferences::load(&vault.join(".inkstone-workspace.json"));
+            assert_eq!(saved.text_font, if custom { font.as_str() } else { "" });
+            assert_eq!(
+                std::fs::read_to_string(vault.join("note.md")).unwrap(),
+                "中文😀\n原文"
+            );
+        }
+    }
+    #[gpui::test]
     fn font_search_selects_by_keyboard_and_keeps_other_roles_unchanged(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
