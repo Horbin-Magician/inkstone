@@ -678,6 +678,7 @@ impl Workspace {
                 pane.readable_width = p.readable_width;
                 pane.light = p.light;
                 pane.smart_lists = p.smart_lists;
+                pane.set_fold_options(p.fold_headings, p.fold_indentation, window, cx);
                 pane.set_auto_pairing(p.auto_pair_brackets, p.auto_pair_markdown, cx);
                 pane.indentation = gpui_base::input::TabSize {
                     tab_size: p.tab_size.clamp(2, 8),
@@ -3963,6 +3964,41 @@ impl Workspace {
                                         this.apply_editor_preferences(window, cx);
                                     })),
                             ),
+                    )
+                    .child(
+                        div().flex().flex_col().gap_4().children(
+                            [
+                                (true, "折叠标题", self.ui.prefs.fold_headings),
+                                (false, "折叠缩进", self.ui.prefs.fold_indentation),
+                            ]
+                            .into_iter()
+                            .map(|(heading, label, enabled)| {
+                                div()
+                                    .flex()
+                                    .justify_between()
+                                    .items_center()
+                                    .child(label)
+                                    .child(
+                                        gpui_component::switch::Switch::new(if heading {
+                                            "fold-headings-setting"
+                                        } else {
+                                            "fold-indentation-setting"
+                                        })
+                                        .accessibility_label(label)
+                                        .checked(enabled)
+                                        .on_click(
+                                            cx.listener(move |this, enabled: &bool, window, cx| {
+                                                if heading {
+                                                    this.ui.prefs.fold_headings = *enabled;
+                                                } else {
+                                                    this.ui.prefs.fold_indentation = *enabled;
+                                                }
+                                                this.apply_editor_preferences(window, cx);
+                                            }),
+                                        ),
+                                    )
+                            }),
+                        ),
                     )
                     .child(
                         Button::new("settings-recovery")

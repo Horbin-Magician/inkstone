@@ -316,6 +316,7 @@ impl Workspace {
             p.light = prefs.light;
             p.readable_width = prefs.readable_width;
             p.smart_lists = prefs.smart_lists;
+            p.set_fold_options(prefs.fold_headings, prefs.fold_indentation, window, cx);
             p.set_auto_pairing(prefs.auto_pair_brackets, prefs.auto_pair_markdown, cx);
             p.indentation = gpui_base::input::TabSize {
                 tab_size: prefs.tab_size.clamp(2, 8),

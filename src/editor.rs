@@ -42,6 +42,8 @@ pub struct EditorPane {
     pub readable_width: bool,
     pub indentation: gpui_base::input::TabSize,
     pub smart_lists: bool,
+    pub fold_headings: bool,
+    pub fold_indentation: bool,
     pub light: bool,
     pub history_owner: Option<Entity<EditorState>>,
     preview: Entity<TextViewState>,
@@ -66,6 +68,31 @@ pub struct EditorPane {
 }
 
 impl EditorPane {
+    pub fn set_fold_options(
+        &mut self,
+        headings: bool,
+        indentation: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.fold_headings == headings && self.fold_indentation == indentation {
+            return;
+        }
+        self.fold_headings = headings;
+        self.fold_indentation = indentation;
+        let ranges = index::parse(&self.editor.read(cx).value()).fold_ranges(headings, indentation);
+        self.editor.update(cx, |state, cx| {
+            state.set_folding(headings || indentation, window, cx);
+            state.apply_highlighter_fold_candidates(
+                ranges
+                    .iter()
+                    .map(|r| gpui_component::input::FoldRange::new(r.start, r.end))
+                    .collect(),
+                cx,
+            );
+        });
+        cx.notify();
+    }
     pub fn set_auto_pairing(&mut self, brackets: bool, markdown: bool, cx: &mut Context<Self>) {
         use gpui_base::input::{AutoClosingPair, language_config::LanguageConfig};
         let mut pairs = vec![];
@@ -139,7 +166,7 @@ impl EditorPane {
         self.editor.update(cx, |state, cx| {
             state.apply_highlighter_fold_candidates(
                 parsed
-                    .folds
+                    .fold_ranges(self.fold_headings, self.fold_indentation)
                     .iter()
                     .map(|r| gpui_component::input::FoldRange::new(r.start, r.end))
                     .collect(),
@@ -479,6 +506,8 @@ impl EditorPane {
             readable_width: true,
             indentation,
             smart_lists: true,
+            fold_headings: true,
+            fold_indentation: true,
             light: false,
             history_owner: None,
             preview,
@@ -545,7 +574,7 @@ impl EditorPane {
                     this.editor.update(cx, |state, cx| {
                         state.apply_highlighter_fold_candidates(
                             this.parsed
-                                .folds
+                                .fold_ranges(this.fold_headings, this.fold_indentation)
                                 .iter()
                                 .map(|r| gpui_component::input::FoldRange::new(r.start, r.end))
                                 .collect(),
@@ -1659,6 +1688,53 @@ mod tests {
             .update(&mut visual, |p, _, cx| {
                 assert_eq!(p.editor.read(cx).value(), "before\r\n```\r\n```");
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn fold_options_remove_disabled_ranges_and_keep_other_folds(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "# Heading\ntext\n- parent\n  - child\n```\ncode\n```";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                p.fold_sections(Some(true), w, cx);
+                assert_eq!(
+                    p.editor
+                        .read(cx)
+                        .folded_ranges()
+                        .iter()
+                        .map(|f| f.start_line)
+                        .collect::<Vec<_>>(),
+                    vec![0, 2, 4]
+                );
+                p.set_fold_options(false, true, w, cx);
+                assert_eq!(
+                    p.editor
+                        .read(cx)
+                        .folded_ranges()
+                        .iter()
+                        .map(|f| f.start_line)
+                        .collect::<Vec<_>>(),
+                    vec![2, 4]
+                );
+                p.set_fold_options(false, false, w, cx);
+                assert!(p.editor.read(cx).folded_ranges().is_empty());
+                p.fold_sections(Some(true), w, cx);
+                assert!(p.editor.read(cx).folded_ranges().is_empty());
+                p.set_fold_options(true, false, w, cx);
+                p.fold_sections(Some(true), w, cx);
+                assert_eq!(
+                    p.editor
+                        .read(cx)
+                        .folded_ranges()
+                        .iter()
+                        .map(|f| f.start_line)
+                        .collect::<Vec<_>>(),
+                    vec![0, 4]
+                );
+                assert_eq!(p.editor.read(cx).value(), source);
             })
             .unwrap();
     }
