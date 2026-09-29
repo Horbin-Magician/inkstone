@@ -1435,6 +1435,10 @@ impl Workspace {
         self.sync_reference_contexts(cx);
     }
     fn run_search(&mut self, cx: &mut Context<Self>) {
+        let previous_error = std::mem::take(&mut self.ui.search_error);
+        if !previous_error.is_empty() && self.status == previous_error {
+            self.status.clear();
+        }
         self.search_revision += 1;
         let revision = self.search_revision;
         let generation = self.generation;
@@ -1472,6 +1476,7 @@ impl Workspace {
             self.search_results.clear();
             self.ui.search_loading = false;
             self.ui.search_has_more = false;
+            self.ui.search_error = error.clone();
             self.status = error;
             cx.notify();
             return;
@@ -1722,6 +1727,40 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn search_validation_reports_inline_errors_without_overwriting_other_status(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.fulltext = true;
+                w.search
+                    .update(cx, |s, cx| s.set_value("/[bad/", window, cx));
+                w.run_search(cx);
+                assert!(!w.ui.search_error.is_empty());
+                assert_eq!(w.status, w.ui.search_error);
+                assert!(!w.ui.search_loading);
+                assert!(!w.ui.search_has_more);
+                w.search
+                    .update(cx, |s, cx| s.set_value("valid", window, cx));
+                w.run_search(cx);
+                assert!(w.ui.search_error.is_empty());
+                assert!(w.status.is_empty());
+                w.search
+                    .update(cx, |s, cx| s.set_value("(broken", window, cx));
+                w.run_search(cx);
+                assert!(!w.ui.search_error.is_empty());
+                w.status = "保存冲突待处理".into();
+                w.search
+                    .update(cx, |s, cx| s.set_value("valid", window, cx));
+                w.run_search(cx);
+                assert!(w.ui.search_error.is_empty());
+                assert_eq!(w.status, "保存冲突待处理");
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn search_loads_beyond_two_hundred_and_resets_for_new_query(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
