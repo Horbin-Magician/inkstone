@@ -555,6 +555,38 @@ pub fn edit_with_options(
         .find('\n')
         .map_or(text.len(), |i| selection.start + i);
     let line = text[start..end].trim_end_matches('\r');
+    if matches!(key, Key::SoftEnter) {
+        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        let (prefix_end, indentation) = if let Some(p) = prefix(line) {
+            let marker = &line[p.quote.len() + p.indent.len()..p.end];
+            let spaces: usize = marker
+                .chars()
+                .map(|ch| if ch == '\t' { 4 } else { 1 })
+                .sum();
+            (
+                p.end,
+                format!("{}{}{}", p.quote, p.indent, " ".repeat(spaces)),
+            )
+        } else {
+            let end = line
+                .bytes()
+                .take_while(|b| matches!(b, b' ' | b'\t'))
+                .count();
+            (end, line[..end].to_string())
+        };
+        let indentation = if selection.is_empty() && selection.start >= start + prefix_end {
+            indentation
+        } else {
+            String::new()
+        };
+        let replacement = format!("{newline}{indentation}");
+        let cursor = selection.start + replacement.len();
+        return Some(Edit {
+            range: selection,
+            replacement,
+            selection: cursor..cursor,
+        });
+    }
     let p = if matches!(key, Key::Enter) {
         continuation_prefix(text, start, line)
     } else {
@@ -588,21 +620,7 @@ pub fn edit_with_options(
         }
     };
     match key {
-        Key::SoftEnter => {
-            if !selection.is_empty() {
-                return None;
-            }
-            let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
-            let marker = &line[p.quote.len() + p.indent.len()..p.end];
-            let spaces: usize = marker
-                .chars()
-                .map(|ch| if ch == '\t' { 4 } else { 1 })
-                .sum();
-            Some(after(
-                selection,
-                format!("{newline}{}{}{}", p.quote, p.indent, " ".repeat(spaces)),
-            ))
-        }
+        Key::SoftEnter => None,
         Key::Enter => {
             if selection.is_empty() && line[p.end..].trim().is_empty() {
                 let replacement = if !p.indent.is_empty() && !p.marker.is_empty() {
@@ -698,6 +716,22 @@ pub fn edit_with_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn soft_enter_handles_code_indentation_prefix_interiors_and_selections() {
+        assert_eq!(
+            press("```\n- code|\n```", Key::SoftEnter),
+            "```\n- code\n  |\n```"
+        );
+        assert_eq!(press("\tparagraph|", Key::SoftEnter), "\tparagraph\n\t|");
+        assert_eq!(press(" |   text", Key::SoftEnter), " \n|   text");
+        assert_eq!(press("plain|", Key::SoftEnter), "plain\n|");
+        let source = "    first\r\n    second";
+        let edit = edit(source, 4..source.len(), Key::SoftEnter).unwrap();
+        let mut actual = source.to_string();
+        actual.replace_range(edit.range, &edit.replacement);
+        assert_eq!(actual, "    \r\n");
+        assert_eq!(edit.selection, 6..6);
+    }
     #[test]
     fn custom_task_states_continue_and_clear_like_completed_tasks() {
         assert_eq!(press("- [-] done|", Key::Enter), "- [-] done\n- [ ] |");
