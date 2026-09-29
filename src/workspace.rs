@@ -647,6 +647,9 @@ impl Workspace {
                         let restore_active = prefs.active_path.clone();
                         let restore_active_index = prefs.active_tab_index;
                         this.ui.prefs = prefs;
+                        this.ui.font_size_slider.update(cx, |slider, cx| {
+                            slider.set_value(this.ui.prefs.font_size, window, cx);
+                        });
                         this.ui.tab_width.update(cx, |slider, cx| {
                             slider.set_value(this.ui.prefs.tab_size as f32, window, cx);
                         });
@@ -1801,7 +1804,7 @@ mod tests {
             .unwrap();
     }
     #[gpui::test]
-    fn indentation_settings_update_existing_and_new_split_views(cx: &mut TestAppContext) {
+    fn editor_settings_update_existing_and_new_split_views(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
         handle
@@ -1826,6 +1829,9 @@ mod tests {
                 w.ui.tab_width.update(cx, |_, cx| {
                     cx.emit(gpui_component::slider::SliderEvent::Change(2f32.into()))
                 });
+                w.ui.font_size_slider.update(cx, |_, cx| {
+                    cx.emit(gpui_component::slider::SliderEvent::Change(10f32.into()))
+                });
                 assert_eq!(a.read(cx).editor.read(cx).value().as_ref(), "- 中文");
             })
             .unwrap();
@@ -1833,9 +1839,11 @@ mod tests {
         handle
             .update(cx, |w, _, cx| {
                 assert_eq!(w.ui.prefs.tab_size, 2);
+                assert_eq!(w.ui.prefs.font_size, 10.);
                 for pane in [&w.tabs[0].pane, &w.views.split.as_ref().unwrap().pane] {
                     assert_eq!(pane.read(cx).indentation.tab_size, 2);
                     assert!(!pane.read(cx).indentation.hard_tabs);
+                    assert_eq!(pane.read(cx).font_size, 10.);
                 }
             })
             .unwrap();

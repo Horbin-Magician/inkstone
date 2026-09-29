@@ -164,7 +164,7 @@ impl Preferences {
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
-        value.font_size = value.font_size.clamp(12., 30.);
+        value.font_size = value.font_size.clamp(10., 30.);
         value.tab_size = value.tab_size.clamp(2, 8);
         value.graph.normalize();
         value.local_graph.normalize();
@@ -334,7 +334,7 @@ mod tests {
         let path = root.join("workspace.json");
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
-        prefs.font_size = 23.;
+        prefs.font_size = 10.;
         prefs.default_live_preview = false;
         prefs.default_reading = true;
         prefs.use_tabs = false;
@@ -397,7 +397,7 @@ mod tests {
         }];
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
-        assert_eq!(Preferences::load(&path).font_size, 23.);
+        assert_eq!(Preferences::load(&path).font_size, 10.);
         assert!(!Preferences::load(&path).default_live_preview);
         assert!(Preferences::load(&path).default_reading);
         assert!(!Preferences::load(&path).use_tabs);
