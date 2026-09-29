@@ -648,6 +648,9 @@ impl Workspace {
                         this.ui.right_mode = this.ui.prefs.right_panel;
                         this.fulltext = this.ui.left_mode == 1;
                         this.search.update(cx, |s, cx| s.set_value("", window, cx));
+                        this.ui.tags_filter.update(cx, |s, cx| {
+                            s.set_value(this.ui.prefs.tags.query.clone(), window, cx)
+                        });
                         this.ui.link_update = None;
                         this.graph_open = false;
                         this.graph = None;
@@ -3796,6 +3799,11 @@ mod tests {
             font_size: 20.,
             left_panel: 1,
             right_panel: 4,
+            tags: inkstone::tags::Options {
+                show_filter: true,
+                query: "work".into(),
+                ..Default::default()
+            },
             ..Default::default()
         };
         prefs.save(&root.join(".inkstone-workspace.json")).unwrap();
@@ -3812,6 +3820,7 @@ mod tests {
                 assert!(w.ui.prefs.light);
                 assert_eq!(w.ui.left_mode, 1);
                 assert_eq!(w.ui.right_mode, 4);
+                assert_eq!(w.ui.tags_filter.read(cx).value().as_ref(), "work");
                 assert!(w.fulltext);
                 let tree = w.tree.read(cx);
                 let id: SharedString = "空文件夹".into();

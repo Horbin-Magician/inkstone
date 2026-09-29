@@ -305,6 +305,8 @@ mod tests {
         prefs.tags.hierarchy = false;
         prefs.tags.sort = crate::tags::Sort::NameDescending;
         prefs.tags.collapsed.insert("work".into());
+        prefs.tags.show_filter = true;
+        prefs.tags.query = "项目".into();
         prefs.left_panel = 2;
         prefs.right_panel = 4;
         prefs
@@ -356,6 +358,8 @@ mod tests {
             crate::tags::Sort::NameDescending
         );
         assert!(Preferences::load(&path).tags.collapsed.contains("work"));
+        assert!(Preferences::load(&path).tags.show_filter);
+        assert_eq!(Preferences::load(&path).tags.query, "项目");
         assert_eq!(Preferences::load(&path).left_panel, 2);
         assert_eq!(Preferences::load(&path).right_panel, 4);
         assert_eq!(

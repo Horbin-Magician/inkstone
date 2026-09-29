@@ -87,6 +87,8 @@ pub(super) struct UiState {
     pub property_key: Entity<InputState>,
     pub property_value: Entity<InputState>,
     pub property_list_entry: Entity<InputState>,
+    pub tags_filter: Entity<InputState>,
+    _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub more: bool,
     pub trash_open: bool,
@@ -119,6 +121,15 @@ impl UiState {
             InputState::new(window, cx).placeholder("属性值；列表用逗号分隔，项目内含逗号时加引号")
         });
         let command = cx.new(|cx| InputState::new(window, cx).placeholder("输入命令…"));
+        let tags_filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛选标签…"));
+        let tags_filter_subscription =
+            cx.subscribe(&tags_filter, |this, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.ui.prefs.tags.query = input.read(cx).value().to_string();
+                    this.persist_workspace(cx);
+                    cx.notify();
+                }
+            });
         let property_list_entry =
             cx.new(|cx| InputState::new(window, cx).placeholder("添加项目，按 Enter 确认"));
         let property_list_subscription = cx.subscribe_in(
@@ -305,6 +316,8 @@ impl UiState {
             property_key,
             property_value,
             property_list_entry,
+            tags_filter,
+            _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             more: false,
             trash_open: false,
@@ -2122,6 +2135,7 @@ impl Workspace {
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let mut expanded = this.ui.prefs.tags.clone();
                                 expanded.collapsed.clear();
+                                expanded.show_filter = false;
                                 let parents: std::collections::BTreeSet<_> =
                                     rows(&this.index, &expanded)
                                         .into_iter()
@@ -2136,10 +2150,44 @@ impl Workspace {
                                 this.persist_workspace(cx);
                                 cx.notify();
                             })),
+                    )
+                    .child(
+                        tool("tags-filter", "search", "筛选标签")
+                            .toggled(options.show_filter)
+                            .on_click(cx.listener(|this, _, w, cx| {
+                                this.ui.prefs.tags.show_filter = !this.ui.prefs.tags.show_filter;
+                                if this.ui.prefs.tags.show_filter {
+                                    this.ui.tags_filter.update(cx, |s, cx| s.focus(w, cx));
+                                } else {
+                                    this.ui.prefs.tags.query.clear();
+                                    this.ui
+                                        .tags_filter
+                                        .update(cx, |s, cx| s.set_value("", w, cx));
+                                }
+                                this.persist_workspace(cx);
+                                cx.notify();
+                            })),
                     ),
             )
+            .when(options.show_filter, |s| {
+                s.child(Input::new(&self.ui.tags_filter))
+            })
+            .when_some(
+                if options.show_filter {
+                    inkstone::search::Query::parse(&options.query).err()
+                } else {
+                    None
+                },
+                |s, error| s.child(div().text_sm().text_color(rgb(0xe87979)).child(error)),
+            )
             .when(items.is_empty(), |s| {
-                s.child(div().text_sm().text_color(rgb(0x999999)).child("没有标签"))
+                s.child(div().text_sm().text_color(rgb(0x999999)).child(
+                    if options.show_filter && !options.query.is_empty() {
+                        "未找到匹配标签"
+                    } else {
+                        "没有标签"
+                    },
+                ))
             })
             .children(items.into_iter().enumerate().map(|(i, row)| {
                 let tag = row.tag;

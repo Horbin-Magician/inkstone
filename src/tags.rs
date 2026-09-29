@@ -16,6 +16,8 @@ pub struct Options {
     pub hierarchy: bool,
     pub sort: Sort,
     pub collapsed: BTreeSet<String>,
+    pub show_filter: bool,
+    pub query: String,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -23,6 +25,8 @@ impl Default for Options {
             hierarchy: true,
             sort: Sort::Frequency,
             collapsed: BTreeSet::new(),
+            show_filter: false,
+            query: String::new(),
         }
     }
 }
@@ -55,6 +59,29 @@ pub fn rows(index: &crate::index::Index, options: &Options) -> Vec<Row> {
             }
         }
     }
+    let mut visible: BTreeSet<String> = counts.keys().cloned().collect();
+    if options.show_filter && !options.query.trim().is_empty() {
+        let Ok(query) = crate::search::Query::parse(&options.query) else {
+            return vec![];
+        };
+        visible.clear();
+        for (key, (tag, _)) in &counts {
+            if query.matches(
+                std::path::Path::new(""),
+                &format!("#{tag}"),
+                std::slice::from_ref(tag),
+            ) {
+                visible.insert(key.clone());
+                if options.hierarchy {
+                    let mut current = key.as_str();
+                    while let Some((parent, _)) = current.rsplit_once('/') {
+                        visible.insert(parent.to_owned());
+                        current = parent;
+                    }
+                }
+            }
+        }
+    }
     let compare = |a: &String, b: &String| {
         let names = crate::file_order::natural_name(&counts[a].0, &counts[b].0);
         match options.sort {
@@ -65,7 +92,7 @@ pub fn rows(index: &crate::index::Index, options: &Options) -> Vec<Row> {
         }
     };
     let mut children: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for key in counts.keys() {
+    for key in &visible {
         let parent = if options.hierarchy {
             key.rsplit_once('/').map(|(parent, _)| parent).unwrap_or("")
         } else {
@@ -104,6 +131,36 @@ pub fn rows(index: &crate::index::Index, options: &Options) -> Vec<Row> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn filtering_preserves_ancestors_counts_and_saved_folds() {
+        let mut index = crate::index::Index::default();
+        index.update("a.md".into(), "#工作/会议 #工作/项目 #私人/日记".into());
+        let mut options = Options {
+            show_filter: true,
+            query: "会议".into(),
+            ..Default::default()
+        };
+        let filtered = rows(&index, &options);
+        assert_eq!(
+            filtered
+                .iter()
+                .map(|row| row.tag.as_str())
+                .collect::<Vec<_>>(),
+            ["工作", "工作/会议"]
+        );
+        assert_eq!(filtered[0].count, 2);
+        options.collapsed.insert("工作".into());
+        assert_eq!(rows(&index, &options).len(), 1);
+        options.hierarchy = false;
+        assert_eq!(rows(&index, &options)[0].tag, "工作/会议");
+        options.query = "/会议|日记/ -私人".into();
+        assert_eq!(rows(&index, &options).len(), 1);
+        options.query = "/[bad/".into();
+        assert!(rows(&index, &options).is_empty());
+        options.show_filter = false;
+        assert_eq!(rows(&index, &options).len(), 5);
+        assert!(options.collapsed.contains("工作"));
+    }
     #[test]
     fn hierarchy_counts_parents_sorts_siblings_and_restores_folds() {
         let mut index = crate::index::Index::default();
