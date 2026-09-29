@@ -299,6 +299,11 @@ impl Workspace {
         if self.ui.pending_file_writes > 0 || self.ui.link_update.is_some() {
             return;
         }
+        if self.has_pending_input(id, window, cx) {
+            self.status = "请完成当前编辑后再更改文件路径。".into();
+            cx.notify();
+            return;
+        }
         if trash
             && self
                 .active
@@ -344,6 +349,7 @@ impl Workspace {
         let dest = PathBuf::from(name);
         let path = tab.path.clone();
         let id = tab.id;
+        let document = tab.save.clone();
         let generation = self.generation;
         tab.save.saving.set(true);
         self.ui.file_operation = true;
@@ -368,7 +374,11 @@ impl Workspace {
                 }
                 this.ui.file_operation = false;
                 this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
-                let Some(index) = this.tabs.iter().position(|t| t.id == id) else {
+                let Some(index) = this
+                    .tabs
+                    .iter()
+                    .position(|t| std::rc::Rc::ptr_eq(&t.save, &document))
+                else {
                     return;
                 };
                 this.tabs[index].save.saving.set(false);
@@ -380,12 +390,14 @@ impl Workspace {
                             this.status
                                 .push_str("；操作期间的新编辑已保留，可另存副本。");
                         } else {
-                            this.tabs.remove(index);
+                            this.tabs
+                                .retain(|tab| !std::rc::Rc::ptr_eq(&tab.save, &document));
                             this.active = if this.tabs.is_empty() {
                                 None
                             } else {
                                 Some(index.min(this.tabs.len() - 1))
                             };
+                            this.remove_missing_views();
                         }
                     }
                     Ok((false, path, edits)) => {
@@ -416,7 +428,7 @@ impl Workspace {
                                 *item = path.clone();
                             }
                         }
-                        this.tabs[index].path = path;
+                        this.relocate_document(&document, path);
                         this.persist_workspace(cx);
                         this.sync_reference_contexts(cx);
                         if focus_after && let Some(pane) = this.current_pane() {
@@ -933,6 +945,7 @@ impl Workspace {
                 });
             (
                 std::rc::Rc::new(document::DocumentState::new(
+                    path.clone(),
                     baseline,
                     new,
                     editor.clone(),
@@ -1058,7 +1071,7 @@ impl Workspace {
                 if text != tab.save.recovery_text.borrow().as_str() {
                     tab.save.recovery_text.replace(text.clone());
                     let vault = vault.clone();
-                    let path = tab.path.clone();
+                    let path = tab.save.path.borrow().clone();
                     let baseline = tab.save.baseline.borrow().clone();
                     let save = tab.save.clone();
                     let task = cx
@@ -1092,7 +1105,7 @@ impl Workspace {
             tab.save.saving.set(true);
             let generation = self.generation;
             let save = tab.save.clone();
-            let path = tab.path.clone();
+            let path = tab.save.path.borrow().clone();
             let baseline = tab.save.baseline.borrow().clone();
             let text = tab.save.editor.read(cx).value().to_string();
             let vault = vault.clone();
@@ -1753,12 +1766,22 @@ impl Workspace {
         cx.notify();
     }
     fn save_copy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tab) = self.active.and_then(|i| self.tabs.get_mut(i)) else {
+        let Some(id) = self.active.and_then(|i| self.tabs.get(i)).map(|tab| tab.id) else {
             return;
         };
+        if self.has_pending_input(id, window, cx) {
+            self.status = "请完成当前编辑后再另存。".into();
+            cx.notify();
+            return;
+        }
+        self.document_view_changed(id, window, cx);
+        self.sync_from_split(window, cx);
+        let tab = self.tabs.iter().find(|tab| tab.id == id).unwrap();
         if tab.save.saving.get() {
             return;
         }
+        let document = tab.save.clone();
+        let mut path = document.path.borrow().clone();
         let stem = tab
             .path
             .file_stem()
@@ -1769,12 +1792,12 @@ impl Workspace {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        tab.path
-            .set_file_name(format!("{stem}-副本-{timestamp}.md"));
-        tab.save.baseline.replace(None);
-        tab.save.conflict.set(false);
-        tab.save.error.replace(None);
-        tab.save.dirty.set(true);
+        path.set_file_name(format!("{stem}-副本-{timestamp}.md"));
+        self.relocate_document(&document, path);
+        document.baseline.replace(None);
+        document.conflict.set(false);
+        document.error.replace(None);
+        document.dirty.set(true);
         self.sync_reference_contexts(cx);
         self.save_all(window, cx);
         cx.notify();
@@ -1819,6 +1842,120 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn shared_document_paths_follow_rename_and_recovery_copy(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-shared-path-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                let mirror = w.tabs[1].pane.read(cx).editor.clone();
+                mirror.update(cx, |s, cx| {
+                    s.replace_and_mark_text_in_range(None, "ni", Some(2..2), window, cx)
+                });
+                w.manage_named_note(w.tabs[0].id, false, "renamed.md".into(), window, cx);
+                assert!(!w.ui.file_operation);
+                mirror.update(cx, |s, cx| s.replace_text_in_range(None, "", window, cx));
+                w.manage_named_note(w.tabs[0].id, false, "renamed.md".into(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(!root.join("a.md").exists());
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(
+                    w.tabs
+                        .iter()
+                        .all(|tab| tab.path == std::path::Path::new("renamed.md"))
+                );
+                assert_eq!(*w.tabs[0].save.path.borrow(), PathBuf::from("renamed.md"));
+                w.tabs[1].pane.read(cx).editor.clone().update(cx, |s, cx| {
+                    s.set_selected_range(6..6, cx);
+                    s.replace_text_in_range(None, "X", window, cx);
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let copy = handle
+            .update(cx, |w, window, cx| {
+                w.save_copy(window, cx);
+                let path = w.tabs[0].path.clone();
+                assert!(w.tabs.iter().all(|tab| tab.path == path));
+                assert_eq!(*w.tabs[0].save.path.borrow(), path);
+                path
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(std::fs::read_to_string(root.join(&copy)).unwrap(), "原文X");
+        assert_eq!(
+            std::fs::read_to_string(root.join("renamed.md")).unwrap(),
+            "原文"
+        );
+    }
+
+    #[gpui::test]
+    fn shared_document_rename_survives_origin_view_removal(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-shared-rename-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.manage_named_note(w.tabs[0].id, false, "b.md".into(), window, cx);
+                w.tabs.remove(0);
+                w.active = Some(0);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(w.tabs[0].path, PathBuf::from("b.md"));
+                assert_eq!(*w.tabs[0].save.path.borrow(), PathBuf::from("b.md"));
+                assert!(!w.tabs[0].save.saving.get());
+            })
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("b.md")).unwrap(), "原文");
+    }
+
+    #[gpui::test]
+    fn trashing_shared_document_closes_all_its_views(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-shared-trash-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                w.manage_named_note(w.tabs[0].id, true, String::new(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(w.tabs.is_empty());
+                assert!(w.views.split.is_none());
+                assert!(w.views.main.is_none());
+            })
+            .unwrap();
+        assert!(!root.join("a.md").exists());
+    }
+
     #[gpui::test]
     fn external_reload_updates_the_shared_owner_after_its_first_view_closes(
         cx: &mut TestAppContext,
