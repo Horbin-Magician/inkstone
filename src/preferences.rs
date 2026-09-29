@@ -40,6 +40,7 @@ impl Default for ViewState {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
+    pub daily: crate::daily::Settings,
     pub hotkeys: std::collections::BTreeMap<usize, Vec<String>>,
     pub graph: crate::graph::Options,
     pub local_graph: crate::graph::Options,
@@ -75,6 +76,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            daily: Default::default(),
             hotkeys: Default::default(),
             graph: Default::default(),
             local_graph: Default::default(),
@@ -210,6 +212,9 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
         prefs.font_size = 23.;
+        prefs.daily.folder = "日记".into();
+        prefs.daily.format = "YYYY/MM/DD".into();
+        prefs.daily.template = "模板/日记.md".into();
         prefs.always_update_links = true;
         prefs.use_markdown_links = true;
         prefs.auto_reveal_file = true;
@@ -244,6 +249,9 @@ mod tests {
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 23.);
+        assert_eq!(Preferences::load(&path).daily.folder, "日记");
+        assert_eq!(Preferences::load(&path).daily.format, "YYYY/MM/DD");
+        assert_eq!(Preferences::load(&path).daily.template, "模板/日记.md");
         assert_eq!(
             Preferences::load(&path).views[0].callout_states.get(&42),
             Some(&true)

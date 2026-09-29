@@ -411,21 +411,6 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn open_daily(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.vault.is_none() {
-            self.choose_vault(window, cx);
-            return;
-        }
-        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let path = PathBuf::from(format!("日记/{date}.md"));
-        if self.files.contains(&path) || self.tabs.iter().any(|t| t.path == path) {
-            self.open_note(path, window, cx);
-        } else {
-            self.add_tab(path, None, true, window, cx);
-            self.insert_text(&format!("# {date}\n\n"), window, cx);
-            self.save_all(window, cx);
-        }
-    }
     pub(super) fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         if !self.ensure_active_note(window, cx) {
             return;
@@ -457,11 +442,14 @@ impl Workspace {
             .and_then(|t| t.path.file_stem())
             .unwrap_or_default()
             .to_string_lossy();
-        let text = note
-            .text
-            .replace("{{date}}", &now.format("%Y-%m-%d").to_string())
-            .replace("{{time}}", &now.format("%H:%M").to_string())
-            .replace("{{title}}", &title);
+        let text = match inkstone::daily::expand_template(&note.text, &title, &now) {
+            Ok(text) => text,
+            Err(error) => {
+                self.status = error;
+                cx.notify();
+                return;
+            }
+        };
         self.ui.quick_open = false;
         self.ui.template_mode = false;
         self.insert_text(&text, window, cx);

@@ -184,7 +184,7 @@ impl Workspace {
             .flex_col()
             .gap_2()
             .children(
-                ["编辑器与外观", "快捷键", "文件与链接"]
+                ["编辑器与外观", "快捷键", "文件与链接", "日记"]
                     .into_iter()
                     .enumerate()
                     .map(|(i, title)| {
@@ -195,6 +195,9 @@ impl Workspace {
                                 this.ui.settings_tab = i;
                                 if i == 2 {
                                     this.prepare_file_settings(w, cx);
+                                }
+                                if i == 3 {
+                                    this.prepare_daily_settings(w, cx);
                                 }
                                 this.ui.hotkey_recording = None;
                                 cx.notify();

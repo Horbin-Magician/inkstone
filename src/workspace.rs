@@ -1,3 +1,4 @@
+mod daily;
 mod extras;
 mod file_settings;
 mod hotkeys;
@@ -1624,6 +1625,74 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn daily_creation_uses_template_and_never_rewrites_existing_note(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let root = std::env::temp_dir().join(format!("inkstone-daily-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("日记")).unwrap();
+        std::fs::create_dir_all(root.join("模板")).unwrap();
+        std::fs::write(
+            root.join("模板/日记.md"),
+            "# {{title}}\n{{date:YYYY年MM月DD日}}\n",
+        )
+        .unwrap();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, root.with_extension("recovery")).unwrap());
+                w.ui.prefs.daily.folder = "日记".into();
+                w.ui.prefs.daily.format = "[验收]/[今天]".into();
+                w.ui.prefs.daily.template = "模板/日记".into();
+                w.open_daily(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let path = root.join("日记/验收/今天.md");
+        let original = std::fs::read_to_string(&path).unwrap();
+        assert!(original.starts_with("# 今天\n"));
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(
+                    w.tabs[w.active.unwrap()].path,
+                    std::path::Path::new("日记/验收/今天.md")
+                );
+                w.ui.prefs.daily.template = "模板/不存在".into();
+                w.open_daily(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.prefs.daily.format = "[缺模板]".into();
+                w.open_daily(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(!root.join("日记/缺模板.md").exists());
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.status.contains("找不到日记模板"));
+                w.ui.prefs.daily.template.clear();
+                w.ui.prefs.daily.format = "[空白]".into();
+                w.open_daily(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("日记/空白.md")).unwrap(),
+            ""
+        );
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.prefs.daily.folder = "尚未创建".into();
+                w.open_daily(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(!root.join("尚未创建").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[gpui::test]
     fn reading_quote_link_opens_its_source_relative_note(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
