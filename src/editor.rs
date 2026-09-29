@@ -1633,6 +1633,38 @@ mod tests {
     }
 
     #[gpui::test]
+    fn ordered_list_enter_and_renumber_are_one_undoable_edit(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "9. 中文\n10. following\n11. end";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(9..9, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("enter");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "9. 中文\n10. \n11. following\n12. end");
+            assert_eq!(s.selected_range(), 14..14);
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), source);
+            assert_eq!(s.selected_range(), 9..9);
+        });
+        visual.simulate_keystrokes("ctrl-y");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "9. 中文\n10. \n11. following\n12. end")
+        });
+    }
+
+    #[gpui::test]
     fn smart_lists_toggle_enter_but_keep_tab_and_soft_continuation(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "- 中文";
