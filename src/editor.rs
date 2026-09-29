@@ -40,6 +40,7 @@ pub struct EditorPane {
     pub reading: bool,
     pub font_size: f32,
     pub readable_width: bool,
+    pub indentation: gpui_base::input::TabSize,
     pub light: bool,
     pub history_owner: Option<Entity<EditorState>>,
     preview: Entity<TextViewState>,
@@ -156,8 +157,13 @@ impl EditorPane {
             cx.stop_propagation();
             return;
         }
-        let Some(edit) = inkstone::markdown_edit::edit(&state.value(), state.selected_range(), key)
-        else {
+        let Some(edit) = inkstone::markdown_edit::edit_with_indent(
+            &state.value(),
+            state.selected_range(),
+            key,
+            self.indentation.tab_size,
+            self.indentation.hard_tabs,
+        ) else {
             return;
         };
         if self.editor.update(cx, |s, cx| {
@@ -284,8 +290,13 @@ impl EditorPane {
         cx.notify();
     }
     pub fn new(text: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let indentation = gpui_base::input::TabSize {
+            tab_size: 4,
+            hard_tabs: true,
+        };
         let editor = cx.new(|cx| {
             EditorState::new(window, cx)
+                .tab_size(indentation)
                 .default_value(text)
                 .line_number(false)
         });
@@ -395,6 +406,7 @@ impl EditorPane {
             reading: false,
             font_size: 16.,
             readable_width: true,
+            indentation,
             light: false,
             history_owner: None,
             preview,
@@ -1534,7 +1546,7 @@ mod tests {
         });
         visual.simulate_keystrokes("tab");
         editor.read_with(&visual, |s, _| {
-            assert_eq!(s.value(), "- [x] 中文👩‍💻\n    - [ ] ")
+            assert_eq!(s.value(), "- [x] 中文👩‍💻\n\t- [ ] ")
         });
         visual.simulate_keystrokes("shift-tab");
         editor.read_with(&visual, |s, _| {
@@ -1556,6 +1568,44 @@ mod tests {
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "- [x] 中文👩‍💻\n- [ ] ")
         });
+    }
+
+    #[gpui::test]
+    fn configured_tabs_apply_to_plain_text_and_markdown_lists(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for (width, hard_tabs) in [(2, false), (6, false), (4, true)] {
+            for source in ["plain", "- 中文😀"] {
+                let editor = handle
+                    .update(&mut visual, |p, w, cx| {
+                        p.indentation = gpui_base::input::TabSize {
+                            tab_size: width,
+                            hard_tabs,
+                        };
+                        p.editor.update(cx, |s, cx| {
+                            s.set_tab_size(p.indentation, cx);
+                            s.set_value(source, w, cx);
+                            s.set_selected_range(0..0, cx);
+                            s.focus(w, cx);
+                        });
+                        p.editor.clone()
+                    })
+                    .unwrap();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+                visual.simulate_keystrokes("tab");
+                let indent = if hard_tabs {
+                    "\t".into()
+                } else {
+                    " ".repeat(width)
+                };
+                editor.read_with(&visual, |s, _| {
+                    assert_eq!(s.value(), format!("{indent}{source}"))
+                });
+                visual.simulate_keystrokes("ctrl-z");
+                editor.read_with(&visual, |s, _| assert_eq!(s.value(), source));
+            }
+        }
     }
 
     #[gpui::test]
