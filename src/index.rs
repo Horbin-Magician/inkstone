@@ -1,5 +1,11 @@
 use crate::vault::{Vault, VaultError};
 use markdown_parser::mdast::Node;
+const LINK_PATH_ESCAPE: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+    .add(b' ')
+    .add(b'#')
+    .add(b'%')
+    .add(b'(')
+    .add(b')');
 use std::{
     collections::BTreeMap,
     ops::Range,
@@ -18,10 +24,33 @@ pub struct Heading {
     pub title: String,
     pub offset: usize,
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskItem {
+    pub start: usize,
+    pub marker: Range<usize>,
+    pub checked: bool,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockReference {
+    pub id: String,
+    pub range: Range<usize>,
+    pub marker: Range<usize>,
+}
 #[derive(Clone, Debug, Default)]
 pub struct ParsedNote {
+    pub footnotes: Vec<(Range<usize>, String)>,
+    pub footnote_references: Vec<(Range<usize>, String)>,
+    pub footnote_definitions: Vec<(Range<usize>, String)>,
     pub links: Vec<WikiLink>,
     pub headings: Vec<Heading>,
+    pub tags: Vec<String>,
+    pub aliases: Vec<String>,
+    pub standard_links: Vec<(String, usize)>,
+    pub destinations: Vec<(Range<usize>, String)>,
+    pub tasks: Vec<TaskItem>,
+    pub blocks: Vec<BlockReference>,
+    /// Zero-based header row through the exclusive body end row.
+    pub folds: Vec<Range<usize>>,
 }
 
 pub fn parse(source: &str) -> ParsedNote {
@@ -36,6 +65,115 @@ pub fn parse(source: &str) -> ParsedNote {
         }
     }
     fn walk(node: &Node, source: &str, result: &mut ParsedNote) {
+        let footnote = match node {
+            Node::FootnoteReference(n) => Some((&n.identifier, &n.position)),
+            Node::FootnoteDefinition(n) => Some((&n.identifier, &n.position)),
+            _ => None,
+        };
+        if let Node::FootnoteDefinition(n) = node
+            && let Some(p) = &n.position
+        {
+            result
+                .footnote_definitions
+                .push((p.start.offset..p.end.offset, n.identifier.to_lowercase()));
+        }
+        if let Some((identifier, Some(position))) = footnote {
+            let raw = &source[position.start.offset..position.end.offset];
+            if let Some(label) = raw.strip_prefix("[^") {
+                let mut escaped = false;
+                for (i, ch) in label.char_indices() {
+                    if ch == ']' && !escaped {
+                        if matches!(node, Node::FootnoteReference(_)) {
+                            result.footnote_references.push((
+                                position.start.offset + 2..position.start.offset + 2 + i,
+                                identifier.to_lowercase(),
+                            ));
+                        }
+                        result.footnotes.push((
+                            position.start.offset + 2..position.start.offset + 2 + i,
+                            identifier.to_lowercase(),
+                        ));
+                        break;
+                    }
+                    if ch == '\\' {
+                        escaped = !escaped;
+                    } else {
+                        escaped = false;
+                    }
+                }
+            }
+        }
+        if let Node::ListItem(item) = node
+            && let (Some(checked), Some(position)) = (item.checked, &item.position)
+        {
+            let raw = &source[position.start.offset..position.end.offset];
+            if let Some(i) = raw.lines().next().unwrap_or("").find('[')
+                && matches!(raw.get(i..i + 3), Some("[ ]" | "[x]" | "[X]"))
+            {
+                result.tasks.push(TaskItem {
+                    start: position.start.offset,
+                    marker: position.start.offset + i + 1..position.start.offset + i + 2,
+                    checked,
+                });
+            }
+        }
+        let destination = match node {
+            Node::Link(n) => Some((&n.url, &n.position)),
+            Node::Image(n) => Some((&n.url, &n.position)),
+            Node::Definition(n) => Some((&n.url, &n.position)),
+            _ => None,
+        };
+        if let Some((url, Some(position))) = destination
+            && !url.is_empty()
+        {
+            let raw = &source[position.start.offset..position.end.offset];
+            if let Some(start) = raw.rfind("](").or_else(|| raw.find("]:"))
+                && let Some(offset) = raw[start + 2..].find(url.as_str())
+            {
+                let offset = position.start.offset + start + 2 + offset;
+                result
+                    .destinations
+                    .push((offset..offset + url.len(), url.clone()));
+            }
+        }
+        if let Node::Link(link) = node
+            && let Some(position) = &link.position
+        {
+            result
+                .standard_links
+                .push((link.url.clone(), position.start.offset));
+        }
+        if let Node::Yaml(yaml) = node {
+            let mut field = "";
+            for line in yaml.value.lines() {
+                if let Some((key, value)) = line.split_once(':').filter(|_| !line.starts_with(' '))
+                {
+                    field = key.trim();
+                    if matches!(field, "tags" | "aliases") {
+                        for value in value
+                            .trim()
+                            .trim_matches(['[', ']'])
+                            .split(',')
+                            .map(|s| s.trim().trim_matches(['\'', '"', '#']))
+                            .filter(|s| !s.is_empty())
+                        {
+                            if field == "tags" {
+                                result.tags.push(value.into());
+                            } else {
+                                result.aliases.push(value.into());
+                            }
+                        }
+                    }
+                } else if let Some(value) = line.trim().strip_prefix("- ") {
+                    let value = value.trim().trim_matches(['\'', '"', '#']);
+                    if field == "tags" {
+                        result.tags.push(value.into());
+                    } else if field == "aliases" {
+                        result.aliases.push(value.into());
+                    }
+                }
+            }
+        }
         if let Node::Heading(heading) = node
             && let Some(position) = &heading.position
         {
@@ -50,10 +188,30 @@ pub fn parse(source: &str) -> ParsedNote {
         {
             let range = position.start.offset..position.end.offset;
             if let Some(raw) = source.get(range.clone()) {
+                for (i, ch) in raw.char_indices().filter(|(_, ch)| *ch == '#') {
+                    let _ = ch;
+                    if range.start + i > 0
+                        && source[..range.start + i]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|c| {
+                                c.is_alphanumeric() || matches!(c, '\\' | '/' | '[' | '#')
+                            })
+                    {
+                        continue;
+                    }
+                    let tag: String = raw[i + 1..]
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '/'))
+                        .collect();
+                    if !tag.is_empty() && tag.chars().any(|c| !c.is_numeric()) {
+                        result.tags.push(tag);
+                    }
+                }
                 let mut offset = 0;
                 while let Some(start) = raw[offset..].find("[[") {
                     let start = offset + start;
-                    let preceding = raw[..start]
+                    let preceding = source[..range.start + start]
                         .bytes()
                         .rev()
                         .take_while(|b| *b == b'\\')
@@ -87,9 +245,131 @@ pub fn parse(source: &str) -> ParsedNote {
         }
     }
     let mut result = ParsedNote::default();
-    if let Ok(root) = markdown_parser::to_mdast(source, &markdown_parser::ParseOptions::gfm()) {
+    let mut options = markdown_parser::ParseOptions::gfm();
+    options.constructs.frontmatter = true;
+    if let Ok(root) = markdown_parser::to_mdast(source, &options) {
         walk(&root, source, &mut result);
+        fn folds(node: &Node, out: &mut Vec<Range<usize>>) {
+            if matches!(
+                node,
+                Node::ListItem(_) | Node::Blockquote(_) | Node::Code(_) | Node::Yaml(_)
+            ) && let Some(p) = node.position()
+                && p.end.line > p.start.line
+            {
+                out.push(p.start.line - 1..p.end.line);
+            }
+            if let Some(children) = node.children() {
+                for (i, child) in children.iter().enumerate() {
+                    if let Node::Heading(heading) = child
+                        && let Some(p) = child.position()
+                    {
+                        let end = children[i + 1..]
+                            .iter()
+                            .find_map(|n| match n {
+                                Node::Heading(h) if h.depth <= heading.depth => {
+                                    n.position().map(|p| p.start.line - 1)
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or_else(|| node.position().map_or(p.end.line, |p| p.end.line));
+                        if end > p.start.line {
+                            out.push(p.start.line - 1..end);
+                        }
+                    }
+                    folds(child, out);
+                }
+            }
+        }
+        folds(&root, &mut result.folds);
+        result
+            .folds
+            .sort_by_key(|r| (r.start, std::cmp::Reverse(r.end)));
+        result.folds.dedup_by_key(|r| r.start);
+        fn collect_blocks(
+            node: &Node,
+            source: &str,
+            parent: Option<Range<usize>>,
+            out: &mut Vec<BlockReference>,
+        ) {
+            if matches!(node, Node::Code(_) | Node::InlineCode(_) | Node::Yaml(_)) {
+                return;
+            }
+            let position = node.position().map(|p| p.start.offset..p.end.offset);
+            let parent = if matches!(node, Node::ListItem(_)) {
+                position.clone()
+            } else {
+                parent
+            };
+            if matches!(node, Node::Paragraph(_) | Node::Heading(_))
+                && let Some(range) = &position
+            {
+                let raw = source[range.clone()].trim_end();
+                if let Some(i) = raw.rfind('^') {
+                    let id = &raw[i + 1..];
+                    if !id.is_empty()
+                        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                        && (i == 0 || raw[..i].ends_with(char::is_whitespace))
+                    {
+                        out.push(BlockReference {
+                            id: id.into(),
+                            range: parent.clone().unwrap_or_else(|| range.clone()),
+                            marker: range.start + i..range.start + raw.len(),
+                        });
+                    }
+                }
+            }
+            if let Some(children) = node.children() {
+                let mut previous: Option<Range<usize>> = None;
+                for child in children {
+                    let before = out.len();
+                    collect_blocks(child, source, parent.clone(), out);
+                    if let Some(block) = out.get_mut(before)
+                        && block.range.start == block.marker.start
+                        && let Some(previous) = &previous
+                    {
+                        block.range = previous.clone();
+                    }
+                    if let Some(p) = child.position() {
+                        previous = Some(p.start.offset..p.end.offset);
+                    }
+                }
+            }
+        }
+        collect_blocks(&root, source, None, &mut result.blocks);
+        fn definitions(node: &Node, out: &mut BTreeMap<String, String>) {
+            if let Node::Definition(d) = node {
+                out.entry(d.identifier.to_lowercase())
+                    .or_insert_with(|| d.url.clone());
+            }
+            if let Some(children) = node.children() {
+                for child in children {
+                    definitions(child, out);
+                }
+            }
+        }
+        fn references(
+            node: &Node,
+            defs: &BTreeMap<String, String>,
+            out: &mut Vec<(String, usize)>,
+        ) {
+            if let Node::LinkReference(link) = node
+                && let (Some(url), Some(p)) =
+                    (defs.get(&link.identifier.to_lowercase()), &link.position)
+            {
+                out.push((url.clone(), p.start.offset));
+            }
+            if let Some(children) = node.children() {
+                for child in children {
+                    references(child, defs, out);
+                }
+            }
+        }
+        let mut defs = BTreeMap::new();
+        definitions(&root, &mut defs);
+        references(&root, &defs, &mut result.standard_links);
     }
+    result.tags.sort();
+    result.tags.dedup();
     result
 }
 
@@ -97,10 +377,12 @@ pub fn parse(source: &str) -> ParsedNote {
 pub struct IndexedNote {
     pub text: String,
     pub parsed: ParsedNote,
+    pub times: crate::file_order::FileTimes,
 }
 #[derive(Clone, Debug, Default)]
 pub struct Index {
     pub notes: BTreeMap<PathBuf, IndexedNote>,
+    pub files: Vec<PathBuf>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Resolution {
@@ -136,18 +418,178 @@ fn normalized(path: &Path) -> Option<PathBuf> {
     Some(result)
 }
 impl Index {
+    pub fn anchor_range(&self, path: &Path, fragment: &str) -> Option<Range<usize>> {
+        let note = self.notes.get(path)?;
+        anchor_range(&note.text, &note.parsed, fragment)
+    }
+    /// Source edits are applied from the end, preserving Markdown formatting and labels.
+    pub fn rename_edits(&self, old: &Path, new: &Path) -> Vec<(PathBuf, String, String)> {
+        self.relocation_edits(old, new, false, None)
+    }
+    /// Plan all references against the pre-move index, including outgoing relative links.
+    pub fn relocation_edits(
+        &self,
+        old: &Path,
+        new: &Path,
+        folder: bool,
+        asset_root: Option<&Path>,
+    ) -> Vec<(PathBuf, String, String)> {
+        let moved = |path: &Path| {
+            if folder {
+                path.strip_prefix(old)
+                    .map_or_else(|_| path.to_path_buf(), |suffix| new.join(suffix))
+            } else if path == old {
+                new.to_path_buf()
+            } else {
+                path.to_path_buf()
+            }
+        };
+        let asset = |from: &Path, target: &str, wiki| {
+            let root = asset_root?;
+            crate::rendering::asset_path(
+                root,
+                &crate::rendering::Reference {
+                    from: from.to_path_buf(),
+                    target: target.into(),
+                    wiki,
+                },
+                &self.files,
+            )?
+            .strip_prefix(root)
+            .ok()
+            .map(Path::to_path_buf)
+        };
+        let mut edits = vec![];
+        for (from, note) in &self.notes {
+            let source = moved(from);
+            let mut replacements: Vec<(Range<usize>, String)> = vec![];
+            for link in &note.parsed.links {
+                if link.target.starts_with('#') {
+                    continue;
+                }
+                let target = match self.resolve(from, &link.target) {
+                    Resolution::Found(path) => path,
+                    _ => match asset(from, &link.target, true) {
+                        Some(path) => path,
+                        None => continue,
+                    },
+                };
+                let destination = moved(&target);
+                if destination == target && source == *from {
+                    continue;
+                }
+                let fragment = link
+                    .target
+                    .split_once('#')
+                    .map_or(String::new(), |(_, s)| format!("#{s}"));
+                let raw = &note.text[link.range.clone()];
+                let alias = raw[2..raw.len() - 2]
+                    .split_once('|')
+                    .map_or(String::new(), |(_, s)| format!("|{s}"));
+                let destination = if destination
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+                {
+                    destination.with_extension("")
+                } else {
+                    destination
+                };
+                let target = destination.to_string_lossy().replace('\\', "/");
+                replacements.push((
+                    link.range.clone(),
+                    format!("[[/{target}{fragment}{alias}]]"),
+                ));
+            }
+            for (range, url) in &note.parsed.destinations {
+                if url.starts_with('#') {
+                    continue;
+                }
+                let target = match self.resolve_markdown(from, url).0 {
+                    Resolution::Found(path) => path,
+                    _ => match asset(from, url, false) {
+                        Some(path) => path,
+                        None => continue,
+                    },
+                };
+                let destination = moved(&target);
+                if destination == target && source == *from {
+                    continue;
+                }
+                let parent = source.parent().unwrap_or(Path::new(""));
+                let a: Vec<_> = parent.components().collect();
+                let b: Vec<_> = destination.components().collect();
+                let common = a.iter().zip(&b).take_while(|(a, b)| a == b).count();
+                let mut relative = PathBuf::new();
+                for _ in common..a.len() {
+                    relative.push("..");
+                }
+                for part in &b[common..] {
+                    relative.push(part.as_os_str());
+                }
+                let path = relative.to_string_lossy().replace('\\', "/");
+                let encoded =
+                    percent_encoding::utf8_percent_encode(&path, LINK_PATH_ESCAPE).to_string();
+                let fragment = url
+                    .split_once('#')
+                    .map_or(String::new(), |(_, s)| format!("#{s}"));
+                replacements.push((range.clone(), format!("{encoded}{fragment}")));
+            }
+            if !replacements.is_empty() {
+                replacements.sort_by_key(|(r, _)| std::cmp::Reverse(r.start));
+                let mut after = note.text.clone();
+                for (range, text) in replacements {
+                    after.replace_range(range, &text);
+                }
+                if after != note.text {
+                    edits.push((source, note.text.clone(), after));
+                }
+            }
+        }
+        edits
+    }
     pub fn build(vault: &Vault) -> Result<Self, VaultError> {
-        let mut index = Self::default();
-        for path in vault.scan()? {
+        let mut index = Self {
+            files: vault.scan_files()?,
+            ..Default::default()
+        };
+        for path in index
+            .files
+            .clone()
+            .into_iter()
+            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")))
+        {
             if let Some(text) = vault.read(&path)? {
-                index.update(path, text);
+                index.update(path.clone(), text);
+                index.refresh_file_times(vault, &path);
             }
         }
         Ok(index)
     }
     pub fn update(&mut self, path: PathBuf, text: String) {
         let parsed = parse(&text);
-        self.notes.insert(path, IndexedNote { text, parsed });
+        let times = self.notes.get(&path).map(|n| n.times).unwrap_or_default();
+        self.notes.insert(
+            path,
+            IndexedNote {
+                text,
+                parsed,
+                times,
+            },
+        );
+    }
+    fn refresh_file_times(&mut self, vault: &Vault, path: &Path) {
+        let times = vault
+            .path(path)
+            .ok()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map(|m| crate::file_order::FileTimes {
+                modified: m.modified().ok(),
+                created: m.created().ok(),
+            })
+            .unwrap_or_default();
+        if let Some(note) = self.notes.get_mut(path) {
+            note.times = times;
+        }
     }
     pub fn refresh_paths(
         &mut self,
@@ -158,8 +600,9 @@ impl Index {
             match vault.read(&path)? {
                 Some(text) => {
                     if self.notes.get(&path).is_none_or(|n| n.text != text) {
-                        self.update(path, text);
+                        self.update(path.clone(), text);
                     }
+                    self.refresh_file_times(vault, &path);
                 }
                 None => {
                     self.notes.remove(&path);
@@ -196,11 +639,18 @@ impl Index {
             return (Resolution::Invalid, heading);
         }
         let target = if path.starts_with('/') {
-            path.into_owned()
+            path.to_string()
         } else {
             format!("./{path}")
         };
-        (self.resolve_literal(from, &target), heading)
+        let resolved = self.resolve_literal(from, &target);
+        // Obsidian's shortest Markdown links may name a unique note elsewhere in the vault.
+        let resolved = if matches!(resolved, Resolution::Missing(_)) && !path.contains('/') {
+            self.resolve_literal(from, &path)
+        } else {
+            resolved
+        };
+        (resolved, heading)
     }
     fn resolve_literal(&self, from: &Path, target: &str) -> Resolution {
         let target = target.trim().replace('\\', "/");
@@ -253,7 +703,24 @@ impl Index {
             .cloned()
             .collect();
         match matches.len() {
-            0 => Resolution::Missing(path),
+            0 => {
+                let aliases: Vec<_> = self
+                    .notes
+                    .iter()
+                    .filter(|(_, n)| {
+                        n.parsed
+                            .aliases
+                            .iter()
+                            .any(|a| a.eq_ignore_ascii_case(&stem))
+                    })
+                    .map(|(p, _)| p.clone())
+                    .collect();
+                match aliases.len() {
+                    0 => Resolution::Missing(path),
+                    1 => Resolution::Found(aliases[0].clone()),
+                    _ => Resolution::Ambiguous(aliases),
+                }
+            }
             1 => Resolution::Found(matches[0].clone()),
             _ => Resolution::Ambiguous(matches),
         }
@@ -262,62 +729,297 @@ impl Index {
         let query = query.to_lowercase();
         self.notes
             .keys()
-            .filter(|p| key(p).contains(&query))
+            .filter(|p| {
+                key(p).contains(&query)
+                    || self.notes.get(*p).is_some_and(|n| {
+                        n.parsed
+                            .aliases
+                            .iter()
+                            .any(|a| a.to_lowercase().contains(&query))
+                    })
+            })
             .take(200)
             .cloned()
             .collect()
     }
     pub fn search(&self, query: &str) -> Vec<SearchHit> {
-        if query.trim().is_empty() {
-            return vec![];
-        }
-        let query = query.to_lowercase();
+        self.try_search(query).unwrap_or_default()
+    }
+    pub fn try_search(&self, query: &str) -> Result<Vec<SearchHit>, String> {
+        let query = crate::search::Query::parse(query)?;
         let mut hits = vec![];
         for (path, note) in &self.notes {
+            if !query.matches(path, &note.text, &note.parsed.tags) {
+                continue;
+            }
+            let before = hits.len();
             let mut offset = 0;
             for (line, text) in note.text.split_inclusive('\n').enumerate() {
-                if text.to_lowercase().contains(&query) {
+                if query.matches(path, text, &note.parsed.tags) {
                     hits.push(SearchHit {
                         path: path.clone(),
                         offset,
                         line: line + 1,
-                        excerpt: text.chars().take(100).collect(),
+                        excerpt: text.chars().take(120).collect(),
                     });
                     if hits.len() == 200 {
-                        return hits;
+                        return Ok(hits);
                     }
                 }
                 offset += text.len();
             }
+            if hits.len() == before {
+                hits.push(SearchHit {
+                    path: path.clone(),
+                    offset: 0,
+                    line: 1,
+                    excerpt: note
+                        .text
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .chars()
+                        .take(120)
+                        .collect(),
+                });
+            }
+            if hits.len() == 200 {
+                return Ok(hits);
+            }
         }
-        hits
+        Ok(hits)
     }
     pub fn backlinks(&self, target: &Path) -> Vec<PathBuf> {
-        self.notes.iter().filter(|(from,note)|note.parsed.links.iter().any(|l|matches!(self.resolve(from,&l.target),Resolution::Found(ref p)if key(p)==key(target)))).map(|(p,_)|p.clone()).collect()
+        self.notes.iter().filter(|(from,note)| {
+            note.parsed.links.iter().any(|l|matches!(self.resolve(from,&l.target),Resolution::Found(ref p)if key(p)==key(target))) ||
+            note.parsed.standard_links.iter().any(|(url,_)|matches!(self.resolve_markdown(from,url).0,Resolution::Found(ref p)if key(p)==key(target)))
+        }).map(|(p,_)|p.clone()).collect()
     }
 }
 
-/// Read-only display transformation. The editor's source remains untouched.
-pub fn reading_source(source: &str, parsed: &ParsedNote) -> String {
-    let mut result = String::new();
-    let mut offset = 0;
-    for (index, link) in parsed.links.iter().enumerate() {
-        result.push_str(&source[offset..link.range.start]);
-        let label = link
-            .label
-            .replace('\\', "\\\\")
-            .replace('[', "\\[")
-            .replace(']', "\\]");
-        result.push_str(&format!("[{label}](inkstone-link:{index})"));
-        offset = link.range.end;
+pub fn anchor_range(source: &str, parsed: &ParsedNote, fragment: &str) -> Option<Range<usize>> {
+    let fragment = percent_encoding::percent_decode_str(fragment.trim_start_matches('#'))
+        .decode_utf8()
+        .ok()?;
+    if let Some(id) = fragment.strip_prefix('^') {
+        return parsed
+            .blocks
+            .iter()
+            .find(|b| b.id == id)
+            .map(|b| b.range.clone());
     }
-    result.push_str(&source[offset..]);
-    result
+    fn normalized(value: &str) -> String {
+        value
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect()
+    }
+    let i = parsed
+        .headings
+        .iter()
+        .position(|h| h.title == fragment)
+        .or_else(|| {
+            parsed
+                .headings
+                .iter()
+                .position(|h| normalized(&h.title) == normalized(&fragment))
+        })?;
+    let heading = &parsed.headings[i];
+    let end = parsed.headings[i + 1..]
+        .iter()
+        .find(|h| h.level <= heading.level)
+        .map_or(source.len(), |h| h.offset);
+    Some(heading.offset..end)
+}
+
+pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<String> {
+    if marker.len() != 1 || marker.start == 0 || marker.end >= source.len() {
+        return None;
+    }
+    if !matches!(
+        source.get(marker.start - 1..marker.end + 1),
+        Some("[ ]" | "[x]" | "[X]")
+    ) {
+        return None;
+    }
+    let mut result = source.to_string();
+    result.replace_range(marker, if checked { "x" } else { " " });
+    Some(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn refresh_updates_file_dates_even_when_text_is_unchanged() {
+        let root =
+            std::env::temp_dir().join(format!("inkstone-index-dates-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("note.md"), "same text").unwrap();
+        let vault = Vault::open(&root, root.with_extension("recovery")).unwrap();
+        let mut index = Index::build(&vault).unwrap();
+        let newer =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(root.join("note.md"))
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(newer))
+            .unwrap();
+        index
+            .refresh_paths(&vault, [PathBuf::from("note.md")])
+            .unwrap();
+        assert_eq!(index.notes[Path::new("note.md")].text, "same text");
+        assert_eq!(
+            index.notes[Path::new("note.md")].times.modified,
+            Some(newer)
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn fold_ranges_follow_heading_levels_and_nested_blocks() {
+        let source = "# A\nbody\n## B\n- parent\n  - child\n# C\n```md\n# literal\n```";
+        let parsed = parse(source);
+        assert_eq!(parsed.folds, vec![0..5, 2..5, 3..5, 5..9, 6..9]);
+        assert!(!parsed.folds.iter().any(|r| r.start == 7));
+        assert!(parse("# single").folds.is_empty());
+        assert_eq!(parse("Title\n=====\nbody").folds, vec![0..3]);
+    }
+    #[test]
+    fn folder_move_updates_incoming_outgoing_and_embedded_assets_once() {
+        let root =
+            std::env::temp_dir().join(format!("inkstone-folder-references-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("原目录/子目录")).unwrap();
+        std::fs::write(root.join("原目录/子目录/图 示.svg"), "<svg/>").unwrap();
+        let vault = Vault::open(&root, root.with_extension("recovery")).unwrap();
+        let mut index = Index::default();
+        let incoming = "[[原目录/子目录/笔记#标题|显示]]\n![[原目录/子目录/图 示.svg|160]]\n[笔记](原目录/子目录/笔记.md#%E6%A0%87)\n![图](原目录/子目录/图%20示.svg)\n`[[原目录/子目录/笔记]]`\n[外部](https://example.com/a)";
+        let outgoing = "[[../同级]] [[外部]] [[#局部]]\n[根](../../外部.md) ![图](图%20示.svg)\n[局部](#标题)\n[引用][r]\n\n[r]: ../../外部.md \"标题\"";
+        index.update("入口.md".into(), incoming.into());
+        index.update("原目录/子目录/笔记.md".into(), outgoing.into());
+        index.update("原目录/同级.md".into(), "# 同级".into());
+        index.update("外部.md".into(), "# 外部".into());
+        let edits = index.relocation_edits(
+            Path::new("原目录"),
+            Path::new("归档/新目录"),
+            true,
+            Some(&vault.root),
+        );
+        assert_eq!(edits.len(), 2);
+        let entry = &edits
+            .iter()
+            .find(|e| e.0 == Path::new("入口.md"))
+            .unwrap()
+            .2;
+        let entry = percent_encoding::percent_decode_str(entry)
+            .decode_utf8()
+            .unwrap();
+        assert!(entry.contains("[[/归档/新目录/子目录/笔记#标题|显示]]"));
+        assert!(entry.contains("![[/归档/新目录/子目录/图 示.svg|160]]"));
+        assert!(entry.contains("![图](归档/新目录/子目录/图 示.svg)"));
+        assert!(entry.contains("`[[原目录/子目录/笔记]]`"));
+        assert!(entry.contains("https://example.com/a"));
+        let moved = &edits
+            .iter()
+            .find(|e| e.0 == Path::new("归档/新目录/子目录/笔记.md"))
+            .unwrap()
+            .2;
+        let moved = percent_encoding::percent_decode_str(moved)
+            .decode_utf8()
+            .unwrap();
+        assert!(moved.contains("[[/归档/新目录/同级]] [[/外部]] [[#局部]]"));
+        assert!(moved.contains("[根](../../../外部.md) ![图](图 示.svg)"));
+        assert!(moved.contains("[局部](#标题)"));
+        assert!(moved.contains("[r]: ../../../外部.md \"标题\""));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn tasks_and_block_anchors_are_source_based_and_exclude_code() {
+        let source = "# 章节 A\r\n\r\n段落😀 ^para-1\r\n\r\n- [ ] 任务一 ^todo-1\r\n- [X] 任务二\r\n\r\n```md\n- [ ] 假任务 ^fake\n```\n\n^code-1\n\n# 下一节\n";
+        let parsed = parse(source);
+        assert_eq!(parsed.tasks.len(), 2);
+        assert_eq!(&source[parsed.tasks[0].marker.clone()], " ");
+        assert!(parsed.tasks[1].checked);
+        assert_eq!(
+            &source[anchor_range(source, &parsed, "^para-1").unwrap()],
+            "段落😀 ^para-1"
+        );
+        assert!(source[anchor_range(source, &parsed, "^todo-1").unwrap()].starts_with("- [ ]"));
+        assert!(source[anchor_range(source, &parsed, "^code-1").unwrap()].starts_with("```"));
+        assert!(anchor_range(source, &parsed, "^fake").is_none());
+        let section = anchor_range(source, &parsed, "章节-A").unwrap();
+        assert!(!source[section].contains("下一节"));
+        let changed = set_task(source, parsed.tasks[0].marker.clone(), true).unwrap();
+        assert!(changed.contains("- [x] 任务一"));
+        assert!(changed.contains("\r\n"));
+        assert!(set_task(source, 0..1, true).is_none());
+    }
+    #[test]
+    fn reference_style_links_participate_in_backlinks() {
+        let mut index = Index::default();
+        index.update("来源.md".into(), "[目标][ref]\n\n[ref]: 目标.md\n".into());
+        index.update("目标.md".into(), "".into());
+        assert_eq!(
+            index.backlinks(Path::new("目标.md")),
+            vec![PathBuf::from("来源.md")]
+        );
+    }
+    #[test]
+    fn tags_aliases_and_standard_backlinks_ignore_code() {
+        let source = "---\naliases: [别名, 'Second']\ntags:\n  - 工作/项目\n---\n# 标题\n\n#中文 #123 #work/sub `#code` \\#escaped\n\n[目标](目标.md#章节)\n\n```md\n#not-a-tag [[目标]]\n```\n";
+        let note = parse(source);
+        assert_eq!(note.aliases, vec!["别名", "Second"]);
+        assert!(note.tags.contains(&"中文".into()));
+        assert!(note.tags.contains(&"工作/项目".into()));
+        assert!(
+            !note
+                .tags
+                .iter()
+                .any(|t| matches!(t.as_str(), "123" | "code" | "escaped" | "not-a-tag"))
+        );
+        let mut index = Index::default();
+        index.update("来源.md".into(), source.into());
+        index.update("目标.md".into(), "".into());
+        assert_eq!(
+            index.backlinks(Path::new("目标.md")),
+            vec![PathBuf::from("来源.md")]
+        );
+        assert_eq!(
+            index.resolve(Path::new("目标.md"), "别名"),
+            Resolution::Found("来源.md".into())
+        );
+    }
+    #[test]
+    fn rename_preserves_aliases_fragments_code_and_relative_destinations() {
+        let mut index = Index::default();
+        index.update(
+            "原目录/笔记.md".into(),
+            "[[../目标]] [目标](../目标.md)\n".into(),
+        );
+        index.update("目标.md".into(), "# 目标".into());
+        index.update(
+            "来源.md".into(),
+            "[[原目录/笔记#章节|显示]]\n[标题](原目录/笔记.md#章节)\n`[[原目录/笔记]]`\n".into(),
+        );
+        let edits = index.rename_edits(Path::new("原目录/笔记.md"), Path::new("新 目录/改名.md"));
+        let source = &edits
+            .iter()
+            .find(|(p, _, _)| p == Path::new("来源.md"))
+            .unwrap()
+            .2;
+        assert!(source.contains("[[/新 目录/改名#章节|显示]]"));
+        assert!(
+            source.contains("[标题](%E6%96%B0%20%E7%9B%AE%E5%BD%95/%E6%94%B9%E5%90%8D.md#章节)")
+        );
+        assert!(source.contains("`[[原目录/笔记]]`"));
+        let moved = &edits
+            .iter()
+            .find(|(p, _, _)| p == Path::new("新 目录/改名.md"))
+            .unwrap()
+            .2;
+        assert!(moved.contains("[[/目标]]"));
+    }
     #[test]
     fn dotted_wiki_names_keep_their_entire_stem() {
         let mut index = Index::default();
@@ -362,7 +1064,11 @@ mod tests {
         assert_eq!(parsed.headings[0].title, "中文😀");
         assert_eq!(parsed.links.len(), 1);
         assert_eq!(&source[parsed.links[0].range.clone()], "[[笔记|别名]]");
-        assert!(reading_source(source, &parsed).contains("[别名](inkstone-link:0)"));
+        assert!(
+            crate::rendering::reading_document(&Index::default(), Path::new("a.md"), source)
+                .markdown
+                .contains("[别名](inkstone-reference:0)")
+        );
     }
     #[test]
     fn resolution_ambiguity_relative_paths_and_backlink_rebuild() {
