@@ -1154,6 +1154,54 @@ impl<M: InputModeKind> InputBaseState<M> {
         true
     }
 
+    /// Replace disjoint selections in one host transaction and retain all caret identities.
+    pub fn apply_selection_replacements(
+        &mut self,
+        transform: impl FnOnce(&str, &[Range<usize>]) -> Option<Vec<String>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_editable() || self.ime_marked_range.is_some() {
+            return false;
+        }
+        let before: Vec<_> = self.selections.iter().copied().collect();
+        let ranges: Vec<_> = before.iter().map(|s| s.start..s.end).collect();
+        let Some(replacements) = transform(&self.text.to_string(), &ranges) else {
+            return false;
+        };
+        if replacements.len() != ranges.len() {
+            return false;
+        }
+        let mut edits: Vec<_> = ranges.into_iter().zip(replacements).enumerate().collect();
+        edits.sort_by_key(|(_, (range, _))| (range.start, range.end));
+        if edits.windows(2).any(|pair| {
+            let (_, (left, _)) = &pair[0];
+            let (_, (right, _)) = &pair[1];
+            left.end > right.start || left.start == right.start
+        }) {
+            return false;
+        }
+        let mut after = before.clone();
+        let mut delta = 0isize;
+        for (index, (range, text)) in &edits {
+            let cursor = (range.start + text.len()).saturating_add_signed(delta);
+            after[*index].place_at(cursor, None);
+            delta += text.len() as isize - range.len() as isize;
+        }
+        let edits: Vec<_> = edits.into_iter().map(|(_, edit)| edit).collect();
+        self.undo_manager.begin_transaction();
+        self.undo_manager
+            .record_selections(before.clone(), before.clone());
+        self.replace_text_in_ranges(&edits, window, cx);
+        self.selections.replace_all(after.clone());
+        self.undo_manager.record_selections(before, after);
+        self.undo_manager.commit_transaction();
+        self.scroll_to(self.cursor(), None, cx);
+        self.pause_blink_cursor(cx);
+        cx.notify();
+        true
+    }
+
     fn replace_text(
         &mut self,
         text: impl Into<SharedString>,

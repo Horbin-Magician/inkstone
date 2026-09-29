@@ -3,6 +3,50 @@ use std::ops::Range;
 mod indentation;
 mod renumber;
 
+/// Shift+Enter follows the reference's all-or-none indentation rule across carets.
+pub fn soft_break_replacements(text: &str, selections: &[Range<usize>]) -> Option<Vec<String>> {
+    if selections.iter().any(|r| {
+        r.start > r.end || !text.is_char_boundary(r.start) || !text.is_char_boundary(r.end)
+    }) {
+        return None;
+    }
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let plain = || vec![newline.to_string(); selections.len()];
+    let mut replacements = Vec::new();
+    for selection in selections {
+        if !selection.is_empty() {
+            return Some(plain());
+        }
+        let start = text[..selection.start].rfind('\n').map_or(0, |i| i + 1);
+        let end = text[selection.start..]
+            .find('\n')
+            .map_or(text.len(), |i| selection.start + i);
+        let line = text[start..end].trim_end_matches('\r');
+        let (prefix_end, indentation) = if let Some(p) = prefix(line) {
+            let marker = &line[p.quote.len() + p.indent.len()..p.end];
+            let spaces: usize = marker
+                .chars()
+                .map(|ch| if ch == '\t' { 4 } else { 1 })
+                .sum();
+            (
+                p.end,
+                format!("{}{}{}", p.quote, p.indent, " ".repeat(spaces)),
+            )
+        } else {
+            let end = line
+                .bytes()
+                .take_while(|b| matches!(b, b' ' | b'\t'))
+                .count();
+            (end, line[..end].to_string())
+        };
+        if prefix_end == 0 || selection.start < start + prefix_end {
+            return Some(plain());
+        }
+        replacements.push(format!("{newline}{indentation}"));
+    }
+    Some(replacements)
+}
+
 /// A minimal indentation change for one line, with offsets relative to that line.
 pub fn indentation_change(
     line: &str,
@@ -556,30 +600,7 @@ pub fn edit_with_options(
         .map_or(text.len(), |i| selection.start + i);
     let line = text[start..end].trim_end_matches('\r');
     if matches!(key, Key::SoftEnter) {
-        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
-        let (prefix_end, indentation) = if let Some(p) = prefix(line) {
-            let marker = &line[p.quote.len() + p.indent.len()..p.end];
-            let spaces: usize = marker
-                .chars()
-                .map(|ch| if ch == '\t' { 4 } else { 1 })
-                .sum();
-            (
-                p.end,
-                format!("{}{}{}", p.quote, p.indent, " ".repeat(spaces)),
-            )
-        } else {
-            let end = line
-                .bytes()
-                .take_while(|b| matches!(b, b' ' | b'\t'))
-                .count();
-            (end, line[..end].to_string())
-        };
-        let indentation = if selection.is_empty() && selection.start >= start + prefix_end {
-            indentation
-        } else {
-            String::new()
-        };
-        let replacement = format!("{newline}{indentation}");
+        let replacement = soft_break_replacements(text, std::slice::from_ref(&selection))?.pop()?;
         let cursor = selection.start + replacement.len();
         return Some(Edit {
             range: selection,
@@ -716,6 +737,28 @@ pub fn edit_with_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn multi_soft_breaks_share_fallback_and_keep_individual_indentation() {
+        let text = "- one\n> - two";
+        assert_eq!(
+            soft_break_replacements(text, &[5..5, text.len()..text.len()]).unwrap(),
+            vec!["\n  ", "\n>   "]
+        );
+        assert_eq!(
+            soft_break_replacements(text, &[2..5, text.len()..text.len()]).unwrap(),
+            vec!["\n", "\n"]
+        );
+        assert_eq!(
+            soft_break_replacements(text, &[0..0, text.len()..text.len()]).unwrap(),
+            vec!["\n", "\n"]
+        );
+        let text = "- one\r\nplain";
+        assert_eq!(
+            soft_break_replacements(text, &[5..5, text.len()..text.len()]).unwrap(),
+            vec!["\r\n", "\r\n"]
+        );
+        assert!(soft_break_replacements("中文", std::slice::from_ref(&(1..1))).is_none());
+    }
     #[test]
     fn soft_enter_handles_code_indentation_prefix_interiors_and_selections() {
         assert_eq!(

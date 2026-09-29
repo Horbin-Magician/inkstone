@@ -212,6 +212,17 @@ impl EditorPane {
             return;
         }
         if state.has_multiple_selections() {
+            if matches!(key, inkstone::markdown_edit::Key::SoftEnter) {
+                self.editor.update(cx, |state, cx| {
+                    state.apply_selection_replacements(
+                        inkstone::markdown_edit::soft_break_replacements,
+                        window,
+                        cx,
+                    );
+                });
+                cx.stop_propagation();
+                return;
+            }
             if matches!(
                 key,
                 inkstone::markdown_edit::Key::Indent | inkstone::markdown_edit::Key::Outdent
@@ -1708,6 +1719,39 @@ mod tests {
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn multiple_carets_soft_break_together_and_restore_on_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "- 中文\n- 中文";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(8..8, cx);
+                    s.focus(w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-alt-down shift-enter");
+        editor.read_with(&visual, |s, _| {
+            assert!(s.has_multiple_selections());
+            assert_eq!(s.value(), "- 中文\n  \n- 中文\n  ");
+        });
+        visual.simulate_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| {
+            assert!(s.has_multiple_selections());
+            assert_eq!(s.value(), source);
+        });
+        visual.simulate_keystrokes("ctrl-y");
+        visual.simulate_input("x");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "- 中文\n  x\n- 中文\n  x")
+        });
     }
 
     #[gpui::test]
