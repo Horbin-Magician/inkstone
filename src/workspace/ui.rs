@@ -1208,7 +1208,7 @@ impl Workspace {
             return;
         }
         self.command_open = false;
-        self.ui.quick_open = false;
+        self.close_quick_search(window, cx);
         self.ui.template_mode = false;
         self.ui.name_mode = None;
         self.ui.settings = false;
@@ -2151,9 +2151,10 @@ impl Workspace {
         let current = if self.fulltext {
             self.search.read(cx).value().to_string()
         } else {
-            String::new()
+            self.ui.prefs.search_query.clone()
         };
         let query = inkstone::tags::search_query(&current, tag, combine);
+        self.ui.prefs.search_query = query.clone();
         self.search
             .update(cx, |s, cx| s.set_value(query, window, cx));
         self.focus_search(true, window, cx);

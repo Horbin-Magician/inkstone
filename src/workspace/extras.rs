@@ -722,8 +722,7 @@ impl Workspace {
             s.apply_source_edit(edit.range, &edit.replacement, edit.selection, window, cx)
         });
         if applied {
-            self.ui.quick_open = false;
-            self.ui.template_mode = false;
+            self.close_quick_search(window, cx);
             pane.update(cx, |p, cx| {
                 p.reading = false;
                 p.focus_view(window, cx);
