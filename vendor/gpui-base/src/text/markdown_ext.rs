@@ -245,6 +245,7 @@ impl PartialEq for MarkdownNode {
 #[derive(Clone, Default)]
 pub struct MarkdownExtensions {
     pub(crate) preserve_soft_breaks: bool,
+    pub(crate) custom_task_markers: bool,
     enable_mdx: bool,
     enable_frontmatter: bool,
     block_parsers: Vec<Arc<MarkdownBlockParserFn>>,
@@ -256,6 +257,12 @@ pub struct MarkdownExtensions {
 }
 
 impl MarkdownExtensions {
+    /// Recognize single-character task states beyond the standard space and x.
+    pub fn custom_task_markers(mut self, enabled: bool) -> Self {
+        self.custom_task_markers = enabled;
+        self.bump_revision();
+        self
+    }
     /// Render source soft line endings as visual line breaks instead of spaces.
     pub fn soft_line_breaks(mut self, preserve: bool) -> Self {
         self.preserve_soft_breaks = preserve;
@@ -358,6 +365,7 @@ impl MarkdownExtensions {
     pub(crate) fn has_same_parser_configuration(&self, other: &Self) -> bool {
         self.parser_revision == other.parser_revision
             && self.preserve_soft_breaks == other.preserve_soft_breaks
+            && self.custom_task_markers == other.custom_task_markers
             && self.enable_mdx == other.enable_mdx
             && self.enable_frontmatter == other.enable_frontmatter
             && self.block_parsers.len() == other.block_parsers.len()

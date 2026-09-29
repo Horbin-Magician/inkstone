@@ -353,7 +353,7 @@ impl Builder<'_> {
                 self.output.tasks.push(TaskTarget {
                     rendered_start: task.start,
                     path: map.path.clone(),
-                    marker: start..start + 1,
+                    marker: start..start + task.marker.len(),
                     baseline: baseline.clone(),
                 });
             }

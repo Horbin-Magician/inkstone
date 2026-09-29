@@ -357,7 +357,18 @@ impl EditorPane {
         self.editor.update(cx, |state, cx| {
             let selection = state.selected_range();
             let scroll = state.scroll_offset();
-            state.set_selected_range(target.marker, cx);
+            let marker = target.marker;
+            let map = |offset: usize| {
+                if offset <= marker.start {
+                    offset
+                } else if offset >= marker.end {
+                    offset.saturating_add_signed(1 - marker.len() as isize)
+                } else {
+                    marker.start + 1
+                }
+            };
+            let selection = map(selection.start)..map(selection.end);
+            state.set_selected_range(marker, cx);
             state.replace(if checked { "x" } else { " " }, window, cx);
             state.set_selected_range(selection, cx);
             state.set_scroll_offset(scroll, cx);
@@ -827,6 +838,7 @@ impl Render for EditorPane {
             .font_family(self.text_font.clone())
             .markdown_extensions(
                 gpui_base::text::MarkdownExtensions::default()
+                    .custom_task_markers(true)
                     .soft_line_breaks(!self.strict_line_breaks),
             )
             .text_size(px(font_size))
@@ -1697,6 +1709,63 @@ mod tests {
             .update(&mut visual, |p, _, cx| {
                 assert_eq!(p.editor.read(cx).value(), "before\r\n```\r\n```");
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn custom_tasks_render_as_checkboxes_and_click_preserves_source_mapping(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let source = "- [✓] **中文**\n- [!] second";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(source.len()..source.len(), cx)
+                });
+                p.reading = true;
+                p.update_presentation(cx);
+                p.focus_view(w, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(700.), px(400.)));
+        for _ in 0..3 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let bounds = handle
+            .update(&mut visual, |p, _, cx| {
+                let text = p.preview.read(cx).rendered_text();
+                assert!(text.as_str().contains("中文"));
+                assert!(!text.as_str().contains("[✓]"));
+                assert!(!text.as_str().contains("[!]"));
+                assert_eq!(
+                    text.position_for_source_offset(source.find("中文").unwrap()),
+                    text.as_str().find("中文")
+                );
+                p.preview.update(cx, |s, cx| {
+                    s.set_selection_format(gpui_base::text::SelectionFormat::Source, cx);
+                    s.select_all(cx);
+                    assert_eq!(s.selected_text(), source);
+                    s.clear_selection(cx);
+                });
+                p.preview.read(cx).bounds_for_source_offset(0).unwrap()
+            })
+            .unwrap();
+        visual.simulate_click(bounds.origin + point(px(7.), px(12.)), Modifiers::default());
+        handle
+            .update(&mut visual, |p, w, cx| {
+                assert_eq!(p.editor.read(cx).value(), "- [ ] **中文**\n- [!] second");
+                assert_eq!(
+                    p.editor.read(cx).selected_range(),
+                    source.len() - 2..source.len() - 2
+                );
+                p.editor
+                    .update(cx, |s, cx| s.undo(&gpui_component::input::Undo, w, cx));
+                assert_eq!(p.editor.read(cx).value(), source);
             })
             .unwrap();
     }

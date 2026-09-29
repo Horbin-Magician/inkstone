@@ -1154,6 +1154,54 @@ fn new_span(pos: Option<markdown::unist::Position>, cx: &NodeContext) -> Option<
     })
 }
 
+fn promote_custom_task(source: &str, item: &mut mdast::ListItem) -> Option<()> {
+    static PREFIX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"^[ \t]*(?:[-+*]|[0-9]{1,9}[.)])[ \t]+\[(?P<state>[^\r\n])\](?:[ \t]+|$)",
+        )
+        .unwrap()
+    });
+    let position = item.position.as_ref()?;
+    let raw = source.get(position.start.offset..position.end.offset)?;
+    let captures = PREFIX.captures(raw.lines().next()?)?;
+    let content_start = position.start.offset + captures.get(0)?.end();
+    let checked = captures.name("state")?.as_str() != " ";
+    let Node::Paragraph(paragraph) = item.children.first_mut()? else {
+        return None;
+    };
+    let mut children = paragraph.children.clone();
+    while children.first().is_some_and(|node| {
+        node.position()
+            .is_some_and(|p| p.end.offset <= content_start)
+    }) {
+        children.remove(0);
+    }
+    if let Some(first) = children.first_mut()
+        && first
+            .position()
+            .is_some_and(|p| p.start.offset < content_start)
+    {
+        let Node::Text(text) = first else {
+            return None;
+        };
+        let p = text.position.as_mut()?;
+        let removed = source.get(p.start.offset..content_start)?;
+        if !text.value.starts_with(removed) {
+            return None;
+        }
+        text.value.drain(..removed.len());
+        p.start.offset = content_start;
+        p.start.column += removed.chars().count();
+    }
+    paragraph.children = children;
+    if let Some(p) = paragraph.position.as_mut() {
+        p.start.column += source.get(p.start.offset..content_start)?.chars().count();
+        p.start.offset = content_start;
+    }
+    item.checked = Some(checked);
+    Some(())
+}
+
 fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockNode {
     let span = new_span(value.position().cloned(), cx);
     let parse_cx = MarkdownParseContext::new(source, cx.offset);
@@ -1290,7 +1338,10 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
                 span: new_span(list.position, cx),
             }
         }
-        Node::ListItem(val) => {
+        Node::ListItem(mut val) => {
+            if cx.markdown_extensions.custom_task_markers && val.checked.is_none() {
+                let _ = promote_custom_task(source, &mut val);
+            }
             let children = val
                 .children
                 .into_iter()
