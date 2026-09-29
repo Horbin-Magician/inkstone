@@ -2,14 +2,18 @@ use markdown_parser::mdast::Node;
 use std::{cell::RefCell, ops::Range, sync::Arc};
 
 type CachedRanges = Option<(String, Arc<Vec<Range<usize>>>)>;
-pub(super) struct Tasks {
-    completed: Option<bool>,
+pub(super) enum Kind {
+    Task(Option<bool>),
+    Block,
+}
+pub(super) struct Regions {
+    kind: Kind,
     cache: RefCell<CachedRanges>,
 }
-impl Tasks {
-    pub(super) fn new(completed: Option<bool>) -> Self {
+impl Regions {
+    pub(super) fn new(kind: Kind) -> Self {
         Self {
-            completed,
+            kind,
             cache: RefCell::new(None),
         }
     }
@@ -23,16 +27,34 @@ impl Tasks {
         options.constructs.frontmatter = true;
         let mut ranges = vec![];
         if let Ok(root) = markdown_parser::to_mdast(text, &options) {
+            if matches!(self.kind, Kind::Block)
+                && let Some(children) = root.children()
+            {
+                for node in children
+                    .iter()
+                    .filter(|node| !matches!(node, Node::List(_)))
+                {
+                    if let Some(position) = node.position() {
+                        ranges.push(position.start.offset..position.end.offset);
+                    }
+                }
+            }
             let mut stack = vec![&root];
             while let Some(node) = stack.pop() {
                 if let Node::ListItem(item) = node
                     && let Some(position) = &item.position
                 {
                     let range = position.start.offset..position.end.offset;
-                    if let Some(raw) = text.get(range.clone())
-                        && let Some(completed) = task_state(raw)
-                        && self.completed.is_none_or(|required| required == completed)
-                    {
+                    let include = match self.kind {
+                        Kind::Block => true,
+                        Kind::Task(required) => text
+                            .get(range.clone())
+                            .and_then(task_state)
+                            .is_some_and(|completed| {
+                                required.is_none_or(|required| required == completed)
+                            }),
+                    };
+                    if include {
                         ranges.push(range);
                     }
                 }
@@ -41,6 +63,8 @@ impl Tasks {
                 }
             }
         }
+        ranges.sort_by_key(|range| (range.start, range.end));
+        ranges.dedup();
         let ranges = Arc::new(ranges);
         *self.cache.borrow_mut() = Some((text.to_owned(), ranges.clone()));
         ranges

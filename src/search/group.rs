@@ -9,7 +9,7 @@ pub(super) enum Expression {
     Any(Vec<Expression>),
     Not(Box<Expression>),
     Line(Box<Expression>),
-    Task(super::task::Tasks, Box<Expression>),
+    Region(super::regions::Regions, Box<Expression>),
 }
 impl Expression {
     pub(super) fn title_highlights(
@@ -27,7 +27,7 @@ impl Expression {
                 .iter()
                 .flat_map(|item| item.title_highlights(path, text, tags))
                 .collect(),
-            Self::Always | Self::Not(_) | Self::Line(_) | Self::Task(..) => vec![],
+            Self::Always | Self::Not(_) | Self::Line(_) | Self::Region(..) => vec![],
         }
     }
     pub(super) fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
@@ -38,7 +38,7 @@ impl Expression {
             Self::Any(items) => items.iter().any(|item| item.matches(path, text, tags)),
             Self::Not(item) => !item.matches(path, text, tags),
             Self::Line(item) => text.split('\n').any(|line| item.matches(path, line, tags)),
-            Self::Task(tasks, item) => tasks
+            Self::Region(regions, item) => regions
                 .ranges(text)
                 .iter()
                 .any(|range| item.matches(path, &text[range.clone()], tags)),
@@ -60,9 +60,9 @@ impl Expression {
                 .flat_map(|item| item.patterns(path, text, tags))
                 .collect(),
             Self::Always | Self::Not(_) => vec![],
-            Self::Task(tasks, item) => {
+            Self::Region(regions, item) => {
                 let mut result = vec![];
-                for range in tasks.ranges(text).iter() {
+                for range in regions.ranges(text).iter() {
                     let body = &text[range.clone()];
                     if item.matches(path, body, tags) {
                         let mut patterns = item.patterns(path, body, tags);
@@ -176,12 +176,14 @@ struct Parser {
 enum Scope {
     Line,
     Task(Option<bool>),
+    Block,
 }
 fn scope_parts(word: &str) -> Option<(&str, &str, Scope)> {
     let mut start = 0;
     while let Some((prefix, rest)) = word[start..].split_once(':') {
         match prefix.to_ascii_lowercase().as_str() {
             "line" => return Some((&word[..start], rest, Scope::Line)),
+            "block" => return Some((&word[..start], rest, Scope::Block)),
             "task" => return Some((&word[..start], rest, Scope::Task(None))),
             "task-todo" => return Some((&word[..start], rest, Scope::Task(Some(false)))),
             "task-done" => return Some((&word[..start], rest, Scope::Task(Some(true)))),
@@ -269,9 +271,14 @@ impl Parser {
                     };
                     let mut expression = match kind {
                         Scope::Line => Expression::Line(Box::new(inner)),
-                        Scope::Task(completed) => {
-                            Expression::Task(super::task::Tasks::new(completed), Box::new(inner))
-                        }
+                        Scope::Task(completed) => Expression::Region(
+                            super::regions::Regions::new(super::regions::Kind::Task(completed)),
+                            Box::new(inner),
+                        ),
+                        Scope::Block => Expression::Region(
+                            super::regions::Regions::new(super::regions::Kind::Block),
+                            Box::new(inner),
+                        ),
                     };
                     for _ in 0..negatives {
                         expression = Expression::Not(Box::new(expression));

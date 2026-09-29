@@ -2,7 +2,7 @@
 use regex::{Regex, RegexBuilder};
 use std::path::Path;
 mod group;
-mod task;
+mod regions;
 
 enum Pattern {
     Text(String),
@@ -510,6 +510,25 @@ impl Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn block_scopes_refresh_ranges_and_respect_case_and_negation() {
+        let path = Path::new("alpha beta.md");
+        let query = Query::parse("block:(alpha beta)").unwrap();
+        assert!(query.matches(path, "alpha\nbeta", &[]));
+        assert!(!query.matches(path, "alpha\n\nbeta", &[]));
+        assert!(!query.matches(path, "unrelated body", &[]));
+        assert!(
+            Query::parse("-block:(alpha beta)")
+                .unwrap()
+                .matches(path, "alpha\n\nbeta", &[])
+        );
+        assert!(
+            !Query::parse("match-case:block:Alpha")
+                .unwrap()
+                .matches(path, "alpha", &[])
+        );
+        assert!(Query::parse("file:block:alpha").is_err());
+    }
     #[test]
     fn task_queries_refresh_cached_ranges_when_completion_changes() {
         let query = Query::parse("task-todo:foo").unwrap();
