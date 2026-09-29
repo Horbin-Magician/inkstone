@@ -408,6 +408,8 @@ fn icon(name: &str) -> Icon {
 }
 fn tool(id: &'static str, name: &str, tip: &'static str) -> Button {
     Button::new(id)
+        .accessibility_id(id)
+        .accessibility_label(tip)
         .ghost()
         .compact()
         .icon(icon(name))
@@ -1263,6 +1265,8 @@ impl Workspace {
                 .enumerate()
                 .map(|(i, (ico, label))| {
                     Button::new(("right-mode", i))
+                        .accessibility_id(format!("right-mode-{i}"))
+                        .accessibility_label(*label)
                         .ghost()
                         .compact()
                         .icon(icon(ico))
@@ -1423,6 +1427,15 @@ impl Workspace {
                             )))
                             .child(
                                 Button::new(("close-tab", t.id))
+                                    .accessibility_id(format!("close-tab-{}", t.id))
+                                    .accessibility_label(format!(
+                                        "关闭标签页 {}",
+                                        if t.path.as_os_str().is_empty() {
+                                            "新标签页".to_string()
+                                        } else {
+                                            t.path.to_string_lossy().to_string()
+                                        }
+                                    ))
                                     .ghost()
                                     .compact()
                                     .icon(icon("x"))
@@ -2924,9 +2937,15 @@ impl Workspace {
                             .py_1()
                             .rounded(px(4.))
                             .bg(rgba(0x88888822))
-                            .child(div().max_w(px(400.)).whitespace_normal().child(value))
+                            .child(
+                                div()
+                                    .max_w(px(400.))
+                                    .whitespace_normal()
+                                    .child(value.clone()),
+                            )
                             .child(
                                 Button::new(("remove-property-item", i))
+                                    .accessibility_label(format!("移除列表项目 {value}"))
                                     .ghost()
                                     .compact()
                                     .icon(icon("x"))
@@ -3000,6 +3019,10 @@ impl Workspace {
             .when(kind == Kind::Checkbox, |s| {
                 s.child(
                     gpui_component::switch::Switch::new("property-checkbox")
+                        .accessibility_label(format!(
+                            "属性 {}",
+                            self.ui.property_key.read(cx).value()
+                        ))
                         .checked(self.ui.property_value.read(cx).value().as_ref() == "true")
                         .on_click(cx.listener(|this, checked: &bool, w, cx| {
                             this.ui.property_error.clear();
@@ -3033,12 +3056,14 @@ impl Workspace {
             })
             .on_click(cx.listener(|this, _, w, cx| this.execute_command(22, w, cx)));
         let minus = Button::new("font-minus")
+            .accessibility_label("减小正文字号")
             .label("−")
             .on_click(cx.listener(|this, _, w, cx| {
                 this.ui.prefs.font_size = (this.ui.prefs.font_size - 1.).max(12.);
                 this.apply_editor_preferences(w, cx);
             }));
         let plus = Button::new("font-plus")
+            .accessibility_label("增大正文字号")
             .label("+")
             .on_click(cx.listener(|this, _, w, cx| {
                 this.ui.prefs.font_size = (this.ui.prefs.font_size + 1.).min(30.);
@@ -3116,6 +3141,7 @@ impl Workspace {
                             .child("显示页内标题")
                             .child(
                                 gpui_component::switch::Switch::new("inline-title-setting")
+                                    .accessibility_label("显示页内标题")
                                     .checked(self.ui.prefs.show_inline_title)
                                     .on_click(cx.listener(|this, enabled: &bool, _, cx| {
                                         this.ui.prefs.show_inline_title = *enabled;
@@ -3132,6 +3158,7 @@ impl Workspace {
                             .child("显示标签页标题栏")
                             .child(
                                 gpui_component::switch::Switch::new("view-header-setting")
+                                    .accessibility_label("显示标签页标题栏")
                                     .checked(self.ui.prefs.show_view_header)
                                     .on_click(cx.listener(|this, enabled: &bool, _, cx| {
                                         this.ui.prefs.show_view_header = *enabled;
