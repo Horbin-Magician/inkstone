@@ -58,8 +58,9 @@ struct Tab {
     id: usize,
     path: PathBuf,
     pane: Entity<EditorPane>,
-    save: std::rc::Rc<document::DocumentSaveState>,
-    _subscription: Subscription,
+    save: std::rc::Rc<document::DocumentState>,
+    synced_text: SharedString,
+    _subscription: Option<Subscription>,
     _links: Subscription,
     _focus: Subscription,
 }
@@ -240,11 +241,12 @@ impl Workspace {
                                 tab.save.conflict.set(true); tab.save.dirty.set(true);
                                 this.status = format!("{} 在外部发生变化。编辑内容已保留；可用“另存为副本”保存当前版本。", tab.path.display());
                             } else if let Some(text) = disk {
-                                let editor = tab.pane.read(cx).editor.clone();
+                                let editor = tab.save.editor.clone();
                                 let selection = editor.read(cx).selected_range();
                                 tab.save.baseline.replace(Some(text.clone()));
                                 editor.update(cx, |state, cx| { state.set_value(text, window, cx); state.set_selected_range(selection, cx); });
                                 this.status = format!("已重新加载外部修改：{}", tab.path.display());
+                                this.document_changed(editor, window, cx);
                             }
                         }
                     }
@@ -852,8 +854,26 @@ impl Workspace {
             self.views.main = None;
         }
         let target_split = self.views.secondary_focused && self.views.split.is_some();
+        let shared_document = self
+            .tabs
+            .iter()
+            .find(|tab| !new && !path.as_os_str().is_empty() && tab.path == path)
+            .map(|tab| tab.save.clone());
+        if shared_document.as_ref().is_some_and(|document| {
+            document.editor.update(cx, |editor, cx| {
+                editor.marked_text_range(window, cx).is_some()
+            })
+        }) {
+            self.status = "请完成输入法组词后再打开另一个视图。".into();
+            cx.notify();
+            return;
+        }
+        let initial_text = shared_document
+            .as_ref()
+            .map(|document| document.editor.read(cx).value())
+            .unwrap_or_else(|| baseline.clone().unwrap_or_default().into());
         let pane = cx.new(|cx| {
-            let mut pane = EditorPane::new(baseline.as_deref().unwrap_or(""), window, cx);
+            let mut pane = EditorPane::new(&initial_text, window, cx);
             pane.live = self.ui.prefs.default_live_preview;
             pane.reading = self.ui.prefs.default_reading && !new && !path.as_os_str().is_empty();
             pane
@@ -893,19 +913,34 @@ impl Workspace {
                 }
             }
         });
-        let subscription =
-            cx.subscribe_in(&editor, window, move |this, editor, event, window, cx| {
-                if matches!(event, InputEvent::Change)
-                    && let Some(tab) = this.tabs.iter_mut().find(|t| t.id == id)
-                {
-                    tab.save.dirty.set(
-                        tab.save.baseline.borrow().as_deref()
-                            != Some(editor.read(cx).value().as_ref()),
-                    );
-                    this.sync_to_split(id, window, cx);
-                    cx.notify();
-                }
+        let (save, subscription) = if let Some(document) = shared_document {
+            pane.update(cx, |pane, _| {
+                pane.history_owner = Some(document.editor.clone())
             });
+            let subscription =
+                cx.subscribe_in(&editor, window, move |this, _, event, window, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.document_view_changed(id, window, cx);
+                    }
+                });
+            (document, Some(subscription))
+        } else {
+            let changes =
+                cx.subscribe_in(&editor, window, move |this, editor, event, window, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.document_changed(editor.clone(), window, cx);
+                    }
+                });
+            (
+                std::rc::Rc::new(document::DocumentState::new(
+                    baseline,
+                    new,
+                    editor.clone(),
+                    changes,
+                )),
+                None,
+            )
+        };
         let mut counted_selection = 0..0;
         let focus = cx.observe_in(&editor, window, move |this, editor, w, cx| {
             let selected = editor.read(cx).selected_range();
@@ -931,7 +966,8 @@ impl Workspace {
             id,
             path,
             pane,
-            save: std::rc::Rc::new(document::DocumentSaveState::new(baseline, new)),
+            save,
+            synced_text: initial_text,
             _subscription: subscription,
             _links: links,
             _focus: focus,
@@ -1009,7 +1045,7 @@ impl Workspace {
             return;
         };
         for tab in &mut self.tabs {
-            let editor = tab.pane.read(cx).editor.clone();
+            let editor = tab.save.editor.clone();
             if editor.update(cx, |state, cx| {
                 state.marked_text_range(window, cx).is_some()
             }) {
@@ -1018,7 +1054,7 @@ impl Workspace {
             if tab.save.dirty.get()
                 && (tab.save.conflict.get() || tab.save.error.borrow().is_some())
             {
-                let text = tab.pane.read(cx).editor.read(cx).value().to_string();
+                let text = tab.save.editor.read(cx).value().to_string();
                 if text != tab.save.recovery_text.borrow().as_str() {
                     tab.save.recovery_text.replace(text.clone());
                     let vault = vault.clone();
@@ -1058,7 +1094,7 @@ impl Workspace {
             let save = tab.save.clone();
             let path = tab.path.clone();
             let baseline = tab.save.baseline.borrow().clone();
-            let text = tab.pane.read(cx).editor.read(cx).value().to_string();
+            let text = tab.save.editor.read(cx).value().to_string();
             let vault = vault.clone();
             let task = cx.background_executor().spawn(async move {
                 if baseline.is_none() {
@@ -1087,7 +1123,7 @@ impl Workspace {
                             tab.save.baseline.replace(Some(receipt.text));
                             tab.save.dirty.set(
                                 tab.save.baseline.borrow().as_deref()
-                                    != Some(tab.pane.read(cx).editor.read(cx).value().as_ref()),
+                                    != Some(tab.save.editor.read(cx).value().as_ref()),
                             );
                             if !this.files.contains(&tab.path) {
                                 this.files.push(tab.path.clone());
@@ -1360,7 +1396,7 @@ impl Workspace {
         }
         tab.save.dirty.set(
             tab.save.baseline.borrow().as_deref()
-                != Some(tab.pane.read(cx).editor.read(cx).value().as_ref()),
+                != Some(tab.save.editor.read(cx).value().as_ref()),
         );
         if tab.save.conflict.get() || tab.save.error.borrow().is_some() {
             self.status = "请先处理保存错误或另存副本，再关闭标签。".into();
@@ -1784,6 +1820,96 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn external_reload_updates_the_shared_owner_after_its_first_view_closes(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-shared-reload-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.tabs.remove(0);
+                w.active = Some(0);
+                std::fs::write(root.join("a.md"), "外部修改").unwrap();
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                let tab = &w.tabs[0];
+                assert_eq!(tab.save.editor.read(cx).value(), "外部修改");
+                assert_eq!(tab.pane.read(cx).editor.read(cx).value(), "外部修改");
+                assert!(!tab.save.dirty.get());
+                assert!(!tab.save.conflict.get());
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn shared_document_views_keep_history_after_owner_view_closes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let (owner, mirror) = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("abc".into()), false, window, cx);
+                let owner = w.tabs[0].pane.read(cx).editor.clone();
+                owner.update(cx, |s, cx| s.set_selected_range(1..1, cx));
+                w.add_tab(
+                    "a.md".into(),
+                    Some("stale disk text".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                let mirror = w.tabs[1].pane.read(cx).editor.clone();
+                assert_ne!(owner.entity_id(), mirror.entity_id());
+                assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
+                mirror.update(cx, |s, cx| {
+                    assert_eq!(s.value(), "abc");
+                    s.set_selected_range(3..3, cx);
+                    s.replace_text_in_range(None, "X", window, cx);
+                    s.focus(window, cx);
+                });
+                (owner, mirror)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        owner.read_with(cx, |s, _| {
+            assert_eq!(s.value(), "abcX");
+            assert_eq!(s.selected_range(), 1..1);
+        });
+        handle
+            .update(cx, |w, window, cx| {
+                w.tabs.remove(0);
+                w.active = Some(0);
+                mirror.update(cx, |s, cx| s.focus(window, cx));
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_keystrokes("ctrl-z");
+        visual.run_until_parked();
+        mirror.read_with(&visual, |s, _| {
+            assert_eq!(s.value(), "abc");
+            assert_eq!(s.selected_range(), 3..3);
+        });
+        visual.simulate_keystrokes("ctrl-y");
+        visual.run_until_parked();
+        mirror.read_with(&visual, |s, _| assert_eq!(s.value(), "abcX"));
+        visual.simulate_keystrokes("y");
+        visual.run_until_parked();
+        owner.read_with(&visual, |s, _| assert_eq!(s.value(), "abcXy"));
+        mirror.read_with(&visual, |s, _| assert_eq!(s.value(), "abcXy"));
+    }
+
+    #[gpui::test]
     fn shared_document_save_survives_removing_the_originating_view(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let root =
@@ -1796,7 +1922,6 @@ mod tests {
                 w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
                 w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
                 w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
-                w.tabs[1].save = w.tabs[0].save.clone();
                 for tab in &w.tabs {
                     tab.pane
                         .read(cx)

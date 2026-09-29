@@ -35,7 +35,7 @@ impl Workspace {
         for tab in &mut self.tabs {
             tab.save.dirty.set(
                 tab.save.baseline.borrow().as_deref()
-                    != Some(tab.pane.read(cx).editor.read(cx).value().as_ref()),
+                    != Some(tab.save.editor.read(cx).value().as_ref()),
             );
         }
         if self
@@ -287,9 +287,9 @@ impl Workspace {
             return;
         };
         let id = tab.id;
-        let canonical = tab.pane.read(cx).editor.clone();
+        let canonical = tab.save.editor.clone();
         let text = canonical.read(cx).value();
-        let selection = canonical.read(cx).selected_range();
+        let selection = tab.pane.read(cx).editor.read(cx).selected_range();
         let original = tab.pane.read(cx);
         let (reading, live, image_dir) =
             (original.reading, original.live, original.image_dir.clone());
@@ -419,7 +419,7 @@ impl Workspace {
         let Some(tab) = self.tabs.iter_mut().find(|t| t.id == source) else {
             return;
         };
-        let canonical = tab.pane.read(cx).editor.clone();
+        let canonical = tab.save.editor.clone();
         let before = canonical.read(cx).value();
         if before == after {
             self.views.split.as_mut().unwrap().last_synced_text = after;
@@ -453,7 +453,7 @@ impl Workspace {
         let Some(tab) = self.tabs.iter().find(|t| t.id == source) else {
             return;
         };
-        let canonical = tab.pane.read(cx).editor.clone();
+        let canonical = tab.save.editor.clone();
         if canonical.update(cx, |state, cx| {
             state.marked_text_range(window, cx).is_some()
         }) {

@@ -188,7 +188,7 @@ impl Workspace {
             return;
         }
         if let Some(tab) = self.tabs.iter().find(|t| t.path == target.path) {
-            let editor = tab.pane.read(cx).editor.clone();
+            let editor = tab.save.editor.clone();
             if editor.read(cx).value().as_ref() != target.baseline.as_ref() {
                 self.status = "任务内容已改变，请等待预览更新后重试。".into();
                 cx.notify();
