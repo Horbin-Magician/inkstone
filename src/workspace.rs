@@ -1637,6 +1637,82 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn property_calendar_syncs_manual_values_and_saves_selected_dates(cx: &mut TestAppContext) {
+        use gpui_component::date_picker::{DatePickerEvent, DateTime};
+        use inkstone::properties::Kind;
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab(
+                    "note.md".into(),
+                    Some("---\ndate: '2024-02-29'\n---\nbody".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.ui.prefs.property_types.insert("date".into(), Kind::Date);
+                w.edit_property("date", "\"2024-02-29\"", window, cx);
+                assert_eq!(
+                    w.ui.property_dates[0]
+                        .read(cx)
+                        .date_time()
+                        .start()
+                        .unwrap()
+                        .date(),
+                    chrono::NaiveDate::from_ymd_opt(2024, 2, 29).unwrap()
+                );
+                let selected = chrono::NaiveDate::from_ymd_opt(2026, 10, 1)
+                    .unwrap()
+                    .and_hms_opt(12, 34, 56)
+                    .unwrap();
+                w.ui.property_dates[0].update(cx, |_, cx| {
+                    cx.emit(DatePickerEvent::Change(DateTime::Single(Some(selected))))
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.ui.property_value.read(cx).value().as_ref(), "2026-10-01");
+                w.save_property(window, cx);
+                assert!(
+                    w.current_pane()
+                        .unwrap()
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .value()
+                        .contains("date: \"2026-10-01\"")
+                );
+                w.ui.prefs
+                    .property_types
+                    .insert("date".into(), Kind::DateTime);
+                w.edit_property("date", "\"2026-10-01T12:34:56\"", window, cx);
+                assert_eq!(
+                    w.ui.property_dates[1]
+                        .read(cx)
+                        .date_time()
+                        .start()
+                        .unwrap()
+                        .format("%H:%M:%S")
+                        .to_string(),
+                    "12:34:56"
+                );
+                w.accept_property_date(1, DateTime::Single(None), window, cx);
+                assert!(w.ui.property_value.read(cx).value().is_empty());
+                w.close_overlays(window, cx);
+                w.accept_property_date(
+                    1,
+                    DateTime::Single(Some(chrono::Local::now().naive_local())),
+                    window,
+                    cx,
+                );
+                assert!(w.ui.property_value.read(cx).value().is_empty());
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn property_types_preserve_numeric_text_and_validate_conversions(cx: &mut TestAppContext) {
         use inkstone::properties::Kind;
         cx.update(gpui_kit::init);
