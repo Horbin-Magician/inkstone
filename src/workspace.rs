@@ -670,6 +670,8 @@ impl Workspace {
                         this.graph = None;
                         this.graph_subscription = None;
                         this.ui.last_persisted.clear();
+                        this.ui.prefs.light =
+                            this.ui.prefs.theme.is_light(Self::system_light(window));
                         ui::apply_theme(this.ui.prefs.light, cx);
                         this.ui.history = Default::default();
                         this.ui.closed.clear();
@@ -1740,6 +1742,36 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn system_theme_updates_views_but_respects_manual_override(cx: &mut TestAppContext) {
+        use inkstone::preferences::ThemeMode;
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("# A".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                w.set_theme(ThemeMode::Dark, window, cx);
+                w.update_system_theme(true, window, cx);
+                assert!(!w.ui.prefs.light);
+                w.set_theme(ThemeMode::System, window, cx);
+                for light in [false, true] {
+                    w.update_system_theme(light, window, cx);
+                    assert_eq!(w.ui.prefs.light, light);
+                    assert_eq!(w.tabs[0].pane.read(cx).light, light);
+                    assert_eq!(w.views.split.as_ref().unwrap().pane.read(cx).light, light);
+                }
+                w.execute_command(22, window, cx);
+                assert_eq!(w.ui.prefs.theme, ThemeMode::Dark);
+                w.update_system_theme(true, window, cx);
+                assert!(!w.ui.prefs.light);
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).value().as_ref(),
+                    "# A"
+                );
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn settings_content_scrolls_inside_short_windows(cx: &mut TestAppContext) {
         cx.update(|cx| {

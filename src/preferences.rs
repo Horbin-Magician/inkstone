@@ -2,6 +2,24 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeMode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+impl ThemeMode {
+    pub fn is_light(self, system_light: bool) -> bool {
+        match self {
+            Self::System => system_light,
+            Self::Light => true,
+            Self::Dark => false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReadingPosition {
     pub block: usize,
@@ -53,6 +71,7 @@ pub struct Preferences {
     pub use_markdown_links: bool,
     pub auto_reveal_file: bool,
     pub light: bool,
+    pub theme: ThemeMode,
     pub font_size: f32,
     pub line_numbers: bool,
     pub readable_width: bool,
@@ -109,6 +128,7 @@ impl Default for Preferences {
             use_markdown_links: false,
             auto_reveal_file: false,
             light: false,
+            theme: ThemeMode::System,
             font_size: 16.,
             line_numbers: false,
             readable_width: true,
@@ -162,10 +182,23 @@ impl Preferences {
         relocate_setting(&mut self.daily.template, old, new, folder, true);
     }
     pub fn load(path: &Path) -> Self {
-        let mut value: Self = std::fs::read(path)
+        let saved: Option<serde_json::Value> = std::fs::read(path)
             .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        let mut value: Self = saved
+            .as_ref()
+            .and_then(|json| serde_json::from_value(json.clone()).ok())
             .unwrap_or_default();
+        if saved
+            .as_ref()
+            .is_some_and(|json| json.get("theme").is_none() && json.get("light").is_some())
+        {
+            value.theme = if value.light {
+                ThemeMode::Light
+            } else {
+                ThemeMode::Dark
+            };
+        }
         value.font_size = value.font_size.clamp(10., 30.);
         value.tab_size = value.tab_size.clamp(2, 8);
         value.graph.normalize();
@@ -270,6 +303,27 @@ impl Navigation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn theme_migration_preserves_manual_choices_and_persists_system_mode() {
+        let path = std::env::temp_dir().join(format!("inkstone-theme-{}.json", std::process::id()));
+        for (json, expected) in [
+            (r#"{"light":true}"#, ThemeMode::Light),
+            (r#"{"light":false}"#, ThemeMode::Dark),
+            (r#"{}"#, ThemeMode::System),
+        ] {
+            std::fs::write(&path, json).unwrap();
+            assert_eq!(Preferences::load(&path).theme, expected);
+        }
+        let prefs = Preferences {
+            light: true,
+            theme: ThemeMode::System,
+            ..Default::default()
+        };
+        prefs.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path).theme, ThemeMode::System);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(path.with_extension("backup")).unwrap();
+    }
     #[test]
     fn relocation_keeps_daily_and_template_settings_attached_to_files() {
         let mut prefs = Preferences::default();
