@@ -60,6 +60,8 @@ pub struct Preferences {
     pub expanded_folders: Vec<PathBuf>,
     pub left_open: bool,
     pub right_open: bool,
+    pub left_panel: usize,
+    pub right_panel: usize,
     pub left_width: f32,
     pub right_width: f32,
     pub sort_descending: bool,
@@ -98,6 +100,8 @@ impl Default for Preferences {
             expanded_folders: vec![],
             left_open: true,
             right_open: true,
+            left_panel: 0,
+            right_panel: 0,
             left_width: 250.,
             right_width: 260.,
             sort_descending: false,
@@ -135,6 +139,12 @@ impl Preferences {
         value.local_graph.normalize();
         value.left_width = value.left_width.clamp(180., 500.);
         value.right_width = value.right_width.clamp(180., 500.);
+        if value.left_panel > 2 {
+            value.left_panel = 0;
+        }
+        if value.right_panel > 4 {
+            value.right_panel = 0;
+        }
         value
     }
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
@@ -290,6 +300,8 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
         prefs.font_size = 23.;
+        prefs.left_panel = 2;
+        prefs.right_panel = 4;
         prefs
             .property_types
             .insert("code".into(), crate::properties::Kind::Text);
@@ -333,6 +345,8 @@ mod tests {
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 23.);
+        assert_eq!(Preferences::load(&path).left_panel, 2);
+        assert_eq!(Preferences::load(&path).right_panel, 4);
         assert_eq!(
             Preferences::load(&path).property_types["code"],
             crate::properties::Kind::Text
