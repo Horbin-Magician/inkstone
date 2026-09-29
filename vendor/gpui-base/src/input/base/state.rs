@@ -1202,6 +1202,74 @@ impl<M: InputModeKind> InputBaseState<M> {
         true
     }
 
+    /// Apply a host document transformation with explicit post-edit selections as one undo step.
+    pub fn apply_selection_transform(
+        &mut self,
+        transform: impl FnOnce(&str, &[Range<usize>]) -> Option<(String, Vec<Range<usize>>)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_editable() || self.ime_marked_range.is_some() {
+            return false;
+        }
+        let before: Vec<_> = self.selections.iter().copied().collect();
+        let ranges: Vec<_> = before.iter().map(|s| s.start..s.end).collect();
+        let source = self.text.to_string();
+        let Some((result, selections)) = transform(&source, &ranges) else {
+            return false;
+        };
+        if result == source
+            || selections.len() != before.len()
+            || selections.iter().any(|r| {
+                r.start > r.end
+                    || !result.is_char_boundary(r.start)
+                    || !result.is_char_boundary(r.end)
+            })
+        {
+            return false;
+        }
+        let start = source
+            .chars()
+            .zip(result.chars())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum::<usize>();
+        let suffix = source[start..]
+            .chars()
+            .rev()
+            .zip(result[start..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum::<usize>();
+        let edits = [(
+            start..source.len() - suffix,
+            result[start..result.len() - suffix].to_string(),
+        )];
+        let after: Vec<_> = before
+            .iter()
+            .zip(selections)
+            .map(|(old, range)| {
+                let mut selection = *old;
+                selection.start = range.start;
+                selection.end = range.end;
+                selection.reversed = false;
+                selection.column_anchor = None;
+                selection
+            })
+            .collect();
+        self.undo_manager.begin_transaction();
+        self.undo_manager
+            .record_selections(before.clone(), before.clone());
+        self.replace_text_in_ranges(&edits, window, cx);
+        self.selections.replace_all(after.clone());
+        self.undo_manager.record_selections(before, after);
+        self.undo_manager.commit_transaction();
+        self.scroll_to(self.cursor(), None, cx);
+        self.pause_blink_cursor(cx);
+        cx.notify();
+        true
+    }
+
     fn replace_text(
         &mut self,
         text: impl Into<SharedString>,

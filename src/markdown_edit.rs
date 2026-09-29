@@ -1,7 +1,9 @@
 //! Source edits for Markdown list and quote keystrokes.
 use std::ops::Range;
 mod indentation;
+mod multi_enter;
 mod renumber;
+pub use multi_enter::enter_at_selections;
 
 /// Shift+Enter follows the reference's all-or-none indentation rule across carets.
 pub fn soft_break_replacements(text: &str, selections: &[Range<usize>]) -> Option<Vec<String>> {
@@ -578,6 +580,18 @@ pub fn edit_with_options(
     use_tabs: bool,
     smart_lists: bool,
 ) -> Option<Edit> {
+    edit_in_context(text, selection, key, width, use_tabs, smart_lists, None)
+}
+
+fn edit_in_context(
+    text: &str,
+    selection: Range<usize>,
+    key: Key,
+    width: usize,
+    use_tabs: bool,
+    smart_lists: bool,
+    literal_regions: Option<&[Range<usize>]>,
+) -> Option<Edit> {
     let width = width.clamp(2, 8);
     if selection.start > selection.end
         || !text.is_char_boundary(selection.start)
@@ -623,7 +637,12 @@ pub fn edit_with_options(
         }
         _ => {}
     }
-    let literals = literal_ranges(text);
+    let parsed_literals = if literal_regions.is_none() {
+        literal_ranges(text)
+    } else {
+        Vec::new()
+    };
+    let literals = literal_regions.unwrap_or(&parsed_literals);
     let literal_at = |offset| {
         literals
             .iter()
@@ -737,6 +756,24 @@ pub fn edit_with_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn multi_enter_continues_lists_and_maps_number_width_changes() {
+        let source = "8. a\n9. b";
+        let (text, selections) = enter_at_selections(source, &[4..4, 9..9], 4, true).unwrap();
+        assert_eq!(text, "8. a\n9. \n10. b\n11. ");
+        assert_eq!(selections, vec![8..8, 19..19]);
+        let source = "- [x] one\r\n> - two";
+        let first = source.find('\r').unwrap();
+        let (text, _) =
+            enter_at_selections(source, &[first..first, source.len()..source.len()], 4, true)
+                .unwrap();
+        assert_eq!(text, "- [x] one\r\n- [ ] \r\n> - two\r\n> - ");
+        assert!(enter_at_selections("- one\nplain", &[5..5, 11..11], 4, true).is_none());
+        assert!(enter_at_selections("- one", &[2..4, 5..5], 4, true).is_none());
+        let (text, selections) = enter_at_selections("- \n- ", &[2..2, 5..5], 4, true).unwrap();
+        assert_eq!(text, "\n");
+        assert_eq!(selections, vec![0..0, 1..1]);
+    }
     #[test]
     fn multi_soft_breaks_share_fallback_and_keep_individual_indentation() {
         let text = "- one\n> - two";

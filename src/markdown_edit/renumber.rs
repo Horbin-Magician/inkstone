@@ -1,6 +1,68 @@
 use super::{Edit, prefix};
 use markdown_parser::mdast::Node;
 
+pub(super) fn at_rows(
+    source: &str,
+    rows: &std::collections::BTreeSet<usize>,
+) -> Vec<(std::ops::Range<usize>, String)> {
+    fn number(source: &str, item: &Node) -> Option<(std::ops::Range<usize>, u32)> {
+        let position = item.position()?;
+        let start = source[..position.start.offset]
+            .rfind('\n')
+            .map_or(0, |i| i + 1);
+        let end = source[start..]
+            .find('\n')
+            .map_or(source.len(), |i| start + i);
+        let p = prefix(&source[start..end])?;
+        let digits = p.marker.strip_suffix(['.', ')'])?;
+        let at = start + p.quote.len() + p.indent.len();
+        Some((at..at + digits.len(), digits.parse().ok()?))
+    }
+    fn walk(
+        node: &Node,
+        source: &str,
+        rows: &std::collections::BTreeSet<usize>,
+        changes: &mut Vec<(std::ops::Range<usize>, String)>,
+    ) {
+        if let Node::List(list) = node
+            && list.ordered
+            && let Some(index) = list.children.iter().position(|item| {
+                item.position()
+                    .is_some_and(|p| rows.contains(&p.start.line))
+            })
+            && let Some((_, mut next)) = number(source, &list.children[index.saturating_sub(1)])
+        {
+            if index > 0 {
+                next += 1;
+            }
+            for item in &list.children[index..] {
+                if next > 999_999_999 {
+                    break;
+                }
+                if let Some((range, current)) = number(source, item)
+                    && current != next
+                {
+                    changes.push((range, next.to_string()));
+                }
+                next += 1;
+            }
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                walk(child, source, rows, changes);
+            }
+        }
+    }
+    let mut changes = vec![];
+    let mut options = markdown_parser::ParseOptions::gfm();
+    options.constructs.frontmatter = true;
+    if let Ok(root) = markdown_parser::to_mdast(source, &options) {
+        walk(&root, source, rows, &mut changes);
+    }
+    changes.sort_by_key(|(range, _)| range.start);
+    changes
+}
+
 /// Renumber only siblings following the newly inserted ordered-list item.
 /// Parsing prevents changing nested lists, code examples, or a separate list.
 pub(super) fn following_items(source: &str, mut edit: Edit) -> Edit {
