@@ -97,6 +97,7 @@ pub(super) struct UiState {
     pub search_limit: usize,
     pub search_has_more: bool,
     pub search_loading: bool,
+    pub search_error: String,
     pub search_signature: Option<(String, bool, SortBy, bool)>,
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
@@ -338,6 +339,7 @@ impl UiState {
             search_limit: 200,
             search_has_more: false,
             search_loading: false,
+            search_error: String::new(),
             search_signature: None,
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
@@ -1808,6 +1810,22 @@ impl Workspace {
                                 })),
                         ),
                 )
+                .when(!self.ui.search_error.is_empty(), |s| {
+                    s.child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .text_sm()
+                            .line_height(relative(1.4))
+                            .whitespace_normal()
+                            .text_color(rgb(if self.ui.prefs.light {
+                                0xb42318
+                            } else {
+                                0xfda29b
+                            }))
+                            .child(self.ui.search_error.clone()),
+                    )
+                })
                 .child(self.search_list(false, cx))
             })
             .when(self.ui.left_mode == 2, |s| {
@@ -2090,6 +2108,7 @@ impl Workspace {
             .when(
                 groups.is_empty()
                     && !self.ui.search_loading
+                    && self.ui.search_error.is_empty()
                     && !self.search.read(cx).value().trim().is_empty(),
                 |s| {
                     s.child(
