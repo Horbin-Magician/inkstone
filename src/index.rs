@@ -757,6 +757,10 @@ impl Index {
         self.try_search(query).unwrap_or_default()
     }
     pub fn try_search(&self, query: &str) -> Result<Vec<SearchHit>, String> {
+        fn excerpt(text: &str, at: usize) -> String {
+            let skip = text[..at].chars().count().saturating_sub(40);
+            text.chars().skip(skip).take(120).collect()
+        }
         let query = crate::search::Query::parse(query)?;
         let mut hits = vec![];
         for (path, note) in &self.notes {
@@ -764,36 +768,45 @@ impl Index {
                 continue;
             }
             let before = hits.len();
+            let content_match = query.first_offset(path, &note.text, &note.parsed.tags);
             let mut offset = 0;
             for (line, text) in note.text.split_inclusive('\n').enumerate() {
                 if query.matches(path, text, &note.parsed.tags) {
+                    let at = query
+                        .first_offset(path, text, &note.parsed.tags)
+                        .unwrap_or(0);
                     hits.push(SearchHit {
                         path: path.clone(),
                         display_name: None,
-                        offset,
+                        offset: offset + at,
                         line: line + 1,
-                        excerpt: text.chars().take(120).collect(),
+                        excerpt: excerpt(text, at),
                     });
                     if hits.len() == 200 {
                         return Ok(hits);
+                    }
+                    if content_match.is_none() {
+                        break;
                     }
                 }
                 offset += text.len();
             }
             if hits.len() == before {
+                let at = content_match.unwrap_or(0);
+                let start = note.text[..at].rfind('\n').map_or(0, |i| i + 1);
+                let end = note.text[at..]
+                    .find('\n')
+                    .map_or(note.text.len(), |i| at + i);
                 hits.push(SearchHit {
                     path: path.clone(),
                     display_name: None,
-                    offset: 0,
-                    line: 1,
-                    excerpt: note
-                        .text
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                        .chars()
-                        .take(120)
-                        .collect(),
+                    offset: at,
+                    line: note.text[..at]
+                        .bytes()
+                        .filter(|byte| *byte == b'\n')
+                        .count()
+                        + 1,
+                    excerpt: excerpt(&note.text[start..end], at - start),
                 });
             }
             if hits.len() == 200 {
@@ -864,6 +877,20 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_excerpts_include_late_matches_and_metadata_hits_are_not_repeated() {
+        let mut index = Index::default();
+        let text = format!("title\n{}目标\n其他条件\n", "前😀".repeat(160));
+        index.update("note.md".into(), text.clone());
+        let hits = index.search("目标");
+        assert_eq!(hits[0].offset, text.find("目标").unwrap());
+        assert!(hits[0].excerpt.contains("目标"));
+        let spanning = index.search("目标 其他条件");
+        assert_eq!(spanning[0].offset, text.find("目标").unwrap());
+        assert_eq!(spanning[0].line, 2);
+        assert!(spanning[0].excerpt.contains("目标"));
+        assert_eq!(index.search("file:note").len(), 1);
+    }
     #[test]
     fn tag_index_keeps_occurrences_separate_from_search_tags() {
         let parsed = parse(
@@ -1201,7 +1228,7 @@ mod tests {
         let mut index = Index::default();
         index.update("中文.md".into(), "第一行😀\n第二行目标\n".into());
         let hits = index.search("目标");
-        assert_eq!(hits[0].offset, "第一行😀\n".len());
+        assert_eq!(hits[0].offset, "第一行😀\n第二行".len());
         assert_eq!(hits[0].line, 2);
     }
 }
