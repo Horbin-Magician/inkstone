@@ -42,6 +42,7 @@ impl Default for ViewState {
 pub struct Preferences {
     pub daily: crate::daily::Settings,
     pub templates: crate::templates::Settings,
+    pub property_types: std::collections::BTreeMap<String, crate::properties::Kind>,
     pub hotkeys: std::collections::BTreeMap<usize, Vec<String>>,
     pub graph: crate::graph::Options,
     pub local_graph: crate::graph::Options,
@@ -79,6 +80,7 @@ impl Default for Preferences {
         Self {
             daily: Default::default(),
             templates: Default::default(),
+            property_types: Default::default(),
             hotkeys: Default::default(),
             graph: Default::default(),
             local_graph: Default::default(),
@@ -288,6 +290,9 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
         prefs.font_size = 23.;
+        prefs
+            .property_types
+            .insert("code".into(), crate::properties::Kind::Text);
         prefs.daily.folder = "日记".into();
         prefs.daily.format = "YYYY/MM/DD".into();
         prefs.daily.template = "模板/日记.md".into();
@@ -328,6 +333,10 @@ mod tests {
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 23.);
+        assert_eq!(
+            Preferences::load(&path).property_types["code"],
+            crate::properties::Kind::Text
+        );
         assert_eq!(Preferences::load(&path).daily.folder, "日记");
         assert_eq!(Preferences::load(&path).daily.format, "YYYY/MM/DD");
         assert_eq!(Preferences::load(&path).daily.template, "模板/日记.md");

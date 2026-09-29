@@ -1,6 +1,76 @@
 //! Small, source-preserving frontmatter editor. Unknown YAML stays verbatim.
 use std::ops::Range;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Kind {
+    #[default]
+    Text,
+    List,
+    Number,
+    Checkbox,
+    Date,
+    DateTime,
+    Other,
+}
+impl Kind {
+    pub fn infer(value: &str) -> Self {
+        match serde_json::from_str::<serde_json::Value>(value) {
+            Ok(serde_json::Value::Array(_)) => Self::List,
+            Ok(serde_json::Value::Number(_)) => Self::Number,
+            Ok(serde_json::Value::Bool(_)) => Self::Checkbox,
+            Ok(serde_json::Value::Object(_)) => Self::Other,
+            _ => Self::Text,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Text => "文本",
+            Self::List => "列表",
+            Self::Number => "数字",
+            Self::Checkbox => "复选框",
+            Self::Date => "日期",
+            Self::DateTime => "日期与时间",
+            Self::Other => "其他",
+        }
+    }
+    pub fn encode(self, input: &str) -> Result<String, String> {
+        use serde_json::Value;
+        let trimmed = input.trim();
+        match self {
+            Self::Text => serde_json::to_string(input).map_err(|e| e.to_string()),
+            Self::List => Ok(parse(&set("", "aliases", input)?)[0].value.clone()),
+            _ if trimmed.is_empty() => Ok("null".into()),
+            Self::Number => match serde_json::from_str::<Value>(trimmed) {
+                Ok(value @ Value::Number(_)) => Ok(value.to_string()),
+                _ => Err("请输入有效数字。".into()),
+            },
+            Self::Checkbox => match trimmed {
+                "true" | "false" => Ok(trimmed.into()),
+                _ => Err("复选框值必须是 true 或 false。".into()),
+            },
+            Self::Date => {
+                let date = chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
+                    .map_err(|_| "请使用 YYYY-MM-DD 日期格式。")?;
+                if date.format("%Y-%m-%d").to_string() != trimmed {
+                    return Err("请使用 YYYY-MM-DD 日期格式。".into());
+                }
+                Ok(serde_json::to_string(trimmed).unwrap())
+            }
+            Self::DateTime => {
+                if chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M").is_err()
+                    && chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S").is_err()
+                {
+                    return Err("请使用 YYYY-MM-DDTHH:mm 日期时间格式。".into());
+                }
+                Ok(serde_json::to_string(trimmed).unwrap())
+            }
+            Self::Other => serde_json::from_str::<Value>(input)
+                .map(|v| v.to_string())
+                .map_err(|_| "复杂属性请使用有效 JSON 或在源码中编辑。".into()),
+        }
+    }
+}
+
 /// Read reserved metadata through YAML, preserving commas, quoting and escapes in list items.
 pub fn metadata(yaml: &str) -> (Vec<String>, Vec<String>) {
     use serde_json::Value;
@@ -224,6 +294,21 @@ pub fn remove(source: &str, key: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_property_types_preserve_text_and_validate_values() {
+        assert_eq!(Kind::infer("\"123\""), Kind::Text);
+        assert_eq!(Kind::Text.encode("123").unwrap(), "\"123\"");
+        assert_eq!(Kind::Text.encode("true").unwrap(), "\"true\"");
+        assert_eq!(Kind::Number.encode("12.5").unwrap(), "12.5");
+        assert!(Kind::Number.encode("NaN").is_err());
+        assert!(Kind::Checkbox.encode("yes").is_err());
+        assert_eq!(Kind::Checkbox.encode("false").unwrap(), "false");
+        assert!(Kind::Date.encode("2025-02-29").is_err());
+        assert!(Kind::Date.encode("2024-2-29").is_err());
+        assert_eq!(Kind::Date.encode("2024-02-29").unwrap(), "\"2024-02-29\"");
+        assert!(Kind::DateTime.encode("2026-09-29T25:30").is_err());
+        assert!(Kind::DateTime.encode("2026-09-29T12:30").is_ok());
+    }
     #[test]
     fn rename_and_remove_properties_preserve_neighbors_and_reject_collisions() {
         let source = "---\r\n# keep\r\nold: [one, two]\r\nother: value\r\n---\r\n正文😀";

@@ -76,6 +76,7 @@ pub(super) struct UiState {
     _template_subscriptions: Vec<Subscription>,
     _location_subscriptions: Vec<Subscription>,
     pub property_open: bool,
+    pub property_kind: inkstone::properties::Kind,
     pub property_original: Option<String>,
     pub property_baseline: Option<(usize, String)>,
     pub property_key: Entity<InputState>,
@@ -230,6 +231,7 @@ impl UiState {
             _template_subscriptions: template_subscriptions,
             _location_subscriptions: location_subscriptions,
             property_open: false,
+            property_kind: Default::default(),
             property_original: None,
             property_baseline: None,
             property_key,
@@ -2697,6 +2699,7 @@ impl Workspace {
                 })
                 .when(self.ui.property_open, |s| {
                     s.child(Input::new(&self.ui.property_key))
+                        .child(self.property_type_control(cx))
                         .child(Input::new(&self.ui.property_value))
                         .child(
                             Button::new("save-property")
@@ -2774,6 +2777,65 @@ impl Workspace {
             .justify_center()
             .pt(top)
             .child(content)
+            .into_any_element()
+    }
+    fn property_type_control(&self, cx: &mut Context<Self>) -> AnyElement {
+        use inkstone::properties::Kind;
+        let reserved = matches!(
+            self.ui.property_key.read(cx).value().as_ref(),
+            "tags" | "aliases" | "cssclasses"
+        );
+        let kind = if reserved {
+            Kind::List
+        } else {
+            self.ui.property_kind
+        };
+        let weak = cx.entity().downgrade();
+        div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .child("属性类型")
+            .child(
+                Button::new("property-type")
+                    .label(kind.label())
+                    .disabled(reserved)
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for choice in [
+                            Kind::Text,
+                            Kind::List,
+                            Kind::Number,
+                            Kind::Checkbox,
+                            Kind::Date,
+                            Kind::DateTime,
+                        ] {
+                            let weak = weak.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(choice.label())
+                                    .checked(kind == choice)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = weak.update(cx, |this, cx| {
+                                            this.ui.property_kind = choice;
+                                            cx.notify();
+                                        });
+                                    }),
+                            );
+                        }
+                        menu
+                    }),
+            )
+            .when(kind == Kind::Checkbox, |s| {
+                s.child(
+                    gpui_component::switch::Switch::new("property-checkbox")
+                        .checked(self.ui.property_value.read(cx).value().as_ref() == "true")
+                        .on_click(cx.listener(|this, checked: &bool, w, cx| {
+                            this.ui
+                                .property_value
+                                .update(cx, |s, cx| s.set_value(checked.to_string(), w, cx));
+                            cx.notify();
+                        })),
+                )
+            })
             .into_any_element()
     }
     fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {

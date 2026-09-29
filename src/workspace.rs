@@ -1637,6 +1637,34 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn property_types_preserve_numeric_text_and_validate_conversions(cx: &mut TestAppContext) {
+        use inkstone::properties::Kind;
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let source = "---\ncode: '123'\n---\nbody";
+                w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
+                w.edit_property("code", "\"123\"", window, cx);
+                w.save_property(window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                assert!(editor.read(cx).value().contains("code: \"123\""));
+                assert_eq!(w.ui.prefs.property_types["code"], Kind::Text);
+                w.edit_property("code", "\"123\"", window, cx);
+                w.ui.property_kind = Kind::Number;
+                w.save_property(window, cx);
+                assert!(editor.read(cx).value().contains("code: 123"));
+                assert_eq!(w.ui.prefs.property_types["code"], Kind::Number);
+                w.edit_property("code", "123", window, cx);
+                w.ui.property_value
+                    .update(cx, |s, cx| s.set_value("not a number", window, cx));
+                w.save_property(window, cx);
+                assert!(w.ui.property_open);
+                assert!(editor.read(cx).value().contains("code: 123"));
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn property_rename_delete_undo_and_stale_dialog(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
