@@ -416,6 +416,8 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (74, "在文件列表中显示当前文件", ""),
     (75, "插入当前日期", ""),
     (76, "插入当前时间", ""),
+    (77, "打开上一篇日记", ""),
+    (78, "打开下一篇日记", ""),
 ];
 
 #[derive(Clone)]
@@ -1034,6 +1036,7 @@ impl Workspace {
                 self.reveal_current_file(cx);
             }
             75..=76 => self.insert_current_date_time(id == 76, window, cx),
+            77..=78 => self.open_neighboring_daily(id == 78, window, cx),
             _ => (),
         }
         self.persist_workspace(cx);

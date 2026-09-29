@@ -1,6 +1,38 @@
 use super::*;
 
 impl Workspace {
+    pub(super) fn open_neighboring_daily(
+        &mut self,
+        next: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(current) = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map(|tab| &tab.path)
+        else {
+            return;
+        };
+        match self
+            .ui
+            .prefs
+            .daily
+            .neighboring_note(current, self.index.notes.keys(), next)
+        {
+            Ok(Some(path)) => self.open_note(path, window, cx),
+            Ok(None) => {
+                self.status = if next {
+                    "没有下一篇日记。"
+                } else {
+                    "没有上一篇日记。"
+                }
+                .into()
+            }
+            Err(error) => self.status = error,
+        }
+        cx.notify();
+    }
     pub(super) fn prepare_daily_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let settings = &self.ui.prefs.daily;
         for (input, value) in self.ui.daily_inputs.iter().zip([
