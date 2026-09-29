@@ -71,30 +71,5 @@ impl Regions {
     }
 }
 fn task_state(raw: &str) -> Option<bool> {
-    let line = raw.lines().next()?.trim_start();
-    let bytes = line.as_bytes();
-    let marker = if matches!(bytes.first(), Some(b'-' | b'+' | b'*')) {
-        1
-    } else {
-        let digits = bytes
-            .iter()
-            .take_while(|byte| byte.is_ascii_digit())
-            .count();
-        if digits == 0 || !matches!(bytes.get(digits), Some(b'.' | b')')) {
-            return None;
-        }
-        digits + 1
-    };
-    if !bytes.get(marker)?.is_ascii_whitespace() {
-        return None;
-    }
-    let mut body = line[marker..].trim_start().chars();
-    if body.next() != Some('[') {
-        return None;
-    }
-    let status = body.next()?;
-    if body.next() != Some(']') || body.next().is_some_and(|ch| !ch.is_whitespace()) {
-        return None;
-    }
-    Some(status != ' ')
+    crate::index::task_marker(raw).map(|(_, checked)| checked)
 }
