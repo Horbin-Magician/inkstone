@@ -70,6 +70,8 @@ pub(super) struct UiState {
     _hotkey_filter_subscription: Subscription,
     pub note_folder_input: Entity<InputState>,
     pub attachment_folder_input: Entity<InputState>,
+    pub daily_inputs: [Entity<InputState>; 3],
+    _daily_subscriptions: Vec<Subscription>,
     _location_subscriptions: Vec<Subscription>,
     pub property_open: bool,
     pub property_key: Entity<InputState>,
@@ -129,6 +131,26 @@ impl UiState {
         })
         .collect();
         let hotkey_filter = cx.new(|cx| InputState::new(window, cx).placeholder("搜索快捷键命令…"));
+        let daily_inputs = ["YYYY-MM-DD", "留空使用新建笔记位置", "可选，如 模板/日记"]
+            .map(|placeholder| cx.new(|cx| InputState::new(window, cx).placeholder(placeholder)));
+        let daily_subscriptions = daily_inputs
+            .iter()
+            .enumerate()
+            .map(|(i, input)| {
+                cx.subscribe(input, move |this, input, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        let value = input.read(cx).value().to_string();
+                        match i {
+                            0 => this.ui.prefs.daily.format = value,
+                            1 => this.ui.prefs.daily.folder = value,
+                            _ => this.ui.prefs.daily.template = value,
+                        }
+                        this.persist_workspace(cx);
+                        cx.notify();
+                    }
+                })
+            })
+            .collect();
         let hotkey_filter_subscription = cx.observe(&hotkey_filter, |_, _, cx| cx.notify());
         let weak = cx.entity().downgrade();
         let window_id = window.window_handle().window_id();
@@ -177,6 +199,8 @@ impl UiState {
             _hotkey_filter_subscription: hotkey_filter_subscription,
             note_folder_input,
             attachment_folder_input,
+            daily_inputs,
+            _daily_subscriptions: daily_subscriptions,
             _location_subscriptions: location_subscriptions,
             property_open: false,
             property_key,
@@ -841,6 +865,7 @@ impl Workspace {
             13 => self.ui.prefs.right_open = !self.ui.prefs.right_open,
             14 => {
                 self.prepare_file_settings(window, cx);
+                self.prepare_daily_settings(window, cx);
                 self.ui.settings = true;
                 window.focus(&self.ui.modal_focus, cx);
             }
@@ -2701,6 +2726,9 @@ impl Workspace {
             .into_any_element()
     }
     fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.ui.settings_tab == 3 {
+            return self.daily_settings_panel(cx);
+        }
         if self.ui.settings_tab == 2 {
             return self.file_settings_panel(cx);
         }
