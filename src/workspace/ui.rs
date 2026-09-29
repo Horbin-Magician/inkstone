@@ -528,6 +528,8 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.accent_foreground = fg;
         theme.primary = rgb(0x8b6cef).into();
         theme.ring = rgb(0x8b6cef).into();
+        theme.switch_thumb = rgb(0xffffff).into();
+        theme.slider_thumb = rgb(0xffffff).into();
         theme.selection = rgba(0x7860b866).into();
         theme.scrollbar_thumb = rgb(if light { 0xcccccc } else { 0x484848 }).into();
     });
