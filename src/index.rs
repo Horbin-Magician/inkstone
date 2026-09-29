@@ -921,6 +921,22 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn block_search_keeps_paragraphs_and_list_items_separate() {
+        let mut index = Index::default();
+        let source = "alpha\nbeta\n\nalpha\n\nbeta\n\n- item alpha\n  continuation beta\n- item only alpha\n- beta alone\n\n```\nalpha beta\n```\n";
+        index.update("note.md".into(), source.into());
+        let hits = index.search("block:(alpha beta)");
+        assert_eq!(
+            hits.iter().map(|hit| hit.line).collect::<Vec<_>>(),
+            [1, 2, 8, 9, 14]
+        );
+        assert_eq!(&hits[3].excerpt[hits[3].highlights[0].clone()], "beta");
+        index.update("note.md".into(), "- alpha\n- beta\n".into());
+        assert!(index.search("block:(alpha beta)").is_empty());
+        index.update("note.md".into(), "> alpha\n>\n> beta\n".into());
+        assert_eq!(index.search("block:(alpha beta)").len(), 2);
+    }
+    #[test]
     fn task_search_filters_state_and_includes_continuations_without_code() {
         let mut index = Index::default();
         let source = "---\ntext: |\n  - [ ] YAMLfake\n---\n- [ ] alpha\n  continuation beta\n\n- [x] alpha beta\n- [?] custom done\n- plain [x] notTask\n\n```md\n- [ ] codefake\n```\n";
