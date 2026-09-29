@@ -1782,6 +1782,7 @@ impl Workspace {
                                 .len(),
                             self.search_results.len()
                         ))
+                        .child(self.search_sort_button(cx))
                         .child(
                             tool("search-collapse", "fold-vertical", "展开或折叠全部搜索结果")
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -2015,13 +2016,51 @@ impl Workspace {
             .into_any_element()
     }
 
+    fn search_sort_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        let current = (
+            self.ui.prefs.search_sort_by,
+            self.ui.prefs.search_descending,
+        );
+        let weak = cx.entity().downgrade();
+        tool("search-sort", "arrow-up-down", "搜索结果排序")
+            .dropdown_menu(move |mut menu, _, _| {
+                for (by, descending, label) in [
+                    (SortBy::Name, false, "文件名（升序）"),
+                    (SortBy::Name, true, "文件名（降序）"),
+                    (SortBy::Modified, true, "修改时间（从新到旧）"),
+                    (SortBy::Modified, false, "修改时间（从旧到新）"),
+                    (SortBy::Created, true, "创建时间（从新到旧）"),
+                    (SortBy::Created, false, "创建时间（从旧到新）"),
+                ] {
+                    let weak = weak.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(label)
+                            .checked(current == (by, descending))
+                            .on_click(move |_, _, cx| {
+                                let _ = weak.update(cx, |this, cx| {
+                                    this.ui.prefs.search_sort_by = by;
+                                    this.ui.prefs.search_descending = descending;
+                                    this.ui.search_group_scroll.set_offset(Point::default());
+                                    this.run_search(cx);
+                                    this.persist_workspace(cx);
+                                    cx.notify();
+                                });
+                            }),
+                    );
+                }
+                menu
+            })
+            .into_any_element()
+    }
     fn grouped_search_results(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut groups = std::collections::BTreeMap::<PathBuf, Vec<SearchHit>>::new();
+        let mut groups: Vec<(PathBuf, Vec<SearchHit>)> = vec![];
+        let mut positions = std::collections::HashMap::new();
         for hit in &self.search_results {
-            groups
-                .entry(hit.path.clone())
-                .or_default()
-                .push(hit.clone());
+            let position = *positions.entry(hit.path.clone()).or_insert_with(|| {
+                groups.push((hit.path.clone(), vec![]));
+                groups.len() - 1
+            });
+            groups[position].1.push(hit.clone());
         }
         div()
             .id("grouped-search-results")

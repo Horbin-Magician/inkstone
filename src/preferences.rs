@@ -65,6 +65,8 @@ pub struct Preferences {
     pub right_panel: usize,
     pub search_query: String,
     pub search_case_sensitive: bool,
+    pub search_sort_by: crate::file_order::SortBy,
+    pub search_descending: bool,
     pub left_width: f32,
     pub right_width: f32,
     pub sort_descending: bool,
@@ -108,6 +110,8 @@ impl Default for Preferences {
             right_panel: 0,
             search_query: String::new(),
             search_case_sensitive: false,
+            search_sort_by: Default::default(),
+            search_descending: false,
             left_width: 250.,
             right_width: 260.,
             sort_descending: false,
@@ -307,6 +311,8 @@ mod tests {
         prefs.save(&path).unwrap();
         prefs.font_size = 23.;
         prefs.search_case_sensitive = true;
+        prefs.search_sort_by = crate::file_order::SortBy::Modified;
+        prefs.search_descending = true;
         prefs.tags.hierarchy = false;
         prefs.tags.sort = crate::tags::Sort::NameDescending;
         prefs.tags.collapsed.insert("work".into());
@@ -358,6 +364,11 @@ mod tests {
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 23.);
         assert!(Preferences::load(&path).search_case_sensitive);
+        assert_eq!(
+            Preferences::load(&path).search_sort_by,
+            crate::file_order::SortBy::Modified
+        );
+        assert!(Preferences::load(&path).search_descending);
         assert!(!Preferences::load(&path).tags.hierarchy);
         assert_eq!(
             Preferences::load(&path).tags.sort,

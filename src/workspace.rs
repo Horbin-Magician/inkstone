@@ -1449,6 +1449,8 @@ impl Workspace {
         let index = self.index.clone();
         let fulltext = self.fulltext;
         let case_sensitive = self.ui.prefs.search_case_sensitive;
+        let sort_by = self.ui.prefs.search_sort_by;
+        let descending = self.ui.prefs.search_descending;
         let template_folder = self
             .ui
             .template_mode
@@ -1475,7 +1477,7 @@ impl Workspace {
                 vec![]
             } else if fulltext {
                 index
-                    .search_with_case(&query, case_sensitive)
+                    .search_ordered(&query, case_sensitive, sort_by, descending)
                     .unwrap_or_default()
             } else {
                 index.filenames(&query)
