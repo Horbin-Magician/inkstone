@@ -77,17 +77,17 @@ impl Workspace {
                     let composing = this.has_pending_input(id, w, cx);
                     let tab = this.tabs.iter_mut().find(|t| t.id == id).unwrap();
                     let editor = tab.pane.read(cx).editor.clone();
-                    if tab.dirty
+                    if tab.save.dirty.get()
                         || composing
-                        || tab.baseline.as_deref() != Some(&before)
+                        || tab.save.baseline.borrow().as_deref() != Some(&before)
                         || editor.read(cx).value().as_ref() != before
                     {
-                        tab.conflict = true;
-                        tab.dirty = true;
+                        tab.save.conflict.set(true);
+                        tab.save.dirty.set(true);
                         this.status
                             .push_str(&format!(" {} 的新编辑已保留，请处理冲突。", path.display()));
                     } else {
-                        tab.baseline = Some(after.clone());
+                        tab.save.baseline.replace(Some(after.clone()));
                         editor.update(cx, |s, cx| {
                             let selected = s.selected_range();
                             let scroll = s.scroll_offset();

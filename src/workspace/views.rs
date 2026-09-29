@@ -33,20 +33,27 @@ impl Workspace {
         }
         self.sync_from_split(window, cx);
         for tab in &mut self.tabs {
-            tab.dirty =
-                tab.baseline.as_deref() != Some(tab.pane.read(cx).editor.read(cx).value().as_ref());
+            tab.save.dirty.set(
+                tab.save.baseline.borrow().as_deref()
+                    != Some(tab.pane.read(cx).editor.read(cx).value().as_ref()),
+            );
         }
-        if self.tabs.iter().any(|t| t.conflict || t.error.is_some()) {
+        if self
+            .tabs
+            .iter()
+            .any(|t| t.save.conflict.get() || t.save.error.borrow().is_some())
+        {
             self.status = "请先处理保存冲突或另存副本，再关闭窗口。".into();
             cx.notify();
             return false;
         }
         self.snapshot_views(cx);
         let pending = self.ui.pending_file_writes > 0
-            || self
-                .tabs
-                .iter()
-                .any(|t| t.dirty || t.saving || self.has_pending_input(t.id, window, cx));
+            || self.tabs.iter().any(|t| {
+                t.save.dirty.get()
+                    || t.save.saving.get()
+                    || self.has_pending_input(t.id, window, cx)
+            });
         let preferences_pending = self.vault.is_some()
             && (self.ui.persisting
                 || serde_json::to_string(&self.ui.prefs)
@@ -66,7 +73,11 @@ impl Workspace {
         if !self.ui.window_close_requested {
             return;
         }
-        if self.tabs.iter().any(|t| t.conflict || t.error.is_some()) {
+        if self
+            .tabs
+            .iter()
+            .any(|t| t.save.conflict.get() || t.save.error.borrow().is_some())
+        {
             self.ui.window_close_requested = false;
             return;
         }
@@ -424,7 +435,9 @@ impl Workspace {
         }) {
             return;
         }
-        tab.dirty = tab.baseline.as_deref() != Some(after.as_ref());
+        tab.save
+            .dirty
+            .set(tab.save.baseline.borrow().as_deref() != Some(after.as_ref()));
         self.views.split.as_mut().unwrap().last_synced_text = after;
         cx.notify();
     }

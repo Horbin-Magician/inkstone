@@ -258,7 +258,11 @@ impl Workspace {
         if self.ui.pending_file_writes > 0 || self.ui.link_update.is_some() {
             return;
         }
-        if self.tabs.iter().any(|t| t.dirty || t.saving || t.conflict) {
+        if self
+            .tabs
+            .iter()
+            .any(|t| t.save.dirty.get() || t.save.saving.get() || t.save.conflict.get())
+        {
             self.status = "请先保存打开的笔记，再管理文件夹。".into();
             self.save_all(window, cx);
             return;
@@ -305,8 +309,8 @@ impl Workspace {
                             if let Ok(suffix) = tab.path.strip_prefix(&old) {
                                 if let Some(new) = &new {
                                     tab.path = new.join(suffix);
-                                } else if tab.dirty {
-                                    tab.conflict = true;
+                                } else if tab.save.dirty.get() {
+                                    tab.save.conflict.set(true);
                                     return true;
                                 } else {
                                     return false;
