@@ -1,5 +1,6 @@
 //! Source edits for Markdown list and quote keystrokes.
 use std::ops::Range;
+mod renumber;
 
 #[derive(Clone, Copy)]
 pub enum Key {
@@ -576,7 +577,7 @@ pub fn edit_with_indent(
             } else {
                 "\n"
             };
-            Some(after(
+            let edit = after(
                 selection,
                 format!(
                     "{newline}{}{}{marker}{}{}",
@@ -585,7 +586,12 @@ pub fn edit_with_indent(
                     p.gap,
                     if p.task { "[ ] " } else { "" }
                 ),
-            ))
+            );
+            Some(if p.marker.ends_with(['.', ')']) {
+                renumber::following_items(text, edit)
+            } else {
+                edit
+            })
         }
         Key::Backspace => {
             let replacement = if !p.indent.is_empty() {
@@ -666,6 +672,36 @@ pub fn edit_with_indent(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ordered_enter_renumbers_following_siblings_without_touching_other_blocks() {
+        assert_eq!(
+            press("1. 中|文\n2. two\n3. three", Key::Enter),
+            "1. 中\n2. |文\n3. two\n4. three"
+        );
+        assert_eq!(
+            press("9) a|\n10) b\n11) c", Key::Enter),
+            "9) a\n10) |\n11) b\n12) c"
+        );
+        assert_eq!(
+            press(
+                "1. a|\n   1. nested\n   2. keep\n2. b\n\nparagraph\n\n1. separate",
+                Key::Enter
+            ),
+            "1. a\n2. |\n   1. nested\n   2. keep\n3. b\n\nparagraph\n\n1. separate"
+        );
+        assert_eq!(
+            press("> 1. a|\r\n> 2. b", Key::Enter),
+            "> 1. a\r\n> 2. |\r\n> 3. b"
+        );
+        assert_eq!(
+            press("1. parent\n   1. a|\n   2. b\n2. end", Key::Enter),
+            "1. parent\n   1. a\n   2. |\n   3. b\n2. end"
+        );
+        assert_eq!(
+            press("1. a|\n2. b\n\n```\n3. literal\n```", Key::Enter),
+            "1. a\n2. |\n3. b\n\n```\n3. literal\n```"
+        );
+    }
     #[test]
     fn soft_enter_keeps_list_content_indentation_without_a_new_marker() {
         for (source, expected) in [
