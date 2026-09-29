@@ -2,6 +2,7 @@
 use regex::{Regex, RegexBuilder};
 use std::path::Path;
 mod group;
+mod property;
 mod regions;
 mod sections;
 
@@ -511,6 +512,49 @@ impl Query {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn property_queries_match_yaml_types_lists_and_comparisons() {
+        let path = Path::new("note.md");
+        let source = "---\nstatus: done\ntags: [work, personal]\ndone: true\ntextbool: 'true'\nempty:\nblank: ''\npriority: 5\n'created at': 2026-09-29\nreference: '[[Note]]'\n---\nbody";
+        for input in [
+            "[status]",
+            "[status: done]",
+            "[tags: work OR personal]",
+            "[done: TRUE OR FALSE]",
+            "[textbool: \"true\"]",
+            "[empty: EMPTY]",
+            "[blank]",
+            "[priority: >3 <10]",
+            "[\"created at\": >2026-01-01]",
+            "[status: /d[oa]ne/]",
+            "[reference: \"[[Note]]\"]",
+            "-[missing]",
+        ] {
+            assert!(
+                Query::parse(input).unwrap().matches(path, source, &[]),
+                "{input}"
+            );
+        }
+        for input in [
+            "[missing]",
+            "[tags: work personal]",
+            "[textbool: TRUE OR FALSE]",
+            "[blank: EMPTY]",
+            "[priority: <3]",
+            "match-case:[status: Done]",
+        ] {
+            assert!(
+                !Query::parse(input).unwrap().matches(path, source, &[]),
+                "{input}"
+            );
+        }
+        for input in ["[status", "[status: [done]]", "[status:]", "[priority: >]"] {
+            assert!(Query::parse(input).is_err(), "{input}");
+        }
+        let cached = Query::parse("[status:done]").unwrap();
+        assert!(cached.matches(path, source, &[]));
+        assert!(!cached.matches(path, &source.replace("status: done", "status: draft"), &[]));
+    }
     #[test]
     fn section_queries_handle_headingless_setext_and_code_content() {
         let path = Path::new("note.md");

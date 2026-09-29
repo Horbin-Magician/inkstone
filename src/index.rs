@@ -921,6 +921,21 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn property_conditions_use_original_metadata_inside_line_and_section_scopes() {
+        let mut index = Index::default();
+        let source = "---\nstatus: done\n---\n# Title\nalpha\nbeta\n";
+        index.update("note.md".into(), source.into());
+        assert_eq!(index.search("[status:done]").len(), 1);
+        let line = index.search("line:([status:done] alpha)");
+        assert_eq!(line.len(), 1);
+        assert_eq!(line[0].line, 5);
+        assert_eq!(&line[0].excerpt[line[0].highlights[0].clone()], "alpha");
+        assert_eq!(index.search("section:([status:done] Title)")[0].line, 4);
+        index.update("note.md".into(), source.replace("done", "draft"));
+        assert!(index.search("[status:done]").is_empty());
+        assert_eq!(index.search("[status:draft]").len(), 1);
+    }
+    #[test]
     fn section_search_respects_heading_boundaries_and_nested_descendants() {
         let mut index = Index::default();
         let source = "intro\n# Parent\nalpha\n\nbeta\n## Child\nchildword\n### Deep\ndeepword\n# Other\ngamma\n";

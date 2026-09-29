@@ -11,6 +11,7 @@ pub(super) enum Expression {
     Line(Box<Expression>),
     Region(super::regions::Regions, Box<Expression>),
     Section(super::sections::Sections, Box<Expression>),
+    Property(Box<super::property::Property>),
 }
 impl Expression {
     pub(super) fn title_highlights(
@@ -28,13 +29,18 @@ impl Expression {
                 .iter()
                 .flat_map(|item| item.title_highlights(path, text, tags))
                 .collect(),
-            Self::Always | Self::Not(_) | Self::Line(_) | Self::Region(..) | Self::Section(..) => {
+            Self::Always
+            | Self::Not(_)
+            | Self::Line(_)
+            | Self::Region(..)
+            | Self::Section(..)
+            | Self::Property(_) => {
                 vec![]
             }
         }
     }
     pub(super) fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
-        self.matches_in(path, text, tags, None)
+        self.matches_in(path, text, tags, None, text)
     }
     fn matches_in<'t>(
         &self,
@@ -42,17 +48,19 @@ impl Expression {
         text: &'t str,
         tags: &[String],
         context: Option<&super::sections::Context<'t>>,
+        original: &'t str,
     ) -> bool {
         match self {
             Self::Always => true,
+            Self::Property(property) => property.matches(original),
             Self::Leaf(query) => query.matches(path, text, tags),
             Self::All(items) => items
                 .iter()
-                .all(|item| item.matches_in(path, text, tags, context)),
+                .all(|item| item.matches_in(path, text, tags, context, original)),
             Self::Any(items) => items
                 .iter()
-                .any(|item| item.matches_in(path, text, tags, context)),
-            Self::Not(item) => !item.matches_in(path, text, tags, context),
+                .any(|item| item.matches_in(path, text, tags, context, original)),
+            Self::Not(item) => !item.matches_in(path, text, tags, context, original),
             Self::Section(cache, item) => {
                 let view = super::sections::View::new(cache, text, context);
                 view.candidates.clone().any(|i| {
@@ -61,14 +69,17 @@ impl Expression {
                         &view.source[view.sections[i].range.clone()],
                         tags,
                         Some(&view.context(i)),
+                        original,
                     )
                 })
             }
-            Self::Line(item) => text.split('\n').any(|line| item.matches(path, line, tags)),
+            Self::Line(item) => text
+                .split('\n')
+                .any(|line| item.matches_in(path, line, tags, None, original)),
             Self::Region(regions, item) => regions
                 .ranges(text)
                 .iter()
-                .any(|range| item.matches(path, &text[range.clone()], tags)),
+                .any(|range| item.matches_in(path, &text[range.clone()], tags, None, original)),
         }
     }
     pub(super) fn patterns<'a>(
@@ -77,7 +88,7 @@ impl Expression {
         text: &str,
         tags: &[String],
     ) -> Vec<ScopedPattern<'a>> {
-        self.patterns_in(path, text, tags, None)
+        self.patterns_in(path, text, tags, None, text)
     }
     fn patterns_in<'a, 't>(
         &'a self,
@@ -85,17 +96,18 @@ impl Expression {
         text: &'t str,
         tags: &[String],
         context: Option<&super::sections::Context<'t>>,
+        original: &'t str,
     ) -> Vec<ScopedPattern<'a>> {
-        if !self.matches_in(path, text, tags, context) {
+        if !self.matches_in(path, text, tags, context, original) {
             return vec![];
         }
         match self {
             Self::Leaf(query) => query.patterns(path, text, tags),
             Self::All(items) | Self::Any(items) => items
                 .iter()
-                .flat_map(|item| item.patterns_in(path, text, tags, context))
+                .flat_map(|item| item.patterns_in(path, text, tags, context, original))
                 .collect(),
-            Self::Always | Self::Not(_) => vec![],
+            Self::Always | Self::Not(_) | Self::Property(_) => vec![],
             Self::Section(cache, item) => {
                 let view = super::sections::View::new(cache, text, context);
                 let mut result = vec![];
@@ -103,8 +115,9 @@ impl Expression {
                     let section = &view.sections[i];
                     let body = &view.source[section.range.clone()];
                     let context = view.context(i);
-                    if item.matches_in(path, body, tags, Some(&context)) {
-                        let mut patterns = item.patterns_in(path, body, tags, Some(&context));
+                    if item.matches_in(path, body, tags, Some(&context), original) {
+                        let mut patterns =
+                            item.patterns_in(path, body, tags, Some(&context), original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
@@ -124,8 +137,8 @@ impl Expression {
                 let mut result = vec![];
                 for range in regions.ranges(text).iter() {
                     let body = &text[range.clone()];
-                    if item.matches(path, body, tags) {
-                        let mut patterns = item.patterns(path, body, tags);
+                    if item.matches_in(path, body, tags, None, original) {
+                        let mut patterns = item.patterns_in(path, body, tags, None, original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
@@ -145,8 +158,8 @@ impl Expression {
                 let mut result = vec![];
                 let mut offset = 0;
                 for line in text.split('\n') {
-                    if item.matches(path, line, tags) {
-                        let mut patterns = item.patterns(path, line, tags);
+                    if item.matches_in(path, line, tags, None, original) {
+                        let mut patterns = item.patterns_in(path, line, tags, None, original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
@@ -167,14 +180,14 @@ impl Expression {
     }
 }
 #[derive(PartialEq)]
-enum Token {
+pub(super) enum Token {
     Word(String),
     Open,
     Close,
     Or,
     Not,
 }
-fn tokens(input: &str) -> Vec<Token> {
+pub(super) fn tokens(input: &str) -> Vec<Token> {
     fn flush(word: &mut String, out: &mut Vec<Token>) {
         if word.is_empty() {
             return;
@@ -191,6 +204,7 @@ fn tokens(input: &str) -> Vec<Token> {
     let mut result = vec![];
     let mut word = String::new();
     let (mut quote, mut regex, mut escape) = (false, false, false);
+    let mut brackets = 0usize;
     for ch in input.chars() {
         if escape {
             word.push(ch);
@@ -207,12 +221,40 @@ fn tokens(input: &str) -> Vec<Token> {
             word.push(ch);
             continue;
         }
-        if ch == '/' && !quote && (regex || word.is_empty() || word == "-" || word.ends_with(':')) {
+        if ch == '/'
+            && !quote
+            && (regex
+                || word.is_empty()
+                || word == "-"
+                || word.ends_with(':')
+                || (brackets > 0
+                    && word
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_whitespace() || matches!(c, '[' | '('))))
+        {
             regex = !regex;
             word.push(ch);
             continue;
         }
         if !quote && !regex {
+            if ch == '[' {
+                brackets += 1;
+                word.push(ch);
+                continue;
+            }
+            if ch == ']' && brackets > 0 {
+                brackets -= 1;
+                word.push(ch);
+                if brackets == 0 {
+                    flush(&mut word, &mut result);
+                }
+                continue;
+            }
+            if brackets > 0 {
+                word.push(ch);
+                continue;
+            }
             if ch.is_whitespace() {
                 flush(&mut word, &mut result);
                 continue;
@@ -232,6 +274,22 @@ struct Parser {
     tokens: Vec<Token>,
     at: usize,
     case_sensitive: bool,
+}
+fn property_parts(word: &str) -> Option<(&str, &str)> {
+    let mut start = 0;
+    loop {
+        if word[start..].starts_with('[') {
+            return Some((&word[..start], &word[start..]));
+        }
+        let (prefix, _) = word[start..].split_once(':')?;
+        if !matches!(
+            prefix.to_ascii_lowercase().as_str(),
+            "match-case" | "ignore-case"
+        ) {
+            return None;
+        }
+        start += prefix.len() + 1;
+    }
 }
 enum Scope {
     Line,
@@ -325,6 +383,23 @@ impl Parser {
                     return Err("搜索表达式嵌套过深。".into());
                 }
                 let word = &word[negatives..];
+                if let Some((prefix, property)) = property_parts(word) {
+                    let mut case_sensitive = self.case_sensitive;
+                    for part in format!("{scope}{prefix}").split_terminator(':') {
+                        match part.to_ascii_lowercase().as_str() {
+                            "match-case" => case_sensitive = true,
+                            "ignore-case" => case_sensitive = false,
+                            _ => (),
+                        }
+                    }
+                    let mut expression = Expression::Property(Box::new(
+                        super::property::Property::parse(property, case_sensitive)?,
+                    ));
+                    for _ in 0..negatives {
+                        expression = Expression::Not(Box::new(expression));
+                    }
+                    return Ok(expression);
+                }
                 if let Some((prefix, rest, kind)) = scope_parts(word) {
                     let scope = format!(
                         "{scope}{prefix}{}",
@@ -401,7 +476,7 @@ pub(super) fn parse(input: &str, case_sensitive: bool) -> Result<Option<Expressi
     let tokens = tokens(input);
     if !tokens
         .iter()
-        .any(|token| matches!(token, Token::Open | Token::Close) || matches!(token, Token::Word(word) if scope_parts(word.trim_start_matches('-')).is_some()))
+        .any(|token| matches!(token, Token::Open | Token::Close) || matches!(token, Token::Word(word) if scope_parts(word.trim_start_matches('-')).is_some() || property_parts(word.trim_start_matches('-')).is_some()))
     {
         return Ok(None);
     }
