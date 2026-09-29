@@ -1356,6 +1356,7 @@ impl Workspace {
                 }
                 menu
             })
+            .long_press(Duration::from_millis(400))
             .into_any_element()
     }
     fn cycle_tab(&mut self, backwards: bool, window: &mut Window, cx: &mut Context<Self>) {
