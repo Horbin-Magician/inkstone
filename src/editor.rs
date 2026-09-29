@@ -9,6 +9,7 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 mod footnotes;
 
 pub enum EditorEvent {
+    CountsChanged,
     FollowLink(String),
     FollowMarkdownLink(String),
     PasteFiles(Vec<PathBuf>),
@@ -27,14 +28,16 @@ struct PresentationSnapshot {
     search: Option<String>,
 }
 
+struct CountSnapshot {
+    source: SharedString,
+    selection: std::ops::Range<usize>,
+    counts: inkstone::word_count::Counts,
+}
+
 pub struct EditorPane {
-    count_cache: RefCell<
-        Option<(
-            SharedString,
-            std::ops::Range<usize>,
-            inkstone::word_count::Counts,
-        )>,
-    >,
+    count_cache: Option<CountSnapshot>,
+    count_task: Option<Task<()>>,
+    count_revision: u64,
     footnote_edit: Option<footnotes::FootnoteEdit>,
     pub editor: Entity<EditorState>,
     decorations: TextDecorationCollection,
@@ -77,7 +80,7 @@ pub struct EditorPane {
 }
 
 impl EditorPane {
-    pub fn text_counts(&self, cx: &App) -> inkstone::word_count::Counts {
+    pub fn text_counts(&mut self, cx: &mut Context<Self>) -> inkstone::word_count::Counts {
         let editor = self.editor.read(cx);
         let source = editor.value();
         let selection = if self.reading || editor.selected_range().is_empty() {
@@ -85,20 +88,62 @@ impl EditorPane {
         } else {
             editor.selected_range()
         };
-        if let Some((old, range, counts)) = self.count_cache.borrow().as_ref()
-            && old == &source
-            && range == &selection
+        if let Some(cache) = &self.count_cache
+            && cache.source == source
+            && cache.selection == selection
         {
-            return *counts;
+            return cache.counts;
         }
-        let text = if selection.is_empty() {
-            inkstone::word_count::document_body(&source)
+        self.count_revision = self.count_revision.wrapping_add(1);
+        let revision = self.count_revision;
+        self.count_task = None;
+        let previous = self
+            .count_cache
+            .as_ref()
+            .map_or(Default::default(), |cache| cache.counts);
+        let length = if selection.is_empty() {
+            source.len()
         } else {
-            &source[selection.clone()]
+            selection.len()
         };
-        let counts = inkstone::word_count::count(text);
-        *self.count_cache.borrow_mut() = Some((source, selection, counts));
-        counts
+        self.count_cache = Some(CountSnapshot {
+            source: source.clone(),
+            selection: selection.clone(),
+            counts: previous,
+        });
+        let calculate = move || {
+            let text = if selection.is_empty() {
+                inkstone::word_count::document_body(&source)
+            } else {
+                &source[selection]
+            };
+            inkstone::word_count::count(text)
+        };
+        if length <= 4096 {
+            let counts = calculate();
+            self.count_cache.as_mut().unwrap().counts = counts;
+            return counts;
+        }
+        let timer = cx
+            .background_executor()
+            .timer(std::time::Duration::from_millis(200));
+        self.count_task = Some(cx.spawn(async move |this, cx| {
+            timer.await;
+            let counts = cx
+                .background_executor()
+                .spawn(async move { calculate() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.count_revision == revision {
+                    if let Some(cache) = &mut this.count_cache {
+                        cache.counts = counts;
+                    }
+                    cx.emit(EditorEvent::CountsChanged);
+                    cx.notify();
+                }
+            });
+        }));
+        previous
     }
     pub fn set_fold_options(
         &mut self,
@@ -572,7 +617,9 @@ impl EditorPane {
         Self {
             editor,
             footnote_edit: None,
-            count_cache: RefCell::new(None),
+            count_cache: None,
+            count_task: None,
+            count_revision: 0,
             decorations,
             live: true,
             parse_source: "".into(),
@@ -1768,6 +1815,94 @@ mod tests {
             .update(&mut visual, |p, _, cx| {
                 assert_eq!(p.editor.read(cx).value(), "before\r\n```\r\n```");
                 assert_eq!(p.editor.read(cx).selected_range(), 11..11);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn large_counts_are_deferred_and_old_requests_do_not_replace_new_selection(
+        cx: &mut TestAppContext,
+    ) {
+        use inkstone::word_count::Counts;
+        cx.update(gpui_kit::init);
+        let long = "word ".repeat(3000);
+        let handle = cx.add_window(|w, cx| EditorPane::new(&long, w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                assert_eq!(p.text_counts(cx), Counts::default());
+                p.editor.update(cx, |s, cx| s.set_value("short", w, cx));
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 1,
+                        characters: 5
+                    }
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(250));
+        cx.run_until_parked();
+        handle
+            .update(cx, |p, w, cx| {
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 1,
+                        characters: 5
+                    }
+                );
+                p.editor
+                    .update(cx, |s, cx| s.set_value(long.clone(), w, cx));
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 1,
+                        characters: 5
+                    }
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(250));
+        cx.run_until_parked();
+        handle
+            .update(cx, |p, _, cx| {
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 3000,
+                        characters: 15000
+                    }
+                );
+                p.editor
+                    .update(cx, |s, cx| s.set_selected_range(0..10000, cx));
+                p.text_counts(cx);
+                p.editor.update(cx, |s, cx| s.set_selected_range(0..4, cx));
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 1,
+                        characters: 4
+                    }
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(250));
+        cx.run_until_parked();
+        handle
+            .update(cx, |p, _, cx| {
+                assert_eq!(
+                    p.text_counts(cx),
+                    Counts {
+                        words: 1,
+                        characters: 4
+                    }
+                )
             })
             .unwrap();
     }
