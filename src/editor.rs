@@ -1830,7 +1830,7 @@ mod tests {
                     assert!(s.apply_synced_text(
                         "a\u{301}",
                         &[(1..1, "\u{301}".into())],
-                        false,
+                        gpui_base::input::SyncedHistory::Ignore,
                         false,
                         w,
                         cx
@@ -1839,7 +1839,7 @@ mod tests {
                     assert!(!s.apply_synced_text(
                         "wrong",
                         &[(1..2, "bad".into())],
-                        false,
+                        gpui_base::input::SyncedHistory::Ignore,
                         false,
                         w,
                         cx

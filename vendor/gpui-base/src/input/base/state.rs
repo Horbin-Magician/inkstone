@@ -127,6 +127,13 @@ pub enum InputEvent {
     Blur,
 }
 
+#[derive(Clone, Copy)]
+pub enum SyncedHistory {
+    Ignore,
+    Record,
+    Group(u64),
+}
+
 pub(super) const CONTEXT: &str = "Input";
 
 pub(crate) fn init(cx: &mut App) {
@@ -1270,12 +1277,17 @@ impl<M: InputModeKind> InputBaseState<M> {
         true
     }
 
+    /// Identity of the most recent committed undo group, shared across coalesced typing.
+    pub fn history_group_id(&self) -> Option<u64> {
+        self.undo_manager.history_group_id()
+    }
+
     /// Synchronize another view's edits while retaining every local selection.
     pub fn apply_synced_text(
         &mut self,
         value: &str,
         edits: &[(Range<usize>, String)],
-        record_history: bool,
+        history: SyncedHistory,
         advance_on_insert: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -1329,8 +1341,12 @@ impl<M: InputModeKind> InputBaseState<M> {
             })
             .collect();
         let scroll = self.scroll_offset();
+        let record_history = !matches!(history, SyncedHistory::Ignore);
         if record_history {
-            self.undo_manager.begin_transaction();
+            match history {
+                SyncedHistory::Group(group) => self.undo_manager.begin_linked_transaction(group),
+                _ => self.undo_manager.begin_transaction(),
+            }
             self.undo_manager
                 .record_selections(before.clone(), before.clone());
             self.replace_text_in_ranges(edits, window, cx);

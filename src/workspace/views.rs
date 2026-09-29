@@ -404,8 +404,12 @@ impl Workspace {
             return;
         }
         let edits = inkstone::text_changes::diff(&before, &after);
+        let history = editor.read(cx).history_group_id().map_or(
+            gpui_base::input::SyncedHistory::Record,
+            gpui_base::input::SyncedHistory::Group,
+        );
         if !canonical.update(cx, |state, cx| {
-            state.apply_synced_text(&after, &edits, true, false, window, cx)
+            state.apply_synced_text(&after, &edits, history, false, window, cx)
         }) {
             return;
         }
@@ -439,7 +443,7 @@ impl Workspace {
             state.apply_synced_text(
                 &after,
                 &edits,
-                false,
+                gpui_base::input::SyncedHistory::Ignore,
                 self.views.secondary_focused,
                 window,
                 cx,
