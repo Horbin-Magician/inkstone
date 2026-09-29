@@ -91,6 +91,9 @@ pub(super) struct UiState {
     pub tags_focus: FocusHandle,
     pub tags_selected: Option<String>,
     pub tags_scroll: ScrollHandle,
+    pub search_collapsed: std::collections::BTreeSet<PathBuf>,
+    pub search_group_scroll: ScrollHandle,
+    pub search_group_query: String,
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub more: bool,
@@ -325,6 +328,9 @@ impl UiState {
             tags_focus: cx.focus_handle(),
             tags_selected: None,
             tags_scroll: ScrollHandle::new(),
+            search_collapsed: Default::default(),
+            search_group_scroll: ScrollHandle::new(),
+            search_group_query: String::new(),
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             more: false,
@@ -1764,7 +1770,34 @@ impl Workspace {
                         .px_3()
                         .text_xs()
                         .text_color(rgb(0x999999))
-                        .child(format!("{} 个结果", self.search_results.len())),
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(format!(
+                            "{} 个文件 · {} 行结果",
+                            self.search_results
+                                .iter()
+                                .map(|hit| &hit.path)
+                                .collect::<std::collections::BTreeSet<_>>()
+                                .len(),
+                            self.search_results.len()
+                        ))
+                        .child(
+                            tool("search-collapse", "fold-vertical", "展开或折叠全部搜索结果")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let paths: std::collections::BTreeSet<_> = this
+                                        .search_results
+                                        .iter()
+                                        .map(|hit| hit.path.clone())
+                                        .collect();
+                                    if paths.is_subset(&this.ui.search_collapsed) {
+                                        this.ui.search_collapsed.clear();
+                                    } else {
+                                        this.ui.search_collapsed = paths;
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
                 )
                 .child(self.search_list(false, cx))
             })
@@ -1927,6 +1960,9 @@ impl Workspace {
         }
     }
     fn search_list(&self, modal: bool, cx: &mut Context<Self>) -> AnyElement {
+        if !modal && self.fulltext {
+            return self.grouped_search_results(cx);
+        }
         let hits = self.visible_search_hits(modal, cx);
         let empty_templates = modal && self.ui.template_mode && hits.is_empty();
         div()
@@ -1975,6 +2011,115 @@ impl Workspace {
                         this.open_note(path.clone(), w, cx);
                         this.apply_jump(w, cx);
                     }))
+            }))
+            .into_any_element()
+    }
+
+    fn grouped_search_results(&self, cx: &mut Context<Self>) -> AnyElement {
+        let mut groups = std::collections::BTreeMap::<PathBuf, Vec<SearchHit>>::new();
+        for hit in &self.search_results {
+            groups
+                .entry(hit.path.clone())
+                .or_default()
+                .push(hit.clone());
+        }
+        div()
+            .id("grouped-search-results")
+            .track_scroll(&self.ui.search_group_scroll)
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .p_2()
+            .when(
+                groups.is_empty() && !self.search.read(cx).value().trim().is_empty(),
+                |s| {
+                    s.child(
+                        div()
+                            .p_2()
+                            .text_sm()
+                            .text_color(rgb(0x999999))
+                            .child("未找到匹配结果"),
+                    )
+                },
+            )
+            .children(groups.into_iter().enumerate().map(|(i, (path, hits))| {
+                let collapsed = self.ui.search_collapsed.contains(&path);
+                let fold_path = path.clone();
+                let open_path = path.clone();
+                let offset = hits[0].offset;
+                div()
+                    .id(("search-group", i))
+                    .mb_2()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                Button::new(("search-group-fold", i))
+                                    .ghost()
+                                    .compact()
+                                    .w(px(20.))
+                                    .label(if collapsed { "›" } else { "⌄" })
+                                    .accessibility_label(format!("展开或折叠 {}", path.display()))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        if !this.ui.search_collapsed.remove(&fold_path) {
+                                            this.ui.search_collapsed.insert(fold_path.clone());
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new(("search-group-file", i))
+                                    .ghost()
+                                    .compact()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .justify_start()
+                                    .overflow_hidden()
+                                    .label(path.to_string_lossy().to_string())
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.pending_jump = Some((open_path.clone(), offset));
+                                        this.open_note(open_path.clone(), w, cx);
+                                        this.apply_jump(w, cx);
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x999999))
+                                    .child(hits.len().to_string()),
+                            ),
+                    )
+                    .children(hits.into_iter().filter(|_| !collapsed).enumerate().map(
+                        |(j, hit)| {
+                            let path = path.clone();
+                            div()
+                                .id(("search-line", j))
+                                .pl(px(24.))
+                                .py_1()
+                                .rounded(px(4.))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(rgba(0x88888822)))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0x999999))
+                                        .child(format!("第 {} 行", hit.line)),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .whitespace_normal()
+                                        .child(hit.excerpt.trim_end().to_string()),
+                                )
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    this.pending_jump = Some((path.clone(), hit.offset));
+                                    this.open_note(path.clone(), w, cx);
+                                    this.apply_jump(w, cx);
+                                }))
+                        },
+                    ))
             }))
             .into_any_element()
     }

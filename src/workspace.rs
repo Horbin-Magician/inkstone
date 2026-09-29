@@ -464,6 +464,7 @@ impl Workspace {
         let search_subscription = cx.subscribe_in(&search, window, |this, _, event, window, cx| {
             if matches!(event, InputEvent::Change) {
                 this.ui.selected = 0;
+                this.ui.search_collapsed.clear();
                 this.ui.modal_scroll.set_offset(Point::default());
                 this.run_search(cx);
             }
@@ -647,6 +648,7 @@ impl Workspace {
                         this.ui.left_mode = this.ui.prefs.left_panel;
                         this.ui.right_mode = this.ui.prefs.right_panel;
                         this.ui.tags_selected = None;
+                        this.ui.search_collapsed.clear();
                         this.fulltext = this.ui.left_mode == 1;
                         this.search.update(cx, |s, cx| {
                             s.set_value(this.ui.prefs.search_query.clone(), window, cx)
@@ -1437,6 +1439,11 @@ impl Workspace {
         let generation = self.generation;
         let query = self.search.read(cx).value().to_string();
         if self.fulltext && !self.ui.quick_open {
+            if self.ui.search_group_query != query {
+                self.ui.search_collapsed.clear();
+                self.ui.search_group_query = query.clone();
+                self.ui.search_group_scroll.set_offset(Point::default());
+            }
             self.ui.prefs.search_query = query.clone();
         }
         let index = self.index.clone();
@@ -1676,6 +1683,70 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn grouped_search_collapses_rows_and_header_opens_first_match(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let source = "前言😀 alpha\n下一行 alpha\n";
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some(source.into()), false, window, cx);
+                Arc::make_mut(&mut w.index).update("a.md".into(), source.into());
+                Arc::make_mut(&mut w.index).update("b.md".into(), "alpha".into());
+                w.fulltext = true;
+                w.ui.left_mode = 1;
+                w.search
+                    .update(cx, |s, cx| s.set_value("alpha", window, cx));
+                w.run_search(cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1100.), px(650.)));
+        for _ in 0..3 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let expanded = handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.search_results.len(), 3);
+                assert!(w.ui.search_group_scroll.bounds_for_item(2).is_none());
+                let height =
+                    w.ui.search_group_scroll
+                        .bounds_for_item(0)
+                        .unwrap()
+                        .size
+                        .height;
+                w.ui.search_collapsed.insert("a.md".into());
+                cx.notify();
+                height
+            })
+            .unwrap();
+        for _ in 0..3 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let click = handle
+            .update(&mut visual, |w, _, _| {
+                let bounds = w.ui.search_group_scroll.bounds_for_item(0).unwrap();
+                assert!(bounds.size.height < expanded);
+                bounds.origin + point(px(70.), px(14.))
+            })
+            .unwrap();
+        visual.simulate_click(click, Modifiers::default());
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(
+                    w.current_pane().unwrap().read(cx).editor.read(cx).cursor(),
+                    source.find("alpha").unwrap()
+                );
+                w.search
+                    .update(cx, |s, cx| s.set_value("changed", window, cx));
+                w.run_search(cx);
+                assert!(w.ui.search_collapsed.is_empty());
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn fulltext_case_setting_changes_background_results(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
