@@ -414,6 +414,8 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (72, "插入脚注", ""),
     (73, "编辑光标处的脚注", ""),
     (74, "在文件列表中显示当前文件", ""),
+    (75, "插入当前日期", ""),
+    (76, "插入当前时间", ""),
 ];
 
 #[derive(Clone)]
@@ -1031,6 +1033,7 @@ impl Workspace {
                 self.ui.left_mode = 0;
                 self.reveal_current_file(cx);
             }
+            75..=76 => self.insert_current_date_time(id == 76, window, cx),
             _ => (),
         }
         self.persist_workspace(cx);

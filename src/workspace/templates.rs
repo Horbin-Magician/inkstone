@@ -1,6 +1,46 @@
 use super::*;
 
 impl Workspace {
+    pub(super) fn insert_current_date_time(
+        &mut self,
+        time: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ui.name_mode.is_some()
+            || self.ui.quick_open
+            || self.ui.settings
+            || self.ui.property_open
+        {
+            return;
+        }
+        let Some(pane) = self.current_pane() else {
+            return;
+        };
+        if pane.read(cx).reading {
+            return;
+        }
+        let text = match self.ui.prefs.templates.expand(
+            if time { "{{time}}" } else { "{{date}}" },
+            "",
+            &chrono::Local::now(),
+        ) {
+            Ok(text) => text,
+            Err(error) => {
+                self.status = error;
+                cx.notify();
+                return;
+            }
+        };
+        pane.update(cx, |pane, cx| {
+            pane.editor.update(cx, |editor, cx| {
+                let cursor = editor.cursor();
+                let after = cursor + text.len();
+                editor.apply_source_edit(cursor..cursor, &text, after..after, window, cx);
+                editor.focus(window, cx);
+            });
+        });
+    }
     pub(super) fn prepare_template_settings(
         &mut self,
         window: &mut Window,
