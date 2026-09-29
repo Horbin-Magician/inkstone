@@ -86,6 +86,8 @@ pub(super) struct UiState {
     pub property_baseline: Option<(usize, String)>,
     pub property_key: Entity<InputState>,
     pub property_value: Entity<InputState>,
+    pub property_list_entry: Entity<InputState>,
+    _property_list_subscription: Subscription,
     pub more: bool,
     pub trash_open: bool,
     pub trash: Vec<inkstone::vault::TrashEntry>,
@@ -117,6 +119,17 @@ impl UiState {
             InputState::new(window, cx).placeholder("属性值；列表用逗号分隔，项目内含逗号时加引号")
         });
         let command = cx.new(|cx| InputState::new(window, cx).placeholder("输入命令…"));
+        let property_list_entry =
+            cx.new(|cx| InputState::new(window, cx).placeholder("添加项目，按 Enter 确认"));
+        let property_list_subscription = cx.subscribe_in(
+            &property_list_entry,
+            window,
+            |this, _, event: &InputEvent, w, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) && this.ui.property_open {
+                    this.add_property_list_item(w, cx);
+                }
+            },
+        );
         let property_dates = [false, true].map(|time| {
             cx.new(|cx| {
                 let state = DatePickerState::new(window, cx);
@@ -291,6 +304,8 @@ impl UiState {
             property_baseline: None,
             property_key,
             property_value,
+            property_list_entry,
+            _property_list_subscription: property_list_subscription,
             more: false,
             trash_open: false,
             trash: vec![],
@@ -2777,8 +2792,15 @@ impl Workspace {
                         },
                     )
                     .when(
-                        self.effective_property_kind(cx) != inkstone::properties::Kind::Checkbox,
+                        !matches!(
+                            self.effective_property_kind(cx),
+                            inkstone::properties::Kind::Checkbox | inkstone::properties::Kind::List
+                        ),
                         |s| s.child(Input::new(&self.ui.property_value)),
+                    )
+                    .when(
+                        self.effective_property_kind(cx) == inkstone::properties::Kind::List,
+                        |s| s.child(self.property_list_control(cx)),
                     )
                     .when(!self.ui.property_error.is_empty(), |s| {
                         s.child(
@@ -2867,6 +2889,70 @@ impl Workspace {
             .justify_center()
             .pt(top)
             .child(content)
+            .into_any_element()
+    }
+    fn property_list_control(&self, cx: &mut Context<Self>) -> AnyElement {
+        let items = match self.property_list_values(cx) {
+            Ok(items) => items,
+            Err(error) => {
+                return div()
+                    .child(Input::new(&self.ui.property_value))
+                    .child(div().text_sm().child(error))
+                    .into_any_element();
+            }
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .id("property-list-items")
+                    .max_h(px(180.))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_wrap()
+                    .gap_1()
+                    .children(items.into_iter().enumerate().map(|(i, value)| {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .px_2()
+                            .py_1()
+                            .rounded(px(4.))
+                            .bg(rgba(0x88888822))
+                            .child(div().max_w(px(400.)).whitespace_normal().child(value))
+                            .child(
+                                Button::new(("remove-property-item", i))
+                                    .ghost()
+                                    .compact()
+                                    .icon(icon("x"))
+                                    .tooltip("移除此项目")
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.remove_property_list_item(i, w, cx)
+                                    })),
+                            )
+                    })),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&self.ui.property_list_entry)),
+                    )
+                    .child(
+                        Button::new("add-property-item")
+                            .label("添加")
+                            .on_click(cx.listener(|this, _, w, cx| {
+                                this.add_property_list_item(w, cx);
+                            })),
+                    ),
+            )
             .into_any_element()
     }
     fn property_type_control(&self, cx: &mut Context<Self>) -> AnyElement {
