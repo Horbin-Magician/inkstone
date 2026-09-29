@@ -410,7 +410,7 @@ struct Prefix<'a> {
 
 fn prefix(line: &str) -> Option<Prefix<'_>> {
     static RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"^(?P<quote>(?:[ \t]*>[ \t]?)*)?(?P<indent>[ \t]*)(?:(?P<marker>[-+*]|[0-9]{1,9}[.)])(?P<gap>[ \t]+))?(?P<task>\[[ xX]\](?:[ \t]+|$))?").unwrap()
+        regex::Regex::new(r"^(?P<quote>(?:[ \t]*>[ \t]?)*)?(?P<indent>[ \t]*)(?:(?P<marker>[-+*]|[0-9]{1,9}[.)])(?P<gap>[ \t]+))?(?P<task>\[[^\r\n]\](?:[ \t]+|$))?").unwrap()
     });
     let c = RE.captures(line)?;
     let get = |name| c.name(name).map_or("", |m| m.as_str());
@@ -698,6 +698,18 @@ pub fn edit_with_options(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn custom_task_states_continue_and_clear_like_completed_tasks() {
+        assert_eq!(press("- [-] done|", Key::Enter), "- [-] done\n- [ ] |");
+        assert_eq!(press("> - [!] |text", Key::Backspace), "> |text");
+        assert_eq!(press("1. [✓] done|", Key::Enter), "1. [✓] done\n2. [ ] |");
+        let source = "- [-] a\r\n> - [✓] b\r\n- [ ] c";
+        let (range, replacement) =
+            crate::markdown::toggle_task_lines(source, 0..source.len()).unwrap();
+        let mut changed = source.to_string();
+        changed.replace_range(range, &replacement);
+        assert_eq!(changed, "- [ ] a\r\n> - [ ] b\r\n- [x] c");
+    }
     #[test]
     fn enter_recovers_list_markers_from_continuations_and_reuses_existing_markers() {
         assert_eq!(

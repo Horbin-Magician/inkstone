@@ -131,15 +131,14 @@ pub fn parse(source: &str) -> ParsedNote {
             }
         }
         if let Node::ListItem(item) = node
-            && let (Some(checked), Some(position)) = (item.checked, &item.position)
+            && let Some(position) = &item.position
         {
             let raw = &source[position.start.offset..position.end.offset];
-            if let Some(i) = raw.lines().next().unwrap_or("").find('[')
-                && matches!(raw.get(i..i + 3), Some("[ ]" | "[x]" | "[X]"))
-            {
+            if let Some((marker, checked)) = task_marker(raw) {
                 result.tasks.push(TaskItem {
                     start: position.start.offset,
-                    marker: position.start.offset + i + 1..position.start.offset + i + 2,
+                    marker: position.start.offset + marker.start
+                        ..position.start.offset + marker.end,
                     checked,
                 });
             }
@@ -932,14 +931,37 @@ pub fn anchor_range(source: &str, parsed: &ParsedNote, fragment: &str) -> Option
     Some(heading.offset..end)
 }
 
-pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<String> {
-    if marker.len() != 1 || marker.start == 0 || marker.end >= source.len() {
+pub(crate) fn task_box_marker(text: &str) -> Option<(Range<usize>, bool)> {
+    let mut chars = text.chars();
+    if chars.next()? != '[' {
         return None;
     }
-    if !matches!(
-        source.get(marker.start - 1..marker.end + 1),
-        Some("[ ]" | "[x]" | "[X]")
-    ) {
+    let status = chars.next()?;
+    if matches!(status, '\r' | '\n')
+        || chars.next()? != ']'
+        || chars.next().is_some_and(|ch| !ch.is_whitespace())
+    {
+        return None;
+    }
+    Some((1..1 + status.len_utf8(), status != ' '))
+}
+
+pub(crate) fn task_marker(raw: &str) -> Option<(Range<usize>, bool)> {
+    static PREFIX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"^[ \t]*(?:[-+*]|[0-9]{1,9}[.)])[ \t]+").unwrap()
+    });
+    let line = raw.lines().next()?;
+    let prefix = PREFIX.find(line)?.end();
+    let (marker, checked) = task_box_marker(&line[prefix..])?;
+    Some((prefix + marker.start..prefix + marker.end, checked))
+}
+
+pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<String> {
+    if marker.start == 0 || marker.end >= source.len() {
+        return None;
+    }
+    let (local, _) = task_box_marker(source.get(marker.start - 1..)?)?;
+    if marker.start - 1 + local.end != marker.end {
         return None;
     }
     let mut result = source.to_string();
@@ -950,6 +972,28 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn custom_task_markers_share_index_and_search_semantics() {
+        let source = "- [-] cancelled\n> - [!] important\n1. [✓] complete\n- [ ] open\n\n```\n- [!] code\n```\n\n- [link](url)\n";
+        let parsed = parse(source);
+        assert_eq!(parsed.tasks.len(), 4);
+        assert_eq!(
+            parsed
+                .tasks
+                .iter()
+                .map(|t| &source[t.marker.clone()])
+                .collect::<Vec<_>>(),
+            vec!["-", "!", "✓", " "]
+        );
+        assert!(parsed.tasks[..3].iter().all(|t| t.checked));
+        let changed = set_task(source, parsed.tasks[2].marker.clone(), false).unwrap();
+        assert!(changed.contains("1. [ ] complete"));
+        let mut index = Index::default();
+        index.update("a.md".into(), source.into());
+        assert_eq!(index.search("task-done:important").len(), 1);
+        assert!(index.search("task-todo:important").is_empty());
+        assert!(index.search("task:code").is_empty());
+    }
     #[test]
     fn property_search_locates_quoted_keys_and_multiline_values() {
         let mut index = Index::default();

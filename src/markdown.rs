@@ -110,15 +110,9 @@ pub fn toggle_task_lines(text: &str, selection: Range<usize>) -> Option<(Range<u
         if parts.name("bullet").is_none() {
             result.push_str("- ");
         }
-        if matches!(rest.get(..3), Some("[ ]" | "[x]" | "[X]"))
-            && (rest.len() == 3 || rest[3..].starts_with(char::is_whitespace))
-        {
-            result.push_str(if rest.starts_with("[ ]") {
-                "[x]"
-            } else {
-                "[ ]"
-            });
-            result.push_str(&rest[3..]);
+        if let Some((marker, checked)) = crate::index::task_box_marker(rest) {
+            result.push_str(if !checked { "[x]" } else { "[ ]" });
+            result.push_str(&rest[marker.end + 1..]);
         } else {
             result.push_str("[ ] ");
             result.push_str(rest);
