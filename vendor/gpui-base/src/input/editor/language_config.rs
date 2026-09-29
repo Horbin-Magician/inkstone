@@ -85,6 +85,8 @@ pub struct LanguageConfig {
     pub indentation_rules: Option<IndentationRules>,
     /// Preserve and select the original text when typing a configured opener over a selection.
     pub surround_selection: bool,
+    /// Only skip closing delimiters inserted by this editor, and consume that permission once.
+    pub skip_only_generated: bool,
 }
 
 impl Default for LanguageConfig {
@@ -115,11 +117,16 @@ impl Default for LanguageConfig {
             auto_close_before: ";:.,=}])>".into(),
             indentation_rules: None,
             surround_selection: false,
+            skip_only_generated: false,
         }
     }
 }
 
 impl LanguageConfig {
+    pub fn skip_only_generated(mut self, enabled: bool) -> Self {
+        self.skip_only_generated = enabled;
+        self
+    }
     pub fn surround_selection(mut self, enabled: bool) -> Self {
         self.surround_selection = enabled;
         self

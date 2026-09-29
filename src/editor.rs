@@ -85,6 +85,7 @@ impl EditorPane {
         let config = LanguageConfig::default()
             .brackets([])
             .surround_selection(true)
+            .skip_only_generated(true)
             .auto_closing_pairs(pairs);
         self.editor
             .update(cx, |editor, cx| editor.set_editing_rules(Some(config), cx));
@@ -1549,6 +1550,40 @@ mod tests {
             assert_eq!(s.value(), source);
         });
     }
+    #[gpui::test]
+    fn paired_closers_skip_once_but_existing_text_is_never_swallowed(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                p.set_auto_pairing(true, true, cx);
+                p.editor.update(cx, |s, cx| {
+                    for closer in [")", "]", "}", "*", "_", "`", "\""] {
+                        s.set_value(closer, w, cx);
+                        s.set_selected_range(0..0, cx);
+                        s.replace_text_in_range(None, closer, w, cx);
+                        assert_eq!(s.value(), closer.repeat(2));
+                    }
+                    s.set_value("", w, cx);
+                    s.replace_text_in_range(None, "(", w, cx);
+                    s.replace_text_in_range(None, ")", w, cx);
+                    assert_eq!(s.value(), "()");
+                    assert_eq!(s.selected_range(), 2..2);
+                    s.set_selected_range(1..1, cx);
+                    s.replace_text_in_range(None, ")", w, cx);
+                    assert_eq!(s.value(), "())");
+                    s.set_value("中文😀", w, cx);
+                    s.set_selected_range(0..10, cx);
+                    s.replace_text_in_range(None, "*", w, cx);
+                    s.set_selected_range(11..11, cx);
+                    s.replace_text_in_range(None, "*", w, cx);
+                    assert_eq!(s.value(), "*中文😀*");
+                    assert_eq!(s.selected_range(), 12..12);
+                });
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn automatic_pairs_are_independent_and_respect_escape_words_and_undo(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

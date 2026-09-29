@@ -28,6 +28,10 @@ impl AutoClosedPairs {
             .any(|(_, close)| close.start + index == cursor && close.len() == len)
     }
 
+    pub(crate) fn consume_closer(&mut self, cursor: usize) {
+        self.pairs.retain(|(_, close)| !close.contains(&cursor));
+    }
+
     pub(crate) fn adjust(&mut self, edit: &Range<usize>, new_len: usize) {
         let delta = new_len as isize - edit.len() as isize;
         let shift = |range: &mut Range<usize>| {

@@ -116,6 +116,15 @@ impl LayoutMode {
         }
     }
 
+    pub(super) fn consume_closer(&mut self, cursor: usize) {
+        if let Self::CodeEditor {
+            auto_closed_pairs, ..
+        } = self
+        {
+            auto_closed_pairs.consume_closer(cursor);
+        }
+    }
+
     pub(super) fn syntax_context_at(
         &self,
         text: &Rope,

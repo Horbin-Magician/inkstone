@@ -1842,6 +1842,9 @@ impl<M: InputModeKind> InputBaseState<M> {
                     self.mode
                         .auto_closed_pairs()
                         .contains_closer(cursor, index, close.len());
+                if rules.skip_only_generated && !generated {
+                    continue;
+                }
                 if !generated
                     && not_in.contains(&context)
                     && !(context == crate::input::SyntaxContext::String && open == close)
@@ -4186,6 +4189,13 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
             && self.active_selection().is_empty()
         {
             if let Some(target) = self.skip_over_target(new_text) {
+                if self
+                    .mode
+                    .language_config()
+                    .is_some_and(|rules| rules.skip_only_generated)
+                {
+                    self.mode.consume_closer(self.cursor());
+                }
                 self.set_cursor_to(target);
                 self.update_preferred_column();
                 cx.notify();
@@ -4244,6 +4254,12 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                     let selected = self.text.slice(range.clone()).to_string();
                     let replacement = format!("{new_text}{selected}{closer}");
                     self.replace_text_in_ranges(&[(range.clone(), replacement)], window, cx);
+                    self.mode.track_auto_closed_pair(
+                        range.start..range.start + new_text.len(),
+                        range.end + new_text.len()..range.end + new_text.len() + closer.len(),
+                    );
+                    self.undo_manager
+                        .record_auto_closed_pairs_after(self.mode.auto_closed_pairs().clone());
                     self.set_selected_range(
                         range.start + new_text.len()..range.end + new_text.len(),
                         cx,
