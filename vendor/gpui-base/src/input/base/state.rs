@@ -1535,7 +1535,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     ) {
         self.undo_manager.break_transaction_coalescing();
         self.select_all_cursors_to(
-            |s, sel| s.start_of_line_at(sel.cursor_offset(), s.line_end_affinity_for(sel)),
+            |s, sel| s.smart_start_of_line_at(sel.cursor_offset(), s.line_end_affinity_for(sel)),
             cx,
         );
     }
@@ -1631,7 +1631,6 @@ impl<M: InputModeKind> InputBaseState<M> {
 
         let row = self.text.offset_to_point(offset).row;
         let logical_start = self.text.line_start_offset(row);
-
         if self.soft_wrap && self.is_code_editor() {
             let wrap_point = self
                 .display_map
@@ -1647,6 +1646,29 @@ impl<M: InputModeKind> InputBaseState<M> {
         }
 
         logical_start
+    }
+
+    pub(super) fn smart_start_of_line_at(&self, offset: usize, line_end_affinity: bool) -> usize {
+        let target = self.start_of_line_at(offset, line_end_affinity);
+        let row = self.text.offset_to_point(offset).row;
+        let logical_start = self.text.line_start_offset(row);
+        if let Some(rules) = self.mode.language_config()
+            && let Some(pattern) = &rules.line_start_pattern
+        {
+            let line = self.text.slice_line(row).to_string();
+            if let Some(prefix) = pattern.find(line.trim_end_matches('\r'))
+                && prefix.start() == 0
+                && !prefix.is_empty()
+                && target <= logical_start + prefix.end()
+            {
+                return if logical_start + prefix.end() < offset {
+                    logical_start + prefix.end()
+                } else {
+                    logical_start
+                };
+            }
+        }
+        target
     }
 
     /// Get end of line byte offset for the given `offset`.
