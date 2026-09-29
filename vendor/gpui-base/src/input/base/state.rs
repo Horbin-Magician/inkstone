@@ -359,6 +359,8 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) document_revision: u64,
     /// Presentation-only spans. Their bytes remain in the document and history.
     pub(super) concealment: Rc<[(Range<usize>, Pixels)]>,
+    pub(super) display_metrics: Rc<[(Range<usize>, Pixels)]>,
+    pub(super) display_metrics_key: Option<super::element::DisplayMetricsKey>,
     pub(super) line_typography: Rc<[super::LineTypography]>,
     pub(super) presentation_revision: u64,
     pub(super) token_presentation: super::InlineTokenPresentation,
@@ -724,6 +726,8 @@ impl<M: InputModeKind> InputBaseState<M> {
             validated_token_edit: false,
             document_revision: 0,
             concealment: Rc::from([]),
+            display_metrics: Rc::from([]),
+            display_metrics_key: None,
             line_typography: Rc::from([]),
             presentation_revision: 0,
             token_presentation: Default::default(),
