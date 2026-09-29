@@ -3843,24 +3843,18 @@ impl Workspace {
                 }
                 menu
             });
-        let numbers = Button::new("line-number-setting")
-            .label(if self.ui.prefs.line_numbers {
-                "开启"
-            } else {
-                "关闭"
-            })
-            .on_click(cx.listener(|this, _, w, cx| {
-                this.ui.prefs.line_numbers = !this.ui.prefs.line_numbers;
+        let numbers = gpui_component::switch::Switch::new("line-number-setting")
+            .accessibility_label("显示行号")
+            .checked(self.ui.prefs.line_numbers)
+            .on_click(cx.listener(|this, enabled: &bool, w, cx| {
+                this.ui.prefs.line_numbers = *enabled;
                 this.apply_editor_preferences(w, cx);
             }));
-        let width = Button::new("width-setting")
-            .label(if self.ui.prefs.readable_width {
-                "开启"
-            } else {
-                "关闭"
-            })
-            .on_click(cx.listener(|this, _, w, cx| {
-                this.ui.prefs.readable_width = !this.ui.prefs.readable_width;
+        let width = gpui_component::switch::Switch::new("width-setting")
+            .accessibility_label("缩减栏宽")
+            .checked(self.ui.prefs.readable_width)
+            .on_click(cx.listener(|this, enabled: &bool, w, cx| {
+                this.ui.prefs.readable_width = *enabled;
                 this.apply_editor_preferences(w, cx);
             }));
         div()
@@ -3888,16 +3882,16 @@ impl Workspace {
                             .flex()
                             .justify_between()
                             .items_center()
-                            .child("默认编辑模式")
-                            .child(editing_mode),
+                            .child("新标签页默认视图")
+                            .child(default_view),
                     )
                     .child(
                         div()
                             .flex()
                             .justify_between()
                             .items_center()
-                            .child("新标签页默认视图")
-                            .child(default_view),
+                            .child("默认编辑模式")
+                            .child(editing_mode),
                     )
                     .child(
                         div()
