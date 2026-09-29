@@ -394,6 +394,7 @@ pub enum Resolution {
 #[derive(Clone, Debug)]
 pub struct SearchHit {
     pub path: PathBuf,
+    pub display_name: Option<String>,
     pub offset: usize,
     pub line: usize,
     pub excerpt: String,
@@ -725,21 +726,58 @@ impl Index {
             _ => Resolution::Ambiguous(matches),
         }
     }
-    pub fn filenames(&self, query: &str) -> Vec<PathBuf> {
-        let query = query.to_lowercase();
-        self.notes
-            .keys()
-            .filter(|p| {
-                key(p).contains(&query)
-                    || self.notes.get(*p).is_some_and(|n| {
-                        n.parsed
-                            .aliases
-                            .iter()
-                            .any(|a| a.to_lowercase().contains(&query))
-                    })
-            })
+    pub fn filenames(&self, query: &str) -> Vec<SearchHit> {
+        let query = query.trim().replace('\\', "/").to_lowercase();
+        let mut matches = Vec::new();
+        for (path, note) in &self.notes {
+            let stem = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
+            let mut best = if stem == query {
+                Some((0, None))
+            } else if stem.starts_with(&query) {
+                Some((2, None))
+            } else if key(path).contains(&query) {
+                Some((4, None))
+            } else {
+                None
+            };
+            for alias in &note.parsed.aliases {
+                let name = alias.to_lowercase();
+                let rank = if name == query {
+                    1
+                } else if name.starts_with(&query) {
+                    3
+                } else if name.contains(&query) {
+                    5
+                } else {
+                    continue;
+                };
+                if best.as_ref().is_none_or(|(old, _)| rank < *old) {
+                    best = Some((rank, Some(alias.clone())));
+                }
+            }
+            if let Some((rank, display_name)) = best {
+                matches.push((
+                    rank,
+                    key(path),
+                    SearchHit {
+                        path: path.clone(),
+                        display_name,
+                        offset: 0,
+                        line: 1,
+                        excerpt: String::new(),
+                    },
+                ));
+            }
+        }
+        matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        matches
+            .into_iter()
             .take(200)
-            .cloned()
+            .map(|(_, _, hit)| hit)
             .collect()
     }
     pub fn search(&self, query: &str) -> Vec<SearchHit> {
@@ -758,6 +796,7 @@ impl Index {
                 if query.matches(path, text, &note.parsed.tags) {
                     hits.push(SearchHit {
                         path: path.clone(),
+                        display_name: None,
                         offset,
                         line: line + 1,
                         excerpt: text.chars().take(120).collect(),
@@ -771,6 +810,7 @@ impl Index {
             if hits.len() == before {
                 hits.push(SearchHit {
                     path: path.clone(),
+                    display_name: None,
                     offset: 0,
                     line: 1,
                     excerpt: note
@@ -851,6 +891,56 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn filenames_rank_names_and_aliases_and_keep_real_paths() {
+        let mut index = Index::default();
+        for (path, aliases) in [
+            ("a-project-notes.md", "[]"),
+            ("b.md", "[project, project plan]"),
+            ("c.md", "[project planning]"),
+            ("project draft.md", "[]"),
+            ("z/project.md", "[]"),
+        ] {
+            index.update(path.into(), format!("---\naliases: {aliases}\n---\n"));
+        }
+        let hits = index.filenames("  PROJECT  ");
+        assert_eq!(
+            hits.iter().map(|h| h.path.clone()).collect::<Vec<_>>(),
+            [
+                "z/project.md",
+                "b.md",
+                "project draft.md",
+                "c.md",
+                "a-project-notes.md"
+            ]
+            .map(PathBuf::from)
+        );
+        assert_eq!(hits[1].display_name.as_deref(), Some("project"));
+        assert_eq!(hits[3].display_name.as_deref(), Some("project planning"));
+        assert!(hits[0].display_name.is_none());
+        assert!(
+            index
+                .search("project")
+                .iter()
+                .all(|h| h.display_name.is_none())
+        );
+    }
+    #[test]
+    fn filenames_limit_after_ranking_and_normalize_queries() {
+        let mut index = Index::default();
+        for i in 0..250 {
+            index.update(format!("a-{i}-目标.md").into(), String::new());
+        }
+        index.update("资料/目标.md".into(), "---\naliases: [ÉTUDE]\n---\n".into());
+        let hits = index.filenames("目标");
+        assert_eq!(hits.len(), 200);
+        assert_eq!(hits[0].path, Path::new("资料/目标.md"));
+        assert_eq!(index.filenames("资料\\目")[0].path, hits[0].path);
+        let aliases = index.filenames("étude");
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].display_name.as_deref(), Some("ÉTUDE"));
+        assert!(index.filenames("不存在").is_empty());
+    }
     #[test]
     fn refresh_updates_file_dates_even_when_text_is_unchanged() {
         let root =

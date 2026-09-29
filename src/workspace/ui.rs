@@ -1707,6 +1707,7 @@ impl Workspace {
                 .take(100)
                 .map(|p| SearchHit {
                     path: p.clone(),
+                    display_name: None,
                     offset: 0,
                     line: 1,
                     excerpt: String::new(),
@@ -1736,14 +1737,12 @@ impl Workspace {
                     .rounded(px(4.))
                     .cursor_pointer()
                     .hover(|s| s.bg(rgba(0x88888822)))
-                    .child(
-                        div().text_sm().child(
-                            path.file_stem()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string(),
-                        ),
-                    )
+                    .child(div().text_sm().child(hit.display_name.unwrap_or_else(|| {
+                        path.file_stem()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string()
+                    })))
                     .child(div().text_xs().text_color(rgb(0x888888)).truncate().child(
                         if hit.excerpt.is_empty() {
                             path.to_string_lossy().to_string()

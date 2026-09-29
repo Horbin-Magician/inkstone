@@ -1419,16 +1419,7 @@ impl Workspace {
             } else if fulltext {
                 index.search(&query)
             } else {
-                index
-                    .filenames(&query)
-                    .into_iter()
-                    .map(|path| SearchHit {
-                        path,
-                        offset: 0,
-                        line: 1,
-                        excerpt: String::new(),
-                    })
-                    .collect()
+                index.filenames(&query)
             };
             (hits, backlinks)
         });
