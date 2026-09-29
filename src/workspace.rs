@@ -1637,6 +1637,50 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn property_list_conversion_preserves_scalar_commas_and_pending_items(cx: &mut TestAppContext) {
+        use inkstone::properties::Kind;
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab(
+                    "note.md".into(),
+                    Some("---\naliases: 'Smith, John'\n---\nbody".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.edit_property("aliases", "\"Smith, John\"", window, cx);
+                assert_eq!(w.property_list_values(cx).unwrap(), ["Smith, John"]);
+                w.save_property(window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                assert_eq!(
+                    inkstone::index::parse(&editor.read(cx).value()).aliases,
+                    ["Smith, John"]
+                );
+                w.edit_property("", "", window, cx);
+                w.ui.property_key
+                    .update(cx, |s, cx| s.set_value("custom", window, cx));
+                w.ui.property_value
+                    .update(cx, |s, cx| s.set_value("One, two", window, cx));
+                w.change_property_kind(Kind::List, window, cx);
+                assert_eq!(w.property_list_values(cx).unwrap(), ["One, two"]);
+                w.ui.property_list_entry
+                    .update(cx, |s, cx| s.set_value("未确认的项目", window, cx));
+                w.change_property_kind(Kind::Text, window, cx);
+                assert!(
+                    w.ui.property_value
+                        .read(cx)
+                        .value()
+                        .contains("未确认的项目")
+                );
+                assert!(w.ui.property_list_entry.read(cx).value().is_empty());
+                w.close_overlays(window, cx);
+                assert!(!editor.read(cx).value().contains("custom:"));
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn property_list_items_add_remove_save_and_undo_without_losing_punctuation(
         cx: &mut TestAppContext,
     ) {

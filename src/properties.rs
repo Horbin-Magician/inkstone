@@ -13,6 +13,18 @@ pub enum Kind {
     Other,
 }
 impl Kind {
+    pub fn editor_value(self, value: &str) -> String {
+        let parsed = serde_json::from_str::<serde_json::Value>(value);
+        match (self, parsed) {
+            (Self::List, Ok(serde_json::Value::String(text))) => {
+                serde_json::to_string(&[text]).unwrap()
+            }
+            (Self::List, Ok(serde_json::Value::Null)) => "[]".into(),
+            (_, Ok(serde_json::Value::String(text))) => text,
+            (_, Ok(serde_json::Value::Null)) => String::new(),
+            _ => value.to_owned(),
+        }
+    }
     pub fn infer(value: &str) -> Self {
         match serde_json::from_str::<serde_json::Value>(value) {
             Ok(serde_json::Value::Array(_)) => Self::List,
@@ -294,6 +306,19 @@ pub fn remove(source: &str, key: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scalar_list_values_remain_single_items_in_the_editor() {
+        assert_eq!(
+            Kind::List.editor_value("\"Smith, John\""),
+            "[\"Smith, John\"]"
+        );
+        assert_eq!(Kind::List.editor_value("null"), "[]");
+        assert_eq!(Kind::Text.editor_value("\"Smith, John\""), "Smith, John");
+        assert_eq!(
+            Kind::List.editor_value("[\"one\",\"two\"]"),
+            "[\"one\",\"two\"]"
+        );
+    }
     #[test]
     fn explicit_property_types_preserve_text_and_validate_values() {
         assert_eq!(Kind::infer("\"123\""), Kind::Text);
