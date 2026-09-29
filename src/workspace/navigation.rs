@@ -9,9 +9,24 @@ pub(super) struct PendingNavigation {
     secondary: bool,
     generation: u64,
     history: Navigation,
+    source_history: Option<usize>,
 }
 
 impl Workspace {
+    pub(super) fn navigation_with_current_state(&self, cx: &App) -> Navigation {
+        let Some(pane) = self.current_pane() else {
+            return Navigation::default();
+        };
+        let mut history = pane.read(cx).navigation.clone();
+        if let Some(tab) = self.active.and_then(|index| self.tabs.get(index)) {
+            history.record_at(
+                history.cursor,
+                Self::snapshot_view(tab.path.clone(), &pane, cx),
+            );
+        }
+        history
+    }
+
     pub(super) fn open_current_note(
         &mut self,
         path: PathBuf,
@@ -38,7 +53,16 @@ impl Workspace {
             cx.notify();
             return;
         }
+        let restoring_history = history
+            .entries
+            .get(history.cursor)
+            .is_some_and(|entry| entry.path == path);
         history.visit(path.clone());
+        let source_history = if restoring_history {
+            Some(pane.read(cx).navigation.cursor)
+        } else {
+            history.cursor.checked_sub(1)
+        };
         let mut pending = PendingNavigation {
             path: path.clone(),
             text: None,
@@ -47,6 +71,7 @@ impl Workspace {
             secondary: self.views.secondary_focused,
             generation: self.navigation_generation,
             history,
+            source_history,
         };
         if self.tabs.iter().any(|tab| tab.path == path) {
             self.pending_navigation = Some(pending);
@@ -94,7 +119,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(pending) = self.pending_navigation.take() else {
+        let Some(mut pending) = self.pending_navigation.take() else {
             return;
         };
         if pending.generation != self.navigation_generation
@@ -154,6 +179,13 @@ impl Workspace {
         let pinned = self.current_view_pinned();
         let reading = pending.pane.read(cx).reading;
         let live = pending.pane.read(cx).live;
+        if let Some(source_history) = pending.source_history {
+            pending.history.record_at(
+                source_history,
+                Self::snapshot_view(self.tabs[index].path.clone(), &pending.pane, cx),
+            );
+        }
+        let restored = pending.history.current_state().cloned();
         let jump = self.pending_jump.take();
         self.add_tab(pending.path, pending.text, false, window, cx);
         let Some(new_index) = self.active else { return };
@@ -169,6 +201,10 @@ impl Workspace {
                 p.focus_view(window, cx);
                 cx.notify();
             });
+            if let Some(state) = &restored {
+                Self::restore_view_state(&pane, state, cx);
+                pane.update(cx, |p, cx| p.focus_view(window, cx));
+            }
         }
         if pending.secondary {
             if let Some(split) = &mut self.views.split {
@@ -209,7 +245,8 @@ impl Workspace {
                 let mut before = 0;
                 let cursor = history.cursor;
                 let mut position = 0;
-                history.entries.retain_mut(|path| {
+                history.entries.retain_mut(|entry| {
+                    let path = &mut entry.path;
                     let affected = if folder {
                         path.starts_with(old)
                     } else {
@@ -222,6 +259,9 @@ impl Workspace {
                         } else {
                             new.to_owned()
                         };
+                        if let Some(state) = &mut entry.state {
+                            state.path = path.clone();
+                        }
                     }
                     if position < cursor && !keep {
                         before += 1;
@@ -277,6 +317,138 @@ mod tests {
     }
 
     #[gpui::test]
+    fn restored_scroll_survives_layout_and_focus(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = fixture("layout");
+        let source = "正文一行\n".repeat(300);
+        std::fs::write(root.join("a.md"), &source).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some(source), false, window, cx);
+                w.add_tab("b.md".into(), Some("B".into()), false, window, cx);
+                w.focus_primary(0, window, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..3 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let position = handle
+            .update(&mut visual, |w, _, cx| {
+                w.current_pane()
+                    .unwrap()
+                    .read(cx)
+                    .editor
+                    .read(cx)
+                    .input_bounds()
+                    .center()
+            })
+            .unwrap();
+        visual.simulate_event(ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Pixels(point(px(0.), px(-240.))),
+            modifiers: Default::default(),
+            touch_phase: TouchPhase::Moved,
+        });
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let before = handle
+            .update(&mut visual, |w, window, cx| {
+                let offset = w
+                    .current_pane()
+                    .unwrap()
+                    .read(cx)
+                    .editor
+                    .read(cx)
+                    .scroll_offset();
+                assert!(offset.y < px(-100.));
+                w.open_note("b.md".into(), window, cx);
+                w.execute_command(20, window, cx);
+                offset
+            })
+            .unwrap();
+        for _ in 0..4 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.tabs[0].path, PathBuf::from("a.md"));
+                let pane = w.current_pane().unwrap();
+                assert_eq!(pane.read(cx).editor.read(cx).scroll_offset(), before);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn history_restores_editing_and_reading_state_without_changing_other_views(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let root = fixture("positions");
+        let source = "# Heading\nbody\n## Child\ntext\n# Next\nend";
+        std::fs::write(root.join("a.md"), source).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        let saved = handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some(source.into()), false, window, cx);
+                w.add_tab("b.md".into(), Some("B".into()), false, window, cx);
+                w.focus_primary(0, window, cx);
+                let pane = w.current_pane().unwrap();
+                pane.update(cx, |p, cx| {
+                    p.live = false;
+                    p.fold_sections(Some(true), window, cx);
+                    p.editor.update(cx, |s, cx| {
+                        s.set_selected_range(2..5, cx);
+                        s.set_scroll_offset(point(px(0.), px(-42.)), cx);
+                    });
+                });
+                let saved = Workspace::snapshot_view("a.md".into(), &pane, cx);
+                w.open_note("b.md".into(), window, cx);
+                w.current_pane().unwrap().update(cx, |p, cx| {
+                    p.reading = true;
+                    p.live = true;
+                    p.restore_reading_position(
+                        inkstone::preferences::ReadingPosition {
+                            block: 0,
+                            offset: 7.,
+                        },
+                        cx,
+                    );
+                    p.editor.update(cx, |s, cx| s.set_selected_range(1..1, cx));
+                });
+                w.execute_command(20, window, cx);
+                saved
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let pane = w.current_pane().unwrap();
+                let state = Workspace::snapshot_view("a.md".into(), &pane, cx);
+                assert_eq!(state.selection, saved.selection);
+                assert_eq!(state.scroll_y, saved.scroll_y);
+                assert_eq!(state.folded_lines, saved.folded_lines);
+                assert!(!state.reading && !state.live);
+                assert!(!w.tabs[1].pane.read(cx).reading);
+                w.execute_command(21, window, cx);
+                let state = Workspace::snapshot_view("b.md".into(), &w.current_pane().unwrap(), cx);
+                assert!(state.reading && state.live);
+                assert_eq!(state.selection, 1..1);
+                assert_eq!(state.reading_position.unwrap().offset, 7.);
+                assert!(!w.tabs[1].pane.read(cx).reading);
+                assert_eq!(
+                    w.tabs[1].pane.read(cx).editor.read(cx).selected_range(),
+                    0..0
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn loading_does_not_follow_focus_changes_and_missing_files_keep_history(
         cx: &mut TestAppContext,
     ) {
@@ -309,11 +481,25 @@ mod tests {
             .update(cx, |w, _, cx| {
                 assert_eq!(w.current_pane().unwrap(), source);
                 assert_eq!(
-                    source.read(cx).navigation.entries,
+                    source
+                        .read(cx)
+                        .navigation
+                        .entries
+                        .iter()
+                        .map(|entry| entry.path.clone())
+                        .collect::<Vec<_>>(),
                     vec![PathBuf::from("a.md")]
                 );
                 source.update(cx, |p, _| {
                     p.navigation.visit("folder/b.md".into());
+                    p.navigation.record_at(
+                        1,
+                        inkstone::preferences::ViewState {
+                            path: "folder/b.md".into(),
+                            selection: 2..2,
+                            ..Default::default()
+                        },
+                    );
                     p.navigation.visit("folder/c.md".into());
                     p.navigation.visit("d.md".into());
                 });
@@ -324,12 +510,26 @@ mod tests {
                     cx,
                 );
                 assert_eq!(
-                    source.read(cx).navigation.entries[1],
+                    source.read(cx).navigation.entries[1].path,
+                    PathBuf::from("moved/b.md")
+                );
+                assert_eq!(
+                    source.read(cx).navigation.entries[1]
+                        .state
+                        .as_ref()
+                        .unwrap()
+                        .path,
                     PathBuf::from("moved/b.md")
                 );
                 w.relocate_navigation(std::path::Path::new("moved"), None, true, cx);
                 assert_eq!(
-                    source.read(cx).navigation.entries,
+                    source
+                        .read(cx)
+                        .navigation
+                        .entries
+                        .iter()
+                        .map(|entry| entry.path.clone())
+                        .collect::<Vec<_>>(),
                     vec![PathBuf::from("a.md"), "d.md".into()]
                 );
                 assert_eq!(source.read(cx).navigation.cursor, 1);
@@ -359,11 +559,25 @@ mod tests {
                 assert_eq!(w.tabs[0].path, PathBuf::from("b.md"));
                 assert!(w.ui.closed.is_empty());
                 assert_eq!(
-                    w.tabs[0].pane.read(cx).navigation.entries,
+                    w.tabs[0]
+                        .pane
+                        .read(cx)
+                        .navigation
+                        .entries
+                        .iter()
+                        .map(|entry| entry.path.clone())
+                        .collect::<Vec<_>>(),
                     vec![PathBuf::from("a.md"), "b.md".into()]
                 );
                 assert_eq!(
-                    w.tabs[1].pane.read(cx).navigation.entries,
+                    w.tabs[1]
+                        .pane
+                        .read(cx)
+                        .navigation
+                        .entries
+                        .iter()
+                        .map(|entry| entry.path.clone())
+                        .collect::<Vec<_>>(),
                     vec![PathBuf::from("c.md")]
                 );
                 w.execute_command(20, window, cx);

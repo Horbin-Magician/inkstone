@@ -295,18 +295,37 @@ fn relocate_setting(value: &mut String, old: &Path, new: &Path, folder: bool, ma
 
 #[derive(Clone, Default, Debug)]
 pub struct Navigation {
-    pub entries: Vec<PathBuf>,
+    pub entries: Vec<NavigationEntry>,
     pub cursor: usize,
 }
+#[derive(Clone, Debug)]
+pub struct NavigationEntry {
+    pub path: PathBuf,
+    pub state: Option<ViewState>,
+}
 impl Navigation {
+    pub fn record_at(&mut self, index: usize, state: ViewState) {
+        if let Some(entry) = self.entries.get_mut(index)
+            && entry.path == state.path
+        {
+            entry.state = Some(state);
+        }
+    }
+    pub fn current_state(&self) -> Option<&ViewState> {
+        self.entries.get(self.cursor)?.state.as_ref()
+    }
     pub fn visit(&mut self, path: PathBuf) {
-        if self.entries.get(self.cursor) == Some(&path) {
+        if self
+            .entries
+            .get(self.cursor)
+            .is_some_and(|entry| entry.path == path)
+        {
             return;
         }
         if !self.entries.is_empty() {
             self.entries.truncate(self.cursor + 1);
         }
-        self.entries.push(path);
+        self.entries.push(NavigationEntry { path, state: None });
         if self.entries.len() > 200 {
             self.entries.remove(0);
         }
@@ -317,14 +336,18 @@ impl Navigation {
             return None;
         }
         self.cursor -= 1;
-        self.entries.get(self.cursor).cloned()
+        self.entries
+            .get(self.cursor)
+            .map(|entry| entry.path.clone())
     }
     pub fn forward(&mut self) -> Option<PathBuf> {
         if self.cursor + 1 >= self.entries.len() {
             return None;
         }
         self.cursor += 1;
-        self.entries.get(self.cursor).cloned()
+        self.entries
+            .get(self.cursor)
+            .map(|entry| entry.path.clone())
     }
 }
 
@@ -408,6 +431,60 @@ mod tests {
         assert_eq!(h.forward(), None);
         assert_eq!(h.back(), Some("a.md".into()));
         assert_eq!(h.forward(), Some("c.md".into()));
+    }
+    #[test]
+    fn navigation_states_belong_to_each_visit_and_survive_branching() {
+        let mut history = Navigation::default();
+        history.visit("a.md".into());
+        history.record_at(
+            0,
+            ViewState {
+                path: "a.md".into(),
+                selection: 2..4,
+                ..Default::default()
+            },
+        );
+        history.visit("b.md".into());
+        history.visit("a.md".into());
+        history.record_at(
+            2,
+            ViewState {
+                path: "a.md".into(),
+                selection: 9..9,
+                ..Default::default()
+            },
+        );
+        history.back();
+        history.back();
+        assert_eq!(history.current_state().unwrap().selection, 2..4);
+        let mut independent = history.clone();
+        independent.record_at(
+            0,
+            ViewState {
+                path: "a.md".into(),
+                selection: 6..6,
+                ..Default::default()
+            },
+        );
+        assert_eq!(history.current_state().unwrap().selection, 2..4);
+        history.visit("c.md".into());
+        assert!(history.current_state().is_none());
+        assert!(history.forward().is_none());
+        history.back();
+        assert_eq!(history.current_state().unwrap().selection, 2..4);
+        history.record_at(
+            0,
+            ViewState {
+                path: "wrong.md".into(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(history.current_state().unwrap().selection, 2..4);
+        for i in 0..205 {
+            history.visit(format!("{i}.md").into());
+        }
+        assert_eq!(history.entries.len(), 200);
+        assert_eq!(history.entries[0].path, PathBuf::from("5.md"));
     }
     #[test]
     fn old_preferences_accept_new_defaults() {
