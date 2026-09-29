@@ -2006,6 +2006,57 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn ribbon_drag_visibility_and_saved_order(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-ribbon-order-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, _, _| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap())
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let from = visual.debug_bounds("ribbon-action-39").unwrap().center();
+        let to = visual.debug_bounds("ribbon-action-2").unwrap().center();
+        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(
+            from + point(px(6.), px(6.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.ui.prefs.ribbon_commands, vec![39, 2, 43]);
+                assert!(!w.command_open);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(
+            visual.debug_bounds("ribbon-action-39").unwrap().top()
+                < visual.debug_bounds("ribbon-action-2").unwrap().top()
+        );
+        handle
+            .update(&mut visual, |w, _, cx| w.set_ribbon_command(2, false, cx))
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("ribbon-action-2").is_none());
+        handle
+            .update(&mut visual, |w, _, cx| w.set_ribbon_command(2, true, cx))
+            .unwrap();
+        visual.run_until_parked();
+        let saved =
+            inkstone::preferences::Preferences::load(&root.join(".inkstone-workspace.json"));
+        assert_eq!(saved.ribbon_commands, vec![39, 43, 2]);
+    }
+
+    #[gpui::test]
     fn ribbon_actions_visibility_and_hidden_settings_access(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
