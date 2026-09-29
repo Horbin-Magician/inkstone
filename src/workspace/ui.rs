@@ -753,9 +753,7 @@ impl Workspace {
                 match result {
                     Ok(()) => {
                         this.ui.last_persisted = serialized;
-                        if this.ui.window_close_requested {
-                            this.persist_workspace(cx);
-                        }
+                        this.persist_workspace(cx);
                     }
                     Err(e) => {
                         this.status = format!("无法保存工作区设置：{e}");
@@ -1254,12 +1252,12 @@ impl Workspace {
             25 => self.wrap_selection("*", "*", window, cx),
             26 => self.insert_link(true, window, cx),
             27 => {
-                if let Some(tab) = self.active.and_then(|i| self.tabs.get(i)) {
-                    if self.ui.prefs.pinned_paths.contains(&tab.path) {
-                        self.ui.prefs.pinned_paths.retain(|p| p != &tab.path);
-                    } else {
-                        self.ui.prefs.pinned_paths.push(tab.path.clone());
-                    }
+                if self.views.secondary_focused
+                    && let Some(split) = &mut self.views.split
+                {
+                    split.pinned = !split.pinned;
+                } else if let Some(tab) = self.active.and_then(|i| self.tabs.get_mut(i)) {
+                    tab.pinned = !tab.pinned;
                 }
             }
             28 => self.open_daily(window, cx),
@@ -1551,7 +1549,7 @@ impl Workspace {
                 (
                     tab.id,
                     format!("{name}{}", if tab.save.dirty.get() { " •" } else { "" }),
-                    self.ui.prefs.pinned_paths.contains(&tab.path),
+                    tab.pinned,
                 )
             })
             .collect();
@@ -1591,7 +1589,7 @@ impl Workspace {
                         let tab_id = t.id;
                         let menu_weak = cx.entity().downgrade();
                         let selected = self.main_tab() == Some(i);
-                        let pinned = self.ui.prefs.pinned_paths.contains(&t.path);
+                        let pinned = t.pinned;
                         div()
                             .id(("tab", t.id))
                             .occlude()
@@ -1686,7 +1684,12 @@ impl Workspace {
                                 Button::new(("close-tab", t.id))
                                     .accessibility_id(format!("close-tab-{}", t.id))
                                     .accessibility_label(format!(
-                                        "关闭标签页 {}",
+                                        "{} {}",
+                                        if pinned {
+                                            "取消固定标签页"
+                                        } else {
+                                            "关闭标签页"
+                                        },
                                         if t.path.as_os_str().is_empty() {
                                             "新标签页".to_string()
                                         } else {
@@ -1707,6 +1710,28 @@ impl Workspace {
                                 cx.listener(move |this, _, w, cx| this.focus_primary(i, w, cx)),
                             )
                             .context_menu(move |mut menu, _, _| {
+                                let weak = menu_weak.clone();
+                                menu = menu.item(
+                                    PopupMenuItem::new(if pinned {
+                                        "取消固定"
+                                    } else {
+                                        "固定"
+                                    })
+                                    .on_click(
+                                        move |_, window, cx| {
+                                            let _ = weak.update(cx, |this, cx| {
+                                                if let Some(index) = this
+                                                    .tabs
+                                                    .iter()
+                                                    .position(|tab| tab.id == tab_id)
+                                                {
+                                                    this.focus_primary(index, window, cx);
+                                                    this.execute_command(27, window, cx);
+                                                }
+                                            });
+                                        },
+                                    ),
+                                );
                                 let weak = menu_weak.clone();
                                 menu = menu.item(PopupMenuItem::new("在新标签页中打开").on_click(
                                     move |_, window, cx| {

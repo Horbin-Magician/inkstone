@@ -30,6 +30,7 @@ pub struct ReadingPosition {
 #[serde(default)]
 pub struct ViewState {
     pub path: PathBuf,
+    pub pinned: Option<bool>,
     pub reading: bool,
     pub live: bool,
     pub selection: std::ops::Range<usize>,
@@ -43,6 +44,7 @@ impl Default for ViewState {
     fn default() -> Self {
         Self {
             path: PathBuf::new(),
+            pinned: None,
             reading: false,
             live: true,
             selection: 0..0,
