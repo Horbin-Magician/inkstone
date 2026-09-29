@@ -42,6 +42,7 @@ impl Default for ViewState {
 pub struct Preferences {
     pub daily: crate::daily::Settings,
     pub templates: crate::templates::Settings,
+    pub tags: crate::tags::Options,
     pub property_types: std::collections::BTreeMap<String, crate::properties::Kind>,
     pub hotkeys: std::collections::BTreeMap<usize, Vec<String>>,
     pub graph: crate::graph::Options,
@@ -82,6 +83,7 @@ impl Default for Preferences {
         Self {
             daily: Default::default(),
             templates: Default::default(),
+            tags: Default::default(),
             property_types: Default::default(),
             hotkeys: Default::default(),
             graph: Default::default(),
@@ -300,6 +302,9 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
         prefs.font_size = 23.;
+        prefs.tags.hierarchy = false;
+        prefs.tags.sort = crate::tags::Sort::NameDescending;
+        prefs.tags.collapsed.insert("work".into());
         prefs.left_panel = 2;
         prefs.right_panel = 4;
         prefs
@@ -345,6 +350,12 @@ mod tests {
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 23.);
+        assert!(!Preferences::load(&path).tags.hierarchy);
+        assert_eq!(
+            Preferences::load(&path).tags.sort,
+            crate::tags::Sort::NameDescending
+        );
+        assert!(Preferences::load(&path).tags.collapsed.contains("work"));
         assert_eq!(Preferences::load(&path).left_panel, 2);
         assert_eq!(Preferences::load(&path).right_panel, 4);
         assert_eq!(
