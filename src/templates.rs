@@ -83,6 +83,7 @@ pub fn search(
                     offset: 0,
                     line: 1,
                     excerpt: String::new(),
+                    highlights: vec![],
                 })
         })
         .take(200)
