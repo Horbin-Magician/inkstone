@@ -2561,6 +2561,50 @@ mod tests {
     }
 
     #[gpui::test]
+    fn occurrence_matching_normalizes_unicode_and_restores_original_bytes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (source, selection, keys, expected) in [
+            ("é e\u{301} é", 0..2, "ctrl-shift-l", "x x x"),
+            ("é e\u{301} é", 0..2, "ctrl-d ctrl-d", "x x é"),
+            ("ff ﬀ ＦＦ", 0..2, "ctrl-shift-l", "x x ＦＦ"),
+            ("f ﬀ", 0..1, "ctrl-shift-l", "x x"),
+            ("① 1 ①", 0..3, "ctrl-shift-l", "x x x"),
+            ("😀 é e\u{301}", 5..7, "ctrl-shift-l", "😀 x x"),
+            ("e\u{301} é", 0..3, "ctrl-d", "x x"),
+            ("aaaaaa", 1..3, "ctrl-d", "axxa"),
+        ] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            let editor = handle
+                .update(cx, |p, w, cx| {
+                    p.editor.update(cx, |s, cx| {
+                        s.set_selected_range(selection.clone(), cx);
+                        s.focus(w, cx);
+                    });
+                    p.editor.clone()
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.simulate_keystrokes(keys);
+            handle
+                .update(&mut visual, |_, w, cx| {
+                    editor.update(cx, |s, cx| {
+                        assert!(s.has_multiple_selections(), "{source}");
+                        assert_eq!(s.value(), source);
+                        s.replace_text_in_range(None, "x", w, cx);
+                        assert_eq!(s.value(), expected);
+                    });
+                })
+                .unwrap();
+            visual.simulate_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), source);
+                assert_eq!(s.selected_range(), selection);
+            });
+        }
+    }
+
+    #[gpui::test]
     fn select_all_occurrences_keeps_adjacent_ranges_and_undoes_once(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         for (source, selection, expected) in [

@@ -127,6 +127,12 @@
 - 非空转换结果选区保留原方向，折叠为光标时清除反向标记。
 - 相同文本但选区位置不同的转换仅更新选区、打断输入合并并滚动，不修改之前的撤销记录。
 
+## Unicode 相同文本匹配
+
+- `base/occurrences.rs` 按参考搜索游标逐字符进行兼容分解，并将规范化结果的偏移映射回原文；不会规范化或改写笔记本身。
+- 依赖固定为 `unicode-normalization 0.1.25`，使用其 [NFKD 接口](https://docs.rs/unicode-normalization/0.1.25/unicode_normalization/trait.UnicodeNormalization.html#tymethod.nfkd)，根锁文件只新增此包。
+- 搜索可从原文的指定位置开始，兼容字符的重叠映射去重；调用方继续检查字素边界和整词规则。
+
 ## 命令触发补全
 
 - `input/editor/lsp/completions.rs` 增加显式 `request_completions`，使用 LSP Invoked 触发类型，不伪造键入字符，并清除旧触发位置。
