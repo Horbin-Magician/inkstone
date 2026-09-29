@@ -2061,34 +2061,137 @@ impl Workspace {
                                 }))
                         }))
                     })
-                    .when(self.ui.right_mode == 3, |s| {
-                        let mut tags = std::collections::BTreeMap::<String, usize>::new();
-                        for note in self.index.notes.values() {
-                            for tag in &note.parsed.tags {
-                                *tags.entry(tag.clone()).or_default() += 1;
-                            }
-                        }
-                        s.child(div().pb_3().text_color(rgb(0x999999)).child("标签"))
-                            .children(tags.into_iter().enumerate().map(|(i, (tag, count))| {
-                                div()
-                                    .id(("tag", i))
-                                    .py_1()
-                                    .cursor_pointer()
-                                    .child(format!("#{tag}  {count}"))
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.search.update(cx, |s, cx| {
-                                            s.set_value(format!("tag:{tag}"), w, cx)
-                                        });
-                                        this.focus_search(true, w, cx);
-                                    }))
-                            }))
-                    }),
+                    .when(self.ui.right_mode == 3, |s| s.child(self.tags_panel(cx))),
             )
             .into_any_element()
     }
 }
 
 impl Workspace {
+    fn tags_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        use inkstone::tags::{Sort, rows};
+        let options = &self.ui.prefs.tags;
+        let items = rows(&self.index, options);
+        let sort = options.sort;
+        let weak = cx.entity().downgrade();
+        let sorting =
+            tool("tags-sort", "arrow-up-down", "标签排序").dropdown_menu(move |mut menu, _, _| {
+                for (value, label) in [
+                    (Sort::Name, "标签名（升序）"),
+                    (Sort::NameDescending, "标签名（降序）"),
+                    (Sort::Frequency, "使用次数（从多到少）"),
+                    (Sort::FrequencyAscending, "使用次数（从少到多）"),
+                ] {
+                    let weak = weak.clone();
+                    menu = menu.item(PopupMenuItem::new(label).checked(sort == value).on_click(
+                        move |_, _, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.ui.prefs.tags.sort = value;
+                                this.persist_workspace(cx);
+                                cx.notify();
+                            });
+                        },
+                    ));
+                }
+                menu
+            });
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .pb_2()
+                    .child(div().flex_1().child("标签"))
+                    .child(sorting)
+                    .child(
+                        tool("tags-hierarchy", "network", "显示嵌套标签")
+                            .toggled(options.hierarchy)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.ui.prefs.tags.hierarchy = !this.ui.prefs.tags.hierarchy;
+                                this.persist_workspace(cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        tool("tags-collapse", "fold-vertical", "全部展开或折叠")
+                            .disabled(!options.hierarchy)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let mut expanded = this.ui.prefs.tags.clone();
+                                expanded.collapsed.clear();
+                                let parents: std::collections::BTreeSet<_> =
+                                    rows(&this.index, &expanded)
+                                        .into_iter()
+                                        .filter(|row| row.children)
+                                        .map(|row| row.tag.to_lowercase())
+                                        .collect();
+                                if parents.is_subset(&this.ui.prefs.tags.collapsed) {
+                                    this.ui.prefs.tags.collapsed.clear();
+                                } else {
+                                    this.ui.prefs.tags.collapsed = parents;
+                                }
+                                this.persist_workspace(cx);
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .when(items.is_empty(), |s| {
+                s.child(div().text_sm().text_color(rgb(0x999999)).child("没有标签"))
+            })
+            .children(items.into_iter().enumerate().map(|(i, row)| {
+                let tag = row.tag;
+                let fold_key = tag.to_lowercase();
+                let label = if options.hierarchy {
+                    tag.rsplit('/').next().unwrap_or(&tag).to_string()
+                } else {
+                    tag.clone()
+                };
+                div()
+                    .id(("tag", i))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .py_1()
+                    .pl(px(row.depth as f32 * 14.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(rgba(0x88888822)))
+                    .child(div().w(px(20.)).flex_shrink_0().when(row.children, |s| {
+                        s.child(
+                            Button::new(("tag-fold", i))
+                                .ghost()
+                                .compact()
+                                .w(px(20.))
+                                .h(px(24.))
+                                .label(if row.collapsed { "›" } else { "⌄" })
+                                .accessibility_label(format!("展开或折叠标签 {tag}"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if !this.ui.prefs.tags.collapsed.remove(&fold_key) {
+                                        this.ui.prefs.tags.collapsed.insert(fold_key.clone());
+                                    }
+                                    this.persist_workspace(cx);
+                                    cx.notify();
+                                })),
+                        )
+                    }))
+                    .child(div().flex_1().min_w_0().truncate().child(label))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(0x999999))
+                            .child(row.count.to_string()),
+                    )
+                    .on_click(cx.listener(move |this, _, w, cx| {
+                        this.search
+                            .update(cx, |s, cx| s.set_value(format!("tag:{tag}"), w, cx));
+                        this.focus_search(true, w, cx);
+                    }))
+            }))
+            .into_any_element()
+    }
     fn editor_group(
         &self,
         index: Option<usize>,
