@@ -771,6 +771,28 @@ impl Workspace {
             self.persist_workspace(cx);
         }
     }
+    fn open_existing_note(
+        &mut self,
+        index: usize,
+        view: Option<&inkstone::preferences::ViewState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(view) = view {
+            if self.has_pending_input(self.tabs[index].id, window, cx) {
+                self.ui.closed.push(ui::ClosedTab { view: view.clone() });
+                self.status = "请完成当前编辑后再重新打开标签。".into();
+                cx.notify();
+                return;
+            }
+            self.views.secondary_focused = false;
+            self.add_tab(view.path.clone(), None, false, window, cx);
+            self.apply_reopened_view(Some(view), window, cx);
+        } else {
+            self.activate_tab(index, window, cx);
+        }
+    }
+
     fn open_note_with_view(
         &mut self,
         path: PathBuf,
@@ -797,8 +819,7 @@ impl Workspace {
         self.navigation_generation += 1;
         let navigation_generation = self.navigation_generation;
         if let Some(i) = self.tabs.iter().position(|t| t.path == path) {
-            self.activate_tab(i, window, cx);
-            self.apply_reopened_view(view.as_ref(), window, cx);
+            self.open_existing_note(i, view.as_ref(), window, cx);
             return;
         }
         let Some(vault) = self.vault.clone() else {
@@ -818,8 +839,7 @@ impl Workspace {
                     return;
                 }
                 if let Some(i) = this.tabs.iter().position(|t| t.path == path) {
-                    this.activate_tab(i, window, cx);
-                    this.apply_reopened_view(view.as_ref(), window, cx);
+                    this.open_existing_note(i, view.as_ref(), window, cx);
                     return;
                 }
                 match result {
@@ -1398,6 +1418,9 @@ impl Workspace {
             cx.notify();
             return;
         }
+        if let Some(id) = self.tabs.get(index).map(|tab| tab.id) {
+            self.document_view_changed(id, window, cx);
+        }
         self.sync_from_split(window, cx);
         let Some(tab) = self.tabs.get_mut(index) else {
             return;
@@ -1407,6 +1430,20 @@ impl Workspace {
             cx.notify();
             return;
         }
+        let document = tab.save.clone();
+        if self
+            .tabs
+            .iter()
+            .enumerate()
+            .any(|(other, tab)| other != index && std::rc::Rc::ptr_eq(&tab.save, &document))
+        {
+            self.remove_tab_view(index, window, cx);
+            return;
+        }
+        if self.promote_split_view(index, window, cx) {
+            return;
+        }
+        let tab = &self.tabs[index];
         tab.save.dirty.set(
             tab.save.baseline.borrow().as_deref()
                 != Some(tab.save.editor.read(cx).value().as_ref()),
@@ -1423,9 +1460,9 @@ impl Workspace {
             cx.notify();
             return;
         }
-        self.remove_saved_tab(index, window, cx);
+        self.remove_tab_view(index, window, cx);
     }
-    fn remove_saved_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn remove_tab_view(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let main_before = self.views.main;
         let active_id = self.active.and_then(|i| self.tabs.get(i)).map(|t| t.id);
         let removed = self.tabs.remove(index);
@@ -1437,22 +1474,23 @@ impl Workspace {
         {
             self.ui.inline_title = None;
         }
-        let closed_pane = self
-            .views
-            .split
-            .as_ref()
-            .filter(|s| s.source == removed.id && self.views.secondary_focused)
-            .map(|s| &s.pane)
-            .unwrap_or(&removed.pane);
-        let closed_view = Self::snapshot_view(removed.path.clone(), closed_pane, cx);
+        let closed_view = Self::snapshot_view(removed.path.clone(), &removed.pane, cx);
         if self
             .views
             .split
             .as_ref()
             .is_some_and(|s| s.source == removed.id)
         {
-            self.views.split = None;
-            self.views.secondary_focused = false;
+            if let Some(peer) = self
+                .tabs
+                .iter()
+                .find(|tab| std::rc::Rc::ptr_eq(&tab.save, &removed.save))
+            {
+                self.views.split.as_mut().unwrap().source = peer.id;
+            } else {
+                self.views.split = None;
+                self.views.secondary_focused = false;
+            }
         }
         self.ui.close_pending.remove(&removed.id);
         if !removed.path.as_os_str().is_empty() {
@@ -1463,6 +1501,11 @@ impl Workspace {
             .or_else(|| {
                 (!self.tabs.is_empty()).then_some(index.min(self.tabs.len().saturating_sub(1)))
             });
+        if self.views.secondary_focused
+            && let Some(split) = &self.views.split
+        {
+            self.active = self.tabs.iter().position(|tab| tab.id == split.source);
+        }
         self.views.main = main_before
             .filter(|id| self.tabs.iter().any(|t| t.id == *id))
             .or_else(|| self.active.and_then(|i| self.tabs.get(i)).map(|t| t.id));
@@ -1497,7 +1540,7 @@ impl Workspace {
             .map(|(i, _)| i)
             .collect();
         for i in ready.into_iter().rev() {
-            self.remove_saved_tab(i, window, cx);
+            self.remove_tab_view(i, window, cx);
         }
     }
     fn sync_index_ui(&mut self, cx: &mut Context<Self>) {
@@ -1842,6 +1885,138 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn closed_shared_view_reopens_without_changing_the_surviving_view(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.tabs[0].pane.update(cx, |p, cx| {
+                    p.reading = true;
+                    p.editor.update(cx, |s, cx| s.set_selected_range(3..3, cx));
+                });
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                let survivor = w.tabs[1].pane.clone();
+                survivor
+                    .read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.set_selected_range(6..6, cx));
+                w.close_tab_at(0, window, cx);
+                let editor = survivor.read(cx).editor.clone();
+                editor.update(cx, |s, cx| {
+                    s.replace_and_mark_text_in_range(None, "你", Some(1..1), window, cx)
+                });
+                w.execute_command(17, window, cx);
+                assert_eq!(w.tabs.len(), 1);
+                assert_eq!(w.ui.closed.len(), 1);
+                editor.update(cx, |s, cx| s.replace_text_in_range(None, "", window, cx));
+                w.execute_command(17, window, cx);
+                assert_eq!(w.tabs.len(), 2);
+                assert_eq!(w.tabs[0].pane.entity_id(), survivor.entity_id());
+                assert!(!survivor.read(cx).reading);
+                assert_eq!(editor.read(cx).selected_range(), 6..6);
+                assert!(w.tabs[1].pane.read(cx).reading);
+                assert_eq!(
+                    w.tabs[1].pane.read(cx).editor.read(cx).selected_range(),
+                    3..3
+                );
+                assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn closing_shared_view_keeps_dirty_document_until_last_view_saves(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-shared-close-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "原文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                w.tabs[1].pane.read(cx).editor.clone().update(cx, |s, cx| {
+                    s.set_selected_range(6..6, cx);
+                    s.replace_text_in_range(None, "X", window, cx);
+                });
+                w.tabs[0].save.conflict.set(true);
+                w.tabs[0].save.error.replace(Some("验收冲突".into()));
+                w.close_tab_at(1, window, cx);
+                assert_eq!(w.tabs.len(), 1);
+                assert_eq!(w.tabs[0].save.editor.read(cx).value(), "原文X");
+                assert!(w.tabs[0].save.dirty.get());
+                assert!(w.tabs[0].save.conflict.get());
+                w.close_tab_at(0, window, cx);
+                assert_eq!(w.tabs.len(), 1);
+                w.tabs[0].save.conflict.set(false);
+                w.tabs[0].save.error.replace(None);
+                w.close_tab_at(0, window, cx);
+                assert_eq!(w.tabs.len(), 1, "last view waits for its save");
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| assert!(w.tabs.is_empty()))
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "原文X");
+    }
+
+    #[gpui::test]
+    fn split_survives_source_view_close_and_keeps_editing_and_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for with_peer in [false, true] {
+            let handle = cx.add_window(Workspace::new);
+            let editor = handle
+                .update(cx, |w, window, cx| {
+                    w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                    if with_peer {
+                        w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+                    }
+                    w.focus_primary(0, window, cx);
+                    w.split_active(false, window, cx);
+                    let pane = w.views.split.as_ref().unwrap().pane.clone();
+                    let editor = pane.read(cx).editor.clone();
+                    pane.update(cx, |p, _| p.live = false);
+                    editor.update(cx, |s, cx| s.set_selected_range(3..3, cx));
+                    w.focus_primary(0, window, cx);
+                    w.close_tab_at(0, window, cx);
+                    assert_eq!(w.tabs.len(), 1);
+                    if with_peer {
+                        let split = w.views.split.as_ref().unwrap();
+                        assert_eq!(split.source, w.tabs[0].id);
+                        assert_eq!(split.pane.entity_id(), pane.entity_id());
+                    } else {
+                        assert!(w.views.split.is_none());
+                        assert_eq!(w.tabs[0].pane.entity_id(), pane.entity_id());
+                    }
+                    assert!(!pane.read(cx).live);
+                    assert_eq!(editor.read(cx).selected_range(), 3..3);
+                    editor.update(cx, |s, cx| s.focus(window, cx));
+                    editor
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.simulate_keystrokes("x");
+            visual.run_until_parked();
+            editor.read_with(&visual, |s, _| assert_eq!(s.value(), "原x文"));
+            handle
+                .update(&mut visual, |w, _, cx| {
+                    assert_eq!(w.tabs[0].save.editor.read(cx).value(), "原x文")
+                })
+                .unwrap();
+            visual.simulate_keystrokes("ctrl-z");
+            visual.run_until_parked();
+            editor.read_with(&visual, |s, _| assert_eq!(s.value(), "原文"));
+        }
+    }
+
     #[gpui::test]
     fn shared_document_paths_follow_rename_and_recovery_copy(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

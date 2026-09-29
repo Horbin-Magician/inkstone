@@ -379,12 +379,22 @@ impl Workspace {
         });
         let editor = pane.read(cx).editor.clone();
         let changes = cx.subscribe_in(&editor, window, move |this, editor, event, w, cx| {
-            if matches!(event, InputEvent::Change)
-                && this.views.split.as_ref().is_some_and(|s| {
-                    s.source == id && s.pane.read(cx).editor.entity_id() == editor.entity_id()
-                })
-            {
-                this.sync_from_split(w, cx);
+            if matches!(event, InputEvent::Change) {
+                if this
+                    .views
+                    .split
+                    .as_ref()
+                    .is_some_and(|s| s.pane.read(cx).editor.entity_id() == editor.entity_id())
+                {
+                    this.sync_from_split(w, cx);
+                } else if let Some(id) = this
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.pane.read(cx).editor.entity_id() == editor.entity_id())
+                    .map(|tab| tab.id)
+                {
+                    this.document_view_changed(id, w, cx);
+                }
             }
         });
         let mut counted_selection = 0..0;
@@ -397,22 +407,45 @@ impl Workspace {
                     cx.notify();
                 }
             }
-            if !this.views.secondary_focused
-                && editor.read(cx).focus_handle(cx).is_focused(w)
-                && this.views.split.as_ref().is_some_and(|s| {
-                    s.source == id && s.pane.read(cx).editor.entity_id() == editor.entity_id()
-                })
-            {
-                this.focus_secondary(cx);
+            if editor.read(cx).focus_handle(cx).is_focused(w) {
+                if this
+                    .views
+                    .split
+                    .as_ref()
+                    .is_some_and(|s| s.pane.read(cx).editor.entity_id() == editor.entity_id())
+                {
+                    if !this.views.secondary_focused {
+                        this.focus_secondary(cx);
+                    }
+                } else if let Some(index) = this
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.pane.read(cx).editor.entity_id() == editor.entity_id())
+                    && (this.views.secondary_focused || this.active != Some(index))
+                {
+                    this.focus_primary(index, w, cx);
+                }
             }
         });
-        let links = cx.subscribe_in(&pane, window, move |this, _, event, w, cx| {
-            let Some(tab) = this.tabs.iter().find(|t| t.id == id) else {
+        let links = cx.subscribe_in(&pane, window, move |this, pane, event, w, cx| {
+            let split_source = this
+                .views
+                .split
+                .as_ref()
+                .filter(|split| split.pane.entity_id() == pane.entity_id())
+                .map(|split| split.source);
+            let Some(index) = this.tabs.iter().position(|tab| {
+                Some(tab.id) == split_source || tab.pane.entity_id() == pane.entity_id()
+            }) else {
                 return;
             };
-            let from = tab.path.clone();
+            let from = this.tabs[index].path.clone();
             if !matches!(event, EditorEvent::CountsChanged) {
-                this.focus_secondary(cx);
+                if split_source.is_some() {
+                    this.focus_secondary(cx);
+                } else {
+                    this.focus_primary(index, w, cx);
+                }
             }
             match event {
                 EditorEvent::CountsChanged => cx.notify(),
@@ -531,6 +564,43 @@ impl Workspace {
             self.views.split.as_mut().unwrap().last_synced_text = after;
         }
     }
+    pub(super) fn promote_split_view(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let id = self.tabs[index].id;
+        if self.views.main != Some(id)
+            || !self
+                .views
+                .split
+                .as_ref()
+                .is_some_and(|split| split.source == id)
+        {
+            return false;
+        }
+        let split = self.views.split.take().unwrap();
+        let tab = &mut self.tabs[index];
+        let closed = Self::snapshot_view(tab.path.clone(), &tab.pane, cx);
+        if !tab.path.as_os_str().is_empty() {
+            self.ui.closed.push(ui::ClosedTab { view: closed });
+        }
+        tab.pane = split.pane;
+        tab.synced_text = split.last_synced_text;
+        tab._subscription = Some(split._changes);
+        tab._links = split._links;
+        tab._focus = split._focus;
+        self.ui.close_pending.remove(&id);
+        self.views.secondary_focused = false;
+        self.active = Some(index);
+        tab.pane.update(cx, |pane, cx| pane.focus_view(window, cx));
+        self.run_search(cx);
+        self.persist_workspace(cx);
+        cx.notify();
+        true
+    }
+
     pub(super) fn close_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self
             .views
