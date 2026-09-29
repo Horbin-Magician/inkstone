@@ -158,7 +158,7 @@ impl InputBaseState<EditorMode> {
             return false;
         };
 
-        self.go_to_definition(&location, window, cx);
+        self.show_definition(&location, Some(event.modifiers), window, cx);
 
         true
     }
@@ -166,6 +166,16 @@ impl InputBaseState<EditorMode> {
     pub(crate) fn go_to_definition(
         &mut self,
         location: &lsp_types::LocationLink,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_definition(location, None, window, cx);
+    }
+
+    fn show_definition(
+        &mut self,
+        location: &lsp_types::LocationLink,
+        modifiers: Option<gpui::Modifiers>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -177,14 +187,28 @@ impl InputBaseState<EditorMode> {
 
         // Give the host a chance to show the document first (window/showDocument),
         // e.g. to open virtual/external documents (stdlib docs) in an app window.
-        if let Some(handler) = self.extras.lsp.show_document.clone() {
+        if self.extras.lsp.show_document.is_some()
+            || self.extras.lsp.show_document_with_modifiers.is_some()
+        {
             let params = lsp_types::ShowDocumentParams {
                 uri: location.target_uri.clone(),
                 external: Some(external),
                 take_focus: Some(true),
                 selection: Some(location.target_selection_range),
             };
-            if handler(&params, window, cx) {
+            if self
+                .extras
+                .lsp
+                .show_document_with_modifiers
+                .clone()
+                .is_some_and(|handler| handler(&params, modifiers, window, cx))
+                || self
+                    .extras
+                    .lsp
+                    .show_document
+                    .clone()
+                    .is_some_and(|handler| handler(&params, window, cx))
+            {
                 return;
             }
         }

@@ -135,6 +135,7 @@ impl Workspace {
     pub(super) fn follow_reference(
         &mut self,
         reference: inkstone::rendering::Reference,
+        new_tab: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -156,9 +157,9 @@ impl Workspace {
                 cx.notify();
                 return;
             }
-            self.follow_link(reference.from, reference.target, window, cx);
+            self.follow_link(reference.from, reference.target, new_tab, window, cx);
         } else {
-            self.follow_markdown_link(reference.from, &reference.target, window, cx);
+            self.follow_markdown_link(reference.from, &reference.target, new_tab, window, cx);
         }
     }
     pub(super) fn toggle_referenced_task(

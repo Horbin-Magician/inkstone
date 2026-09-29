@@ -859,8 +859,20 @@ impl Workspace {
         self.open_note_target(path, view, false, window, cx);
     }
 
-    fn open_link_note(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_note_target(path, None, self.current_view_pinned(), window, cx);
+    fn open_link_note(
+        &mut self,
+        path: PathBuf,
+        new_tab: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_note_target(
+            path,
+            None,
+            new_tab || self.current_view_pinned(),
+            window,
+            cx,
+        );
     }
 
     fn open_note_target(
@@ -1003,20 +1015,38 @@ impl Workspace {
                     EditorEvent::FollowLink(_)
                         | EditorEvent::FollowMarkdownLink(_)
                         | EditorEvent::FollowReference(_)
+                        | EditorEvent::FollowLinkInNewTab(_)
+                        | EditorEvent::FollowMarkdownLinkInNewTab(_)
+                        | EditorEvent::FollowReferenceInNewTab(_)
                 ) {
                     this.focus_primary(index, window, cx);
                 }
                 match event {
                     EditorEvent::CountsChanged => cx.notify(),
-                    EditorEvent::FollowLink(target) => {
-                        this.follow_link(from, target.clone(), window, cx)
+                    EditorEvent::FollowLink(target) | EditorEvent::FollowLinkInNewTab(target) => {
+                        this.follow_link(
+                            from,
+                            target.clone(),
+                            matches!(event, EditorEvent::FollowLinkInNewTab(_)),
+                            window,
+                            cx,
+                        )
                     }
-                    EditorEvent::FollowMarkdownLink(target) => {
-                        this.follow_markdown_link(from, target, window, cx)
-                    }
-                    EditorEvent::FollowReference(reference) => {
-                        this.follow_reference(reference.clone(), window, cx)
-                    }
+                    EditorEvent::FollowMarkdownLink(target)
+                    | EditorEvent::FollowMarkdownLinkInNewTab(target) => this.follow_markdown_link(
+                        from,
+                        target,
+                        matches!(event, EditorEvent::FollowMarkdownLinkInNewTab(_)),
+                        window,
+                        cx,
+                    ),
+                    EditorEvent::FollowReference(reference)
+                    | EditorEvent::FollowReferenceInNewTab(reference) => this.follow_reference(
+                        reference.clone(),
+                        matches!(event, EditorEvent::FollowReferenceInNewTab(_)),
+                        window,
+                        cx,
+                    ),
                     EditorEvent::ToggleTask(target, checked) => {
                         this.toggle_referenced_task(target.clone(), *checked, window, cx)
                     }
@@ -1797,6 +1827,7 @@ impl Workspace {
         &mut self,
         from: PathBuf,
         href: &str,
+        new_tab: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1839,7 +1870,7 @@ impl Workspace {
                 {
                     self.pending_jump = Some((path.clone(), range.start));
                 }
-                self.open_link_note(path, window, cx);
+                self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
             }
             Resolution::Missing(path) => {
@@ -1856,6 +1887,7 @@ impl Workspace {
         &mut self,
         from: PathBuf,
         target: String,
+        new_tab: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1866,14 +1898,14 @@ impl Workspace {
                 {
                     self.pending_jump = Some((path.clone(), range.start));
                 }
-                self.open_link_note(path, window, cx);
+                self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
             }
             Resolution::Missing(path) => {
                 if self.tabs.iter().any(|t| t.path == path) {
-                    self.open_link_note(path, window, cx);
+                    self.open_link_note(path, new_tab, window, cx);
                 } else {
-                    if self.current_view_pinned() {
+                    if new_tab || self.current_view_pinned() {
                         self.views.secondary_focused = false;
                     }
                     self.add_tab(path, None, true, window, cx);
@@ -1973,6 +2005,61 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn explicit_new_tab_link_events_open_unpinned_targets_independently(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let source = handle
+            .update(cx, |w, window, cx| {
+                let mut index = Index::default();
+                index.update("a.md".into(), "source".into());
+                index.update("b.md".into(), "intro\n\n# Target\nbody".into());
+                w.index = Arc::new(index);
+                w.add_tab("a.md".into(), Some("source".into()), false, window, cx);
+                let source = w.tabs[0].pane.clone();
+                w.add_tab(
+                    "b.md".into(),
+                    Some("intro\n\n# Target\nbody".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                source
+            })
+            .unwrap();
+        for (i, event) in [
+            EditorEvent::FollowLinkInNewTab("b#Target".into()),
+            EditorEvent::FollowMarkdownLinkInNewTab("b.md#Target".into()),
+            EditorEvent::FollowReferenceInNewTab(inkstone::rendering::Reference {
+                from: "a.md".into(),
+                target: "b#Target".into(),
+                wiki: true,
+            }),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            source.update(cx, |_, cx| cx.emit(event));
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, _, cx| {
+                    assert_eq!(w.tabs.len(), 3 + i);
+                    assert_eq!(w.active, Some(2 + i));
+                    assert!(!w.tabs[0].pinned);
+                    assert!(std::rc::Rc::ptr_eq(&w.tabs[1].save, &w.tabs[2 + i].save));
+                    assert_eq!(
+                        w.tabs[1].pane.read(cx).editor.read(cx).selected_range(),
+                        0..0
+                    );
+                    assert_eq!(
+                        w.tabs[2 + i].pane.read(cx).editor.read(cx).selected_range(),
+                        7..7
+                    );
+                })
+                .unwrap();
+        }
+    }
+
+    #[gpui::test]
     fn pinned_link_opens_an_independent_target_and_keeps_existing_selection(
         cx: &mut TestAppContext,
     ) {
@@ -2054,7 +2141,7 @@ mod tests {
                 w.split_active(false, window, cx);
                 w.execute_command(27, window, cx);
                 let source = w.views.split.as_ref().unwrap().pane.entity_id();
-                w.follow_markdown_link("a.md".into(), "b.md#Target", window, cx);
+                w.follow_markdown_link("a.md".into(), "b.md#Target", false, window, cx);
                 assert!(w.views.secondary_focused);
                 source
             })
@@ -5968,7 +6055,7 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |workspace, window, cx| {
-                workspace.follow_link("来源.md".into(), "目标".into(), window, cx)
+                workspace.follow_link("来源.md".into(), "目标".into(), false, window, cx)
             })
             .unwrap();
         cx.run_until_parked();

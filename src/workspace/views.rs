@@ -521,13 +521,29 @@ impl Workspace {
             }
             match event {
                 EditorEvent::CountsChanged => cx.notify(),
-                EditorEvent::FollowLink(target) => this.follow_link(from, target.clone(), w, cx),
-                EditorEvent::FollowMarkdownLink(target) => {
-                    this.follow_markdown_link(from, target, w, cx)
-                }
-                EditorEvent::FollowReference(reference) => {
-                    this.follow_reference(reference.clone(), w, cx)
-                }
+                EditorEvent::FollowLink(target) | EditorEvent::FollowLinkInNewTab(target) => this
+                    .follow_link(
+                        from,
+                        target.clone(),
+                        matches!(event, EditorEvent::FollowLinkInNewTab(_)),
+                        w,
+                        cx,
+                    ),
+                EditorEvent::FollowMarkdownLink(target)
+                | EditorEvent::FollowMarkdownLinkInNewTab(target) => this.follow_markdown_link(
+                    from,
+                    target,
+                    matches!(event, EditorEvent::FollowMarkdownLinkInNewTab(_)),
+                    w,
+                    cx,
+                ),
+                EditorEvent::FollowReference(reference)
+                | EditorEvent::FollowReferenceInNewTab(reference) => this.follow_reference(
+                    reference.clone(),
+                    matches!(event, EditorEvent::FollowReferenceInNewTab(_)),
+                    w,
+                    cx,
+                ),
                 EditorEvent::ToggleTask(target, checked) => {
                     this.toggle_referenced_task(target.clone(), *checked, w, cx)
                 }

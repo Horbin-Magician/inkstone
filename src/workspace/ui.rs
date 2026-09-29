@@ -2611,16 +2611,19 @@ impl Workspace {
                                     .text_color(rgb(0xa88bfa))
                                     .cursor_pointer()
                                     .child(link.label)
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        if let Some(from) = &from {
-                                            this.follow_link(
-                                                from.clone(),
-                                                link.target.clone(),
-                                                w,
-                                                cx,
-                                            );
-                                        }
-                                    }))
+                                    .on_click(cx.listener(
+                                        move |this, event: &ClickEvent, w, cx| {
+                                            if let Some(from) = &from {
+                                                this.follow_link(
+                                                    from.clone(),
+                                                    link.target.clone(),
+                                                    event.modifiers().secondary(),
+                                                    w,
+                                                    cx,
+                                                );
+                                            }
+                                        },
+                                    ))
                             }))
                     })
                     .when(self.ui.right_mode == 4, |s| {

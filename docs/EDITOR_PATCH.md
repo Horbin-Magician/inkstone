@@ -133,6 +133,12 @@
 - 依赖固定为 `unicode-normalization 0.1.25`，使用其 [NFKD 接口](https://docs.rs/unicode-normalization/0.1.25/unicode_normalization/trait.UnicodeNormalization.html#tymethod.nfkd)，根锁文件只新增此包。
 - 搜索可从原文的指定位置开始，兼容字符的重叠映射去重；调用方继续检查字素边界和整词规则。
 
+## 链接点击修饰键
+
+- LSP 文档打开增加可选 `show_document_with_modifiers` 主机回调；鼠标定义跳转传入原事件修饰键，键盘跳转传入 None。
+- 新回调优先，未处理时仍调用已有 `show_document`，保持原有主机扩展路径。
+- 应用按实时预览/源码模式解释新标签意图，阅读链接使用 ClickEvent 的修饰键，工作区统一执行目标打开和标题跳转。
+
 ## 命令触发补全
 
 - `input/editor/lsp/completions.rs` 增加显式 `request_completions`，使用 LSP Invoked 触发类型，不伪造键入字符，并清除旧触发位置。

@@ -11,10 +11,13 @@ mod footnotes;
 pub enum EditorEvent {
     CountsChanged,
     FollowLink(String),
+    FollowLinkInNewTab(String),
     FollowMarkdownLink(String),
+    FollowMarkdownLinkInNewTab(String),
     PasteFiles(Vec<PathBuf>),
     PasteImage(String, Vec<u8>),
     FollowReference(inkstone::rendering::Reference),
+    FollowReferenceInNewTab(inkstone::rendering::Reference),
     ToggleTask(inkstone::rendering::TaskTarget, bool),
 }
 impl EventEmitter<EditorEvent> for EditorPane {}
@@ -617,29 +620,38 @@ impl EditorPane {
                 path_cache.clone(),
                 Some(editor.downgrade()),
             )));
-            state.lsp_mut().show_document = Some(Rc::new(move |params, window, cx| {
-                if let Some(offset) = params
-                    .uri
-                    .as_str()
-                    .strip_prefix("inkstone-footnote:")
-                    .and_then(|s| s.parse::<usize>().ok())
-                {
-                    let weak = weak.clone();
-                    window.defer(cx, move |window, cx| {
-                        let _ = weak.update(cx, |this, cx| {
-                            this.editor
-                                .update(cx, |s, cx| s.set_selected_range(offset..offset, cx));
-                            this.open_footnote(window, cx);
+            state.lsp_mut().show_document_with_modifiers =
+                Some(Rc::new(move |params, modifiers, window, cx| {
+                    if let Some(offset) = params
+                        .uri
+                        .as_str()
+                        .strip_prefix("inkstone-footnote:")
+                        .and_then(|s| s.parse::<usize>().ok())
+                    {
+                        let weak = weak.clone();
+                        window.defer(cx, move |window, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.editor
+                                    .update(cx, |s, cx| s.set_selected_range(offset..offset, cx));
+                                this.open_footnote(window, cx);
+                            });
+                        });
+                        return true;
+                    }
+                    let Some(target) = editor_links::decode_uri(&params.uri.to_string()) else {
+                        return false;
+                    };
+                    let _ = weak.update(cx, |this, cx| {
+                        let new_tab = modifiers
+                            .is_some_and(|keys| keys.secondary() && (this.live || keys.shift));
+                        cx.emit(if new_tab {
+                            EditorEvent::FollowLinkInNewTab(target)
+                        } else {
+                            EditorEvent::FollowLink(target)
                         });
                     });
-                    return true;
-                }
-                let Some(target) = editor_links::decode_uri(&params.uri.to_string()) else {
-                    return false;
-                };
-                let _ = weak.update(cx, |_, cx| cx.emit(EditorEvent::FollowLink(target)));
-                true
-            }));
+                    true
+                }));
         });
         editor.update(cx, |state, cx| state.focus(window, cx));
         Self {
@@ -1056,6 +1068,7 @@ impl Render for EditorPane {
                 if event.is_right_click() {
                     return;
                 }
+                let new_tab = event.modifiers().secondary();
                 let _ = weak.update(cx, |this, cx| {
                     if let Some(id) = url
                         .strip_prefix("inkstone-reference:")
@@ -1067,7 +1080,11 @@ impl Render for EditorPane {
                             {
                                 cx.open_url(&reference.target);
                             } else {
-                                cx.emit(EditorEvent::FollowReference(reference));
+                                cx.emit(if new_tab {
+                                    EditorEvent::FollowReferenceInNewTab(reference)
+                                } else {
+                                    EditorEvent::FollowReference(reference)
+                                });
                             }
                         }
                     } else if let Some(index) = url
@@ -1075,12 +1092,20 @@ impl Render for EditorPane {
                         .and_then(|i| i.parse::<usize>().ok())
                     {
                         if let Some(link) = this.parsed.links.get(index) {
-                            cx.emit(EditorEvent::FollowLink(link.target.clone()));
+                            cx.emit(if new_tab {
+                                EditorEvent::FollowLinkInNewTab(link.target.clone())
+                            } else {
+                                EditorEvent::FollowLink(link.target.clone())
+                            });
                         }
                     } else if inkstone::rendering::is_external_link(url) {
                         cx.open_url(url);
                     } else {
-                        cx.emit(EditorEvent::FollowMarkdownLink(url.to_string()));
+                        cx.emit(if new_tab {
+                            EditorEvent::FollowMarkdownLinkInNewTab(url.to_string())
+                        } else {
+                            EditorEvent::FollowMarkdownLink(url.to_string())
+                        });
                     }
                 });
             });
@@ -1557,50 +1582,63 @@ mod tests {
     #[gpui::test]
     fn callout_title_link_keeps_original_reference(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
-        for source in [
-            "> [!note] [go](other.md)\n> body",
-            "> [!note] [go][ref]\n> body\n\n[ref]: other.md",
-            "> [!note] [go][ref]\n> body\n\n[ref]: other.md\n[ref]: wrong.md",
-        ] {
-            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
-            let received = Rc::new(RefCell::new(Vec::new()));
-            let capture = received.clone();
-            let _subscription = handle
-                .update(cx, |p, w, cx| {
-                    p.reading = true;
-                    p.update_presentation(cx);
-                    p.focus_view(w, cx);
-                    cx.subscribe(&cx.entity(), move |_, _, event: &EditorEvent, _| {
-                        if let EditorEvent::FollowReference(r) = event {
-                            capture.borrow_mut().push(r.clone());
-                        }
+        for new_tab in [false, true] {
+            for source in [
+                "> [!note] [go](other.md)\n> body",
+                "> [!note] [go][ref]\n> body\n\n[ref]: other.md",
+                "> [!note] [go][ref]\n> body\n\n[ref]: other.md\n[ref]: wrong.md",
+            ] {
+                let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+                let received = Rc::new(RefCell::new(Vec::new()));
+                let capture = received.clone();
+                let _subscription = handle
+                    .update(cx, |p, w, cx| {
+                        p.reading = true;
+                        p.update_presentation(cx);
+                        p.focus_view(w, cx);
+                        cx.subscribe(
+                            &cx.entity(),
+                            move |_, _, event: &EditorEvent, _| match event {
+                                EditorEvent::FollowReference(r) => {
+                                    capture.borrow_mut().push((r.clone(), false))
+                                }
+                                EditorEvent::FollowReferenceInNewTab(r) => {
+                                    capture.borrow_mut().push((r.clone(), true))
+                                }
+                                _ => (),
+                            },
+                        )
                     })
-                })
-                .unwrap();
-            cx.run_until_parked();
-            let mut visual = VisualTestContext::from_window(handle.into(), cx);
-            visual.simulate_resize(size(px(900.), px(650.)));
-            visual.update(|w, cx| w.draw(cx).clear(cx));
-            visual.run_until_parked();
-            visual.update(|w, cx| w.draw(cx).clear(cx));
-            let bounds = handle
-                .update(&mut visual, |p, _, cx| p.reading_bounds(cx))
-                .unwrap();
-            visual.simulate_click(
-                bounds.origin + point(px(52.), px(24.)),
-                Modifiers::default(),
-            );
-            let diagnostic = handle
-                .update(&mut visual, |p, _, cx| {
-                    format!(
-                        "{} => {}",
-                        p.rendered.markdown,
-                        p.preview.read(cx).rendered_text().as_str()
-                    )
-                })
-                .unwrap();
-            assert_eq!(received.borrow().len(), 1, "{source}; {diagnostic}");
-            assert_eq!(received.borrow()[0].target, "other.md");
+                    .unwrap();
+                cx.run_until_parked();
+                let mut visual = VisualTestContext::from_window(handle.into(), cx);
+                visual.simulate_resize(size(px(900.), px(650.)));
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+                visual.run_until_parked();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+                let bounds = handle
+                    .update(&mut visual, |p, _, cx| p.reading_bounds(cx))
+                    .unwrap();
+                visual.simulate_click(
+                    bounds.origin + point(px(52.), px(24.)),
+                    Modifiers {
+                        control: new_tab,
+                        ..Modifiers::default()
+                    },
+                );
+                let diagnostic = handle
+                    .update(&mut visual, |p, _, cx| {
+                        format!(
+                            "{} => {}",
+                            p.rendered.markdown,
+                            p.preview.read(cx).rendered_text().as_str()
+                        )
+                    })
+                    .unwrap();
+                assert_eq!(received.borrow().len(), 1, "{source}; {diagnostic}");
+                assert_eq!(received.borrow()[0].0.target, "other.md");
+                assert_eq!(received.borrow()[0].1, new_tab);
+            }
         }
     }
     #[gpui::test]
@@ -3972,49 +4010,67 @@ mod tests {
     #[gpui::test]
     fn ctrl_hover_click_emits_wiki_target_without_changing_source(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
-        let source = "中文😀 [[目录/笔记|标签]]";
-        let handle = cx.add_window(|window, cx| EditorPane::new(source, window, cx));
-        let targets = Rc::new(RefCell::new(Vec::new()));
-        let captured = targets.clone();
-        let _subscription = handle
-            .update(cx, |pane, _, cx| {
-                pane.editor.update(cx, |state, cx| {
-                    let offset = "中文😀 [[目".len();
-                    state.set_selected_range(offset..offset, cx);
-                });
-                cx.subscribe(&cx.entity(), move |_, _, event: &EditorEvent, _| {
-                    if let EditorEvent::FollowLink(target) = event {
-                        captured.borrow_mut().push(target.clone());
-                    }
+        for (live, shift, new_tab) in [
+            (true, false, true),
+            (false, false, false),
+            (false, true, true),
+        ] {
+            let source = "中文😀 [[目录/笔记|标签]]";
+            let handle = cx.add_window(|window, cx| EditorPane::new(source, window, cx));
+            let targets = Rc::new(RefCell::new(Vec::new()));
+            let captured = targets.clone();
+            let _subscription = handle
+                .update(cx, |pane, _, cx| {
+                    pane.live = live;
+                    pane.editor.update(cx, |state, cx| {
+                        let offset = "中文😀 [[目".len();
+                        state.set_selected_range(offset..offset, cx);
+                    });
+                    cx.subscribe(
+                        &cx.entity(),
+                        move |_, _, event: &EditorEvent, _| match event {
+                            EditorEvent::FollowLink(target) => {
+                                captured.borrow_mut().push((target.clone(), false))
+                            }
+                            EditorEvent::FollowLinkInNewTab(target) => {
+                                captured.borrow_mut().push((target.clone(), true))
+                            }
+                            _ => (),
+                        },
+                    )
                 })
-            })
-            .unwrap();
-        let mut visual = VisualTestContext::from_window(handle.into(), cx);
-        visual.simulate_resize(size(px(1100.), px(800.)));
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        let position = handle
-            .update(&mut visual, |pane, _, cx| {
-                let state = pane.editor.read(cx);
-                let (caret, _) = state.cursor_layout().unwrap();
-                caret.origin + state.scroll_offset() + point(px(1.), px(5.))
-            })
-            .unwrap();
-        let modifiers = Modifiers {
-            control: true,
-            ..Default::default()
-        };
-        visual.simulate_mouse_move(position, None, modifiers);
-        visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        visual.simulate_click(position, modifiers);
-        assert_eq!(targets.borrow().as_slice(), &["目录/笔记"]);
-        handle
-            .update(&mut visual, |pane, _, cx| {
-                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
-            })
-            .unwrap();
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.simulate_resize(size(px(1100.), px(800.)));
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let position = handle
+                .update(&mut visual, |pane, _, cx| {
+                    let state = pane.editor.read(cx);
+                    let (caret, _) = state.cursor_layout().unwrap();
+                    caret.origin + state.scroll_offset() + point(px(1.), px(5.))
+                })
+                .unwrap();
+            let modifiers = Modifiers {
+                control: true,
+                shift,
+                ..Default::default()
+            };
+            visual.simulate_mouse_move(position, None, modifiers);
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.simulate_click(position, modifiers);
+            assert_eq!(
+                targets.borrow().as_slice(),
+                &[("目录/笔记".to_string(), new_tab)]
+            );
+            handle
+                .update(&mut visual, |pane, _, cx| {
+                    assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+                })
+                .unwrap();
+        }
     }
 
     #[gpui::test]
