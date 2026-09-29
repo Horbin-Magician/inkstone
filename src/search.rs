@@ -18,15 +18,46 @@ struct Term {
     exclude: bool,
 }
 impl Pattern {
+    fn visit_offsets(&self, text: &str, mut visit: impl FnMut(usize) -> bool) {
+        match self {
+            Self::Regex(regex) => {
+                for found in regex.find_iter(text) {
+                    if !found.is_empty() && !visit(found.start()) {
+                        break;
+                    }
+                }
+            }
+            Self::Text(needle) => {
+                let lower = text.to_lowercase();
+                let mut chars = text.char_indices();
+                let (mut lower_end, mut original) = (0, 0);
+                for (offset, _) in lower.match_indices(needle) {
+                    while lower_end <= offset {
+                        let Some((start, ch)) = chars.next() else {
+                            return;
+                        };
+                        original = start;
+                        lower_end += ch.to_lowercase().map(char::len_utf8).sum::<usize>();
+                    }
+                    if !visit(original) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
     fn matches(&self, text: &str) -> bool {
         match self {
             Self::Text(s) => text.to_lowercase().contains(s),
-            Self::Regex(r) => r.is_match(text),
+            Self::Regex(r) => r.find_iter(text).any(|found| !found.is_empty()),
         }
     }
     fn first_offset(&self, text: &str) -> Option<usize> {
         match self {
-            Self::Regex(regex) => regex.find(text).map(|m| m.start()),
+            Self::Regex(regex) => regex
+                .find_iter(text)
+                .find(|found| !found.is_empty())
+                .map(|m| m.start()),
             Self::Text(needle) => {
                 let offset = text.to_lowercase().find(needle)?;
                 let mut lower_offset = 0;
@@ -55,7 +86,7 @@ impl Term {
                 Pattern::Text(s) => {
                     tag.to_lowercase() == *s || tag.to_lowercase().starts_with(&format!("{s}/"))
                 }
-                Pattern::Regex(r) => r.is_match(tag),
+                Pattern::Regex(r) => r.find_iter(tag).any(|found| !found.is_empty()),
             }),
         };
         found != self.exclude
@@ -139,6 +170,7 @@ impl Query {
                 Pattern::Regex(
                     RegexBuilder::new(&value[1..value.len() - 1])
                         .case_insensitive(true)
+                        .multi_line(true)
                         .size_limit(2 * 1024 * 1024)
                         .build()
                         .map_err(|e| format!("无效的正则表达式：{e}"))?,
@@ -190,32 +222,63 @@ impl Query {
         if patterns.is_empty() || limit == 0 {
             return vec![];
         }
-        let mut matches = vec![];
-        let mut start = 0;
-        for (line, content) in text.split_inclusive('\n').enumerate() {
-            if let Some(offset) = patterns
-                .iter()
-                .filter_map(|pattern| pattern.first_offset(content))
-                .min()
-            {
-                matches.push(LineMatch {
-                    offset: start + offset,
-                    line: line + 1,
-                    range: start..start + content.len(),
-                });
-                if matches.len() == limit {
-                    break;
+        let starts: Vec<_> = std::iter::once(0)
+            .chain(
+                text.bytes()
+                    .enumerate()
+                    .filter_map(|(i, byte)| (byte == b'\n').then_some(i + 1)),
+            )
+            .collect();
+        let mut matches = std::collections::BTreeMap::<usize, usize>::new();
+        for pattern in patterns {
+            pattern.visit_offsets(text, |offset| {
+                let line = starts.partition_point(|start| *start <= offset) - 1;
+                if matches.len() == limit
+                    && matches
+                        .last_key_value()
+                        .is_some_and(|(last, _)| line > *last)
+                {
+                    return false;
                 }
-            }
-            start += content.len();
+                matches
+                    .entry(line)
+                    .and_modify(|old| *old = (*old).min(offset))
+                    .or_insert(offset);
+                if matches.len() > limit {
+                    matches.pop_last();
+                }
+                true
+            });
         }
         matches
+            .into_iter()
+            .map(|(line, offset)| LineMatch {
+                offset,
+                line: line + 1,
+                range: starts[line]..starts.get(line + 1).copied().unwrap_or(text.len()),
+            })
+            .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn line_matching_limit_counts_lines_and_keeps_earliest_across_terms() {
+        let text = format!("early İx\n{}\nlate\n", "word ".repeat(300));
+        let query = Query::parse("late OR x OR word").unwrap();
+        let matches = query.matching_lines(Path::new("note"), &text, &[], 2);
+        assert_eq!(matches.iter().map(|m| m.line).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!(matches[0].offset, "early İ".len());
+        assert_eq!(
+            Query::parse("word OR late")
+                .unwrap()
+                .matching_lines(Path::new("note"), &text, &[], 2)
+                .len(),
+            2
+        );
+    }
     #[test]
     fn first_match_uses_original_bytes_and_matching_boolean_branches() {
         let path = Path::new("note.md");
