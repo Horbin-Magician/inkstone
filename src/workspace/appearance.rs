@@ -185,7 +185,6 @@ impl Workspace {
                                 .checked(self.ui.prefs.show_view_header)
                                 .on_click(cx.listener(|this, enabled: &bool, _, cx| {
                                     this.ui.prefs.show_view_header = *enabled;
-                                    this.ui.more = false;
                                     this.persist_workspace(cx);
                                     cx.notify();
                                 })),
