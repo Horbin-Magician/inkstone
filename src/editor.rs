@@ -1540,6 +1540,50 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn html_scripts_and_details_render_copy_and_fold_without_editing_source(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let source = "H<sub>2</sub>O and x<sup>**2**</sup> <kbd>Ctrl</kbd>\n\n<details><summary>展开</summary><p>中文正文</p></details>\n\n<details open><summary>展开</summary><p>第二正文</p></details>";
+        let handle = cx.add_window(|w, cx| {
+            let mut p = EditorPane::new(source, w, cx);
+            p.reading = true;
+            p
+        });
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..6 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |p, _, cx| {
+                p.preview.update(cx, |s, cx| {
+                    s.select_all(cx);
+                    let copied = s.selected_text();
+                    assert!(copied.contains("H2O"), "{copied}");
+                    assert!(copied.contains("Ctrl"));
+                    assert!(!copied.contains("<sup>") && !copied.contains("**2**"));
+                    assert_eq!(s.callout_states().len(), 0);
+                });
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+        let offset = source.find("<details>").unwrap();
+        let selector = Box::leak(format!("callout-fold-{offset}").into_boxed_str());
+        let button = visual.debug_bounds(selector).unwrap();
+        visual.simulate_click(button.center(), Modifiers::default());
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(
+                    p.preview.read(cx).callout_states().values().next(),
+                    Some(&false)
+                );
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn live_edits_present_current_syntax_before_background_reading(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "# PLACE\n\n**粗体** [[目标|别名]]\n\n- [x] 完成任务\n\n> 引用\n\n---\n\n正文";

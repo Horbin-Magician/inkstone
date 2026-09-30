@@ -132,6 +132,122 @@ impl Snapshot {
     }
 }
 
+/// Attribute destinations in real HTML nodes. A small attribute lexer avoids
+/// treating quoted titles, comments, or script strings as links.
+pub fn html_destinations(ast: &Node, source: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    fn attributes(raw: &str, base: usize, out: &mut Vec<(std::ops::Range<usize>, String)>) {
+        let lower = raw.to_ascii_lowercase();
+        let bytes = raw.as_bytes();
+        let mut cursor = 0;
+        while let Some(relative) = raw[cursor..].find('<') {
+            let open = cursor + relative;
+            if raw[open..].starts_with("<!--") {
+                cursor = raw[open..]
+                    .find("-->")
+                    .map_or(raw.len(), |end| open + end + 3);
+                continue;
+            }
+            let mut i = open + 1;
+            if bytes.get(i) == Some(&b'/') {
+                i += 1;
+            }
+            let name_start = i;
+            while bytes.get(i).is_some_and(u8::is_ascii_alphanumeric) {
+                i += 1;
+            }
+            let tag = &lower[name_start..i];
+            if matches!(tag, "script" | "style") {
+                cursor = lower[i..]
+                    .find(&format!("</{tag}"))
+                    .map_or(raw.len(), |n| i + n + 2 + tag.len());
+                continue;
+            }
+            while i < bytes.len() && bytes[i] != b'>' {
+                while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                    i += 1;
+                }
+                let start = i;
+                while bytes
+                    .get(i)
+                    .is_some_and(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b':'))
+                {
+                    i += 1;
+                }
+                if start == i {
+                    i += 1;
+                    continue;
+                }
+                let attr = &lower[start..i];
+                while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                    i += 1;
+                }
+                if bytes.get(i) != Some(&b'=') {
+                    continue;
+                }
+                i += 1;
+                while bytes.get(i).is_some_and(u8::is_ascii_whitespace) {
+                    i += 1;
+                }
+                let quote = bytes.get(i).copied().filter(|b| matches!(b, b'\'' | b'"'));
+                if quote.is_some() {
+                    i += 1;
+                }
+                let value_start = i;
+                while bytes.get(i).is_some_and(|b| {
+                    if let Some(q) = quote {
+                        *b != q
+                    } else {
+                        !b.is_ascii_whitespace() && *b != b'>'
+                    }
+                }) {
+                    i += 1;
+                }
+                if value_start < i
+                    && ((tag == "a" && attr == "href") || (tag == "img" && attr == "src"))
+                {
+                    let value = &raw[value_start..i];
+                    let parsed =
+                        markdown_parser::to_mdast(&format!("[x](<{value}>)"), &options()).ok();
+                    let decoded = parsed
+                        .as_ref()
+                        .and_then(Node::children)
+                        .and_then(|n| n.first())
+                        .and_then(Node::children)
+                        .and_then(|n| n.first())
+                        .and_then(|n| {
+                            if let Node::Link(link) = n {
+                                Some(link.url.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or_else(|| value.into());
+                    out.push((base + value_start..base + i, decoded));
+                }
+                if quote.is_some() && i < bytes.len() {
+                    i += 1;
+                }
+            }
+            cursor = (i + 1).min(raw.len());
+        }
+    }
+    fn walk(node: &Node, source: &str, out: &mut Vec<(std::ops::Range<usize>, String)>) {
+        if let Node::Html(html) = node
+            && let Some(p) = &html.position
+        {
+            attributes(&source[p.start.offset..p.end.offset], p.start.offset, out);
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                walk(child, source, out);
+            }
+        }
+    }
+    let mut out = vec![];
+    walk(ast, source, &mut out);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

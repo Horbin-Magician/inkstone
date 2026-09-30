@@ -181,6 +181,11 @@ impl Builder<'_> {
             snapshot
         };
         let parsed = index::parse_snapshot(&snapshot);
+        let html_destinations = snapshot
+            .ast
+            .as_deref()
+            .map(|ast| crate::syntax::html_destinations(ast, &snapshot.structural))
+            .unwrap_or_default();
         let mut actions: Vec<_> = parsed
             .comments
             .iter()
@@ -285,6 +290,11 @@ impl Builder<'_> {
         for (range, url) in parsed.destinations {
             actions.push((range, Action::Destination(url)));
         }
+        actions.extend(
+            html_destinations
+                .into_iter()
+                .map(|(range, url)| (range, Action::Destination(url))),
+        );
         for span in crate::markdown::spans_snapshot(&snapshot)
             .into_iter()
             .filter(|s| s.kind == crate::markdown::Kind::Highlight)
@@ -561,6 +571,26 @@ pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn html_links_and_images_keep_source_context_and_ignore_quoted_fake_attributes() {
+        let source = r#"<div title="href='fake.md'"><a title="> title" href="真实.md?x=1&amp;y=2">跳转</a><img src='图 片.png'></div>
+<script>const x = '<a href="bad.md">';</script>
+<a href="after.md">after</a>"#;
+        let document = reading_document(&Index::default(), Path::new("子目录/note.md"), source);
+        assert_eq!(document.references.len(), 3, "{:?}", document.references);
+        assert_eq!(document.references[0].target, "真实.md?x=1&y=2");
+        assert_eq!(document.references[1].target, "图 片.png");
+        assert_eq!(document.references[2].target, "after.md");
+        assert!(
+            document
+                .references
+                .iter()
+                .all(|r| r.from == Path::new("子目录/note.md"))
+        );
+        assert!(document.markdown.contains("href=\"inkstone-reference:0\""));
+        assert!(document.markdown.contains("src='inkstone-reference:1'"));
+        assert!(document.source_matches(Path::new("子目录/note.md"), source));
+    }
     #[test]
     fn inline_footnotes_convert_only_for_display_and_keep_body_links_and_source_mapping() {
         let source = "A^[短] B[^long] C^[**文字** [链接](target.md)]\r\n\r\n[^long]: named\r\n";

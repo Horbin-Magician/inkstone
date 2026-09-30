@@ -348,6 +348,7 @@ fn shift_positions(node: &mut Node, origin: &Point) {
 enum InlineGroup<'a> {
     Node(&'a Node),
     Marked(TextMark, &'a [Node]),
+    Script(bool, &'a [Node], Range<usize>, Range<usize>),
 }
 
 /// CommonMark hands each raw inline tag over as its own `Html` node, so
@@ -359,6 +360,20 @@ fn inline_groups(children: &[Node]) -> Vec<InlineGroup<'_>> {
     let mut groups = Vec::with_capacity(children.len());
     let mut ix = 0;
     while ix < children.len() {
+        if let Some((false, name)) = inline_html_tag(&children[ix])
+            && matches!(name.as_str(), "sup" | "sub")
+            && let Some(close) = matching_close_tag(children, ix, &name)
+            && let (Some(open), Some(end)) = (children[ix].position(), children[close].position())
+        {
+            groups.push(InlineGroup::Script(
+                name == "sub",
+                &children[ix + 1..close],
+                open.start.offset..end.end.offset,
+                open.end.offset..end.start.offset,
+            ));
+            ix = close + 1;
+            continue;
+        }
         if let Some((false, name)) = inline_html_tag(&children[ix])
             && let Some(mark) = inline_html_mark(&name)
             && let Some(close) = matching_close_tag(children, ix, &name)
@@ -399,6 +414,8 @@ fn inline_html_mark(name: &str) -> Option<TextMark> {
         "em" | "i" => TextMark::default().italic(),
         "u" => TextMark::default().underline(),
         "s" | "del" | "strike" => TextMark::default().strikethrough(),
+        "code" | "kbd" => TextMark::default().code(),
+        "mark" => TextMark::default().highlight(gpui::rgb(0xfef08a).into()),
         _ => return None,
     })
 }
@@ -437,8 +454,45 @@ fn parse_inline_children(
                     source, paragraph, nodes, mark, cx,
                 ));
             }
+            InlineGroup::Script(sub, nodes, range, inner) => {
+                text.push_str(&parse_script(
+                    source, paragraph, nodes, sub, range, inner, cx,
+                ));
+            }
         }
     }
+    text
+}
+
+fn parse_script(
+    source: &str,
+    paragraph: &mut Paragraph,
+    children: &[Node],
+    sub: bool,
+    range: Range<usize>,
+    inner: Range<usize>,
+    cx: &mut NodeContext,
+) -> String {
+    let mut body = Paragraph::default();
+    let text = parse_inline_children(source, &mut body, children, cx);
+    let mut node = crate::text::MarkdownNode::new(
+        if sub {
+            "__gpui_html_sub"
+        } else {
+            "__gpui_html_sup"
+        },
+        crate::text::markdown_ext::HtmlScript {
+            source: source.get(inner).unwrap_or_default().to_string().into(),
+            html: false,
+        },
+    )
+    .text(text.clone())
+    .markdown(source.get(range.clone()).unwrap_or_default().to_string());
+    node.set_span(Some(Span {
+        start: cx.offset + range.start,
+        end: cx.offset + range.end,
+    }));
+    paragraph.push(InlineNode::custom(node));
     text
 }
 
@@ -526,6 +580,9 @@ fn merge_children_with_mark(
             InlineGroup::Node(child) => parse_paragraph(source, &mut child_paragraph, child, cx),
             InlineGroup::Marked(child_mark, nodes) => {
                 merge_children_with_mark(source, &mut child_paragraph, nodes, child_mark, cx)
+            }
+            InlineGroup::Script(sub, nodes, range, inner) => {
+                parse_script(source, &mut child_paragraph, nodes, sub, range, inner, cx)
             }
         };
         text.push_str(&child_text);
@@ -1035,7 +1092,13 @@ fn parse_paragraph(
                     .marks(vec![(0..text.len(), TextMark::default())]),
             );
         }
-        Node::Html(val) => match super::html::parse(&val.value, cx) {
+        Node::Html(val) => match super::html::parse_at(
+            &val.value,
+            val.position
+                .as_ref()
+                .map_or(cx.offset, |p| cx.offset + p.start.offset),
+            cx,
+        ) {
             Ok(el) => {
                 if let Some(inline_text) =
                     append_inline_html_blocks(paragraph, Arc::unwrap_or_clone(el.blocks))
@@ -1383,7 +1446,13 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
                 CodeBlock::new(val.value.into(), None, span).source_segments(segments),
             )
         }
-        Node::Html(val) => match super::html::parse(&val.value, cx) {
+        Node::Html(val) => match super::html::parse_at(
+            &val.value,
+            val.position
+                .as_ref()
+                .map_or(cx.offset, |p| cx.offset + p.start.offset),
+            cx,
+        ) {
             Ok(el) => BlockNode::Root {
                 children: Arc::unwrap_or_clone(el.blocks),
                 span: new_span(val.position, cx),

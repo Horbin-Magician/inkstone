@@ -114,6 +114,12 @@ pub struct MarkdownNode {
     pub(crate) span: Option<Span>,
 }
 
+#[derive(Clone)]
+pub(crate) struct HtmlScript {
+    pub(crate) source: SharedString,
+    pub(crate) html: bool,
+}
+
 impl MarkdownNode {
     /// Create a custom Markdown node with a stable name and typed data.
     pub fn new<T>(name: impl Into<SharedString>, data: T) -> Self
@@ -454,6 +460,53 @@ impl MarkdownExtensions {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<InlineElement> {
+        if let Some(script) = node.data::<HtmlScript>() {
+            let font = context.font_size();
+            let id = ("html-script", node.source_range().map_or(0, |r| r.start));
+            let view = if script.html {
+                super::TextView::html(id, script.source.clone())
+            } else {
+                super::TextView::markdown(id, script.source.clone())
+            };
+            let handler = context.link_click_handler.clone();
+            let source = context.image_source.clone();
+            return Some(
+                InlineElement::new(
+                    gpui::div().h(font).child(
+                        view.text_size(font * 0.75)
+                            .line_height(gpui::relative(1.))
+                            .markdown_extensions(self.clone())
+                            .selectable(false)
+                            .style(
+                                super::TextViewStyle::from_theme(&crate::Theme::global(cx))
+                                    .with_foreground(context.text_style().color)
+                                    .with_paragraph_gap(gpui::rems(0.)),
+                            )
+                            .on_link_click(move |url, event, window, cx| {
+                                super::text_view::handle_link_click(
+                                    &handler,
+                                    url.to_string().into(),
+                                    event.clone(),
+                                    window,
+                                    cx,
+                                )
+                            })
+                            .image_source(move |uri| {
+                                source
+                                    .as_ref()
+                                    .map_or_else(|| uri.clone().into(), |resolve| resolve(uri))
+                            }),
+                    ),
+                )
+                .with_baseline(
+                    font * if node.name() == "__gpui_html_sub" {
+                        0.4
+                    } else {
+                        0.95
+                    },
+                ),
+            );
+        }
         if node.name() == "__gpui_footnote" {
             let font = context.font_size();
             return Some(
