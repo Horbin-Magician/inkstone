@@ -121,15 +121,6 @@ fn app_dir() -> PathBuf {
 }
 impl Workspace {
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        #[cfg(feature = "metrics")]
-        crate::metrics::sample(
-            window,
-            self.files.len(),
-            self.active
-                .and_then(|i| self.tabs.get(i))
-                .map_or(0, |tab| tab.pane.read(cx).editor.read(cx).value().len()),
-            cx,
-        );
         if let Some(receiver) = &self.watch_events {
             for event in receiver.try_iter() {
                 match event {

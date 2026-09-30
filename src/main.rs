@@ -2,15 +2,11 @@
 
 mod editor;
 mod editor_links;
-#[cfg(feature = "metrics")]
-mod metrics;
 mod theme;
 mod workspace;
 use gpui::{prelude::*, *};
 use gpui_component::Root;
 fn main() {
-    #[cfg(feature = "metrics")]
-    metrics::init();
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {

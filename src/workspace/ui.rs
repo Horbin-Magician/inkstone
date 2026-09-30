@@ -46,6 +46,7 @@ impl ClosedTab {
         Self { view, history }
     }
 }
+#[cfg(test)]
 impl From<&str> for ClosedTab {
     fn from(path: &str) -> Self {
         Self::new(
@@ -57,6 +58,7 @@ impl From<&str> for ClosedTab {
         )
     }
 }
+#[cfg(test)]
 impl PartialEq<PathBuf> for ClosedTab {
     fn eq(&self, path: &PathBuf) -> bool {
         &self.view.path == path
@@ -2358,12 +2360,18 @@ impl Workspace {
                     },
                 ),
             )
-            .when(true, |s| {
-                s.child(
-                    tool("show-right", "panel-right", "展开右侧栏")
-                        .on_click(cx.listener(|this, _, w, cx| this.execute_command(13, w, cx))),
+            .child(
+                tool(
+                    "show-right",
+                    "panel-right",
+                    if self.ui.prefs.right_open {
+                        "收起右侧栏"
+                    } else {
+                        "展开右侧栏"
+                    },
                 )
-            })
+                .on_click(cx.listener(|this, _, w, cx| this.execute_command(13, w, cx))),
+            )
             .into_any_element()
     }
     pub(super) fn reveal_current_file(&mut self, cx: &mut Context<Self>) -> bool {

@@ -37,7 +37,9 @@ fn main() {
     let index = Index::build(&vault).unwrap();
     println!("index_build_ms={}", start.elapsed().as_millis());
     let start = Instant::now();
-    let hits = index.search("搜索测试");
+    let hits = index
+        .search_limited("搜索测试", false, Default::default(), false, 200)
+        .unwrap();
     println!(
         "search_ms={:.3} hits={} cap=200",
         start.elapsed().as_secs_f64() * 1000.,
@@ -51,7 +53,9 @@ fn main() {
         refs.len()
     );
     let start = Instant::now();
-    let no_match = index.search("不存在的查询xyz");
+    let no_match = index
+        .search_limited("不存在的查询xyz", false, Default::default(), false, 200)
+        .unwrap();
     println!(
         "search_no_match_ms={:.3} hits={}",
         start.elapsed().as_secs_f64() * 1000.,

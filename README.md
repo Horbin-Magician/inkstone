@@ -68,16 +68,6 @@ cargo run --release --locked --example benchmark -- 10000
 
 macOS / Linux 保留条件编译代码，尚未构建或验收。
 
-可选本地性能记录（不含笔记正文）：
-
-```powershell
-cargo build --release --locked --features metrics --bin inkstone
-$env:INKSTONE_METRICS_PATH = "$PWD\metrics.json"
-.\target\release\inkstone.exe .\demo-vault
-```
-
-每两秒写入累计输入到帧提交、绘制耗时、首次编辑器帧回调、文件数和 DPI 比例。测量口径与样本见测试记录；它不是硬件端到端输入延迟。结束后删除该环境变量并重新运行普通 release 构建，即可回到不含 profiler 的版本。
-
 ## 已实现
 
 - 文件夹笔记库、最近库、可展开目录树、创建（含子目录）、重命名、可恢复删除。

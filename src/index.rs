@@ -790,13 +790,16 @@ impl Index {
             .map(|(_, _, hit)| hit)
             .collect()
     }
-    pub fn search(&self, query: &str) -> Vec<SearchHit> {
+    #[cfg(test)]
+    pub(crate) fn search(&self, query: &str) -> Vec<SearchHit> {
         self.try_search(query).unwrap_or_default()
     }
-    pub fn try_search(&self, query: &str) -> Result<Vec<SearchHit>, String> {
+    #[cfg(test)]
+    fn try_search(&self, query: &str) -> Result<Vec<SearchHit>, String> {
         self.search_with_case(query, false)
     }
-    pub fn search_with_case(
+    #[cfg(test)]
+    fn search_with_case(
         &self,
         query: &str,
         case_sensitive: bool,
@@ -808,7 +811,8 @@ impl Index {
             false,
         )
     }
-    pub fn search_ordered(
+    #[cfg(test)]
+    fn search_ordered(
         &self,
         query: &str,
         case_sensitive: bool,

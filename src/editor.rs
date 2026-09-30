@@ -1063,10 +1063,6 @@ impl EditorPane {
 
 impl Render for EditorPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        #[cfg(feature = "metrics")]
-        if crate::metrics::needs_ready() {
-            cx.on_next_frame(_window, |_, _, _| crate::metrics::record_ready());
-        }
         self.update_presentation(cx);
         if std::mem::take(&mut self.reveal_after_concealment) && !self.reading {
             cx.on_next_frame(_window, |this, window, cx| {
