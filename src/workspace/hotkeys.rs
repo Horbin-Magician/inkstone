@@ -5,6 +5,10 @@ use gpui_component::button::*;
 impl Workspace {
     fn default_hotkeys(id: usize) -> Vec<String> {
         #[cfg(target_os = "macos")]
+        if id == 98 {
+            return vec!["cmd-/".into()];
+        }
+        #[cfg(target_os = "macos")]
         if id == 96 {
             return vec!["ctrl-l".into()];
         }
@@ -197,7 +201,7 @@ impl Workspace {
             {
                 return;
             }
-            if matches!(id, 79..=84 | 95..=96)
+            if matches!(id, 79..=84 | 95..=96 | 98)
                 && !self.current_pane().is_some_and(|pane| {
                     let pane = pane.read(cx);
                     !pane.reading && pane.editor.read(cx).focus_handle(cx).is_focused(window)
@@ -402,6 +406,70 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn comment_hotkey_toggles_all_selections_and_can_be_reassigned(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let editor = handle
+            .update(cx, |w, window, cx| {
+                w.add_tab(
+                    "comments.md".into(),
+                    Some("word word".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                editor.update(cx, |s, cx| {
+                    s.set_selected_range(0..4, cx);
+                    s.select_all_occurrences(&gpui_base::input::SelectAllOccurrences, window, cx);
+                    s.focus(window, cx);
+                });
+                editor
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let key = if cfg!(target_os = "macos") {
+            "cmd-/"
+        } else {
+            "ctrl-/"
+        };
+        visual.simulate_keystrokes(key);
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value().as_ref(), "%%word%% %%word%%");
+            assert!(s.has_multiple_selections());
+        });
+        visual.simulate_keystrokes(if cfg!(target_os = "macos") {
+            "cmd-z"
+        } else {
+            "ctrl-z"
+        });
+        editor.read_with(&visual, |s, _| assert_eq!(s.value().as_ref(), "word word"));
+        handle
+            .update(&mut visual, |w, _, _| {
+                w.ui.prefs.hotkeys.insert(98, vec![]);
+                w.assign_hotkey(98, &Keystroke::parse("ctrl-alt-/").unwrap())
+                    .unwrap();
+            })
+            .unwrap();
+        visual.simulate_keystrokes(key);
+        editor.read_with(&visual, |s, _| assert_eq!(s.value().as_ref(), "word word"));
+        visual.simulate_keystrokes("ctrl-alt-/");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value().as_ref(), "%%word%% %%word%%")
+        });
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.settings = true;
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-alt-/");
+        editor.read_with(&visual, |s, _| {
+            assert_eq!(s.value().as_ref(), "%%word%% %%word%%")
+        });
+    }
     #[gpui::test]
     fn select_line_shortcut_handles_crlf_endpoints_and_empty_documents(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
