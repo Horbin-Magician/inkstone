@@ -2436,12 +2436,17 @@ impl Paragraph {
                 }
                 let rendered_node = node.clone();
                 let extensions = node_cx.markdown_extensions.clone();
+                let handler = node_cx.link_click_handler.clone();
+                let image_source = node_cx.image_source.clone();
                 items.push(InlineFlowItem::Object {
                     text: node.shared_text(),
                     accessibility_label: node.shared_accessibility_name(),
                     id: node.source_range().map_or(items.len(), |range| range.start),
                     renderer: Arc::new(move |context, window, cx| {
-                        extensions.render_inline(&rendered_node, context, window, cx)
+                        let mut inherited = context.clone();
+                        inherited.link_click_handler = handler.clone();
+                        inherited.image_source = image_source.clone();
+                        extensions.render_inline(&rendered_node, &inherited, window, cx)
                     }),
                     selected: inline_node.custom_selection.clone(),
                     style: object_style,
@@ -3500,6 +3505,7 @@ impl BlockNode {
                         }
                         "example" => (0x7852ee, 0xa882ff),
                         "quote" | "cite" => (0x9e9e9e, 0x9e9e9e),
+                        "details" => (0x555555, 0xcccccc),
                         _ => (0x086ddd, 0x027aff),
                     };
                     let color = if node_cx.style.is_dark() { dark } else { light };
@@ -3602,6 +3608,9 @@ impl BlockNode {
                             s.child(
                                 div()
                                     .id(key)
+                                    .debug_selector(move || {
+                                        format!("callout-fold-{}", span.map_or(0, |s| s.start))
+                                    })
                                     .w(px(18.))
                                     .cursor_pointer()
                                     .child(if closed { "›" } else { "⌄" })
