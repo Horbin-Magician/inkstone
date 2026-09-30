@@ -1112,11 +1112,15 @@ impl<M: InputModeKind> TextElement<M> {
         // Reserve three digits for small documents, then follow the actual
         // line count up to seven digits.
         let line_number_len = line_number_len(total_lines);
+        let number_font_size = state
+            .editor_style
+            .line_number_font_size
+            .unwrap_or(font_size);
 
         let mut line_number_width = if state.mode.line_number() {
             let empty_line_number = window.text_system().shape_line(
-                "+".repeat(line_number_len).into(),
-                font_size,
+                "0".repeat(line_number_len).into(),
+                number_font_size,
                 &[TextRun {
                     len: line_number_len,
                     font: style.font(),
@@ -3050,11 +3054,18 @@ impl<M: InputModeKind> Element for TextElement<M> {
 
         let state = self.state.read(cx);
         let line_numbers = if state.mode.line_number() {
+            let number_font_size = state
+                .editor_style
+                .line_number_font_size
+                .unwrap_or(text_size);
             let mut line_numbers = Vec::with_capacity(last_layout.visible_buffer_lines.len());
             let other_line_runs = vec![TextRun {
                 len: line_number_len,
                 font: style.font(),
-                color: state.editor_style.muted_foreground,
+                color: state
+                    .editor_style
+                    .line_number_foreground
+                    .unwrap_or(state.editor_style.muted_foreground),
                 background_color: None,
                 underline: None,
                 strikethrough: None,
@@ -3062,7 +3073,10 @@ impl<M: InputModeKind> Element for TextElement<M> {
             let current_line_runs = vec![TextRun {
                 len: line_number_len,
                 font: style.font(),
-                color: state.editor_style.foreground,
+                color: state
+                    .editor_style
+                    .active_line_number_foreground
+                    .unwrap_or(state.editor_style.muted_foreground),
                 background_color: None,
                 underline: None,
                 strikethrough: None,
@@ -3088,11 +3102,12 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 };
 
                 let mut sub_lines: SmallVec<[ShapedLine; 1]> = SmallVec::new();
-                sub_lines.push(
-                    window
-                        .text_system()
-                        .shape_line(line_no, text_size, &runs, None),
-                );
+                sub_lines.push(window.text_system().shape_line(
+                    line_no,
+                    number_font_size,
+                    &runs,
+                    None,
+                ));
                 for _ in 0..line.wrapped_lines.len().saturating_sub(1) {
                     sub_lines.push(ShapedLine::default());
                 }

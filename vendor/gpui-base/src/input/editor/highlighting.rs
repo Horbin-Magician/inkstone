@@ -1,6 +1,6 @@
 use std::{ops::Range, rc::Rc, sync::Arc};
 
-use gpui::{AnyElement, Context, HighlightStyle, Hsla, SharedString, Window};
+use gpui::{AnyElement, Context, HighlightStyle, Hsla, Pixels, SharedString, Window};
 use ropey::Rope;
 
 use super::{EditorState, FoldRange, InputEdit};
@@ -118,6 +118,9 @@ pub struct InputEditorStyle {
     pub editor_invisible: Option<Hsla>,
     pub editor_active_line: Option<Hsla>,
     pub editor_gutter_background: Option<Hsla>,
+    pub line_number_font_size: Option<Pixels>,
+    pub line_number_foreground: Option<Hsla>,
+    pub active_line_number_foreground: Option<Hsla>,
     pub fold_icon_renderer: Option<FoldIconRenderer>,
 }
 
@@ -173,6 +176,9 @@ impl Default for InputEditorStyle {
             editor_invisible: None,
             editor_active_line: None,
             editor_gutter_background: None,
+            line_number_font_size: None,
+            line_number_foreground: None,
+            active_line_number_foreground: None,
             fold_icon_renderer: None,
         }
     }
