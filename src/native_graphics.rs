@@ -21,6 +21,8 @@ pub(crate) struct Prepared {
     pub height: f32,
     pub baseline: Option<f32>,
 }
+
+pub(crate) type GraphicResult = Arc<Result<Prepared, String>>;
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
     source: String,
@@ -41,14 +43,14 @@ struct Cache {
     tick: u64,
 }
 #[derive(Clone)]
-struct Service {
+pub(crate) struct Service {
     renderer: Arc<SvgRenderer>,
     cache: Arc<Mutex<Cache>>,
 }
 impl Global for Service {}
 
 impl Service {
-    fn get(cx: &mut App) -> Self {
+    pub(crate) fn get(cx: &mut App) -> Self {
         if !cx.has_global::<Self>() {
             cx.set_global(Self {
                 renderer: Arc::new(cx.svg_renderer()),
@@ -57,7 +59,7 @@ impl Service {
         }
         cx.global::<Self>().clone()
     }
-    fn prepare(
+    pub(crate) fn prepare(
         &self,
         kind: Kind,
         source: &str,

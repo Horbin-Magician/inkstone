@@ -12,6 +12,7 @@ pub(super) struct Widget {
     role: Role,
     numbers: std::collections::BTreeMap<String, usize>,
     targets: Vec<(usize, PathBuf, usize)>,
+    graphic: Option<crate::native_graphics::GraphicResult>,
     pub width: f32,
     pub height: f32,
     view: Entity<TextViewState>,
@@ -22,19 +23,23 @@ pub(super) struct Widget {
 impl EditorPane {
     pub(super) fn install_live_objects(
         &mut self,
-        fragments: Vec<Fragment>,
+        fragments: Vec<(Fragment, Option<crate::native_graphics::GraphicResult>)>,
         cx: &mut Context<Self>,
     ) {
         let mut old = std::mem::take(&mut self.live_objects);
         self.live_objects = fragments
             .into_iter()
             .map(
-                |Fragment {
-                     candidate,
-                     document,
-                     numbers,
-                     targets,
-                 }| {
+                |(
+                    Fragment {
+                        candidate,
+                        document,
+                        numbers,
+                        targets,
+                        graphic: _,
+                    },
+                    graphic,
+                )| {
                     let previous = old
                         .iter()
                         .position(|w| {
@@ -58,12 +63,19 @@ impl EditorPane {
                         }));
                         (view, observer, self.font_size * 4., self.font_size * 1.5)
                     };
+                    let (width, height) = graphic
+                        .as_ref()
+                        .and_then(|g| g.as_ref().as_ref().ok())
+                        .map_or((width, height), |g| {
+                            (g.width, g.height.max(self.font_size * 1.5))
+                        });
                     Widget {
                         source: candidate.source,
                         block: candidate.block,
                         role: candidate.role,
                         numbers,
                         targets,
+                        graphic,
                         width,
                         height,
                         view,
@@ -163,10 +175,23 @@ fn element(
     let files = appearance.files.clone();
     let font = appearance.font;
     let light = appearance.light;
+    let sprite = widget
+        .graphic
+        .as_ref()
+        .and_then(|g| g.as_ref().as_ref().ok());
+    let sprite_element = sprite.map(|g| {
+        img(g.image.clone())
+            .w(px(g.width))
+            .h(px(g.height))
+            .into_any_element()
+    });
     div()
         .id(("live-object", start))
         .debug_selector(move || format!("live-object-{start}"))
         .cursor_text()
+        .when(sprite.is_some() && widget.block, |view| {
+            view.w_full().overflow_x_scroll()
+        })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |event, window, cx| {
             cx.stop_propagation();
@@ -202,112 +227,116 @@ fn element(
                 cx.notify();
             });
         })
-        .child(
-            TextView::new(&widget.view)
-                .font_family(appearance.font_family.clone())
-                .markdown_extensions({
-                    let mut extensions = crate::native_graphics::extensions(
-                        font,
-                        window.scale_factor(),
-                        light,
-                        appearance.strict,
-                        cx,
+        .when_some(sprite_element, |view, image| view.child(image))
+        .when(sprite.is_none(), |view| {
+            view.child(
+                TextView::new(&widget.view)
+                    .font_family(appearance.font_family.clone())
+                    .markdown_extensions({
+                        let mut extensions = crate::native_graphics::extensions(
+                            font,
+                            window.scale_factor(),
+                            light,
+                            appearance.strict,
+                            cx,
+                        )
+                        .footnote_numbers(widget.numbers.clone());
+                        if let Role::Footer(ranges) = &widget.role {
+                            let ranges = ranges.clone();
+                            extensions = extensions
+                                .block_parser_first(move |node, _| {
+                                    let p = node.position()?;
+                                    ranges
+                                        .iter()
+                                        .any(|r| r.start == p.start.offset && r.end == p.end.offset)
+                                        .then(|| {
+                                            gpui_base::text::MarkdownNode::new(
+                                                "inkstone-hidden-block",
+                                                (),
+                                            )
+                                            .text("")
+                                        })
+                                })
+                                .block_renderer("inkstone-hidden-block", |_, _, _| {
+                                    div().h(px(0.)).w(px(0.))
+                                });
+                        }
+                        extensions
+                    })
+                    .text_size(px(font))
+                    .line_height(relative(1.5))
+                    .selectable(false)
+                    .scrollable(false)
+                    .style(
+                        gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
+                            .with_foreground(crate::theme::palette(light).foreground.into())
+                            .with_link(crate::theme::palette(light).accent.into())
+                            .with_code_background(crate::theme::palette(light).surface.into())
+                            .with_border(crate::theme::palette(light).border.into())
+                            .with_paragraph_gap(rems(0.)),
                     )
-                    .footnote_numbers(widget.numbers.clone());
-                    if let Role::Footer(ranges) = &widget.role {
-                        let ranges = ranges.clone();
-                        extensions = extensions
-                            .block_parser_first(move |node, _| {
-                                let p = node.position()?;
-                                ranges
-                                    .iter()
-                                    .any(|r| r.start == p.start.offset && r.end == p.end.offset)
-                                    .then(|| {
-                                        gpui_base::text::MarkdownNode::new(
-                                            "inkstone-hidden-block",
-                                            (),
-                                        )
-                                        .text("")
-                                    })
-                            })
-                            .block_renderer("inkstone-hidden-block", |_, _, _| {
-                                div().h(px(0.)).w(px(0.))
-                            });
-                    }
-                    extensions
-                })
-                .text_size(px(font))
-                .line_height(relative(1.5))
-                .selectable(false)
-                .scrollable(false)
-                .style(
-                    gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
-                        .with_foreground(crate::theme::palette(light).foreground.into())
-                        .with_link(crate::theme::palette(light).accent.into())
-                        .with_code_background(crate::theme::palette(light).surface.into())
-                        .with_border(crate::theme::palette(light).border.into())
-                        .with_paragraph_gap(rems(0.)),
-                )
-                .on_task_toggle(move |offset, checked, window, cx| {
-                    cx.stop_propagation();
-                    if let Some(target) = task_document
-                        .tasks
-                        .iter()
-                        .find(|t| t.rendered_start == offset)
-                        .cloned()
-                    {
-                        let _ = task_pane
-                            .update(cx, |pane, cx| pane.toggle_task(target, checked, window, cx));
-                    }
-                })
-                .on_link_click(move |url, event, _, cx| {
-                    if event.is_right_click() {
-                        return;
-                    }
-                    cx.stop_propagation();
-                    let new_tab = event.modifiers().secondary();
-                    let _ = link_pane.update(cx, |_, cx| {
-                        if let Some(reference) = url
-                            .strip_prefix("inkstone-reference:")
-                            .and_then(|id| id.parse::<usize>().ok())
-                            .and_then(|id| document.references.get(id))
+                    .on_task_toggle(move |offset, checked, window, cx| {
+                        cx.stop_propagation();
+                        if let Some(target) = task_document
+                            .tasks
+                            .iter()
+                            .find(|t| t.rendered_start == offset)
                             .cloned()
                         {
-                            if !reference.wiki
-                                && inkstone::rendering::is_external_link(&reference.target)
+                            let _ = task_pane.update(cx, |pane, cx| {
+                                pane.toggle_task(target, checked, window, cx)
+                            });
+                        }
+                    })
+                    .on_link_click(move |url, event, _, cx| {
+                        if event.is_right_click() {
+                            return;
+                        }
+                        cx.stop_propagation();
+                        let new_tab = event.modifiers().secondary();
+                        let _ = link_pane.update(cx, |_, cx| {
+                            if let Some(reference) = url
+                                .strip_prefix("inkstone-reference:")
+                                .and_then(|id| id.parse::<usize>().ok())
+                                .and_then(|id| document.references.get(id))
+                                .cloned()
                             {
-                                cx.open_url(&reference.target);
-                            } else {
-                                cx.emit(if new_tab {
-                                    EditorEvent::FollowReferenceInNewTab(reference)
+                                if !reference.wiki
+                                    && inkstone::rendering::is_external_link(&reference.target)
+                                {
+                                    cx.open_url(&reference.target);
                                 } else {
-                                    EditorEvent::FollowReference(reference)
-                                });
+                                    cx.emit(if new_tab {
+                                        EditorEvent::FollowReferenceInNewTab(reference)
+                                    } else {
+                                        EditorEvent::FollowReference(reference)
+                                    });
+                                }
+                            } else if inkstone::rendering::is_external_link(url) {
+                                cx.open_url(url);
                             }
-                        } else if inkstone::rendering::is_external_link(url) {
-                            cx.open_url(url);
-                        }
-                    });
-                })
-                .image_source(move |uri| {
-                    if let Some(reference) = uri
-                        .to_string()
-                        .strip_prefix("inkstone-reference:")
-                        .and_then(|id| id.parse::<usize>().ok())
-                        .and_then(|id| image_document.references.get(id))
-                    {
-                        if !reference.wiki
-                            && inkstone::rendering::is_remote_image(&reference.target)
+                        });
+                    })
+                    .image_source(move |uri| {
+                        if let Some(reference) = uri
+                            .to_string()
+                            .strip_prefix("inkstone-reference:")
+                            .and_then(|id| id.parse::<usize>().ok())
+                            .and_then(|id| image_document.references.get(id))
                         {
-                            return SharedUri::from(reference.target.clone()).into();
+                            if !reference.wiki
+                                && inkstone::rendering::is_remote_image(&reference.target)
+                            {
+                                return SharedUri::from(reference.target.clone()).into();
+                            }
+                            return inkstone::rendering::asset_path(&root, reference, &files.files)
+                                .unwrap_or_else(|| root.join(".inkstone-missing-image"))
+                                .into();
                         }
-                        return inkstone::rendering::asset_path(&root, reference, &files.files)
-                            .unwrap_or_else(|| root.join(".inkstone-missing-image"))
-                            .into();
-                    }
-                    uri.clone().into()
-                }),
-        )
+                        uri.clone().into()
+                    }),
+            )
+        })
         .into_any_element()
 }
 
@@ -385,12 +414,9 @@ pub(super) fn overlay(
                             });
                         });
                     }
-                    view.prepaint_as_root(
-                        bounds.origin,
-                        size(px(next_width), px(next_height)).into(),
-                        window,
-                        cx,
-                    );
+                    // Already measured above: reusing that layout avoids a
+                    // second rich-document layout on every scroll frame.
+                    view.prepaint_at(bounds.origin, window, cx);
                     elements.push(view);
                 }
             });
