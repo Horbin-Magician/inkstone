@@ -250,6 +250,7 @@ impl PartialEq for MarkdownNode {
 /// Registry for custom Markdown parsing and rendering.
 #[derive(Clone, Default)]
 pub struct MarkdownExtensions {
+    pub(crate) footnote_numbers: std::collections::BTreeMap<String, usize>,
     pub(crate) preserve_soft_breaks: bool,
     pub(crate) custom_task_markers: bool,
     enable_mdx: bool,
@@ -263,6 +264,29 @@ pub struct MarkdownExtensions {
 }
 
 impl MarkdownExtensions {
+    /// Override numbering when this view presents a fragment of another view.
+    pub fn footnote_numbers(
+        mut self,
+        mut numbers: std::collections::BTreeMap<String, usize>,
+    ) -> Self {
+        numbers.retain(|_, n| *n > 0);
+        self.footnote_numbers = numbers;
+        self.bump_revision();
+        self
+    }
+
+    /// Install a display projection before ordinary block plugins.
+    pub fn block_parser_first<F>(mut self, parser: F) -> Self
+    where
+        F: for<'a> Fn(&mdast::Node, &MarkdownParseContext<'a>) -> Option<MarkdownNode>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.block_parsers.insert(0, Arc::new(parser));
+        self.bump_revision();
+        self
+    }
     /// Recognize single-character task states beyond the standard space and x.
     pub fn custom_task_markers(mut self, enabled: bool) -> Self {
         self.custom_task_markers = enabled;
@@ -370,6 +394,7 @@ impl MarkdownExtensions {
     /// stable; render handles may be refreshed without reparsing the document.
     pub(crate) fn has_same_parser_configuration(&self, other: &Self) -> bool {
         self.parser_revision == other.parser_revision
+            && self.footnote_numbers == other.footnote_numbers
             && self.preserve_soft_breaks == other.preserve_soft_breaks
             && self.custom_task_markers == other.custom_task_markers
             && self.enable_mdx == other.enable_mdx

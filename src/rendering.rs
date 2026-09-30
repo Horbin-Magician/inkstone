@@ -52,6 +52,121 @@ struct SourceMap {
     source_end: usize,
 }
 impl ReadingDocument {
+    pub fn footnote_definition_targets(&self) -> Vec<(usize, PathBuf, usize)> {
+        index::parse(&self.markdown)
+            .footnote_definitions
+            .into_iter()
+            .filter_map(|(range, _)| {
+                let origin = self.origin(range.start).or_else(|| {
+                    self.locations
+                        .iter()
+                        .find(|m| range.start <= m.output.start && m.output.start < range.end)
+                        .map(|m| (m.path.clone(), m.start))
+                })?;
+                Some((range.start, origin.0, origin.1))
+            })
+            .collect()
+    }
+    fn origin(&self, offset: usize) -> Option<(PathBuf, usize)> {
+        let map = self.locations.iter().find(|m| m.output.contains(&offset))?;
+        Some((
+            map.path.clone(),
+            if map.source_end - map.start == map.output.len() {
+                map.start + offset - map.output.start
+            } else {
+                map.start
+            },
+        ))
+    }
+
+    /// Reference-order numbering, including reachable references in definitions.
+    pub fn footnote_numbers(&self) -> BTreeMap<(PathBuf, usize), usize> {
+        use markdown_parser::mdast::Node;
+        fn definitions<'a>(node: &'a Node, out: &mut BTreeMap<String, &'a Node>) {
+            if let Node::FootnoteDefinition(n) = node {
+                out.entry(n.identifier.clone()).or_insert(node);
+            }
+            if let Some(children) = node.children() {
+                for n in children {
+                    definitions(n, out);
+                }
+            }
+        }
+        fn references(node: &Node, skip_definitions: bool, out: &mut Vec<(String, usize)>) {
+            if skip_definitions && matches!(node, Node::FootnoteDefinition(_)) {
+                return;
+            }
+            if let Node::FootnoteReference(n) = node
+                && let Some(p) = &n.position
+            {
+                out.push((n.identifier.clone(), p.start.offset));
+            }
+            if let Some(children) = node.children() {
+                for n in children {
+                    references(n, skip_definitions, out);
+                }
+            }
+        }
+        let snapshot = crate::syntax::Snapshot::new(&self.markdown);
+        let Some(ast) = snapshot.ast.as_deref() else {
+            return BTreeMap::new();
+        };
+        let mut defs = BTreeMap::new();
+        definitions(ast, &mut defs);
+        let mut ordered = vec![];
+        references(ast, true, &mut ordered);
+        let mut ids = BTreeMap::new();
+        let mut queue = vec![];
+        let mut cursor = 0;
+        loop {
+            for (id, _) in ordered.drain(..) {
+                if defs.contains_key(&id) && !ids.contains_key(&id) {
+                    queue.push(id.clone());
+                    ids.insert(id, queue.len());
+                }
+            }
+            if cursor >= queue.len() {
+                break;
+            }
+            if let Some(children) = defs[&queue[cursor]].children() {
+                for n in children {
+                    references(n, true, &mut ordered);
+                }
+            }
+            cursor += 1;
+        }
+        let mut all = vec![];
+        references(ast, false, &mut all);
+        all.into_iter()
+            .filter_map(|(id, offset)| Some((self.origin(offset)?, *ids.get(&id)?)))
+            .collect()
+    }
+
+    pub fn footnote_overrides(
+        &self,
+        numbers: &BTreeMap<(PathBuf, usize), usize>,
+    ) -> BTreeMap<String, usize> {
+        fn collect(node: &markdown_parser::mdast::Node, out: &mut Vec<(String, usize)>) {
+            if let markdown_parser::mdast::Node::FootnoteReference(n) = node
+                && let Some(p) = &n.position
+            {
+                out.push((n.identifier.clone(), p.start.offset));
+            }
+            if let Some(children) = node.children() {
+                for n in children {
+                    collect(n, out);
+                }
+            }
+        }
+        let snapshot = crate::syntax::Snapshot::new(&self.markdown);
+        let mut refs = vec![];
+        if let Some(ast) = snapshot.ast.as_deref() {
+            collect(ast, &mut refs);
+        }
+        refs.into_iter()
+            .filter_map(|(id, offset)| Some((id, *numbers.get(&self.origin(offset)?)?)))
+            .collect()
+    }
     pub fn source_matches(&self, path: &Path, text: &str) -> bool {
         self.sources.get(path).is_some_and(|s| s.as_ref() == text)
     }
