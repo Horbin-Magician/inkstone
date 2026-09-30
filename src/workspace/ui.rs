@@ -2694,34 +2694,30 @@ impl Workspace {
             .when(self.ui.left_mode == 1, |s| {
                 s.when(!self.ui.quick_open, |s| {
                     s.child(
-                        div()
-                            .p_3()
-                            .flex()
-                            .gap_1()
-                            .items_center()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(Input::new(&self.search).cleanable(true)),
-                            )
-                            .child(
-                                Button::new("search-case-sensitive")
-                                    .ghost()
-                                    .compact()
-                                    .label("Aa")
-                                    .accessibility_label("区分大小写")
-                                    .tooltip("区分大小写")
-                                    .toggled(self.ui.prefs.search_case_sensitive)
-                                    .selected(self.ui.prefs.search_case_sensitive)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.ui.prefs.search_case_sensitive =
-                                            !this.ui.prefs.search_case_sensitive;
-                                        this.run_search(cx);
-                                        this.persist_workspace(cx);
-                                        cx.notify();
-                                    })),
+                        div().p_3().flex().gap_1().items_center().child(
+                            div().flex_1().min_w_0().child(
+                                Input::new(&self.search)
+                                    .prefix(icon("search").size(px(14.)))
+                                    .cleanable(true)
+                                    .suffix(
+                                        Button::new("search-case-sensitive")
+                                            .ghost()
+                                            .compact()
+                                            .label("Aa")
+                                            .accessibility_label("区分大小写")
+                                            .tooltip("区分大小写")
+                                            .toggled(self.ui.prefs.search_case_sensitive)
+                                            .selected(self.ui.prefs.search_case_sensitive)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.ui.prefs.search_case_sensitive =
+                                                    !this.ui.prefs.search_case_sensitive;
+                                                this.run_search(cx);
+                                                this.persist_workspace(cx);
+                                                cx.notify();
+                                            })),
+                                    ),
                             ),
+                        ),
                     )
                 })
                 .child(
@@ -2732,15 +2728,13 @@ impl Workspace {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(format!(
-                            "已载入 {} 个文件 · {} 行",
-                            self.search_results
-                                .iter()
-                                .map(|hit| &hit.path)
-                                .collect::<std::collections::BTreeSet<_>>()
-                                .len(),
-                            self.search_results.len()
-                        ))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .child(format!("{} 项结果", self.search_results.len())),
+                        )
                         .child(self.search_sort_button(cx))
                         .child(
                             tool("search-collapse", "fold-vertical", "展开或折叠全部搜索结果")
@@ -3095,6 +3089,7 @@ impl Workspace {
                             .flex()
                             .items_center()
                             .gap_1()
+                            .h(px(32.))
                             .child(
                                 Button::new(("search-group-fold", i))
                                     .ghost()
@@ -3114,6 +3109,7 @@ impl Workspace {
                                     .ghost()
                                     .compact()
                                     .flex_1()
+                                    .text_size(px(13.))
                                     .min_w_0()
                                     .justify_start()
                                     .overflow_hidden()
@@ -3155,50 +3151,53 @@ impl Workspace {
                             let path = path.clone();
                             div()
                                 .id(("search-line", j))
-                                .pl(px(24.))
-                                .py_1()
-                                .rounded(px(4.))
+                                .px_3()
+                                .py_2()
+                                .border_1()
+                                .when(j > 0, |s| s.border_t_0())
+                                .border_color(self.border())
+                                .when(j == 0, |s| s.rounded_t(px(4.)))
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgba(0x88888822)))
                                 .child(
                                     div()
-                                        .text_xs()
-                                        .text_color(rgb(0x999999))
-                                        .child(format!("第 {} 行", hit.line)),
-                                )
-                                .child(
-                                    div().text_sm().whitespace_normal().child(
-                                        StyledText::new(hit.excerpt.trim_end().to_string())
-                                            .with_highlights(
-                                                hit.highlights.iter().cloned().filter_map(
-                                                    |mut range| {
-                                                        range.end = range
-                                                            .end
-                                                            .min(hit.excerpt.trim_end().len());
-                                                        if range.start >= range.end {
-                                                            return None;
-                                                        }
-                                                        Some((
-                                                            range,
-                                                            HighlightStyle {
-                                                                background_color: Some(
-                                                                    rgba(if self.ui.prefs.light {
-                                                                        0xf4d03f66
-                                                                    } else {
-                                                                        0x9e7d2866
-                                                                    })
-                                                                    .into(),
-                                                                ),
-                                                                font_weight: Some(
-                                                                    FontWeight::SEMIBOLD,
-                                                                ),
-                                                                ..Default::default()
-                                                            },
-                                                        ))
-                                                    },
+                                        .text_size(px(12.))
+                                        .line_height(relative(1.3))
+                                        .whitespace_normal()
+                                        .child(
+                                            StyledText::new(hit.excerpt.trim_end().to_string())
+                                                .with_highlights(
+                                                    hit.highlights.iter().cloned().filter_map(
+                                                        |mut range| {
+                                                            range.end = range
+                                                                .end
+                                                                .min(hit.excerpt.trim_end().len());
+                                                            if range.start >= range.end {
+                                                                return None;
+                                                            }
+                                                            Some((
+                                                                range,
+                                                                HighlightStyle {
+                                                                    background_color: Some(
+                                                                        rgba(
+                                                                            if self.ui.prefs.light {
+                                                                                0xf4d03f66
+                                                                            } else {
+                                                                                0x9e7d2866
+                                                                            },
+                                                                        )
+                                                                        .into(),
+                                                                    ),
+                                                                    font_weight: Some(
+                                                                        FontWeight::SEMIBOLD,
+                                                                    ),
+                                                                    ..Default::default()
+                                                                },
+                                                            ))
+                                                        },
+                                                    ),
                                                 ),
-                                            ),
-                                    ),
+                                        ),
                                 )
                                 .on_click(cx.listener(move |this, _, w, cx| {
                                     this.pending_jump = Some((path.clone(), hit.offset));
