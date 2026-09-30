@@ -3758,6 +3758,7 @@ impl Workspace {
                                 if reading { "pencil" } else { "book-open" },
                                 "切换阅读视图 Ctrl+E",
                             )
+                            .when(active.is_none(), |s| s.hidden())
                             .on_click(cx.listener(|this, _, w, cx| this.execute_command(6, w, cx))),
                         )
                         .child(
@@ -3841,26 +3842,34 @@ impl Workspace {
                         .flex_col()
                         .items_center()
                         .justify_center()
-                        .gap_2()
-                        .child(
-                            Button::new("empty-new")
-                                .ghost()
-                                .label("创建新文件 (Ctrl + N)")
-                                .on_click(cx.listener(|this, _, w, cx| this.focus_new(w, cx))),
-                        )
-                        .child(
-                            Button::new("empty-open")
-                                .ghost()
-                                .label("打开文件 (Ctrl + O)")
-                                .on_click(
-                                    cx.listener(|this, _, w, cx| this.focus_search(false, w, cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new("empty-vault")
-                                .ghost()
-                                .label("打开笔记库")
-                                .on_click(cx.listener(|this, _, w, cx| this.choose_vault(w, cx))),
+                        .gap_0()
+                        .children(
+                            [
+                                ("empty-new", "创建新文件 (Ctrl + N)", 0),
+                                ("empty-open", "打开文件 (Ctrl + O)", 2),
+                                if index.is_some() {
+                                    ("empty-close", "关闭标签页", 5)
+                                } else {
+                                    ("empty-vault", "打开笔记库", 1)
+                                },
+                            ]
+                            .into_iter()
+                            .map(|(id, label, command)| {
+                                Button::new(id)
+                                    .ghost()
+                                    .h(px(36.))
+                                    .accessibility_label(label)
+                                    .child(
+                                        div()
+                                            .text_size(px(self.ui.prefs.font_size))
+                                            .font_weight(FontWeight::NORMAL)
+                                            .text_color(rgb(0x3f9aca))
+                                            .child(label),
+                                    )
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.execute_command(command, w, cx)
+                                    }))
+                            }),
                         ),
                 )
             })
