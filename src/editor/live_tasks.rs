@@ -47,20 +47,20 @@ pub(super) fn overlay(
                     let indicator = div()
                         .size(px(font_size))
                         .border_1()
-                        .rounded(px(4.))
+                        .rounded_full()
                         .border_color(rgb(if checked {
-                            0x8b6cef
+                            0x3f9aca
                         } else if light {
                             0xababab
                         } else {
                             0x666666
                         }))
                         .when(checked, |view| {
-                            view.bg(rgb(0x8b6cef)).child(
+                            view.bg(rgb(0x3f9aca)).child(
                                 svg()
                                     .path("icons/check.svg")
                                     .size(px(font_size - 2.))
-                                    .text_color(rgb(if light { 0xffffff } else { 0x1e1e1e })),
+                                    .text_color(rgb(if light { 0xffffff } else { 0x262626 })),
                             )
                         });
                     let mut element = gpui_base::Checkbox::new(("live-task", id))

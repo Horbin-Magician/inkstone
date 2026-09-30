@@ -514,13 +514,13 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
     );
     Theme::update(cx, |theme| {
         let bg = rgb(if light { 0xffffff } else { 0x262626 }).into();
-        let side = rgb(if light { 0xf6f6f6 } else { 0x202020 }).into();
-        let hover = rgb(if light { 0xe8e8e8 } else { 0x333333 }).into();
-        let fg = rgb(if light { 0x222222 } else { 0xdadada }).into();
-        let muted = rgb(if light { 0x777777 } else { 0x999999 }).into();
-        let border = rgb(if light { 0xe0e0e0 } else { 0x363636 }).into();
+        let side = rgb(if light { 0xf6f6f6 } else { 0x212121 }).into();
+        let hover = rgb(if light { 0xe8e8e8 } else { 0x363636 }).into();
+        let fg = rgb(if light { 0x0f0f0f } else { 0xd1d1d1 }).into();
+        let muted = rgb(if light { 0x5c5c5c } else { 0x999999 }).into();
+        let border = rgb(if light { 0xe6e6e6 } else { 0x363636 }).into();
         theme.font_size = px(14.);
-        theme.radius = px(5.);
+        theme.radius = px(4.);
         theme.background = bg;
         theme.foreground = fg;
         theme.border = border;
@@ -545,8 +545,8 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.button_foreground = fg;
         theme.accent = hover;
         theme.accent_foreground = fg;
-        theme.primary = rgb(0x8b6cef).into();
-        theme.ring = rgb(0x8b6cef).into();
+        theme.primary = rgb(0x3f9aca).into();
+        theme.ring = rgb(0x3f9aca).into();
         theme.switch_thumb = rgb(0xffffff).into();
         theme.slider_thumb = rgb(0xffffff).into();
         theme.selection = rgba(0x7860b866).into();
@@ -620,7 +620,7 @@ impl Workspace {
                             .text_color(rgb(if self.ui.prefs.light {
                                 0x5c5c5c
                             } else {
-                                0xb3b3b3
+                                0x999999
                             }))
                             .child(description.to_string()),
                     ),
@@ -915,7 +915,7 @@ impl Render for DraggedRibbonAction {
         div()
             .p_2()
             .rounded(px(6.))
-            .bg(rgb(0x333333))
+            .bg(rgb(0x363636))
             .text_color(rgb(0xdddddd))
             .child(self.label.clone())
     }
@@ -931,7 +931,7 @@ impl Render for DraggedTab {
         div()
             .p_2()
             .rounded(px(6.))
-            .bg(rgb(0x333333))
+            .bg(rgb(0x363636))
             .text_color(rgb(0xdddddd))
             .child(self.label.clone())
     }
@@ -949,19 +949,19 @@ impl Workspace {
         rgb(if self.ui.prefs.light {
             0xf6f6f6
         } else {
-            0x202020
+            0x212121
         })
     }
     fn fg(&self) -> Rgba {
         rgb(if self.ui.prefs.light {
-            0x222222
+            0x0f0f0f
         } else {
-            0xdadada
+            0xd1d1d1
         })
     }
     pub(super) fn border(&self) -> Rgba {
         rgb(if self.ui.prefs.light {
-            0xe0e0e0
+            0xe6e6e6
         } else {
             0x363636
         })
@@ -2219,7 +2219,7 @@ impl Workspace {
                     .track_scroll(&self.ui.tab_scroll)
                     .items_end()
                     .px_1()
-                    .gap_1()
+                    .gap_0()
                     .children(self.tabs.iter().enumerate().map(|(i, t)| {
                         let tab_id = t.id;
                         let menu_weak = cx.entity().downgrade();
@@ -2285,21 +2285,33 @@ impl Workspace {
                                 }
                             }))
                             .flex()
+                            .relative()
+                            .group(format!("note-tab-{}", t.id))
                             .items_center()
                             .h(px(34.))
+                            .w(px(200.))
                             .min_w(px(100.))
-                            .max_w(px(210.))
+                            .max_w(px(320.))
                             .px_2()
-                            .gap_2()
+                            .gap_1()
                             .rounded_t(px(6.))
+                            .text_color(if selected {
+                                self.fg()
+                            } else {
+                                rgb(if self.ui.prefs.light {
+                                    0x5c5c5c
+                                } else {
+                                    0x999999
+                                })
+                            })
                             .cursor_pointer()
+                            .when(!selected, |s| s.hover(|s| s.bg(rgba(0x88888818))))
                             .when(selected, |s| {
                                 s.bg(self.bg())
                                     .border_1()
                                     .border_b_0()
                                     .border_color(self.border())
                             })
-                            .child(icon(if pinned { "bookmark" } else { "file-text" }))
                             .child(div().truncate().flex_1().text_size(px(13.)).child(format!(
                                 "{}{}",
                                 if t.path.as_os_str().is_empty() {
@@ -2333,7 +2345,14 @@ impl Workspace {
                                     ))
                                     .ghost()
                                     .compact()
-                                    .icon(icon("x"))
+                                    .icon(icon(if pinned { "pin" } else { "x" }).size(px(14.)))
+                                    .when(!selected && !pinned, |button| {
+                                        button
+                                            .opacity(0.)
+                                            .group_hover(format!("note-tab-{}", t.id), |style| {
+                                                style.opacity(1.)
+                                            })
+                                    })
                                     .w(px(22.))
                                     .h(px(22.))
                                     .on_click(cx.listener(move |this, _, w, cx| {
@@ -3173,7 +3192,7 @@ impl Workspace {
             .flex()
             .flex_col()
             .size_full()
-            .bg(self.side())
+            .bg(self.bg())
             .child(
                 div()
                     .id("right-content")
@@ -3182,24 +3201,30 @@ impl Workspace {
                     .overflow_y_scroll()
                     .p_3()
                     .when(self.ui.right_mode == 0, |s| {
-                        s.child(div().pb_3().text_color(rgb(0x999999)).child("大纲"))
-                            .when(headings.is_empty(), |s| {
-                                s.child(div().text_color(rgb(0x777777)).child("未找到小标题行。"))
-                            })
-                            .children(headings.into_iter().enumerate().map(|(i, h)| {
-                                let pane = pane.clone();
+                        s.when(headings.is_empty(), |s| {
+                            s.child(
                                 div()
-                                    .id(("outline", i))
-                                    .py_1()
-                                    .pl(px((h.level - 1) as f32 * 12.))
-                                    .cursor_pointer()
-                                    .child(h.title)
-                                    .on_click(cx.listener(move |_, _, w, cx| {
-                                        if let Some(pane) = &pane {
-                                            pane.update(cx, |p, cx| p.jump(h.offset, w, cx));
-                                        }
-                                    }))
-                            }))
+                                    .w_full()
+                                    .pt(px(64.))
+                                    .text_center()
+                                    .text_color(rgb(0x777777))
+                                    .child("未找到小标题行。"),
+                            )
+                        })
+                        .children(headings.into_iter().enumerate().map(|(i, h)| {
+                            let pane = pane.clone();
+                            div()
+                                .id(("outline", i))
+                                .py_1()
+                                .pl(px((h.level - 1) as f32 * 12.))
+                                .cursor_pointer()
+                                .child(h.title)
+                                .on_click(cx.listener(move |_, _, w, cx| {
+                                    if let Some(pane) = &pane {
+                                        pane.update(cx, |p, cx| p.jump(h.offset, w, cx));
+                                    }
+                                }))
+                        }))
                     })
                     .when(self.ui.right_mode == 1, |s| {
                         s.child(
@@ -3243,7 +3268,7 @@ impl Workspace {
                                 div()
                                     .id(("outlink", i))
                                     .py_1()
-                                    .text_color(rgb(0xa88bfa))
+                                    .text_color(rgb(0x3f9aca))
                                     .cursor_pointer()
                                     .child(link.label)
                                     .on_click(cx.listener(
@@ -3900,6 +3925,7 @@ impl Render for Workspace {
             s.child(
                 resizable_panel()
                     .size(px(self.ui.prefs.left_width))
+                    .flex_none()
                     .size_range(px(180.)..px(500.))
                     .child(self.left_panel(cx)),
             )
@@ -3913,6 +3939,7 @@ impl Render for Workspace {
             s.child(
                 resizable_panel()
                     .size(px(self.ui.prefs.right_width))
+                    .flex_none()
                     .size_range(px(180.)..px(500.))
                     .child(self.right_panel(_window, cx)),
             )
@@ -4020,15 +4047,28 @@ impl Render for Workspace {
             })
             .child(
                 div()
+                    .id("workspace-status-bar")
+                    .debug_selector(|| "workspace-status-bar".into())
+                    .occlude()
+                    .absolute()
+                    .bottom_0()
+                    .right_0()
+                    .max_w(_window.viewport_size().width * 0.8)
                     .flex()
                     .items_center()
-                    .h(px(24.))
-                    .px_3()
-                    .gap_4()
+                    .h(px(28.))
+                    .px_2()
+                    .gap_2()
                     .bg(self.bg())
-                    .text_size(px(11.))
-                    .text_color(rgb(0x888888))
-                    .child(div().flex_1().truncate().child(self.status.clone()))
+                    .text_size(px(12.))
+                    .text_color(rgb(if self.ui.prefs.light {
+                        0x5c5c5c
+                    } else {
+                        0x999999
+                    }))
+                    .when(!self.status.is_empty(), |bar| {
+                        bar.child(div().truncate().child(self.status.clone()))
+                    })
                     .child(count),
             )
             .when(

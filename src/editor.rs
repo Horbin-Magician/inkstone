@@ -879,12 +879,12 @@ impl EditorPane {
                     Kind::Code => HighlightStyle {
                         color: Some(rgb(0xf5c77e).into()),
                         background_color: Some(
-                            rgb(if self.light { 0xf2f2f2 } else { 0x303030 }).into(),
+                            rgb(if self.light { 0xfafafa } else { 0x232323 }).into(),
                         ),
                         ..Default::default()
                     },
                     Kind::WikiLink | Kind::Link => HighlightStyle {
-                        color: Some(rgb(0xa88bfa).into()),
+                        color: Some(rgb(0x3f9aca).into()),
                         ..Default::default()
                     },
                 };
@@ -1185,7 +1185,7 @@ impl Render for EditorPane {
                     .with_table_cell(StyleRefinement::default().text_size(px(font_size)))
                     .with_table_head(
                         StyleRefinement::default()
-                            .bg(rgb(if self.light { 0xf2f2f2 } else { 0x303030 }))
+                            .bg(rgb(if self.light { 0xfafafa } else { 0x232323 }))
                             .text_color(rgb(if self.light { 0x222222 } else { 0xdadada })),
                     ),
             )
@@ -1346,9 +1346,13 @@ impl Render for EditorPane {
             .size_full()
             .min_h_0()
             .bg(rgb(if self.light { 0xffffff } else { 0x262626 }))
-            .text_color(rgb(if self.light { 0x222222 } else { 0xdadada }))
-            .px(px(32.))
-            .pt(px(20.))
+            .text_color(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }))
+            .px(px(if self.readable_width || self.reading {
+                32.
+            } else {
+                0.
+            }))
+            .pt(px(12.))
             .children(self.footnote_panel(_window, cx))
             .child(
                 div().flex().justify_center().flex_1().min_h_0().child(

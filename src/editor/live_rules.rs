@@ -51,9 +51,9 @@ pub(super) fn overlay(
                             });
                         })
                         .child(div().w_full().h(px(2.)).bg(rgb(if light {
-                            0xe0e0e0
+                            0xe4e4e4
                         } else {
-                            0x363636
+                            0x333333
                         })))
                         .into_any_element();
                     element.prepaint_as_root(
