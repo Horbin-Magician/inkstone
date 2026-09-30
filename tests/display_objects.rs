@@ -11,6 +11,88 @@ impl Render for Root {
 }
 
 #[gpui::test]
+fn object_height_changes_restore_the_visible_source_anchor(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = format!("before\n$$\nx^2\n$$\nafter\n{}", "tail\n".repeat(100));
+    let handle = cx.add_window(|w, cx| {
+        Root(cx.new(|cx| {
+            EditorState::new(w, cx)
+                .default_value(source.clone())
+                .line_number(false)
+        }))
+    });
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.run_until_parked();
+    visual.update(|w, cx| w.draw(cx).clear(cx));
+    let install = |state: &mut EditorState, height, cx: &mut Context<EditorState>| {
+        let start = source.find("$$").unwrap();
+        let end = source.rfind("$$").unwrap() + 2;
+        state.set_display_objects(
+            &source,
+            vec![DisplayObject {
+                id: 1,
+                source: start..end,
+                size: size(px(100.), px(height)),
+                baseline: None,
+            }],
+            cx,
+        );
+        let projection = state.display_projection(state.line_height().unwrap_or(px(24.)), vec![]);
+        state.set_line_typography(projection.typography, cx);
+        state.set_concealed_lines(projection.hidden_lines, cx);
+        state.set_concealed_ranges_with_widths(projection.replacements, cx);
+    };
+    handle
+        .update(&mut visual, |root, _, cx| {
+            root.0.update(cx, |s, cx| {
+                install(s, 240., cx);
+                s.set_scroll_offset(point(px(0.), px(-360.)), cx);
+            })
+        })
+        .unwrap();
+    for _ in 0..3 {
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+    }
+    let anchor = handle
+        .update(&mut visual, |root, _, cx| {
+            root.0.read(cx).display_scroll_anchor().unwrap()
+        })
+        .unwrap();
+    handle
+        .update(&mut visual, |root, _, cx| {
+            root.0.update(cx, |s, cx| install(s, 480., cx))
+        })
+        .unwrap();
+    for _ in 0..3 {
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+    }
+    handle
+        .update(&mut visual, |root, _, cx| {
+            root.0.update(cx, |s, cx| {
+                assert!(s.restore_display_scroll_anchor(anchor, cx));
+            })
+        })
+        .unwrap();
+    for _ in 0..3 {
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+    }
+    handle
+        .update(&mut visual, |root, _, cx| {
+            let restored = root.0.read(cx).display_scroll_anchor().unwrap();
+            assert_eq!(restored.source_offset(), anchor.source_offset());
+            assert!(
+                (f32::from(restored.viewport_y() - anchor.viewport_y())).abs() < 1.,
+                "before={:?}, after={:?}, scroll={:?}",
+                anchor.viewport_y(),
+                restored.viewport_y(),
+                root.0.read(cx).scroll_offset()
+            );
+            assert_eq!(root.0.read(cx).value().as_ref(), source);
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn display_objects_project_crlf_and_variable_heights_without_changing_content_or_history(
     cx: &mut TestAppContext,
 ) {

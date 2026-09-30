@@ -371,6 +371,12 @@ pub(super) fn overlay(
                                     .iter_mut()
                                     .find(|w| w.source == range && w.document.markdown == text)
                                 {
+                                    if pane.pending_live_anchor.is_none()
+                                        && pane.editor.read(cx).scroll_offset().y < px(0.)
+                                    {
+                                        pane.pending_live_anchor =
+                                            pane.editor.read(cx).display_scroll_anchor();
+                                    }
                                     current.width = next_width;
                                     current.height = next_height;
                                     pane.last_presentation = None;
