@@ -1,5 +1,4 @@
 pub mod comments;
-pub mod document;
 pub mod file_order;
 pub mod index;
 pub mod line_edit;
