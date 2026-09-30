@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 mod font_zoom;
 mod footnotes;
+mod live_quotes;
 mod live_tasks;
 
 pub enum EditorEvent {
@@ -48,6 +49,7 @@ pub struct EditorPane {
     count_revision: u64,
     footnote_edit: Option<footnotes::FootnoteEdit>,
     live_tasks: Vec<live_tasks::TaskWidget>,
+    live_quotes: Vec<std::ops::Range<usize>>,
     pub editor: Entity<EditorState>,
     decorations: TextDecorationCollection,
     pub live: bool,
@@ -687,6 +689,7 @@ impl EditorPane {
             reading: false,
             navigation: Default::default(),
             live_tasks: vec![],
+            live_quotes: vec![],
             font_size: 16.,
             quick_font_size: false,
             font_zoom: Default::default(),
@@ -796,9 +799,33 @@ impl EditorPane {
         let mut decorations = Vec::new();
         let mut concealed = vec![];
         let mut concealed_lines = vec![];
+        self.live_quotes.clear();
         if self.live {
             for span in &self.spans {
                 let style = match span.kind {
+                    Kind::QuoteMarker => {
+                        let revealed = selections.iter().any(|selection| span.active(selection))
+                            || search_query.is_some()
+                                && search_matches
+                                    .get(
+                                        search_matches
+                                            .partition_point(|r| r.end <= span.content.start),
+                                    )
+                                    .is_some_and(|r| r.start < span.content.end);
+                        decorations.push(TextDecoration::new(
+                            span.content.clone(),
+                            HighlightStyle {
+                                color: Some(if revealed {
+                                    rgb(if self.light { 0xababab } else { 0x666666 }).into()
+                                } else {
+                                    rgba(0x00000000).into()
+                                }),
+                                ..Default::default()
+                            },
+                        ));
+                        self.live_quotes.push(span.content.start..span.source.end);
+                        continue;
+                    }
                     Kind::Heading => HighlightStyle {
                         font_weight: Some(FontWeight::BOLD),
                         color: Some(rgb(if self.light { 0x222222 } else { 0xdadada }).into()),
@@ -1339,6 +1366,12 @@ impl Render for EditorPane {
                 ),
             )
             .child(font_zoom::capture(cx.entity().downgrade()))
+            .when(!self.reading && self.live, |view| {
+                view.child(live_quotes::overlay(
+                    self.editor.clone(),
+                    self.live_quotes.clone(),
+                ))
+            })
             .when(!self.reading && self.live, |view| {
                 view.child(live_tasks::overlay(
                     cx.entity().downgrade(),
