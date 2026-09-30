@@ -545,6 +545,10 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.button_foreground = fg;
         theme.accent = hover;
         theme.accent_foreground = fg;
+        theme.list.active_highlight = true;
+        theme.list_active = rgb(if light { 0xe8e8e8 } else { 0x2e2e2e }).into();
+        theme.tokens.list_hover =
+            Hsla::from(rgba(if light { 0x00000008 } else { 0xffffff08 })).into();
         theme.primary = rgb(0x3f9aca).into();
         theme.ring = rgb(0x3f9aca).into();
         theme.switch_thumb = rgb(0xffffff).into();
@@ -767,6 +771,9 @@ impl Workspace {
 
 pub(super) fn icon(name: &str) -> Icon {
     let shape = match name {
+        "square-pen" => Some(
+            "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M16 3l5 5M9 15l1-5L18 2l4 4-8 8z",
+        ),
         "monitor" => Some("M3 3h18v14H3zM12 17v4M8 21h8"),
         "command" => {
             Some("M9 7V5a2 2 0 1 0-2 2h10a2 2 0 1 0-2-2v14a2 2 0 1 0 2-2H7a2 2 0 1 0 2 2V7")
@@ -2487,27 +2494,62 @@ impl Workspace {
     fn left_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let weak = cx.entity().downgrade();
         let menu_weak = cx.entity().downgrade();
+        let active_path = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map(|tab| tab.path.clone());
+        let tree_foreground = rgb(if self.ui.prefs.light {
+            0x5c5c5c
+        } else {
+            0xaaaaaa
+        });
+        let tree_active = rgb(if self.ui.prefs.light {
+            0xe8e8e8
+        } else {
+            0x2e2e2e
+        });
+        let tree_guide = self.border();
         let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
             let path = PathBuf::from(entry.item().id.as_ref());
             let folder = entry.is_folder();
             let weak = weak.clone();
             ListItem::new(i)
-                .h(px(28.))
+                .h(px(27.))
+                .px_1()
+                .py_0()
+                .rounded(px(4.))
+                .text_size(px(13.))
+                .text_color(tree_foreground)
+                .when(!folder && active_path.as_ref() == Some(&path), |s| {
+                    s.bg(tree_active)
+                })
                 .accessibility_label(entry.item().label.clone())
+                .children((0..entry.depth()).map(|depth| {
+                    div()
+                        .absolute()
+                        .left(px(12. + depth as f32 * 17.))
+                        .top_0()
+                        .bottom_0()
+                        .w(px(1.))
+                        .bg(tree_guide)
+                }))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap_1()
-                        .pl(px(entry.depth() as f32 * 14.))
+                        .min_w_0()
+                        .w_full()
+                        .pl(px(entry.depth() as f32 * 17.))
                         .child(if folder {
                             icon(if entry.is_expanded() {
                                 "chevron-down"
                             } else {
                                 "chevron-right"
                             })
+                            .size(px(16.))
                         } else {
-                            Icon::default().size(px(17.))
+                            Icon::default().size(px(16.))
                         })
                         .child(div().truncate().child(if folder {
                             entry.item().label.to_string()
@@ -2586,7 +2628,7 @@ impl Workspace {
                         .px_2()
                         .gap_1()
                         .child(
-                            tool("new-file", "file-plus", "新建笔记")
+                            tool("new-file", "square-pen", "新建笔记")
                                 .on_click(cx.listener(|this, _, w, cx| this.focus_new(w, cx))),
                         )
                         .child(tool("new-folder", "folder-plus", "新建文件夹").on_click(
@@ -2646,7 +2688,7 @@ impl Workspace {
                             ),
                         ),
                 )
-                .child(div().flex_1().min_h_0().px_1().child(file_tree))
+                .child(div().flex_1().min_h_0().px_3().child(file_tree))
             })
             .when(self.ui.left_mode == 1, |s| {
                 s.when(!self.ui.quick_open, |s| {
