@@ -38,6 +38,7 @@ pub struct BlockReference {
 }
 #[derive(Clone, Debug, Default)]
 pub struct ParsedNote {
+    pub comments: Vec<crate::comments::Comment>,
     pub footnotes: Vec<(Range<usize>, String)>,
     pub footnote_references: Vec<(Range<usize>, String)>,
     pub footnote_definitions: Vec<(Range<usize>, String)>,
@@ -81,9 +82,12 @@ impl ParsedNote {
 }
 
 pub fn parse(source: &str) -> ParsedNote {
+    let comments = crate::comments::ranges(source);
+    let masked = crate::comments::masked(source, &comments);
+    let source = masked.as_ref();
     fn label(node: &Node) -> String {
         match node {
-            Node::Text(n) => n.value.clone(),
+            Node::Text(n) => n.value.replace('\u{1}', ""),
             Node::InlineCode(n) => n.value.clone(),
             _ => node
                 .children()
@@ -226,11 +230,12 @@ pub fn parse(source: &str) -> ParsedNote {
                     let inner = &raw[start + 2..end];
                     if !inner.contains(['\r', '\n']) {
                         let (target, label) = inner.split_once('|').unwrap_or((inner, inner));
+                        let target = target.replace('\u{1}', "");
                         if !target.trim().is_empty() {
                             result.links.push(WikiLink {
                                 range: range.start + start..range.start + end + 2,
                                 target: target.trim().into(),
-                                label: label.into(),
+                                label: label.replace('\u{1}', ""),
                             });
                         }
                     }
@@ -244,7 +249,10 @@ pub fn parse(source: &str) -> ParsedNote {
             }
         }
     }
-    let mut result = ParsedNote::default();
+    let mut result = ParsedNote {
+        comments,
+        ..Default::default()
+    };
     let mut options = markdown_parser::ParseOptions::gfm();
     options.constructs.frontmatter = true;
     if let Ok(root) = markdown_parser::to_mdast(source, &options) {

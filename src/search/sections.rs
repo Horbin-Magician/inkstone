@@ -20,7 +20,9 @@ impl Sections {
         let mut options = markdown_parser::ParseOptions::gfm();
         options.constructs.frontmatter = true;
         let mut headings = vec![];
-        if let Ok(root) = markdown_parser::to_mdast(text, &options) {
+        let comments = crate::comments::ranges(text);
+        let clean = crate::comments::masked(text, &comments);
+        if let Ok(root) = markdown_parser::to_mdast(&clean, &options) {
             let mut stack = vec![&root];
             while let Some(node) = stack.pop() {
                 if let Node::Heading(heading) = node

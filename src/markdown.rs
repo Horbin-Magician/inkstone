@@ -6,6 +6,7 @@ pub const HEADING_SCALES: [f32; 6] = [1.618, 1.462, 1.318, 1.188, 1.076, 1.0];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
+    Comment,
     Rule,
     QuoteMarker,
     QuoteContinuation,
@@ -169,6 +170,9 @@ pub fn toggle_task_lines(text: &str, selection: Range<usize>) -> Option<(Range<u
 }
 
 pub fn spans(text: &str) -> Vec<Span> {
+    let comments = crate::comments::ranges(text);
+    let masked = crate::comments::masked(text, &comments);
+    let text = masked.as_ref();
     use markdown_parser::mdast::Node;
     fn boundary(node: &Node) -> Option<Range<usize>> {
         node.position().map(|p| p.start.offset..p.end.offset)
@@ -363,7 +367,15 @@ pub fn spans(text: &str) -> Vec<Span> {
     }
     let mut options = markdown_parser::ParseOptions::gfm();
     options.constructs.frontmatter = true;
-    let mut result = vec![];
+    let mut result: Vec<_> = comments
+        .into_iter()
+        .map(|comment| Span {
+            kind: Kind::Comment,
+            source: comment.range.clone(),
+            content: comment.range,
+            markers: vec![],
+        })
+        .collect();
     if let Ok(node) = markdown_parser::to_mdast(text, &options) {
         walk(&node, text, &mut result, 0);
         fn excluded(node: &Node, out: &mut Vec<Range<usize>>) {
