@@ -2152,25 +2152,24 @@ impl Workspace {
             .border_color(self.border())
             .children(
                 [
-                    ("list", "大纲"),
-                    ("links", "反向链接"),
-                    ("link", "出链"),
-                    ("tags", "标签"),
-                    ("inbox", "属性"),
+                    (1, "links", "反向链接"),
+                    (2, "link", "出链"),
+                    (3, "tags", "标签"),
+                    (4, "inbox", "属性"),
+                    (0, "list", "大纲"),
                 ]
                 .iter()
-                .enumerate()
-                .map(|(i, (ico, label))| {
+                .map(|&(i, ico, label)| {
                     Button::new(("right-mode", i))
                         .accessibility_id(format!("right-mode-{i}"))
-                        .accessibility_label(*label)
+                        .accessibility_label(label)
                         .selected(self.ui.right_mode == i)
                         .toggled(self.ui.right_mode == i)
                         .ghost()
                         .compact()
                         .icon(icon(ico))
-                        .tooltip(*label)
-                        .w(px(24.))
+                        .tooltip(label)
+                        .w(px(32.))
                         .h(px(28.))
                         .on_click(cx.listener(move |this, _, w, cx| {
                             this.ui.right_mode = i;
@@ -3273,10 +3272,14 @@ impl Workspace {
                             let pane = pane.clone();
                             div()
                                 .id(("outline", i))
+                                .h(px(27.))
+                                .text_size(px(13.))
+                                .rounded(px(4.))
+                                .hover(|s| s.bg(rgba(0x88888818)))
                                 .py_1()
-                                .pl(px((h.level - 1) as f32 * 12.))
+                                .pl(px(8. + (h.level - 1) as f32 * 17.))
                                 .cursor_pointer()
-                                .child(h.title)
+                                .child(div().truncate().child(h.title))
                                 .on_click(cx.listener(move |_, _, w, cx| {
                                     if let Some(pane) = &pane {
                                         pane.update(cx, |p, cx| p.jump(h.offset, w, cx));
@@ -3287,10 +3290,26 @@ impl Workspace {
                     .when(self.ui.right_mode == 1, |s| {
                         s.child(
                             div()
-                                .pb_3()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .px_2()
+                                .h(px(32.))
+                                .text_size(px(12.))
                                 .text_color(rgb(0x999999))
-                                .child(format!("链接提及  {}", self.backlinks.len())),
+                                .child("链接当前文件")
+                                .child(self.backlinks.len().to_string()),
                         )
+                        .when(self.backlinks.is_empty(), |s| {
+                            s.child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .text_size(px(13.))
+                                    .text_color(rgb(0x777777))
+                                    .child("没有笔记链接当前文件"),
+                            )
+                        })
                         .child(
                             uniform_list(
                                 "sidebar-backlinks",
@@ -3300,7 +3319,10 @@ impl Workspace {
                                         .filter_map(|i| {
                                             this.backlinks.get(i).cloned().map(|path| {
                                                 ListItem::new(("backlink", i))
-                                                    .h(px(28.))
+                                                    .h(px(27.))
+                                                    .px_2()
+                                                    .text_size(px(13.))
+                                                    .rounded(px(4.))
                                                     .child(
                                                         div().truncate().child(
                                                             path.to_string_lossy().to_string(),
@@ -3315,34 +3337,48 @@ impl Workspace {
                                 }),
                             )
                             .track_scroll(&self.backlink_scroll)
-                            .h(px(400.))
+                            .h(px((self.backlinks.len() as f32 * 27.).min(400.)))
                             .w_full(),
                         )
                     })
                     .when(self.ui.right_mode == 2, |s| {
-                        s.child(div().pb_3().text_color(rgb(0x999999)).child("出链"))
-                            .children(links.into_iter().enumerate().map(|(i, link)| {
-                                let from = tab_path.clone();
-                                div()
-                                    .id(("outlink", i))
-                                    .py_1()
-                                    .text_color(rgb(0x3f9aca))
-                                    .cursor_pointer()
-                                    .child(link.label)
-                                    .on_click(cx.listener(
-                                        move |this, event: &ClickEvent, w, cx| {
-                                            if let Some(from) = &from {
-                                                this.follow_link(
-                                                    from.clone(),
-                                                    link.target.clone(),
-                                                    event.modifiers().secondary(),
-                                                    w,
-                                                    cx,
-                                                );
-                                            }
-                                        },
-                                    ))
-                            }))
+                        s.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .px_2()
+                                .h(px(32.))
+                                .text_size(px(12.))
+                                .text_color(rgb(0x999999))
+                                .child("当前笔记中的链接")
+                                .child(links.len().to_string()),
+                        )
+                        .children(links.into_iter().enumerate().map(|(i, link)| {
+                            let from = tab_path.clone();
+                            div()
+                                .id(("outlink", i))
+                                .h(px(27.))
+                                .px_2()
+                                .text_size(px(13.))
+                                .rounded(px(4.))
+                                .hover(|s| s.bg(rgba(0x88888818)))
+                                .py_1()
+                                .text_color(rgb(0x3f9aca))
+                                .cursor_pointer()
+                                .child(div().truncate().child(link.label))
+                                .on_click(cx.listener(move |this, event: &ClickEvent, w, cx| {
+                                    if let Some(from) = &from {
+                                        this.follow_link(
+                                            from.clone(),
+                                            link.target.clone(),
+                                            event.modifiers().secondary(),
+                                            w,
+                                            cx,
+                                        );
+                                    }
+                                }))
+                        }))
                     })
                     .when(self.ui.right_mode == 4, |s| {
                         s.child(
@@ -3504,7 +3540,6 @@ impl Workspace {
                     .items_center()
                     .gap_1()
                     .pb_2()
-                    .child(div().flex_1().child("标签"))
                     .child(sorting)
                     .child(
                         tool("tags-hierarchy", "network", "显示嵌套标签")
@@ -3578,15 +3613,18 @@ impl Workspace {
                 },
                 |s, error| s.child(div().text_sm().text_color(rgb(0xe87979)).child(error)),
             )
-            .when(items.is_empty(), |s| {
-                s.child(div().text_sm().text_color(rgb(0x999999)).child(
-                    if options.show_filter && !options.query.is_empty() {
-                        "未找到匹配标签"
-                    } else {
-                        "没有标签"
-                    },
-                ))
-            })
+            .when(
+                items.is_empty() && options.show_filter && !options.query.is_empty(),
+                |s| {
+                    s.child(div().text_sm().text_color(rgb(0x999999)).child(
+                        if options.show_filter && !options.query.is_empty() {
+                            "未找到匹配标签"
+                        } else {
+                            "没有标签"
+                        },
+                    ))
+                },
+            )
             .child(
                 div()
                     .id("tag-rows")
@@ -3610,8 +3648,11 @@ impl Workspace {
                             .flex()
                             .items_center()
                             .gap_1()
+                            .h(px(27.))
+                            .text_size(px(13.))
+                            .rounded(px(4.))
                             .py_1()
-                            .pl(px(row.depth as f32 * 14.))
+                            .pl(px(row.depth as f32 * 17.))
                             .cursor_pointer()
                             .hover(|s| s.bg(rgba(0x88888822)))
                             .child(div().w(px(20.)).flex_shrink_0().when(row.children, |s| {
