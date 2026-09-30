@@ -70,20 +70,7 @@ impl Workspace {
             .min_h_0()
             .child(self.settings_nav(cx))
             .child(
-                div()
-                    .id("settings-content")
-                    .track_scroll(&self.ui.settings_scroll)
-                    .relative()
-                    .vertical_scrollbar(&self.ui.settings_scroll)
-                    .overflow_y_scroll()
-                    .min_h_0()
-                    .h_full()
-                    .flex_1()
-                    .min_w_0()
-                    .px(px(32.))
-                    .py(px(48.))
-                    .flex()
-                    .flex_col()
+                self.settings_content()
                     .gap_5()
                     .children(
                         [
@@ -109,7 +96,9 @@ impl Workspace {
                                             .text_size(px(13.))
                                             .line_height(relative(1.4))
                                             .whitespace_normal()
-                                            .text_color(rgb(0x999999))
+                                            .text_color(
+                                                crate::theme::palette(self.ui.prefs.light).muted,
+                                            )
                                             .child(description),
                                     ),
                                 )

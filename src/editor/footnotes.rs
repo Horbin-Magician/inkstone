@@ -181,7 +181,7 @@ impl EditorPane {
             .shadow_lg()
             .border_1()
             .border_color(rgb(if self.light { 0xdddddd } else { 0x454545 }))
-            .bg(rgb(if self.light { 0xffffff } else { 0x262626 }))
+            .bg(crate::theme::palette(self.light).background)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {
                     this.close_footnote(window, cx);

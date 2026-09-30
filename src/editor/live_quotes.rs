@@ -24,7 +24,7 @@ pub(super) fn overlay(
                         .debug_selector(move || format!("live-quote-{offset}"))
                         .w(px(2.))
                         .h(bounds.size.height)
-                        .bg(rgb(0x3f9aca))
+                        .bg(gpui_component::Theme::global(cx).primary)
                         .into_any_element();
                     border.prepaint_as_root(
                         bounds.origin,
