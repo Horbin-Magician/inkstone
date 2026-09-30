@@ -771,6 +771,11 @@ impl Workspace {
 
 pub(super) fn icon(name: &str) -> Icon {
     let shape = match name {
+        "trash" => Some("M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"),
+        "history" => Some("M3 3v6h6M3 9a9 9 0 1 1 0 6M12 7v5l3 2"),
+        "code" => Some("m8 5-7 7 7 7m8-14 7 7-7 7"),
+        "split-horizontal" => Some("M3 3h18v18H3zM12 3v18"),
+        "split-vertical" => Some("M3 3h18v18H3zM3 12h18"),
         "text" => Some("M4 5h16M4 10h10M4 15h16M4 20h10"),
         "hash" => Some("M10 3 8 21M16 3l-2 18M4 9h17M3 15h17"),
         "check-square" => {
@@ -4300,33 +4305,79 @@ impl Render for Workspace {
             .when(self.ui.more, |s| {
                 s.child(
                     div()
+                        .id("note-more-menu")
+                        .debug_selector(|| "note-more-menu".into())
                         .absolute()
                         .right(px(if right_open {
                             self.ui.prefs.right_width + 12.
                         } else {
                             12.
                         }))
-                        .top(px(112.))
-                        .w(px(250.))
-                        .p_2()
+                        .top(px(72.))
+                        .w(px(270.))
+                        .max_h((_window.viewport_size().height - px(88.)).max(px(80.)))
+                        .overflow_y_scroll()
+                        .p_1()
                         .rounded(px(8.))
                         .bg(self.bg())
                         .border_1()
                         .border_color(self.border())
                         .shadow_lg()
-                        .children([6, 7, 8, 15, 11, 18, 19, 10, 16].into_iter().map(|id| {
-                            let (_, label, _) = COMMANDS[id];
-                            div()
-                                .id(("menu-item", id))
-                                .p_2()
-                                .cursor_pointer()
-                                .rounded(px(4.))
-                                .hover(|s| s.bg(rgba(0x88888822)))
-                                .child(label)
-                                .on_click(cx.listener(move |this, _, w, cx| {
-                                    this.execute_command(id, w, cx)
-                                }))
-                        })),
+                        .children(
+                            [6, 7, 31, 32, 8, 15, 11, 23, 19, 18, 10, 16]
+                                .into_iter()
+                                .map(|id| {
+                                    let (_, label, _) = COMMANDS[id];
+                                    let symbol = match id {
+                                        6 => "book-open",
+                                        7 => "code",
+                                        31 => "split-horizontal",
+                                        32 => "split-vertical",
+                                        8 => "pencil",
+                                        15 => "bookmark",
+                                        11 | 19 => "copy",
+                                        23 => "search",
+                                        18 => "folder",
+                                        10 => "trash",
+                                        _ => "history",
+                                    };
+                                    div()
+                                        .when(matches!(id, 31 | 8 | 23 | 10), |s| {
+                                            s.child(div().h(px(1.)).my_1().bg(self.border()))
+                                        })
+                                        .child(
+                                            div()
+                                                .id(("menu-item", id))
+                                                .h(px(28.))
+                                                .px_2()
+                                                .flex()
+                                                .items_center()
+                                                .gap_2()
+                                                .text_size(px(13.))
+                                                .cursor_pointer()
+                                                .rounded(px(4.))
+                                                .hover(|s| s.bg(rgba(0x88888822)))
+                                                .when(id == 10, |s| s.text_color(rgb(0xe76575)))
+                                                .child(icon(symbol).size(px(16.)))
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .truncate()
+                                                        .child(label),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_size(px(11.))
+                                                        .text_color(rgb(0x888888))
+                                                        .child(self.hotkey_label(id)),
+                                                )
+                                                .on_click(cx.listener(move |this, _, w, cx| {
+                                                    this.execute_command(id, w, cx)
+                                                })),
+                                        )
+                                }),
+                        ),
                 )
             })
     }
