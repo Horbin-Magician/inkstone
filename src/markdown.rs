@@ -7,6 +7,7 @@ pub const HEADING_SCALES: [f32; 6] = [1.618, 1.462, 1.318, 1.188, 1.076, 1.0];
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     QuoteMarker,
+    QuoteContinuation,
     Heading,
     Strong,
     Emphasis,
@@ -184,11 +185,13 @@ pub fn spans(text: &str) -> Vec<Span> {
                 let line = &text[start..end];
                 let mut rest = line;
                 let mut depth = 0;
+                let mut found = false;
                 loop {
                     rest = rest.trim_start_matches([' ', '\t']);
                     if let Some(next) = rest.strip_prefix('>') {
                         depth += 1;
                         if depth == quote_depth {
+                            found = true;
                             let marker = start + line.len() - rest.len();
                             out.push(Span {
                                 kind: Kind::QuoteMarker,
@@ -222,6 +225,14 @@ pub fn spans(text: &str) -> Vec<Span> {
                         }
                         rest = &rest[marker..];
                     }
+                }
+                if !found && quote_depth == 1 && end > start {
+                    out.push(Span {
+                        kind: Kind::QuoteContinuation,
+                        source: start..end,
+                        content: start..start,
+                        markers: vec![],
+                    });
                 }
                 offset += part.len();
             }
@@ -560,6 +571,27 @@ mod tests {
             quotes
                 .iter()
                 .any(|span| span.content.start == source.find("> list").unwrap())
+        );
+    }
+    #[test]
+    fn lazy_quote_lines_retain_source_without_invented_markers() {
+        let source = "> first\r\n续行\r\n> > nested\r\nnested tail\r\n\r\noutside";
+        let continuation: Vec<_> = spans(source)
+            .into_iter()
+            .filter(|span| span.kind == Kind::QuoteContinuation)
+            .collect();
+        assert_eq!(continuation.len(), 2);
+        assert_eq!(&source[continuation[0].source.clone()], "续行");
+        assert_eq!(&source[continuation[1].source.clone()], "nested tail");
+        assert!(
+            continuation
+                .iter()
+                .all(|span| span.content.is_empty() && span.markers.is_empty())
+        );
+        assert!(
+            spans("plain\n\n> quote\n\noutside")
+                .iter()
+                .all(|span| span.kind != Kind::QuoteContinuation)
         );
     }
     #[test]

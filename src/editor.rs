@@ -803,6 +803,10 @@ impl EditorPane {
         if self.live {
             for span in &self.spans {
                 let style = match span.kind {
+                    Kind::QuoteContinuation => {
+                        self.live_quotes.push(span.source.clone());
+                        continue;
+                    }
                     Kind::QuoteMarker => {
                         let revealed = selections.iter().any(|selection| span.active(selection))
                             || search_query.is_some()
