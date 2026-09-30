@@ -6,6 +6,7 @@ pub const HEADING_SCALES: [f32; 6] = [1.618, 1.462, 1.318, 1.188, 1.076, 1.0];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
+    QuoteMarker,
     Heading,
     Strong,
     Emphasis,
@@ -170,10 +171,61 @@ pub fn spans(text: &str) -> Vec<Span> {
     fn boundary(node: &Node) -> Option<Range<usize>> {
         node.position().map(|p| p.start.offset..p.end.offset)
     }
-    fn walk(node: &Node, text: &str, out: &mut Vec<Span>) {
+    fn walk(node: &Node, text: &str, out: &mut Vec<Span>, quote_depth: usize) {
         let Some(range) = boundary(node) else {
             return;
         };
+        let quote_depth = quote_depth + usize::from(matches!(node, Node::Blockquote(_)));
+        if matches!(node, Node::Blockquote(_)) {
+            let mut offset = range.start;
+            for part in text[range.clone()].split_inclusive('\n') {
+                let start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
+                let end = offset + part.trim_end_matches(['\r', '\n']).len();
+                let line = &text[start..end];
+                let mut rest = line;
+                let mut depth = 0;
+                loop {
+                    rest = rest.trim_start_matches([' ', '\t']);
+                    if let Some(next) = rest.strip_prefix('>') {
+                        depth += 1;
+                        if depth == quote_depth {
+                            let marker = start + line.len() - rest.len();
+                            out.push(Span {
+                                kind: Kind::QuoteMarker,
+                                source: start..end,
+                                content: marker..marker + 1,
+                                markers: std::iter::once(marker..marker + 1).collect(),
+                            });
+                            break;
+                        }
+                        rest = next;
+                    } else {
+                        let prefix = rest.bytes().take_while(|b| b.is_ascii_digit()).count();
+                        let marker = if prefix > 0
+                            && rest
+                                .as_bytes()
+                                .get(prefix)
+                                .is_some_and(|b| matches!(b, b'.' | b')'))
+                        {
+                            prefix + 1
+                        } else if rest.starts_with(['-', '+', '*']) {
+                            1
+                        } else {
+                            break;
+                        };
+                        if !rest
+                            .as_bytes()
+                            .get(marker)
+                            .is_some_and(|b| matches!(b, b' ' | b'\t'))
+                        {
+                            break;
+                        }
+                        rest = &rest[marker..];
+                    }
+                }
+                offset += part.len();
+            }
+        }
         let children = node.children();
         let content = children
             .and_then(|children| {
@@ -280,7 +332,7 @@ pub fn spans(text: &str) -> Vec<Span> {
         }
         if let Some(children) = children {
             for child in children {
-                walk(child, text, out);
+                walk(child, text, out, quote_depth);
             }
         }
     }
@@ -288,7 +340,7 @@ pub fn spans(text: &str) -> Vec<Span> {
     options.constructs.frontmatter = true;
     let mut result = vec![];
     if let Ok(node) = markdown_parser::to_mdast(text, &options) {
-        walk(&node, text, &mut result);
+        walk(&node, text, &mut result, 0);
         fn excluded(node: &Node, out: &mut Vec<Range<usize>>) {
             if matches!(
                 node,
@@ -479,6 +531,35 @@ mod tests {
         assert_eq!(
             heading.heading_line_anchors("### 中文"),
             std::iter::once(0..4).collect::<Vec<_>>()
+        );
+    }
+    #[test]
+    fn quote_markers_follow_ast_depth_and_preserve_quoted_code() {
+        let source = "> outer\n> > inner\n> > ```\n> > > literal\n> > ```\n\n- > list\n\n```\n> not quote\n```";
+        let quotes: Vec<_> = spans(source)
+            .into_iter()
+            .filter(|span| span.kind == Kind::QuoteMarker)
+            .collect();
+        assert_eq!(quotes.len(), 10);
+        assert!(
+            quotes
+                .iter()
+                .all(|span| &source[span.content.clone()] == ">")
+        );
+        assert!(
+            !quotes
+                .iter()
+                .any(|span| span.content.start == source.find("> literal").unwrap())
+        );
+        assert!(
+            !quotes
+                .iter()
+                .any(|span| span.content.start == source.find("> not quote").unwrap())
+        );
+        assert!(
+            quotes
+                .iter()
+                .any(|span| span.content.start == source.find("> list").unwrap())
         );
     }
     #[test]
