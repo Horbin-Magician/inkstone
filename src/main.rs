@@ -2,6 +2,7 @@
 
 mod editor;
 mod editor_links;
+mod native_graphics;
 mod theme;
 mod workspace;
 use gpui::{prelude::*, *};

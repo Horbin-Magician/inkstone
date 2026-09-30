@@ -1171,12 +1171,13 @@ impl Render for EditorPane {
         let font_size = self.font_size;
         let preview = TextView::new(&self.preview)
             .font_family(self.text_font.clone())
-            .markdown_extensions(
-                gpui_base::text::MarkdownExtensions::default()
-                    .frontmatter()
-                    .custom_task_markers(true)
-                    .soft_line_breaks(!self.strict_line_breaks),
-            )
+            .markdown_extensions(crate::native_graphics::extensions(
+                font_size,
+                _window.scale_factor(),
+                self.light,
+                self.strict_line_breaks,
+                cx,
+            ))
             .text_size(px(font_size))
             .line_height(relative(1.5))
             .style(
