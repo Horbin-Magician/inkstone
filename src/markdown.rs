@@ -381,7 +381,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
         })
         .collect();
     if let Some(node) = snapshot.ast.as_deref() {
-        walk(&node, text, &mut result, 0);
+        walk(node, text, &mut result, 0);
         fn excluded(node: &Node, out: &mut Vec<Range<usize>>) {
             if matches!(
                 node,
@@ -404,7 +404,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
             }
         }
         let mut blocked = vec![];
-        excluded(&node, &mut blocked);
+        excluded(node, &mut blocked);
         let mut open = None;
         for (offset, _) in text.match_indices("==") {
             if text[..offset]
