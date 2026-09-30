@@ -7,6 +7,7 @@ pub mod locations;
 pub mod markdown;
 pub mod markdown_edit;
 pub mod preferences;
+pub mod preview;
 pub mod properties;
 pub mod rendering;
 pub mod search;
