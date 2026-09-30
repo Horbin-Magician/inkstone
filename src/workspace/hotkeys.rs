@@ -67,7 +67,19 @@ impl Workspace {
     pub(super) fn hotkey_label(&self, id: usize) -> String {
         self.hotkeys(id)
             .iter()
-            .map(|key| key.replace('-', "+"))
+            .map(|key| {
+                key.split('-')
+                    .map(|part| match part {
+                        "ctrl" => "Ctrl".to_string(),
+                        "shift" => "Shift".to_string(),
+                        "alt" => "Alt".to_string(),
+                        "cmd" => "Cmd".to_string(),
+                        "super" => "Super".to_string(),
+                        other => other.to_uppercase(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("+")
+            })
             .collect::<Vec<_>>()
             .join(" / ")
     }

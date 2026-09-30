@@ -546,7 +546,7 @@ impl Workspace {
             generation: 0,
             navigation_generation: 0,
             name,
-            status: "Ctrl+O 打开库，Ctrl+S 保存，Ctrl+F 文档查找。".into(),
+            status: String::new(),
             loading: false,
             _timer: timer,
             watcher: None,

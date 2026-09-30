@@ -2152,15 +2152,6 @@ impl Workspace {
                             ))
                     }),
             )
-            .child(div().flex_1())
-            .child(
-                tool("settings", "settings", "设置")
-                    .w(px(32.))
-                    .h(px(32.))
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.execute_command(14, window, cx)),
-                    ),
-            )
             .into_any_element()
     }
 
@@ -2857,39 +2848,6 @@ impl Workspace {
                         })),
                 )
             })
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(38.))
-                    .px_2()
-                    .border_t_1()
-                    .border_color(self.border())
-                    .child(
-                        Button::new("vault-switch")
-                            .ghost()
-                            .compact()
-                            .label(
-                                self.vault
-                                    .as_ref()
-                                    .map(|v| {
-                                        v.root
-                                            .file_name()
-                                            .unwrap_or_default()
-                                            .to_string_lossy()
-                                            .to_string()
-                                    })
-                                    .unwrap_or("打开笔记库".into()),
-                            )
-                            .on_click(cx.listener(|this, _, w, cx| this.choose_vault(w, cx))),
-                    )
-                    .child(div().flex_1())
-                    .when(!self.ui.prefs.show_ribbon, |row| {
-                        row.child(tool("settings", "settings", "设置").on_click(
-                            cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
-                        ))
-                    }),
-            )
             .into_any_element()
     }
     pub(super) fn rebuild_sorted_tree(&mut self, cx: &mut Context<Self>) {
@@ -3401,11 +3359,12 @@ impl Workspace {
                                     .w_full()
                                     .pt(px(28.))
                                     .text_center()
-                                    .text_color(rgb(0x777777))
+                                    .text_size(px(12.))
+                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child(if outline_query.is_empty() {
-                                        "未找到小标题行。"
+                                        "笔记中的标题会显示在这里"
                                     } else {
-                                        "未找到匹配的小标题。"
+                                        "没有匹配的标题"
                                     }),
                             )
                         })
@@ -3980,7 +3939,7 @@ impl Workspace {
             .size_full()
             .min_h_0()
             .bg(self.bg())
-            .when(self.ui.prefs.show_view_header, |s| {
+            .when(active.is_some() && self.ui.prefs.show_view_header, |s| {
                 s.child(
                     div()
                         .flex()
@@ -4157,83 +4116,10 @@ impl Workspace {
                     },
                 ))
             })
-            .child(div().flex_1().min_h_0().children(pane))
-            .when(active.is_none(), |s| {
-                s.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .justify_center()
-                        .gap_2()
-                        .px_4()
-                        .child(
-                            div()
-                                .size(px(56.))
-                                .rounded(px(16.))
-                                .bg(colors.selected)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(icon("square-pen").size(px(28.)).text_color(colors.accent)),
-                        )
-                        .child(
-                            div()
-                                .mt_2()
-                                .text_size(px(20.))
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("开始一篇新笔记"),
-                        )
-                        .child(div().mb_4().text_sm().text_color(colors.muted).child(
-                            if self.vault.is_some() {
-                                "从一篇新笔记开始，或继续之前的记录。"
-                            } else {
-                                "打开一个本地文件夹，开始整理你的笔记。"
-                            },
-                        ))
-                        .children(
-                            if self.vault.is_some() {
-                                vec![
-                                    ("empty-new", "创建新笔记", "file-plus", 0),
-                                    ("empty-open", "查找笔记", "search", 2),
-                                ]
-                            } else {
-                                vec![("empty-vault", "打开笔记库", "folder-open", 1)]
-                            }
-                            .into_iter()
-                            .enumerate()
-                            .map(
-                                |(i, (id, label, symbol, command))| {
-                                    Button::new(id)
-                                        .when(i == 0, |button| button.primary())
-                                        .when(i > 0, |button| button.ghost())
-                                        .h(px(42.))
-                                        .w(px(240.))
-                                        .accessibility_label(label)
-                                        .child(
-                                            div()
-                                                .w_full()
-                                                .flex()
-                                                .items_center()
-                                                .gap_2()
-                                                .child(icon(symbol).size(px(16.)))
-                                                .child(div().flex_1().child(label))
-                                                .child(
-                                                    div()
-                                                        .text_xs()
-                                                        .child(self.hotkey_label(command)),
-                                                ),
-                                        )
-                                        .on_click(cx.listener(move |this, _, w, cx| {
-                                            this.execute_command(command, w, cx)
-                                        }))
-                                },
-                            ),
-                        ),
-                )
+            .when(active.is_some(), |s| {
+                s.child(div().flex_1().min_h_0().children(pane))
             })
+            .when(active.is_none(), |s| s.child(self.blank_note(cx)))
             .relative()
             .id(if secondary {
                 "secondary-editor-group"
@@ -4390,19 +4276,26 @@ impl Render for Workspace {
             })
             .unwrap_or("新标签页".into());
         let pane = self.current_pane();
-        let status_mode = pane.as_ref().filter(|_| !self.graph_open).map(|pane| {
-            let pane = pane.read(cx);
-            if pane.reading {
-                ("book-open", "阅读视图")
-            } else if pane.live {
-                ("pencil", "实时预览")
-            } else {
-                ("code", "源码模式")
-            }
-        });
+        let status_mode = pane
+            .as_ref()
+            .filter(|_| {
+                !self.graph_open && active.is_some_and(|tab| !tab.path.as_os_str().is_empty())
+            })
+            .map(|pane| {
+                let pane = pane.read(cx);
+                if pane.reading {
+                    ("book-open", "阅读视图")
+                } else if pane.live {
+                    ("pencil", "实时预览")
+                } else {
+                    ("code", "源码模式")
+                }
+            });
         let count = pane
             .as_ref()
-            .filter(|_| !self.graph_open)
+            .filter(|_| {
+                !self.graph_open && active.is_some_and(|tab| !tab.path.as_os_str().is_empty())
+            })
             .map(|p| {
                 let counts = p.update(cx, |pane, cx| pane.text_counts(cx));
                 format!("{} 个词  {} 个字符", counts.words, counts.characters)
@@ -4650,7 +4543,13 @@ impl Render for Workspace {
                         .text_size(px(12.))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                         .when(!self.status.is_empty(), |bar| {
-                            bar.child(div().truncate().child(self.status.clone()))
+                            bar.child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(self.status.clone()),
+                            )
                         })
                         .when_some(status_mode, |bar, (symbol, mode)| {
                             let weak = cx.entity().downgrade();
@@ -4788,8 +4687,9 @@ impl Workspace {
             .when(self.ui.settings, |s| s.h(px(700.).min(available_height)))
             .p_3()
             .gap_2()
-            .when(picker, |s| s.p_0().gap_0().overflow_hidden())
-            .when(self.ui.settings, |s| s.p_0().gap_0().overflow_hidden())
+            .when(picker || self.ui.settings, |s| {
+                s.p_0().gap_0().overflow_hidden()
+            })
             .rounded(px(12.))
             .bg(self.bg())
             .border_1()
@@ -4854,8 +4754,6 @@ impl Workspace {
                         }
                     } else if self.ui.property_open {
                         "编辑属性"
-                    } else if self.ui.link_update.is_some() {
-                        "更新内部链接"
                     } else if self.ui.settings {
                         "设置"
                     } else if self.ui.trash_open {
