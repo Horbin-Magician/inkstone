@@ -1555,6 +1555,39 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn reading_currency_preserves_dollars_links_and_footnote_numbering(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "spent $5 [link][r] [^n] and $10; formula $x^2$\n\n[r]: target.md\n[^n]: body";
+        let handle = cx.add_window(|w, cx| {
+            let mut p = EditorPane::new(source, w, cx);
+            p.reading = true;
+            p
+        });
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..5 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |p, _, cx| {
+                p.preview.update(cx, |s, cx| {
+                    s.select_all(cx);
+                    let text = s.selected_text();
+                    assert!(
+                        text.contains("$5 link")
+                            && text.contains("$10")
+                            && text.contains("1. body"),
+                        "{text:?}"
+                    );
+                    assert!(
+                        !text.contains("[link][r]") && !text.contains("[^n]"),
+                        "{text:?}"
+                    );
+                })
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn html_scripts_and_details_render_copy_and_fold_without_editing_source(
         cx: &mut TestAppContext,
     ) {
