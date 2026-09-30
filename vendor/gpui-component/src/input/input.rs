@@ -767,9 +767,15 @@ impl RenderOnce for Input {
             .size_full()
             .line_height(LINE_HEIGHT)
             .when(!is_multi_line, |this| {
-                this.input_px(self.size).input_py(self.size)
+                // Center the line in the fixed-height frame. Size::Medium's
+                // vertical padding otherwise leaves only 14px for a 20px line,
+                // causing flex layout to shrink and clip the text and caret.
+                this.input_px(self.size).py_0()
             })
             .input_h(self.size)
+            .when(!is_multi_line, |this| {
+                this.min_h(LINE_HEIGHT.to_pixels(window.rem_size()) + px(2.))
+            })
             .input_text_size(self.size)
             .items_center()
             .when(presentation.is_multi_line(), |this| {
@@ -792,6 +798,7 @@ impl RenderOnce for Input {
             )
             .children(prefix.map(|p| {
                 div()
+                    .flex_shrink_0()
                     .when(presentation.is_disabled(), |this| this.opacity(0.5))
                     .child(p)
             }))
@@ -805,6 +812,7 @@ impl RenderOnce for Input {
                 this.pr(self.size.input_px()).child(
                     h_flex()
                         .id("suffix")
+                        .flex_shrink_0()
                         .gap(gap_x)
                         .items_center()
                         .cursor_default()
