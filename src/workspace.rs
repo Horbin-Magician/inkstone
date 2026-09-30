@@ -6510,6 +6510,54 @@ mod tests {
     }
 
     #[gpui::test]
+    fn recovery_panel_refreshes_drafts_created_after_opening_vault(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-recovery-refresh-{stamp}"));
+        std::fs::create_dir(&root).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        let journal = handle
+            .update(cx, |w, window, cx| {
+                assert!(w.recoveries.is_empty());
+                let journal = w
+                    .vault
+                    .as_ref()
+                    .unwrap()
+                    .journal(std::path::Path::new("草稿.md"), None, "会话中新建的草稿")
+                    .unwrap();
+                w.execute_command(16, window, cx);
+                journal
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.ui.trash_open);
+                assert_eq!(w.recoveries.len(), 1);
+                assert_eq!(w.recoveries[0].record.draft, "会话中新建的草稿");
+                std::fs::rename(&journal, journal.with_extension("saved")).unwrap();
+                w.execute_command(16, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(w.recoveries.is_empty());
+                w.watcher = None;
+            })
+            .unwrap();
+        std::fs::remove_file(journal.with_extension("saved")).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn recovery_opens_exact_draft_as_new_note_without_overwriting_original(
         cx: &mut TestAppContext,
     ) {
