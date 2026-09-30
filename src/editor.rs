@@ -86,6 +86,8 @@ pub struct EditorPane {
     syntax_snapshot: Option<Arc<inkstone::syntax::Snapshot>>,
     live_objects: Vec<live_objects::Widget>,
     pending_live_anchor: Option<gpui_base::input::DisplayScrollAnchor>,
+    graphic_dpi: f32,
+    graphic_appearance: Option<(u32, u32, bool)>,
     rendered: Arc<inkstone::rendering::ReadingDocument>,
     link_cache: ParsedCache,
     path_cache: PathCache,
@@ -721,6 +723,8 @@ impl EditorPane {
             syntax_snapshot: None,
             live_objects: vec![],
             pending_live_anchor: None,
+            graphic_dpi: 1.,
+            graphic_appearance: None,
             rendered: Arc::default(),
             link_cache,
             path_cache,
@@ -771,6 +775,8 @@ impl EditorPane {
             let path = self.current_path.clone();
             let context_revision = self.context_revision;
             let cached_snapshot = self.syntax_snapshot.clone();
+            let graphics = crate::native_graphics::Service::get(cx);
+            let (font, dpi, light) = (self.font_size, self.graphic_dpi, self.light);
             let task = cx.background_executor().spawn(async move {
                 let snapshot = cached_snapshot
                     .filter(|s| s.source.as_ref() == source.as_ref())
@@ -789,7 +795,15 @@ impl EditorPane {
                     0..source.len(),
                 );
                 let fragments =
-                    inkstone::preview::fragments(&references, &path, snapshot, &reading);
+                    inkstone::preview::fragments(&references, &path, snapshot, &reading)
+                        .into_iter()
+                        .map(|fragment| {
+                            let graphic = fragment.graphic.as_ref().map(|(kind, source)| {
+                                graphics.prepare(*kind, source, light, font, dpi)
+                            });
+                            (fragment, graphic)
+                        })
+                        .collect();
                 (initial, reading, fragments)
             });
             self.parse_task = Some(cx.spawn(async move |this, cx| {
@@ -1167,6 +1181,19 @@ impl EditorPane {
 
 impl Render for EditorPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let appearance = (
+            self.font_size.to_bits(),
+            _window.scale_factor().to_bits(),
+            self.light,
+        );
+        if self
+            .graphic_appearance
+            .replace(appearance)
+            .is_some_and(|old| old != appearance)
+        {
+            self.context_revision += 1;
+        }
+        self.graphic_dpi = _window.scale_factor();
         self.update_presentation(cx);
         if let Some(anchor) = self.pending_live_anchor.take() {
             self.reveal_after_concealment = false;

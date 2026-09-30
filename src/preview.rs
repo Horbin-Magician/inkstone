@@ -115,6 +115,7 @@ pub struct Fragment {
     pub document: crate::rendering::ReadingDocument,
     pub numbers: BTreeMap<String, usize>,
     pub targets: Vec<(usize, std::path::PathBuf, usize)>,
+    pub graphic: Option<(crate::graphics::Kind, String)>,
 }
 
 pub fn fragments(
@@ -220,11 +221,48 @@ pub fn fragments(
             } else {
                 vec![]
             };
+            fn graphic(
+                node: &Node,
+                range: &Range<usize>,
+            ) -> Option<(crate::graphics::Kind, String)> {
+                if node
+                    .position()
+                    .is_some_and(|p| p.start.offset == range.start && p.end.offset == range.end)
+                {
+                    match node {
+                        Node::InlineMath(n) => {
+                            return Some((crate::graphics::Kind::InlineMath, n.value.clone()));
+                        }
+                        Node::Math(n) => {
+                            return Some((crate::graphics::Kind::BlockMath, n.value.clone()));
+                        }
+                        Node::Code(n)
+                            if n.lang
+                                .as_deref()
+                                .is_some_and(|l| l.eq_ignore_ascii_case("mermaid")) =>
+                        {
+                            return Some((crate::graphics::Kind::Mermaid, n.value.clone()));
+                        }
+                        _ => {}
+                    }
+                }
+                node.children()
+                    .and_then(|children| children.iter().find_map(|n| graphic(n, range)))
+            }
+            let graphic = if candidate.role == Role::Content {
+                snapshot
+                    .ast
+                    .as_deref()
+                    .and_then(|ast| graphic(ast, &candidate.source))
+            } else {
+                None
+            };
             Fragment {
                 candidate,
                 document,
                 numbers: overrides,
                 targets,
+                graphic,
             }
         })
         .collect()
