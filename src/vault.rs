@@ -199,9 +199,6 @@ impl Vault {
         move_no_replace(&source, &dest)?;
         Ok(dest)
     }
-    pub fn store_attachment(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, VaultError> {
-        self.store_attachment_to(Path::new("附件"), name, bytes)
-    }
     pub fn store_attachment_to(
         &self,
         folder: &Path,
@@ -209,9 +206,6 @@ impl Vault {
         bytes: &[u8],
     ) -> Result<PathBuf, VaultError> {
         self.write_attachment(folder, name, |file| file.write_all(bytes))
-    }
-    pub fn import_attachment(&self, source: &Path) -> Result<PathBuf, VaultError> {
-        self.import_attachment_to(Path::new("附件"), source)
     }
     pub fn import_attachment_to(
         &self,
@@ -904,11 +898,18 @@ mod tests {
     #[test]
     fn attachment_collisions_preserve_existing_bytes_and_folder_trash_restores() {
         let s = Sandbox::new();
-        let first = s.1.store_attachment("图片.png", b"first").unwrap();
-        let second = s.1.store_attachment("图片.png", b"second").unwrap();
+        let first =
+            s.1.store_attachment_to(Path::new("附件"), "图片.png", b"first")
+                .unwrap();
+        let second =
+            s.1.store_attachment_to(Path::new("附件"), "图片.png", b"second")
+                .unwrap();
         assert_ne!(first, second);
         assert_eq!(fs::read(s.1.root.join(&first)).unwrap(), b"first");
-        assert!(s.1.store_attachment("../escape.png", b"x").is_err());
+        assert!(
+            s.1.store_attachment_to(Path::new("附件"), "../escape.png", b"x")
+                .is_err()
+        );
         s.1.rename_folder(Path::new("附件"), Path::new("资料/附件"))
             .unwrap();
         s.1.trash_folder(Path::new("资料")).unwrap();

@@ -440,10 +440,6 @@ impl Index {
         let note = self.notes.get(path)?;
         anchor_range(&note.text, &note.parsed, fragment)
     }
-    /// Source edits are applied from the end, preserving Markdown formatting and labels.
-    pub fn rename_edits(&self, old: &Path, new: &Path) -> Vec<(PathBuf, String, String)> {
-        self.relocation_edits(old, new, false, None)
-    }
     /// Plan all references against the pre-move index, including outgoing relative links.
     pub fn relocation_edits(
         &self,
@@ -1542,7 +1538,12 @@ mod tests {
             "来源.md".into(),
             "[[原目录/笔记#章节|显示]]\n[标题](原目录/笔记.md#章节)\n`[[原目录/笔记]]`\n".into(),
         );
-        let edits = index.rename_edits(Path::new("原目录/笔记.md"), Path::new("新 目录/改名.md"));
+        let edits = index.relocation_edits(
+            Path::new("原目录/笔记.md"),
+            Path::new("新 目录/改名.md"),
+            false,
+            None,
+        );
         let source = &edits
             .iter()
             .find(|(p, _, _)| p == Path::new("来源.md"))
