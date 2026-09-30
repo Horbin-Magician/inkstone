@@ -783,18 +783,8 @@ impl EditorPane {
                     snapshot.clone(),
                     0..source.len(),
                 );
-                let fragments = inkstone::preview::candidates(&snapshot)
-                    .into_iter()
-                    .map(|candidate| {
-                        let document = inkstone::rendering::reading_snapshot(
-                            &references,
-                            &path,
-                            snapshot.clone(),
-                            candidate.source.clone(),
-                        );
-                        (candidate, document)
-                    })
-                    .collect();
+                let fragments =
+                    inkstone::preview::fragments(&references, &path, snapshot, &reading);
                 (initial, reading, fragments)
             });
             self.parse_task = Some(cx.spawn(async move |this, cx| {
@@ -1085,6 +1075,31 @@ impl EditorPane {
             s.set_display_objects(&text, objects, cx);
             s.display_projection(px(self.font_size * 1.5), styles.take().unwrap_or_default())
         });
+        let hidden = self.hidden_live_ranges(
+            &text,
+            &selections,
+            if search_query.is_some() {
+                &search_matches
+            } else {
+                &[]
+            },
+        );
+        for range in &hidden {
+            let raw = &text[range.clone()];
+            if range.start > 0 {
+                concealed_lines.push(range.start);
+            } else {
+                let end = range.start + raw.find(['\r', '\n']).unwrap_or(raw.len());
+                if end > range.start {
+                    replacements.push((range.start..end, px(0.)));
+                }
+            }
+            concealed_lines.extend(
+                raw.match_indices('\n')
+                    .map(|(i, _)| range.start + i + 1)
+                    .filter(|&i| i < range.end),
+            );
+        }
         self.live_quotes.retain(|r| {
             !object_ranges
                 .iter()
