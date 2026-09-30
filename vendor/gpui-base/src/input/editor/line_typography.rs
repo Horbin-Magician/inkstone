@@ -28,7 +28,7 @@ fn valid(text: &Rope, style: &LineTypography) -> bool {
         && style.font_scale.is_finite()
         && style.height_scale.is_finite()
         && (0.25..=4.).contains(&style.font_scale)
-        && (0.25..=4.).contains(&style.height_scale)
+        && (0.25..=512.).contains(&style.height_scale)
         && text.clip_offset(r.start, Bias::Left) == r.start
         && text.clip_offset(r.end, Bias::Left) == r.end
         && !text

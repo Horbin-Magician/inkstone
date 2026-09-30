@@ -36,6 +36,7 @@ impl InputModeKind for EditorMode {
     }
 
     fn reset_annotations(state: &mut InputBaseState<Self>) {
+        state.clear_display_objects();
         state.extras.hover_popover = None;
         state.extras.decorations.clear();
         state.extras.range_decorations.clear();
