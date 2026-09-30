@@ -380,6 +380,7 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) display_metrics: Rc<[(Range<usize>, Pixels)]>,
     pub(super) display_metrics_key: Option<super::element::DisplayMetricsKey>,
     pub(super) line_typography: Rc<[super::LineTypography]>,
+    pub(super) display_objects: Rc<[super::DisplayObject]>,
     pub(super) presentation_revision: u64,
     pub(super) token_presentation: super::InlineTokenPresentation,
     pub(super) token_layout_cache: Option<Box<super::token_presentation::TokenLayoutCache>>,
@@ -747,6 +748,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             display_metrics: Rc::from([]),
             display_metrics_key: None,
             line_typography: Rc::from([]),
+            display_objects: Rc::from([]),
             presentation_revision: 0,
             token_presentation: Default::default(),
             token_layout_cache: None,
@@ -3725,6 +3727,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         selection_after: Option<CursorSelection>,
     ) -> bool {
         self.document_revision = self.document_revision.wrapping_add(1);
+        self.display_objects = Rc::from([]);
         if !self.line_typography.is_empty() {
             self.line_typography = super::line_typography::rebase(
                 &self.line_typography,
