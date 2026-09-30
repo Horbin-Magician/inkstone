@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 mod font_zoom;
 mod footnotes;
+#[cfg(test)]
+mod frame_benchmark;
 mod live_objects;
 mod live_quotes;
 mod live_rules;
