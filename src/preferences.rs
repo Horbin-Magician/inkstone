@@ -2,11 +2,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const RIBBON_COMMANDS: &[(usize, &str, &str, &str)] = &[
-    (2, "ribbon-switcher", "search", "快速切换"),
-    (39, "ribbon-commands", "list", "打开命令面板"),
-];
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
@@ -95,8 +90,6 @@ pub struct Preferences {
     pub tab_size: usize,
     pub show_inline_title: bool,
     pub show_view_header: bool,
-    pub show_ribbon: bool,
-    pub ribbon_commands: Vec<usize>,
     pub expanded_folders: Vec<PathBuf>,
     pub left_open: bool,
     pub right_open: bool,
@@ -156,8 +149,6 @@ impl Default for Preferences {
             tab_size: 4,
             show_inline_title: true,
             show_view_header: true,
-            show_ribbon: true,
-            ribbon_commands: RIBBON_COMMANDS.iter().map(|item| item.0).collect(),
             expanded_folders: vec![],
             left_open: true,
             right_open: true,
@@ -215,10 +206,6 @@ impl Preferences {
         if value.right_panel > 4 {
             value.right_panel = 0;
         }
-        let mut seen = std::collections::HashSet::new();
-        value
-            .ribbon_commands
-            .retain(|id| RIBBON_COMMANDS.iter().any(|item| item.0 == *id) && seen.insert(*id));
         value
     }
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
@@ -315,6 +302,7 @@ mod tests {
                 "font_size": 21,
                 "open_paths": ["笔记.md"],
                 "bookmarks": ["收藏.md"],
+                "show_ribbon": true,
                 "ribbon_commands": [43, 39, 2]
             }"#,
         )
@@ -323,30 +311,23 @@ mod tests {
         assert_eq!(prefs.font_size, 21.);
         assert_eq!(prefs.open_paths, [PathBuf::from("笔记.md")]);
         assert_eq!(prefs.bookmarks, [PathBuf::from("收藏.md")]);
-        assert_eq!(prefs.ribbon_commands, [39, 2]);
         prefs.save(&path).unwrap();
         let saved: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        for removed in ["daily", "templates", "graph", "local_graph"] {
+        for removed in [
+            "daily",
+            "templates",
+            "graph",
+            "local_graph",
+            "show_ribbon",
+            "ribbon_commands",
+        ] {
             assert!(saved.get(removed).is_none());
         }
         assert_eq!(Preferences::load(&path).open_paths, prefs.open_paths);
         std::fs::remove_file(path.with_extension("backup")).unwrap();
         std::fs::remove_file(path).unwrap();
     }
-    #[test]
-    fn ribbon_configuration_rejects_unknown_and_duplicate_items_but_keeps_empty() {
-        let path = std::env::temp_dir().join(format!(
-            "inkstone-ribbon-config-{}.json",
-            std::process::id()
-        ));
-        std::fs::write(&path, r#"{"ribbon_commands":[39,39,999,2]}"#).unwrap();
-        assert_eq!(super::Preferences::load(&path).ribbon_commands, vec![39, 2]);
-        std::fs::write(&path, r#"{"ribbon_commands":[]}"#).unwrap();
-        assert!(super::Preferences::load(&path).ribbon_commands.is_empty());
-        std::fs::remove_file(path).unwrap();
-    }
-
     use super::*;
     #[test]
     fn theme_migration_preserves_manual_choices_and_persists_system_mode() {
@@ -445,7 +426,6 @@ mod tests {
         assert!(!p.auto_reveal_file);
         assert!(p.show_inline_title);
         assert!(p.show_view_header);
-        assert!(p.show_ribbon);
         assert!(p.show_indent_guides);
         assert!(p.auto_pair_brackets && p.auto_pair_markdown);
         assert!(p.smart_lists);
@@ -495,8 +475,6 @@ mod tests {
         prefs.auto_reveal_file = true;
         prefs.show_inline_title = false;
         prefs.show_view_header = false;
-        prefs.show_ribbon = false;
-        prefs.ribbon_commands = vec![39, 2];
         prefs.link_format = crate::locations::LinkFormat::Relative;
         prefs.sort_by = crate::file_order::SortBy::Created;
         prefs.sort_descending = true;
@@ -567,8 +545,6 @@ mod tests {
         assert!(Preferences::load(&path).auto_reveal_file);
         assert!(!Preferences::load(&path).show_inline_title);
         assert!(!Preferences::load(&path).show_view_header);
-        assert!(!Preferences::load(&path).show_ribbon);
-        assert_eq!(Preferences::load(&path).ribbon_commands, vec![39, 2]);
         assert_eq!(
             Preferences::load(&path).link_format,
             crate::locations::LinkFormat::Relative
