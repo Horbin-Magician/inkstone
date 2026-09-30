@@ -2613,6 +2613,8 @@ impl Workspace {
             menu
         });
         div()
+            .id("workspace-left-panel")
+            .debug_selector(|| "workspace-left-panel".into())
             .flex()
             .flex_col()
             .size_full()
@@ -3246,6 +3248,8 @@ impl Workspace {
             .and_then(|i| self.tabs.get(i))
             .map(|t| t.path.clone());
         div()
+            .id("workspace-right-panel")
+            .debug_selector(|| "workspace-right-panel".into())
             .flex()
             .flex_col()
             .size_full()
@@ -4017,7 +4021,13 @@ impl Render for Workspace {
         let left_open = self.ui.prefs.left_open;
         let right_open = self.ui.prefs.right_open;
         let panels = h_resizable((
-            "workspace-panels",
+            SharedString::from(format!(
+                "workspace-panels-{}-{}-{}-{}",
+                self.generation,
+                self.ui.prefs.left_width.to_bits(),
+                self.ui.prefs.right_width.to_bits(),
+                f32::from(_window.viewport_size().width).to_bits()
+            )),
             usize::from(left_open) + 2 * usize::from(right_open),
         ))
         .when(left_open, |s| {
