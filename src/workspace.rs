@@ -2065,6 +2065,80 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn live_task_click_updates_shared_views_and_undo(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "- [ ] item\nend";
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("task.md".into(), Some(source.into()), false, window, cx);
+                w.add_tab("task.md".into(), None, false, window, cx);
+                w.current_pane()
+                    .unwrap()
+                    .read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| {
+                        s.set_selected_range(source.len()..source.len(), cx)
+                    });
+                w.split_active(true, window, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..4 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let position = visual.debug_bounds("live-task-3").unwrap().center();
+        visual.simulate_click(position, Modifiers::default());
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                for tab in &w.tabs {
+                    assert_eq!(
+                        tab.pane.read(cx).editor.read(cx).value().as_ref(),
+                        "- [x] item\nend"
+                    );
+                }
+                assert_eq!(
+                    w.views
+                        .split
+                        .as_ref()
+                        .unwrap()
+                        .pane
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .value()
+                        .as_ref(),
+                    "- [x] item\nend"
+                );
+            })
+            .unwrap();
+        visual.simulate_keystrokes("ctrl-z");
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                for tab in &w.tabs {
+                    assert_eq!(tab.pane.read(cx).editor.read(cx).value().as_ref(), source);
+                }
+                assert_eq!(
+                    w.views
+                        .split
+                        .as_ref()
+                        .unwrap()
+                        .pane
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .value()
+                        .as_ref(),
+                    source
+                );
+            })
+            .unwrap();
+    }
+    #[gpui::test]
     fn quick_font_wheel_updates_views_and_respects_modal(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);

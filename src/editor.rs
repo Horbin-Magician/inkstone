@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 mod font_zoom;
 mod footnotes;
+mod live_tasks;
 
 pub enum EditorEvent {
     CountsChanged,
@@ -31,6 +32,7 @@ struct PresentationSnapshot {
     live: bool,
     light: bool,
     search: Option<String>,
+    font_size: f32,
 }
 
 struct CountSnapshot {
@@ -45,6 +47,7 @@ pub struct EditorPane {
     count_task: Option<Task<()>>,
     count_revision: u64,
     footnote_edit: Option<footnotes::FootnoteEdit>,
+    live_tasks: Vec<live_tasks::TaskWidget>,
     pub editor: Entity<EditorState>,
     decorations: TextDecorationCollection,
     pub live: bool,
@@ -495,13 +498,13 @@ impl EditorPane {
             return;
         }
         let current = self.editor.read(cx).value();
-        if current.as_ref() != target.baseline.as_ref()
-            || index::set_task(&current, target.marker.clone(), checked).is_none()
-        {
+        if current.as_ref() != target.baseline.as_ref() {
             return;
         }
+        let Some(updated) = index::set_task(&current, target.marker.clone(), checked) else {
+            return;
+        };
         self.editor.update(cx, |state, cx| {
-            let selection = state.selected_range();
             let scroll = state.scroll_offset();
             let marker = target.marker;
             let map = |offset: usize| {
@@ -513,10 +516,19 @@ impl EditorPane {
                     marker.start + 1
                 }
             };
-            let selection = map(selection.start)..map(selection.end);
-            state.set_selected_range(marker, cx);
-            state.replace(if checked { "x" } else { " " }, window, cx);
-            state.set_selected_range(selection, cx);
+            state.apply_selection_transform(
+                |_, selections| {
+                    Some((
+                        updated,
+                        selections
+                            .iter()
+                            .map(|selection| map(selection.start)..map(selection.end))
+                            .collect(),
+                    ))
+                },
+                window,
+                cx,
+            );
             state.set_scroll_offset(scroll, cx);
         });
         cx.notify();
@@ -674,6 +686,7 @@ impl EditorPane {
             parsed: ParsedNote::default(),
             reading: false,
             navigation: Default::default(),
+            live_tasks: vec![],
             font_size: 16.,
             quick_font_size: false,
             font_zoom: Default::default(),
@@ -774,6 +787,7 @@ impl EditorPane {
             live: self.live,
             light: self.light,
             search: search_query.clone(),
+            font_size: self.font_size,
         };
         if self.last_presentation.as_ref() == Some(&key) {
             return;
@@ -852,6 +866,76 @@ impl EditorPane {
                 }
             }
         }
+        self.live_tasks.clear();
+        let mut replacements: Vec<_> = concealed.into_iter().map(|range| (range, px(0.))).collect();
+        if self.live && !self.parsed.tasks.is_empty() {
+            let baseline: Arc<str> = self
+                .rendered
+                .tasks
+                .iter()
+                .find(|task| {
+                    task.path == self.current_path && task.baseline.as_ref() == text.as_ref()
+                })
+                .map(|task| task.baseline.clone())
+                .unwrap_or_else(|| Arc::from(text.as_ref()));
+            for task in &self.parsed.tasks {
+                let bracket = task.marker.start.saturating_sub(1)..task.marker.end + 1;
+                if text.get(bracket.clone()).is_none() {
+                    continue;
+                }
+                let unordered = text
+                    .get(task.start..bracket.start)
+                    .is_some_and(|prefix| prefix.starts_with(['-', '*', '+']));
+                let range = if unordered {
+                    task.start..bracket.end
+                } else {
+                    bracket
+                };
+                let active = selections.iter().any(|selection| {
+                    if selection.is_empty() {
+                        range.start <= selection.start && selection.start <= range.end
+                    } else {
+                        selection.start < range.end && selection.end > range.start
+                    }
+                });
+                let search_reveals = search_query.is_some()
+                    && search_matches
+                        .get(search_matches.partition_point(|matched| matched.end <= range.start))
+                        .is_some_and(|matched| matched.start < range.end);
+                if !active && !search_reveals {
+                    let inset = if unordered { self.font_size * 0.6 } else { 0. };
+                    replacements.push((range.clone(), px(self.font_size + inset)));
+                    self.live_tasks.push(live_tasks::TaskWidget {
+                        range,
+                        inset,
+                        checked: task.checked,
+                        target: inkstone::rendering::TaskTarget {
+                            rendered_start: task.start,
+                            path: self.current_path.clone(),
+                            marker: task.marker.clone(),
+                            baseline: baseline.clone(),
+                        },
+                    });
+                }
+                if matches!(text.get(task.marker.clone()), Some("x" | "X")) {
+                    let start = task.marker.end + 1;
+                    let end = text[start..]
+                        .find(['\r', '\n'])
+                        .map_or(text.len(), |offset| start + offset);
+                    decorations.push(TextDecoration::new(
+                        start..end,
+                        HighlightStyle {
+                            color: Some(rgb(if self.light { 0x5c5c5c } else { 0xb3b3b3 }).into()),
+                            strikethrough: Some(StrikethroughStyle {
+                                thickness: px(1.),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                    ));
+                }
+            }
+        }
         let styles = if !self.live {
             Some(vec![])
         } else if self.typography_ready {
@@ -910,10 +994,9 @@ impl EditorPane {
             self.reveal_after_concealment = true;
         }
         let was_visible = self.last_geometry.is_some_and(|(_, visible)| visible);
-        if self
-            .editor
-            .update(cx, |s, cx| s.set_concealed_ranges(concealed, cx))
-            && (was_visible || search_query.is_some())
+        if self.editor.update(cx, |s, cx| {
+            s.set_concealed_ranges_with_widths(replacements, cx)
+        }) && (was_visible || search_query.is_some())
         {
             self.reveal_after_concealment = true;
         }
@@ -1256,6 +1339,15 @@ impl Render for EditorPane {
                 ),
             )
             .child(font_zoom::capture(cx.entity().downgrade()))
+            .when(!self.reading && self.live, |view| {
+                view.child(live_tasks::overlay(
+                    cx.entity().downgrade(),
+                    self.editor.clone(),
+                    self.live_tasks.clone(),
+                    self.font_size,
+                    self.light,
+                ))
+            })
     }
 }
 #[cfg(test)]
