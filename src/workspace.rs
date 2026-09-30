@@ -10,6 +10,7 @@ mod navigation;
 mod templates;
 mod ui;
 mod views;
+mod welcome;
 use crate::editor::{EditorEvent, EditorPane};
 use gpui::{prelude::*, *};
 use gpui_component::{
@@ -2286,6 +2287,15 @@ mod tests {
     fn ribbon_actions_visibility_and_hidden_settings_access(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |workspace, _, cx| {
+                let root = std::env::temp_dir()
+                    .join(format!("inkstone-ribbon-layout-{}", std::process::id()));
+                std::fs::create_dir_all(&root).unwrap();
+                workspace.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                cx.notify();
+            })
+            .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
         let ribbon = visual.debug_bounds("workspace-ribbon").unwrap();
@@ -6112,6 +6122,10 @@ mod tests {
         visual.update(|window, cx| window.draw(cx).clear(cx));
         handle
             .update(&mut visual, |workspace, _, cx| {
+                let root = std::env::temp_dir()
+                    .join(format!("inkstone-sidebar-layout-{}", std::process::id()));
+                std::fs::create_dir_all(&root).unwrap();
+                workspace.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
                 workspace.ui.prefs.left_open = true;
                 workspace.ui.prefs.right_open = true;
                 workspace.ui.prefs.left_width = 255.;

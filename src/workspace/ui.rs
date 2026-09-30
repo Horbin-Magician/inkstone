@@ -2671,6 +2671,7 @@ impl Workspace {
             .size_full()
             .min_h_0()
             .bg(self.side())
+            .child(self.left_header(cx))
             .when(self.ui.left_mode == 0, |s| {
                 s.child(
                     div()
@@ -3345,6 +3346,7 @@ impl Workspace {
             .debug_selector(|| "workspace-right-panel".into())
             .flex()
             .flex_col()
+            .child(self.right_header(cx))
             .size_full()
             .bg(self.bg())
             .child(
@@ -4180,9 +4182,9 @@ impl Workspace {
                         .child(
                             div()
                                 .mt_2()
-                                .text_size(px(24.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("留一点空间，写下想法"),
+                                .text_size(px(20.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .child("开始一篇新笔记"),
                         )
                         .child(div().mb_4().text_sm().text_color(colors.muted).child(
                             if self.vault.is_some() {
@@ -4374,6 +4376,8 @@ impl Render for Workspace {
         if self.ui.link_update.is_some() && !self.ui.modal_focus.contains_focused(_window, cx) {
             _window.focus(&self.ui.modal_focus, cx);
         }
+        let has_workspace =
+            self.vault.is_some() || self.tabs.iter().any(|tab| !tab.path.as_os_str().is_empty());
         let active = self.active.and_then(|i| self.tabs.get(i));
         let title = active
             .filter(|tab| !tab.path.as_os_str().is_empty())
@@ -4456,6 +4460,14 @@ impl Render for Workspace {
         } else {
             center
         };
+        let center = div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .child(self.tab_header(cx))
+            .child(div().flex_1().min_h_0().child(center));
         let weak = cx.entity().downgrade();
         let left_open = self.ui.prefs.left_open;
         let right_open = self.ui.prefs.right_open;
@@ -4547,43 +4559,68 @@ impl Render for Workspace {
             .child(
                 TitleBar::new()
                     .h(px(40.))
-                    .pl_0()
                     .bg(self.side())
-                    .when(self.ui.prefs.show_ribbon, |bar| {
-                        bar.child(div().w(px(48.)).flex_shrink_0())
-                    })
-                    .when(left_open, |s| {
-                        s.child(
-                            div()
-                                .w(px(self.ui.prefs.left_width))
-                                .flex_shrink_0()
-                                .occlude()
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .child(self.left_header(cx)),
-                        )
-                    })
-                    .child(div().flex_1().min_w_0().child(self.tab_header(cx)))
-                    .when(right_open, |s| {
-                        s.child(
-                            div()
-                                .w(px((self.ui.prefs.right_width - 102.).max(148.)))
-                                .flex_shrink_0()
-                                .occlude()
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .child(self.right_header(cx)),
-                        )
-                    }),
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(
+                                        self.vault
+                                            .as_ref()
+                                            .and_then(|v| v.root.file_name())
+                                            .map(|name| name.to_string_lossy().to_string())
+                                            .unwrap_or_else(|| "砚台 Inkstone".into()),
+                                    ),
+                            )
+                            .when(self.vault.is_some(), |bar| {
+                                bar.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(
+                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        )
+                                        .child("/  砚台"),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .px_2()
+                            .when(self.vault.is_some(), |bar| {
+                                bar.child(
+                                    tool("title-open-vault", "folder-open", "切换笔记库").on_click(
+                                        cx.listener(|this, _, w, cx| this.choose_vault(w, cx)),
+                                    ),
+                                )
+                            })
+                            .child(tool("title-settings", "settings", "设置").on_click(
+                                cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
+                            )),
+                    ),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .when(self.ui.prefs.show_ribbon, |body| {
-                        body.child(self.ribbon(cx))
-                    })
-                    .child(div().flex_1().min_w_0().h_full().child(panels)),
-            )
+            .when(!has_workspace, |s| s.child(self.welcome(cx)))
+            .when(has_workspace, |s| {
+                s.child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .when(self.ui.prefs.show_ribbon, |body| {
+                            body.child(self.ribbon(cx))
+                        })
+                        .child(div().flex_1().min_w_0().h_full().child(panels)),
+                )
+            })
             .when(error.is_some(), |s| {
                 s.child(
                     div()
@@ -4593,87 +4630,91 @@ impl Render for Workspace {
                         .children(error),
                 )
             })
-            .child(
-                div()
-                    .id("workspace-status-bar")
-                    .debug_selector(|| "workspace-status-bar".into())
-                    .occlude()
-                    .w_full()
-                    .flex_shrink_0()
-                    .justify_end()
-                    .border_t_1()
-                    .border_color(self.border())
-                    .flex()
-                    .items_center()
-                    .h(px(28.))
-                    .px_2()
-                    .gap_2()
-                    .bg(self.bg())
-                    .text_size(px(12.))
-                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                    .when(!self.status.is_empty(), |bar| {
-                        bar.child(div().truncate().child(self.status.clone()))
-                    })
-                    .when_some(status_mode, |bar, (symbol, mode)| {
-                        let weak = cx.entity().downgrade();
-                        bar.child(
-                            Button::new("status-backlinks")
-                                .ghost()
-                                .compact()
-                                .h(px(22.))
-                                .accessibility_label("显示反向链接")
-                                .child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .text_color(
-                                            crate::theme::palette(self.ui.prefs.light).muted,
-                                        )
-                                        .child(format!("{} 条反向链接", self.backlinks.len())),
-                                )
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.ui.prefs.right_open = true;
-                                    this.ui.right_mode = 1;
-                                    this.persist_workspace(cx);
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("status-editor-mode")
-                                .ghost()
-                                .compact()
-                                .w(px(24.))
-                                .h(px(22.))
-                                .icon(icon(symbol).size(px(15.)))
-                                .accessibility_label(format!("{mode}；选择视图模式"))
-                                .tooltip(mode)
-                                .dropdown_menu_with_anchor(
-                                    gpui::Anchor::BottomRight,
-                                    move |mut menu, _, _| {
-                                        menu = menu.check_side(gpui_component::Side::Right);
-                                        for (value, label, symbol) in [
-                                            (0, "阅读视图", "book-open"),
-                                            (2, "源码模式", "code"),
-                                            (1, "实时预览", "pencil"),
-                                        ] {
-                                            let weak = weak.clone();
-                                            menu = menu.item(
-                                                PopupMenuItem::new(label)
-                                                    .icon(icon(symbol))
-                                                    .checked(mode == label)
-                                                    .on_click(move |_, window, cx| {
-                                                        let _ = weak.update(cx, |this, cx| {
-                                                            this.select_view_mode(value, window, cx)
-                                                        });
-                                                    }),
-                                            );
-                                        }
-                                        menu
-                                    },
-                                ),
-                        )
-                    })
-                    .child(div().px_1().child(count)),
-            )
+            .when(has_workspace, |s| {
+                s.child(
+                    div()
+                        .id("workspace-status-bar")
+                        .debug_selector(|| "workspace-status-bar".into())
+                        .occlude()
+                        .w_full()
+                        .flex_shrink_0()
+                        .justify_end()
+                        .border_t_1()
+                        .border_color(self.border())
+                        .flex()
+                        .items_center()
+                        .h(px(28.))
+                        .px_2()
+                        .gap_2()
+                        .bg(self.bg())
+                        .text_size(px(12.))
+                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                        .when(!self.status.is_empty(), |bar| {
+                            bar.child(div().truncate().child(self.status.clone()))
+                        })
+                        .when_some(status_mode, |bar, (symbol, mode)| {
+                            let weak = cx.entity().downgrade();
+                            bar.child(
+                                Button::new("status-backlinks")
+                                    .ghost()
+                                    .compact()
+                                    .h(px(22.))
+                                    .accessibility_label("显示反向链接")
+                                    .child(
+                                        div()
+                                            .text_size(px(12.))
+                                            .text_color(
+                                                crate::theme::palette(self.ui.prefs.light).muted,
+                                            )
+                                            .child(format!("{} 条反向链接", self.backlinks.len())),
+                                    )
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.ui.prefs.right_open = true;
+                                        this.ui.right_mode = 1;
+                                        this.persist_workspace(cx);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("status-editor-mode")
+                                    .ghost()
+                                    .compact()
+                                    .w(px(24.))
+                                    .h(px(22.))
+                                    .icon(icon(symbol).size(px(15.)))
+                                    .accessibility_label(format!("{mode}；选择视图模式"))
+                                    .tooltip(mode)
+                                    .dropdown_menu_with_anchor(
+                                        gpui::Anchor::BottomRight,
+                                        move |mut menu, _, _| {
+                                            menu = menu.check_side(gpui_component::Side::Right);
+                                            for (value, label, symbol) in [
+                                                (0, "阅读视图", "book-open"),
+                                                (2, "源码模式", "code"),
+                                                (1, "实时预览", "pencil"),
+                                            ] {
+                                                let weak = weak.clone();
+                                                menu = menu.item(
+                                                    PopupMenuItem::new(label)
+                                                        .icon(icon(symbol))
+                                                        .checked(mode == label)
+                                                        .on_click(move |_, window, cx| {
+                                                            let _ = weak.update(cx, |this, cx| {
+                                                                this.select_view_mode(
+                                                                    value, window, cx,
+                                                                )
+                                                            });
+                                                        }),
+                                                );
+                                            }
+                                            menu
+                                        },
+                                    ),
+                            )
+                        })
+                        .child(div().px_1().child(count)),
+                )
+            })
             .when(
                 self.command_open
                     || self.ui.quick_open
