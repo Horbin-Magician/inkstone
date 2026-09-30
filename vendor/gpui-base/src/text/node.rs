@@ -2942,6 +2942,7 @@ impl BlockNode {
                                 .justify_center()
                                 .border_1()
                                 .border_color(style.foreground())
+                                .refine_style(style.task_checkbox())
                                 .when(checked, |this| {
                                     this.bg(if interactive {
                                         style.link()
