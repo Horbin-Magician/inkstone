@@ -112,6 +112,9 @@ pub(super) struct UiState {
     pub property_value: Entity<InputState>,
     pub property_list_entry: Entity<InputState>,
     pub tags_filter: Entity<InputState>,
+    pub outline_filter: Entity<InputState>,
+    pub outline_filter_open: bool,
+    _outline_filter_subscription: Subscription,
     pub tags_focus: FocusHandle,
     pub tags_selected: Option<String>,
     pub tags_scroll: ScrollHandle,
@@ -258,6 +261,13 @@ impl UiState {
         });
         let command = cx.new(|cx| InputState::new(window, cx).placeholder("选择命令…"));
         let tags_filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛选标签…"));
+        let outline_filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛选大纲…"));
+        let outline_filter_subscription =
+            cx.subscribe(&outline_filter, |_, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            });
         let tags_filter_subscription =
             cx.subscribe(&tags_filter, |this, input, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
@@ -463,6 +473,9 @@ impl UiState {
             property_value,
             property_list_entry,
             tags_filter,
+            outline_filter,
+            outline_filter_open: false,
+            _outline_filter_subscription: outline_filter_subscription,
             tags_focus: cx.focus_handle(),
             tags_selected: None,
             tags_scroll: ScrollHandle::new(),
@@ -3253,6 +3266,22 @@ impl Workspace {
             .as_ref()
             .map(|p| p.read(cx).parsed.headings.clone())
             .unwrap_or_default();
+        let outline_query = if self.ui.outline_filter_open {
+            self.ui
+                .outline_filter
+                .read(cx)
+                .value()
+                .trim()
+                .to_lowercase()
+        } else {
+            String::new()
+        };
+        let headings: Vec<_> = headings
+            .into_iter()
+            .filter(|heading| {
+                outline_query.is_empty() || heading.title.to_lowercase().contains(&outline_query)
+            })
+            .collect();
         let links = pane
             .as_ref()
             .map(|p| p.read(cx).parsed.links.clone())
@@ -3280,14 +3309,41 @@ impl Workspace {
                     .overflow_y_scroll()
                     .p_3()
                     .when(self.ui.right_mode == 0, |s| {
-                        s.when(headings.is_empty(), |s| {
+                        s.child(
+                            div().flex().items_center().h(px(28.)).mb_2().child(
+                                tool("outline-filter", "search", "筛选大纲")
+                                    .selected(self.ui.outline_filter_open)
+                                    .toggled(self.ui.outline_filter_open)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.ui.outline_filter_open = !this.ui.outline_filter_open;
+                                        if this.ui.outline_filter_open {
+                                            this.ui
+                                                .outline_filter
+                                                .update(cx, |input, cx| input.focus(window, cx));
+                                        }
+                                        cx.notify();
+                                    })),
+                            ),
+                        )
+                        .when(self.ui.outline_filter_open, |s| {
+                            s.child(
+                                div()
+                                    .mb_2()
+                                    .child(Input::new(&self.ui.outline_filter).cleanable(true)),
+                            )
+                        })
+                        .when(headings.is_empty(), |s| {
                             s.child(
                                 div()
                                     .w_full()
-                                    .pt(px(64.))
+                                    .pt(px(28.))
                                     .text_center()
                                     .text_color(rgb(0x777777))
-                                    .child("未找到小标题行。"),
+                                    .child(if outline_query.is_empty() {
+                                        "未找到小标题行。"
+                                    } else {
+                                        "未找到匹配的小标题。"
+                                    }),
                             )
                         })
                         .children(headings.into_iter().enumerate().map(|(i, h)| {
