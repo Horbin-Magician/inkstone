@@ -852,7 +852,7 @@ impl EditorPane {
                     }
                     Kind::Heading => HighlightStyle {
                         font_weight: Some(FontWeight::BOLD),
-                        color: Some(rgb(if self.light { 0x222222 } else { 0xdadada }).into()),
+                        color: Some(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into()),
                         ..Default::default()
                     },
                     Kind::Strong => HighlightStyle {
@@ -877,9 +877,9 @@ impl EditorPane {
                         ..Default::default()
                     },
                     Kind::Code => HighlightStyle {
-                        color: Some(rgb(0xf5c77e).into()),
+                        color: Some(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into()),
                         background_color: Some(
-                            rgb(if self.light { 0xfafafa } else { 0x232323 }).into(),
+                            rgb(if self.light { 0xf5f5f5 } else { 0x212121 }).into(),
                         ),
                         ..Default::default()
                     },
@@ -1171,6 +1171,12 @@ impl Render for EditorPane {
                 gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
                     .with_foreground(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into())
                     .with_link(rgb(0x3f9aca).into())
+                    .with_code_background(rgb(if self.light { 0xf5f5f5 } else { 0x212121 }).into())
+                    .with_inline_code(HighlightStyle {
+                        color: Some(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into()),
+                        ..Default::default()
+                    })
+                    .with_border(rgb(if self.light { 0xe6e6e6 } else { 0x363636 }).into())
                     .with_task_checkbox(
                         StyleRefinement::default()
                             .rounded_full()
@@ -1192,8 +1198,8 @@ impl Render for EditorPane {
                     .with_table_cell(StyleRefinement::default().text_size(px(font_size)))
                     .with_table_head(
                         StyleRefinement::default()
-                            .bg(rgb(if self.light { 0xfafafa } else { 0x232323 }))
-                            .text_color(rgb(if self.light { 0x222222 } else { 0xdadada })),
+                            .bg(rgb(if self.light { 0xffffff } else { 0x262626 }))
+                            .text_color(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 })),
                     ),
             )
             .scrollable(true)
