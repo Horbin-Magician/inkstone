@@ -257,7 +257,7 @@ impl UiState {
         let property_value = cx.new(|cx| {
             InputState::new(window, cx).placeholder("属性值；列表用逗号分隔，项目内含逗号时加引号")
         });
-        let command = cx.new(|cx| InputState::new(window, cx).placeholder("输入命令…"));
+        let command = cx.new(|cx| InputState::new(window, cx).placeholder("选择命令…"));
         let tags_filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛选标签…"));
         let tags_filter_subscription =
             cx.subscribe(&tags_filter, |this, input, event: &InputEvent, cx| {
@@ -2921,22 +2921,33 @@ impl Workspace {
                     .id(("result", i))
                     .when(modal && self.ui.selected == i, |s| s.bg(rgba(0x88888822)))
                     .p_2()
+                    .when(modal, |s| s.py(px(6.)).px_3().h(px(33.)).overflow_hidden())
                     .rounded(px(4.))
                     .cursor_pointer()
                     .hover(|s| s.bg(rgba(0x88888822)))
-                    .child(div().text_sm().child(hit.display_name.unwrap_or_else(|| {
-                        path.file_stem()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string()
-                    })))
-                    .child(div().text_xs().text_color(rgb(0x888888)).truncate().child(
-                        if hit.excerpt.is_empty() {
-                            path.to_string_lossy().to_string()
-                        } else {
-                            format!("{}: {}", hit.line, hit.excerpt)
-                        },
+                    .child(div().text_size(px(14.)).truncate().child(
+                        hit.display_name.unwrap_or_else(|| {
+                            if modal {
+                                return path
+                                    .with_extension("")
+                                    .to_string_lossy()
+                                    .replace('\\', "/");
+                            }
+                            path.file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string()
+                        }),
                     ))
+                    .when(!modal, |s| {
+                        s.child(div().text_xs().text_color(rgb(0x888888)).truncate().child(
+                            if hit.excerpt.is_empty() {
+                                path.to_string_lossy().to_string()
+                            } else {
+                                format!("{}: {}", hit.line, hit.excerpt)
+                            },
+                        ))
+                    })
                     .on_click(cx.listener(move |this, _, w, cx| {
                         if this.ui.template_mode {
                             this.insert_template(&path, w, cx);
@@ -4123,8 +4134,9 @@ impl Render for Workspace {
 
 impl Workspace {
     fn modal(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let picker = self.command_open || self.ui.quick_open;
         let top = px(100.)
-            .min(window.viewport_size().height * 0.15)
+            .min(window.viewport_size().height * if picker { 0.12 } else { 0.15 })
             .max(px(16.));
         let available_height = (window.viewport_size().height - top - px(16.)).max(px(100.));
         if self.ui.link_update.is_some() {
@@ -4174,11 +4186,13 @@ impl Workspace {
             .flex()
             .flex_col()
             .w(px(if self.ui.settings { 900. } else { 580. }))
+            .when(picker, |s| s.w(px(700.)))
             .max_w((window.viewport_size().width - px(32.)).max(px(280.)))
             .max_h(px(if self.ui.settings { 700. } else { 650. }).min(available_height))
             .when(self.ui.settings, |s| s.h(px(700.).min(available_height)))
             .p_3()
             .gap_2()
+            .when(picker, |s| s.p_0().gap_0().overflow_hidden())
             .when(self.ui.settings, |s| s.p_0().gap_0().overflow_hidden())
             .rounded(px(12.))
             .bg(self.bg())
@@ -4226,6 +4240,7 @@ impl Workspace {
                     .items_center()
                     .justify_between()
                     .pb_1()
+                    .when(picker, |s| s.hidden())
                     .when(self.ui.settings, |s| {
                         s.h(px(32.))
                             .flex_shrink_0()
@@ -4263,27 +4278,34 @@ impl Workspace {
                     ),
             )
             .when(self.command_open, |s| {
-                s.child(Input::new(&self.ui.command)).child(
+                s.child(self.picker_search(true, cx)).child(
                     div()
                         .id("commands-list")
                         .track_scroll(&self.ui.modal_scroll)
                         .overflow_y_scroll()
-                        .max_h(px(450.))
+                        .min_h_0()
+                        .p_3()
+                        .max_h(px(384.).min((available_height - px(80.)).max(px(40.))))
                         .children(self.filtered_commands(cx).into_iter().enumerate().map(
                             |(i, (id, label, _))| {
                                 div()
                                     .id(("command", id))
                                     .flex()
+                                    .items_center()
                                     .justify_between()
-                                    .p_2()
+                                    .h(px(33.))
+                                    .px_3()
+                                    .gap_3()
                                     .rounded(px(4.))
                                     .cursor_pointer()
                                     .when(self.ui.selected == i, |s| s.bg(rgba(0x88888822)))
                                     .hover(|s| s.bg(rgba(0x88888822)))
-                                    .child(label)
+                                    .child(div().flex_1().min_w_0().truncate().child(label))
                                     .child(
                                         div()
                                             .text_color(rgb(0x888888))
+                                            .text_size(px(12.))
+                                            .flex_shrink_0()
                                             .child(self.hotkey_label(id)),
                                     )
                                     .on_click(cx.listener(move |this, _, w, cx| {
@@ -4294,14 +4316,33 @@ impl Workspace {
                 )
             })
             .when(self.ui.quick_open, |s| {
-                s.child(Input::new(&self.search)).child(
+                let result_height =
+                    (self.visible_search_hits(true, cx).len().max(1) as f32 * 33. + 16.).min(360.);
+                s.child(self.picker_search(false, cx)).child(
                     div()
                         .flex()
                         .flex_col()
                         .min_h_0()
                         .overflow_hidden()
-                        .h(px(360.).min((available_height - px(100.)).max(px(40.))))
+                        .h(px(result_height).min((available_height - px(80.)).max(px(40.))))
                         .child(self.search_list(true, cx)),
+                )
+            })
+            .when(picker, |s| {
+                s.child(
+                    div()
+                        .flex_shrink_0()
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(11.))
+                        .text_color(rgb(0x999999))
+                        .child(if self.command_open {
+                            "↑↓ 导航　↵ 使用　esc 退出"
+                        } else {
+                            "↑↓ 导航　↵ 打开　esc 退出"
+                        }),
                 )
             })
             .when(self.ui.name_mode.is_some(), |s| {
@@ -4439,6 +4480,34 @@ impl Workspace {
             .child(content)
             .into_any_element()
     }
+    fn picker_search(&self, command: bool, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .flex_shrink_0()
+            .h(px(50.))
+            .px_3()
+            .border_b_1()
+            .border_color(self.border())
+            .child(
+                div().flex_1().min_w_0().child(
+                    Input::new(if command {
+                        &self.ui.command
+                    } else {
+                        &self.search
+                    })
+                    .appearance(false)
+                    .bordered(false)
+                    .focus_bordered(false),
+                ),
+            )
+            .child(
+                tool("close-picker", "x", "关闭 Esc")
+                    .on_click(cx.listener(|this, _, w, cx| this.close_overlays(w, cx))),
+            )
+            .into_any_element()
+    }
+
     fn property_list_control(&self, cx: &mut Context<Self>) -> AnyElement {
         let items = match self.property_list_values(cx) {
             Ok(items) => items,
