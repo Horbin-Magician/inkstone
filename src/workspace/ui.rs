@@ -129,6 +129,7 @@ pub(super) struct UiState {
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub trash_open: bool,
+    pub recovery_refresh: u64,
     pub trash: Vec<inkstone::vault::TrashEntry>,
     pub command: Entity<InputState>,
     pub selected: usize,
@@ -447,6 +448,7 @@ impl UiState {
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             trash_open: false,
+            recovery_refresh: 0,
             trash: vec![],
             command,
             selected: 0,
@@ -1772,17 +1774,23 @@ impl Workspace {
             return;
         };
         let generation = self.generation;
+        self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
+        let request = self.ui.recovery_refresh;
         let task = cx
             .background_executor()
-            .spawn(async move { vault.trash_entries() });
+            .spawn(async move { (vault.trash_entries(), vault.recoveries()) });
         cx.spawn(async move |this, cx| {
-            let result = task.await;
+            let (trash, recoveries) = task.await;
             let _ = this.update(cx, |this, cx| {
-                if this.generation != generation {
+                if this.generation != generation || this.ui.recovery_refresh != request {
                     return;
                 }
-                match result {
+                match trash {
                     Ok(entries) => this.ui.trash = entries,
+                    Err(e) => this.status = e.to_string(),
+                }
+                match recoveries {
+                    Ok(entries) => this.recoveries = entries,
                     Err(e) => this.status = e.to_string(),
                 }
                 cx.notify();
