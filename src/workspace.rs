@@ -6104,6 +6104,47 @@ mod tests {
     }
 
     #[gpui::test]
+    fn sidebars_follow_restored_widths_and_keep_them_after_window_resize(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1200.), px(820.)));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |workspace, _, cx| {
+                workspace.ui.prefs.left_open = true;
+                workspace.ui.prefs.right_open = true;
+                workspace.ui.prefs.left_width = 255.;
+                workspace.ui.prefs.right_width = 345.;
+                cx.notify();
+            })
+            .unwrap();
+        for width in [1200., 1600., 1200.] {
+            visual.simulate_resize(size(px(width), px(820.)));
+            for _ in 0..3 {
+                visual.run_until_parked();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            assert_eq!(
+                visual
+                    .debug_bounds("workspace-left-panel")
+                    .unwrap()
+                    .size
+                    .width,
+                px(255.)
+            );
+            assert_eq!(
+                visual
+                    .debug_bounds("workspace-right-panel")
+                    .unwrap()
+                    .size
+                    .width,
+                px(345.)
+            );
+        }
+    }
+
+    #[gpui::test]
     fn completion_link_preferences_keep_full_labels_and_resolve(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
