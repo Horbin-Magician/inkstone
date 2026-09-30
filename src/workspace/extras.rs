@@ -303,7 +303,7 @@ impl Workspace {
                 match result {
                     Ok(edits) => {
                         if let Some(new) = &new {
-                            this.ui.prefs.relocate_paths(&old, new, true);
+                            this.ui.prefs.locations.relocate(&old, new);
                         }
                         let active = this.active.and_then(|i| this.tabs.get(i)).map(|t| t.id);
                         this.tabs.retain_mut(|tab| {
@@ -677,62 +677,6 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn insert_template(
-        &mut self,
-        path: &std::path::Path,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(note) = self.index.notes.get(path) else {
-            return;
-        };
-        let now = chrono::Local::now();
-        let title = self
-            .active
-            .and_then(|i| self.tabs.get(i))
-            .and_then(|t| t.path.file_stem())
-            .unwrap_or_default()
-            .to_string_lossy();
-        let text = match self.ui.prefs.templates.expand(&note.text, &title, &now) {
-            Ok(text) => text,
-            Err(error) => {
-                self.status = error;
-                cx.notify();
-                return;
-            }
-        };
-        if !self.ensure_active_note(window, cx) {
-            return;
-        }
-        let Some(pane) = self.current_pane() else {
-            return;
-        };
-        let editor = pane.read(cx).editor.clone();
-        let edit = match inkstone::template_edit::insert(
-            &editor.read(cx).value(),
-            editor.read(cx).selected_range(),
-            &text,
-        ) {
-            Ok(edit) => edit,
-            Err(error) => {
-                self.status = error;
-                cx.notify();
-                return;
-            }
-        };
-        let applied = editor.update(cx, |s, cx| {
-            s.apply_source_edit(edit.range, &edit.replacement, edit.selection, window, cx)
-        });
-        if applied {
-            self.close_quick_search(window, cx);
-            pane.update(cx, |p, cx| {
-                p.reading = false;
-                p.focus_view(window, cx);
-                cx.notify();
-            });
-        }
-        cx.notify();
-    }
     pub(super) fn choose_attachments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.active.is_none() {
             self.status = "请先打开要插入附件的笔记。".into();
