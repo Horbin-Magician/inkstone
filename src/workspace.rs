@@ -2075,6 +2075,62 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     #[gpui::test]
+    fn single_line_inputs_keep_text_and_caret_inside_the_frame(cx: &mut TestAppContext) {
+        use gpui_component::{Sizable, Size};
+
+        struct Probe {
+            state: Entity<InputState>,
+            size: Size,
+        }
+        impl Render for Probe {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().w(px(220.)).child(
+                    Input::new(&self.state)
+                        .with_size(self.size)
+                        .prefix(div().w(px(14.)).h(px(14.)))
+                        .suffix(div().w(px(32.)).h(px(20.)))
+                        .cleanable(true),
+                )
+            }
+        }
+
+        cx.update(gpui_kit::init);
+        let (probe, visual) = cx.add_window_view(|window, cx| Probe {
+            state: cx.new(|cx| InputState::new(window, cx).placeholder("搜索文件名 / 全文")),
+            size: Size::Medium,
+        });
+        for size in [Size::XSmall, Size::Small, Size::Medium, Size::Large] {
+            for value in [
+                "",
+                "中文搜索内容 search",
+                "很长的搜索文字 repeated search text",
+            ] {
+                probe.update(visual, |probe, cx| {
+                    probe.size = size;
+                    cx.notify();
+                });
+                visual.update(|window, cx| {
+                    let state = probe.read(cx).state.clone();
+                    state.update(cx, |state, cx| {
+                        state.set_value(value, window, cx);
+                        state.focus(window, cx);
+                    });
+                    window.draw(cx).clear(cx);
+                    let state = state.read(cx);
+                    let bounds = state.input_bounds();
+                    assert!(
+                        bounds.size.height >= state.line_height().unwrap(),
+                        "{size:?}: {bounds:?}"
+                    );
+                    assert!(bounds.size.width > px(0.));
+                    let caret = state.cursor_layout().unwrap().0;
+                    assert!(caret.top() >= bounds.top());
+                    assert!(caret.bottom() <= bounds.bottom());
+                });
+            }
+        }
+    }
+    #[gpui::test]
     fn replace_command_opens_the_focused_view_in_editing_mode(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
