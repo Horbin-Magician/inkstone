@@ -528,22 +528,21 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         cx,
     );
     Theme::update(cx, |theme| {
-        let bg = rgb(if light { 0xffffff } else { 0x262626 }).into();
-        let side = rgb(if light { 0xf6f6f6 } else { 0x212121 }).into();
-        let hover = rgb(if light { 0xe8e8e8 } else { 0x363636 }).into();
-        let fg = rgb(if light { 0x0f0f0f } else { 0xd1d1d1 }).into();
-        let muted = rgb(if light { 0x5c5c5c } else { 0x999999 }).into();
-        let border = rgb(if light { 0xe6e6e6 } else { 0x363636 }).into();
+        let bg = crate::theme::palette(light).background.into();
+        let side = crate::theme::palette(light).sidebar.into();
+        let hover = crate::theme::palette(light).hover.into();
+        let fg = crate::theme::palette(light).foreground.into();
+        let muted = crate::theme::palette(light).muted.into();
+        let border = crate::theme::palette(light).border.into();
         theme.font_size = px(14.);
-        theme.radius = px(4.);
+        theme.radius = px(8.);
         theme.background = bg;
         theme.foreground = fg;
         theme.border = border;
         theme.input = side;
         theme.colors.list = side;
         theme.list_hover = hover;
-        theme.list_active = hover;
-        theme.list_active_border = hover;
+        theme.list_active_border = crate::theme::palette(light).selected.into();
         theme.muted = side;
         theme.muted_foreground = muted;
         theme.sidebar = side;
@@ -561,14 +560,14 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.accent = hover;
         theme.accent_foreground = fg;
         theme.list.active_highlight = true;
-        theme.list_active = rgb(if light { 0xe8e8e8 } else { 0x2e2e2e }).into();
+        theme.list_active = crate::theme::palette(light).selected.into();
         theme.tokens.list_hover =
             Hsla::from(rgba(if light { 0x00000008 } else { 0xffffff08 })).into();
-        theme.primary = rgb(0x3f9aca).into();
-        theme.ring = rgb(0x3f9aca).into();
+        theme.primary = crate::theme::palette(light).accent.into();
+        theme.ring = crate::theme::palette(light).accent.into();
         theme.switch_thumb = rgb(0xffffff).into();
         theme.slider_thumb = rgb(0xffffff).into();
-        theme.selection = rgba(0x7860b866).into();
+        theme.selection = rgba(if light { 0x24778a33 } else { 0x72bfd040 }).into();
         theme.scrollbar_thumb = rgb(if light { 0xcccccc } else { 0x484848 }).into();
     });
 }
@@ -636,11 +635,7 @@ impl Workspace {
                         div()
                             .text_size(px(12.))
                             .line_height(px(15.6))
-                            .text_color(rgb(if self.ui.prefs.light {
-                                0x5c5c5c
-                            } else {
-                                0x999999
-                            }))
+                            .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                             .child(description.to_string()),
                     ),
             )
@@ -669,11 +664,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .rounded(px(12.))
-                    .bg(rgb(if self.ui.prefs.light {
-                        0xfafafa
-                    } else {
-                        0x212121
-                    }))
+                    .bg(crate::theme::palette(self.ui.prefs.light).surface)
                     .children(rows),
             )
             .into_any_element()
@@ -976,32 +967,16 @@ impl Render for DraggedTab {
 
 impl Workspace {
     fn bg(&self) -> Rgba {
-        rgb(if self.ui.prefs.light {
-            0xffffff
-        } else {
-            0x262626
-        })
+        crate::theme::palette(self.ui.prefs.light).background
     }
     pub(super) fn side(&self) -> Rgba {
-        rgb(if self.ui.prefs.light {
-            0xf6f6f6
-        } else {
-            0x212121
-        })
+        crate::theme::palette(self.ui.prefs.light).sidebar
     }
     fn fg(&self) -> Rgba {
-        rgb(if self.ui.prefs.light {
-            0x0f0f0f
-        } else {
-            0xd1d1d1
-        })
+        crate::theme::palette(self.ui.prefs.light).foreground
     }
     pub(super) fn border(&self) -> Rgba {
-        rgb(if self.ui.prefs.light {
-            0xe6e6e6
-        } else {
-            0x363636
-        })
+        crate::theme::palette(self.ui.prefs.light).border
     }
     pub(super) fn persist_workspace(&mut self, cx: &mut Context<Self>) {
         if self.loading {
@@ -2345,11 +2320,7 @@ impl Workspace {
                             .text_color(if selected {
                                 self.fg()
                             } else {
-                                rgb(if self.ui.prefs.light {
-                                    0x5c5c5c
-                                } else {
-                                    0x999999
-                                })
+                                crate::theme::palette(self.ui.prefs.light).muted
                             })
                             .cursor_pointer()
                             .when(!selected, |s| s.hover(|s| s.bg(rgba(0x88888818))))
@@ -2533,16 +2504,8 @@ impl Workspace {
             .active
             .and_then(|i| self.tabs.get(i))
             .map(|tab| tab.path.clone());
-        let tree_foreground = rgb(if self.ui.prefs.light {
-            0x5c5c5c
-        } else {
-            0xaaaaaa
-        });
-        let tree_active = rgb(if self.ui.prefs.light {
-            0xe8e8e8
-        } else {
-            0x2e2e2e
-        });
+        let tree_foreground = crate::theme::palette(self.ui.prefs.light).muted;
+        let tree_active = crate::theme::palette(self.ui.prefs.light).selected;
         let tree_guide = self.border();
         let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
             let path = PathBuf::from(entry.item().id.as_ref());
@@ -3508,7 +3471,7 @@ impl Workspace {
                                 .rounded(px(4.))
                                 .hover(|s| s.bg(rgba(0x88888818)))
                                 .py_1()
-                                .text_color(rgb(0x3f9aca))
+                                .text_color(crate::theme::palette(self.ui.prefs.light).accent)
                                 .cursor_pointer()
                                 .child(div().truncate().child(link.label))
                                 .on_click(cx.listener(move |this, event: &ClickEvent, w, cx| {
@@ -4137,7 +4100,9 @@ impl Workspace {
                                         div()
                                             .text_size(px(self.ui.prefs.font_size))
                                             .font_weight(FontWeight::NORMAL)
-                                            .text_color(rgb(0x3f9aca))
+                                            .text_color(
+                                                crate::theme::palette(self.ui.prefs.light).accent,
+                                            )
                                             .child(label),
                                     )
                                     .on_click(cx.listener(move |this, _, w, cx| {
@@ -4558,11 +4523,7 @@ impl Render for Workspace {
                     .gap_2()
                     .bg(self.bg())
                     .text_size(px(12.))
-                    .text_color(rgb(if self.ui.prefs.light {
-                        0x5c5c5c
-                    } else {
-                        0x999999
-                    }))
+                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                     .when(!self.status.is_empty(), |bar| {
                         bar.child(div().truncate().child(self.status.clone()))
                     })
@@ -5242,11 +5203,7 @@ impl Workspace {
             true,
             20.,
         ));
-        let card = rgb(if self.ui.prefs.light {
-            0xfafafa
-        } else {
-            0x212121
-        });
+        let card = crate::theme::palette(self.ui.prefs.light).surface;
         div()
             .flex()
             .gap_0()

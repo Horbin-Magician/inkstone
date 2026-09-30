@@ -190,11 +190,7 @@ impl Workspace {
                 .gap_4()
                 .pb_4()
                 .border_b_1()
-                .border_color(rgb(if self.ui.prefs.light {
-                    0xe3e3e3
-                } else {
-                    0x363636
-                }))
+                .border_color(crate::theme::palette(self.ui.prefs.light).border)
                 .child(
                     div()
                         .flex()
@@ -212,11 +208,9 @@ impl Workspace {
                                 .child(
                                     div()
                                         .text_size(px(12.))
-                                        .text_color(rgb(if self.ui.prefs.light {
-                                            0x777777
-                                        } else {
-                                            0x999999
-                                        }))
+                                        .text_color(
+                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        )
                                         .child(if attachment {
                                             "设置新添加附件的存放位置。"
                                         } else {
@@ -297,11 +291,9 @@ impl Workspace {
                                 div().flex_1().child("内部链接类型").child(
                                     div()
                                         .text_size(px(12.))
-                                        .text_color(rgb(if self.ui.prefs.light {
-                                            0x777777
-                                        } else {
-                                            0x999999
-                                        }))
+                                        .text_color(
+                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        )
                                         .child("设置链接到库内文件时使用的路径格式。"),
                                 ),
                             )
