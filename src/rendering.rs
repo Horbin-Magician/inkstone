@@ -159,7 +159,20 @@ impl Builder<'_> {
         self.stack.push((path.to_path_buf(), range.clone()));
         self.sources.insert(path.to_path_buf(), source.clone());
         let parsed = index::parse(&source);
-        let mut actions = vec![];
+        let mut actions: Vec<_> = parsed
+            .comments
+            .iter()
+            .map(|comment| {
+                (
+                    comment.range.clone(),
+                    if comment.block {
+                        Action::Remove
+                    } else {
+                        Action::Literal("<!---->".into())
+                    },
+                )
+            })
+            .collect();
         let mut definitions = BTreeMap::new();
         for (span, id) in &parsed.footnote_definitions {
             if definitions.contains_key(id) {

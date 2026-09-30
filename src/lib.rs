@@ -1,3 +1,4 @@
+pub mod comments;
 pub mod daily;
 pub mod document;
 pub mod file_order;

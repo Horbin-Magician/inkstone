@@ -26,7 +26,9 @@ impl Regions {
         let mut options = markdown_parser::ParseOptions::gfm();
         options.constructs.frontmatter = true;
         let mut ranges = vec![];
-        if let Ok(root) = markdown_parser::to_mdast(text, &options) {
+        let comments = crate::comments::ranges(text);
+        let clean = crate::comments::masked(text, &comments);
+        if let Ok(root) = markdown_parser::to_mdast(&clean, &options) {
             if matches!(self.kind, Kind::Block)
                 && let Some(children) = root.children()
             {
@@ -35,7 +37,13 @@ impl Regions {
                     .filter(|node| !matches!(node, Node::List(_)))
                 {
                     if let Some(position) = node.position() {
-                        ranges.push(position.start.offset..position.end.offset);
+                        let range = position.start.offset..position.end.offset;
+                        if clean[range.clone()]
+                            .chars()
+                            .any(|ch| ch != '\u{1}' && !ch.is_whitespace())
+                        {
+                            ranges.push(range);
+                        }
                     }
                 }
             }

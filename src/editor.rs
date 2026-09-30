@@ -807,6 +807,7 @@ impl EditorPane {
         if self.live {
             for span in &self.spans {
                 let style = match span.kind {
+                    Kind::Comment => continue,
                     Kind::Rule => {
                         let revealed = selections.iter().any(|selection| span.active(selection))
                             || search_query.is_some()
@@ -1034,6 +1035,15 @@ impl EditorPane {
             && was_visible
         {
             self.reveal_after_concealment = true;
+        }
+        for span in self.spans.iter().filter(|span| span.kind == Kind::Comment) {
+            decorations.push(TextDecoration::new(
+                span.source.clone(),
+                HighlightStyle {
+                    color: Some(rgb(if self.light { 0xababab } else { 0x666666 }).into()),
+                    ..Default::default()
+                },
+            ));
         }
         self.decorations.set(decorations, cx);
         if self
@@ -1417,6 +1427,71 @@ impl Render for EditorPane {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn reading_comments_leave_no_placeholder_in_copied_text(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "pre%%隐藏%%fix\n\n%%inline%% # literal";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, _, cx| {
+                p.reading = true;
+                p.update_presentation(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |p, _, cx| {
+                assert!(p.parsed.headings.is_empty());
+                p.preview.update(cx, |preview, cx| {
+                    preview.select_all(cx);
+                    let selected = preview.selected_text();
+                    assert!(selected.contains("prefix"), "{selected:?}");
+                    assert!(selected.contains("# literal"), "{selected:?}");
+                    assert!(!selected.contains(['\u{1}', '\u{2060}']));
+                    assert!(!selected.contains("<!--"));
+                    assert!(!selected.contains("隐藏"));
+                });
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+    #[gpui::test]
+    fn comments_remain_editable_and_are_absent_from_reading(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "before %%中文 **not bold**%% after\n\n%%\n- [ ] hidden\n%%\nend";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, _, cx| p.update_presentation(cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |p, window, cx| {
+                p.update_presentation(cx);
+                assert_eq!(
+                    p.spans
+                        .iter()
+                        .filter(|span| span.kind == Kind::Comment)
+                        .count(),
+                    2
+                );
+                assert!(!p.spans.iter().any(|span| span.kind == Kind::Strong));
+                assert!(p.editor.read(cx).concealed_ranges().is_empty());
+                assert!(p.live_tasks.is_empty());
+                assert!(!p.rendered.markdown.contains("not bold"));
+                assert!(!p.rendered.markdown.contains("hidden"));
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+                p.live = false;
+                p.update_presentation(cx);
+                assert_eq!(p.decorations.get_ranges(cx).len(), 2);
+                p.editor.update(cx, |state, cx| {
+                    state.set_selected_range(9..15, cx);
+                    state.replace("替换", window, cx);
+                    state.undo(&gpui_component::input::Undo, window, cx);
+                    assert_eq!(state.value().as_ref(), source);
+                });
+            })
+            .unwrap();
+    }
     #[gpui::test]
     fn reading_position_restores_after_parse_and_explicit_jump_wins(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
