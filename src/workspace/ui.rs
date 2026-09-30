@@ -3659,19 +3659,11 @@ impl Render for Workspace {
                         div()
                             .flex()
                             .items_center()
-                            .gap_1()
                             .px_2()
                             // Keep title-bar actions out of the native window drag hitbox.
                             .occlude()
                             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                 cx.stop_propagation();
-                            })
-                            .when(self.vault.is_some(), |bar| {
-                                bar.child(
-                                    tool("title-open-vault", "folder-open", "切换笔记库").on_click(
-                                        cx.listener(|this, _, w, cx| this.choose_vault(w, cx)),
-                                    ),
-                                )
                             })
                             .child(tool("title-settings", "settings", "设置").on_click(
                                 cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
