@@ -1,7 +1,6 @@
 pub mod comments;
 pub mod document;
 pub mod file_order;
-pub mod graph;
 pub mod index;
 pub mod line_edit;
 pub mod locations;

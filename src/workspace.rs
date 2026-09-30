@@ -66,9 +66,6 @@ struct Tab {
     _focus: Subscription,
 }
 pub struct Workspace {
-    graph: Option<Entity<crate::graph_view::GraphView>>,
-    graph_open: bool,
-    graph_subscription: Option<Subscription>,
     vault: Option<Vault>,
     files: Vec<PathBuf>,
     tabs: Vec<Tab>,
@@ -530,9 +527,6 @@ impl Workspace {
         .detach();
         let ui = ui::UiState::new(window, cx);
         Self {
-            graph: None,
-            graph_open: false,
-            graph_subscription: None,
             ui,
             views: Default::default(),
             vault: None,
@@ -703,9 +697,6 @@ impl Workspace {
                             s.set_value(this.ui.prefs.tags.query.clone(), window, cx)
                         });
                         this.ui.link_update = None;
-                        this.graph_open = false;
-                        this.graph = None;
-                        this.graph_subscription = None;
                         this.ui.last_persisted.clear();
                         this.ui.prefs.light =
                             this.ui.prefs.theme.is_light(Self::system_light(window));
@@ -914,7 +905,6 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.graph_open = false;
         if self
             .ui
             .pending_command
@@ -1009,7 +999,6 @@ impl Workspace {
         if self.ui.inline_title.is_some() {
             self.commit_inline_title(false, window, cx);
         }
-        self.graph_open = false;
         if !self.loading
             && !path.as_os_str().is_empty()
             && !self.views.secondary_focused
@@ -1447,7 +1436,6 @@ impl Workspace {
             self.navigation_generation += 1;
             self.pending_navigation = None;
         }
-        self.graph_open = false;
         let id = self.tabs[index].id;
         if self
             .ui
@@ -1505,14 +1493,6 @@ impl Workspace {
         cx.notify();
     }
     fn close_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.graph_open {
-            self.graph_open = false;
-            if let Some(p) = self.current_pane() {
-                p.update(cx, |p, cx| p.focus_view(window, cx));
-            }
-            cx.notify();
-            return;
-        }
         if self.views.secondary_focused && self.views.split.is_some() {
             self.close_split(window, cx);
             return;
@@ -1546,9 +1526,6 @@ impl Workspace {
             })
             .map(|(_, t)| t.id)
             .collect();
-        if mode == 2 {
-            self.graph_open = false;
-        }
         for id in ids.into_iter().rev() {
             if let Some(i) = self.tabs.iter().position(|t| t.id == id) {
                 self.close_tab_at(i, window, cx);
@@ -1713,13 +1690,6 @@ impl Workspace {
         }
     }
     fn sync_index_ui(&mut self, cx: &mut Context<Self>) {
-        if self.graph_open
-            && let Some(graph) = &self.graph
-        {
-            graph.update(cx, |g, cx| {
-                g.set_index(self.index.clone(), self.ui.prefs.light, cx)
-            });
-        }
         for tab in &self.tabs {
             tab.pane.update(cx, |pane, _| {
                 pane.set_paths(self.link_paths_for(&tab.path));
@@ -2247,7 +2217,7 @@ mod tests {
         visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
         handle
             .update(&mut visual, |w, _, _| {
-                assert_eq!(w.ui.prefs.ribbon_commands, vec![39, 2, 43]);
+                assert_eq!(w.ui.prefs.ribbon_commands, vec![39, 2]);
                 assert!(!w.command_open);
             })
             .unwrap();
@@ -2267,7 +2237,7 @@ mod tests {
         visual.run_until_parked();
         let saved =
             inkstone::preferences::Preferences::load(&root.join(".inkstone-workspace.json"));
-        assert_eq!(saved.ribbon_commands, vec![39, 43, 2]);
+        assert_eq!(saved.ribbon_commands, vec![39, 2]);
     }
 
     #[gpui::test]
@@ -4501,10 +4471,6 @@ mod tests {
             .update(cx, |w, window, cx| {
                 w.ui.prefs.locations.attachments = Location::Subfolder;
                 w.ui.prefs.locations.attachment_folder = "media".into();
-                w.graph_open = true;
-                w.paste_image("skip.png".into(), b"skip".to_vec(), window, cx);
-                assert_eq!(w.ui.pending_file_writes, 0);
-                w.graph_open = false;
                 w.paste_image("image.png".into(), b"fixture".to_vec(), window, cx);
                 w.current_pane()
                     .unwrap()
@@ -4558,75 +4524,6 @@ mod tests {
                 assert!(w.status.contains("库内文件夹"));
             })
             .unwrap();
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[gpui::test]
-    fn relation_graph_opens_notes_and_creates_missing_targets(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let handle = cx.add_window(Workspace::new);
-        let root =
-            std::env::temp_dir().join(format!("inkstone-graph-navigation-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("a.md"), "[[b]] [[missing]]").unwrap();
-        std::fs::write(root.join("b.md"), "# B").unwrap();
-        handle
-            .update(cx, |w, window, cx| {
-                let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
-                w.index = Arc::new(Index::build(&vault).unwrap());
-                w.vault = Some(vault);
-                w.add_tab(
-                    "a.md".into(),
-                    Some("[[b]] [[missing]]".into()),
-                    false,
-                    window,
-                    cx,
-                );
-                w.open_graph(false, window, cx);
-                assert!(w.graph_open);
-                w.close_tab(window, cx);
-                assert!(!w.graph_open);
-                assert_eq!(w.tabs.len(), 1);
-                w.open_graph(false, window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        handle
-            .update(cx, |w, _, cx| {
-                w.graph.as_ref().unwrap().update(cx, |_, cx| {
-                    cx.emit(crate::graph_view::GraphEvent::Open("b.md".into(), false))
-                });
-            })
-            .unwrap();
-        cx.run_until_parked();
-        handle
-            .update(cx, |w, window, cx| {
-                assert!(!w.graph_open);
-                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("b.md"));
-                w.open_graph(true, window, cx);
-                w.graph.as_ref().unwrap().update(cx, |_, cx| {
-                    cx.emit(crate::graph_view::GraphEvent::Open(
-                        "missing.md".into(),
-                        true,
-                    ))
-                });
-            })
-            .unwrap();
-        cx.run_until_parked();
-        handle
-            .update(cx, |w, _, _| {
-                assert!(!w.graph_open);
-                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("missing.md"));
-            })
-            .unwrap();
-        assert_eq!(
-            std::fs::read_to_string(root.join("missing.md")).unwrap(),
-            ""
-        );
-        assert_eq!(
-            std::fs::read_to_string(root.join("a.md")).unwrap(),
-            "[[b]] [[missing]]"
-        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

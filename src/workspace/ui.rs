@@ -875,8 +875,6 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (40, "下一个标签页", "Ctrl+Tab"),
     (41, "上一个标签页", "Ctrl+Shift+Tab"),
     (42, "复制当前笔记", ""),
-    (43, "打开关系图谱", ""),
-    (44, "打开当前笔记的局部关系图", ""),
     (45, "切换删除线", ""),
     (46, "切换高亮", ""),
     (47, "切换行内代码", ""),
@@ -1038,9 +1036,6 @@ impl Workspace {
         self.ui.tab_width.update(cx, |slider, cx| {
             slider.set_value(p.tab_size as f32, window, cx);
         });
-        if let Some(graph) = &self.graph {
-            graph.update(cx, |g, cx| g.set_index(self.index.clone(), p.light, cx));
-        }
         let panes: Vec<_> = self
             .tabs
             .iter()
@@ -1582,11 +1577,6 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_open
-            && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=84 | 95..=96 | 98)
-        {
-            self.graph_open = false;
-        }
         self.command_open = false;
         match id {
             0 => self.focus_new(window, cx),
@@ -1725,8 +1715,6 @@ impl Workspace {
             40 => self.cycle_tab(false, window, cx),
             41 => self.cycle_tab(true, window, cx),
             42 => self.duplicate_current(window, cx),
-            43 => self.open_graph(false, window, cx),
-            44 => self.open_graph(true, window, cx),
             45 => self.wrap_selection("~~", "~~", window, cx),
             46 => self.wrap_selection("==", "==", window, cx),
             47 => self.wrap_selection("`", "`", window, cx),
@@ -4196,9 +4184,7 @@ impl Render for Workspace {
         let pane = self.current_pane();
         let status_mode = pane
             .as_ref()
-            .filter(|_| {
-                !self.graph_open && active.is_some_and(|tab| !tab.path.as_os_str().is_empty())
-            })
+            .filter(|_| active.is_some_and(|tab| !tab.path.as_os_str().is_empty()))
             .map(|pane| {
                 let pane = pane.read(cx);
                 if pane.reading {
@@ -4211,23 +4197,14 @@ impl Render for Workspace {
             });
         let count = pane
             .as_ref()
-            .filter(|_| {
-                !self.graph_open && active.is_some_and(|tab| !tab.path.as_os_str().is_empty())
-            })
+            .filter(|_| active.is_some_and(|tab| !tab.path.as_os_str().is_empty()))
             .map(|p| {
                 let counts = p.update(cx, |pane, cx| pane.text_counts(cx));
                 format!("{} 个词  {} 个字符", counts.words, counts.characters)
             })
             .unwrap_or_default();
         let error = active.and_then(|t| t.save.error.borrow().clone());
-        _window.set_window_title(&format!(
-            "{} - 砚台Inkstone",
-            if self.graph_open {
-                "关系图谱"
-            } else {
-                &title
-            }
-        ));
+        _window.set_window_title(&format!("{} - 砚台Inkstone", title));
         let main_index = self.main_tab();
         let main_pane = main_index
             .and_then(|i| self.tabs.get(i))
@@ -4262,14 +4239,6 @@ impl Render for Workspace {
             .into_any_element()
         } else {
             primary
-        };
-        let center = if self.graph_open {
-            div()
-                .size_full()
-                .children(self.graph.clone())
-                .into_any_element()
-        } else {
-            center
         };
         let center = div()
             .flex()

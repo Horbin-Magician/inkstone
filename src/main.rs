@@ -2,7 +2,6 @@
 
 mod editor;
 mod editor_links;
-mod graph_view;
 #[cfg(feature = "metrics")]
 mod metrics;
 mod theme;
