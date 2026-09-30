@@ -1854,6 +1854,21 @@ impl Workspace {
         self.persist_workspace(cx);
         cx.notify();
     }
+
+    fn select_view_mode(&mut self, mode: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(pane) = self.current_pane() {
+            pane.update(cx, |pane, cx| {
+                pane.reading = mode == 0;
+                if mode != 0 {
+                    pane.live = mode == 1;
+                }
+                pane.focus_view(window, cx);
+                cx.notify();
+            });
+            self.persist_workspace(cx);
+            cx.notify();
+        }
+    }
     fn refresh_trash(&mut self, cx: &mut Context<Self>) {
         let Some(vault) = self.vault.clone() else {
             return;
@@ -4334,6 +4349,7 @@ impl Render for Workspace {
                         bar.child(div().truncate().child(self.status.clone()))
                     })
                     .when_some(status_mode, |bar, (symbol, mode)| {
+                        let weak = cx.entity().downgrade();
                         bar.child(
                             Button::new("status-backlinks")
                                 .ghost()
@@ -4360,10 +4376,31 @@ impl Render for Workspace {
                                 .w(px(24.))
                                 .h(px(22.))
                                 .icon(icon(symbol).size(px(15.)))
-                                .accessibility_label(format!("{mode}；切换阅读或编辑视图"))
+                                .accessibility_label(format!("{mode}；选择视图模式"))
                                 .tooltip(mode)
-                                .on_click(
-                                    cx.listener(|this, _, w, cx| this.execute_command(6, w, cx)),
+                                .dropdown_menu_with_anchor(
+                                    gpui::Anchor::BottomRight,
+                                    move |mut menu, _, _| {
+                                        menu = menu.check_side(gpui_component::Side::Right);
+                                        for (value, label, symbol) in [
+                                            (0, "阅读视图", "book-open"),
+                                            (2, "源码模式", "code"),
+                                            (1, "实时预览", "pencil"),
+                                        ] {
+                                            let weak = weak.clone();
+                                            menu = menu.item(
+                                                PopupMenuItem::new(label)
+                                                    .icon(icon(symbol))
+                                                    .checked(mode == label)
+                                                    .on_click(move |_, window, cx| {
+                                                        let _ = weak.update(cx, |this, cx| {
+                                                            this.select_view_mode(value, window, cx)
+                                                        });
+                                                    }),
+                                            );
+                                        }
+                                        menu
+                                    },
                                 ),
                         )
                     })
