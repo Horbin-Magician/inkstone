@@ -31,6 +31,8 @@ impl InlineElement {
 /// TextView builds this while laying a line out; renderers only read it.
 #[derive(Clone)]
 pub struct InlineRenderContext {
+    pub(crate) link_click_handler: Option<std::sync::Arc<super::text_view::LinkClickHandlerFn>>,
+    pub(crate) image_source: Option<std::sync::Arc<super::text_view::ImageSourceFn>>,
     text_style: TextStyle,
     font_size: Pixels,
     line_height: Pixels,
@@ -45,6 +47,8 @@ impl InlineRenderContext {
         rem_size: Pixels,
     ) -> Self {
         Self {
+            link_click_handler: None,
+            image_source: None,
             text_style,
             font_size,
             line_height,

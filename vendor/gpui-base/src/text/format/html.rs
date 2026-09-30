@@ -55,6 +55,14 @@ const BLOCK_ELEMENTS: [&str; 35] = [
 
 /// Parse HTML into AST Node.
 pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument, SharedString> {
+    parse_at(source, cx.offset, cx)
+}
+
+pub(crate) fn parse_at(
+    source: &str,
+    origin: usize,
+    cx: &mut NodeContext,
+) -> Result<ParsedDocument, SharedString> {
     let opts = ParseOpts {
         ..Default::default()
     };
@@ -72,7 +80,34 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
     // NOTE: The outer paragraph is not used.
     let node: BlockNode =
         parse_node(&dom.document, &mut paragraph, cx).unwrap_or(BlockNode::Unknown);
-    let node = node.compact();
+    let mut node = node.compact();
+    let lower = source.to_ascii_lowercase();
+    let mut starts = lower
+        .match_indices("<details")
+        .map(|(offset, _)| origin + offset);
+    fn locate(node: &mut BlockNode, starts: &mut impl Iterator<Item = usize>, end: usize) {
+        if let BlockNode::Blockquote {
+            callout: Some(c),
+            span,
+            ..
+        } = node
+            && c.kind == "details"
+        {
+            *span = starts.next().map(|start| node::Span { start, end });
+        }
+        match node {
+            BlockNode::Root { children, .. }
+            | BlockNode::Blockquote { children, .. }
+            | BlockNode::List { children, .. }
+            | BlockNode::ListItem { children, .. } => {
+                for child in children {
+                    locate(child, starts, end);
+                }
+            }
+            _ => {}
+        }
+    }
+    locate(&mut node, &mut starts, origin + source.len());
 
     Ok(ParsedDocument {
         source: source.to_string().into(),
@@ -341,6 +376,36 @@ fn parse_paragraph(paragraph: &mut Paragraph, node: &Rc<Node>) {
             paragraph.push_str(&part);
         }
         NodeData::Element { name, attrs, .. } => match name.local {
+            local_name!("sup") | local_name!("sub") => {
+                let mut body = Paragraph::default();
+                for child in node.children.borrow().iter() {
+                    parse_paragraph(&mut body, child);
+                }
+                let mut bytes = vec![];
+                let _ = html5ever::serialize(
+                    &mut bytes,
+                    &markup5ever_rcdom::SerializableHandle::from(node.clone()),
+                    html5ever::serialize::SerializeOpts {
+                        traversal_scope: html5ever::serialize::TraversalScope::ChildrenOnly(None),
+                        ..Default::default()
+                    },
+                );
+                let script = crate::text::markdown_ext::HtmlScript {
+                    source: String::from_utf8(bytes).unwrap_or_default().into(),
+                    html: true,
+                };
+                paragraph.push(InlineNode::custom(
+                    crate::text::MarkdownNode::new(
+                        if name.local == local_name!("sub") {
+                            "__gpui_html_sub"
+                        } else {
+                            "__gpui_html_sup"
+                        },
+                        script,
+                    )
+                    .text(body.text()),
+                ));
+            }
             local_name!("em") | local_name!("i") => {
                 merge_children_with_mark(node, paragraph, Some(TextMark::default().italic()));
             }
@@ -357,7 +422,7 @@ fn parse_paragraph(paragraph: &mut Paragraph, node: &Rc<Node>) {
             local_name!("u") => {
                 merge_children_with_mark(node, paragraph, Some(TextMark::default().underline()));
             }
-            local_name!("code") => {
+            local_name!("code") | local_name!("kbd") => {
                 merge_children_with_mark(node, paragraph, Some(TextMark::default().code()));
             }
             local_name!("mark") => {
@@ -433,6 +498,36 @@ fn parse_node(
             ref attrs,
             ..
         } => match name.local {
+            local_name!("details") => {
+                let mut title = Paragraph::default();
+                let mut body = Paragraph::default();
+                let mut children = vec![];
+                for child in node.children.borrow().iter() {
+                    if matches!(&child.data, NodeData::Element { name, .. } if name.local == local_name!("summary"))
+                    {
+                        for content in child.children.borrow().iter() {
+                            parse_paragraph(&mut title, content);
+                        }
+                    } else if let Some(block) = parse_node(child, &mut body, cx) {
+                        children.push(block);
+                    }
+                }
+                consume_paragraph(&mut children, &mut body);
+                if title.is_empty() {
+                    title.push_str("详细信息");
+                }
+                children.insert(0, BlockNode::Paragraph(title));
+                Some(BlockNode::Blockquote {
+                    children,
+                    span: None,
+                    callout: Some(node::Callout {
+                        kind: "details".into(),
+                        marker: "<details>".into(),
+                        collapsed: Some(attr_value(attrs, local_name!("open")).is_none()),
+                        default_title: false,
+                    }),
+                })
+            }
             local_name!("br") => Some(BlockNode::Break {
                 html: true,
                 span: None,
