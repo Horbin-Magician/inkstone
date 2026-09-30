@@ -50,14 +50,14 @@ impl Workspace {
             .map(|path| format!("当前预览：{}", path.display()))
             .unwrap_or_else(|error| error);
         div().flex().gap_0().flex_1().min_h_0().child(self.settings_nav(cx)).child(
-            div().id("settings-content").track_scroll(&self.ui.settings_scroll).relative().vertical_scrollbar(&self.ui.settings_scroll).overflow_y_scroll().min_h_0().h_full().flex_1().min_w_0().px(px(32.)).py(px(48.)).flex().flex_col().gap_5()
+            self.settings_content().gap_5()
                 .children([
                     ("日期格式", "支持 YYYY、MM、DD、HH、mm、ss；用 / 划分子文件夹，用 [文字] 保留文字。"),
                     ("新建日记的存放位置", "库内文件夹；留空沿用新建笔记的存放位置。"),
                     ("模板文件位置", "首次创建日记时插入；支持 {{date}}、{{time}}、{{title}} 和 {{date:YYYY-MM-DD}}。"),
                 ].into_iter().enumerate().map(|(i, (title, description))| {
                     div().flex().items_center().justify_between().gap_4().pb_4()
-                        .child(div().flex_1().min_w_0().child(title).child(div().text_size(px(13.)).line_height(relative(1.4)).whitespace_normal().text_color(rgb(0x999999)).child(description)))
+                        .child(div().flex_1().min_w_0().child(title).child(div().text_size(px(13.)).line_height(relative(1.4)).whitespace_normal().text_color(crate::theme::palette(self.ui.prefs.light).muted).child(description)))
                         .child(div().w(px(220.)).flex_shrink_0().child(Input::new(&self.ui.daily_inputs[i])))
                 }))
                 .child(div().text_sm().child(preview))

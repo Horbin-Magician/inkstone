@@ -622,17 +622,15 @@ impl Render for GraphView {
                     } else {
                         px(4. * options.node_size)
                     };
-                    let color = rgb(if selected {
-                        0x3f9aca
+                    let color = if selected {
+                        crate::theme::palette(light).accent
                     } else if let Some(color) = n.color {
-                        color
+                        rgb(color)
                     } else if n.missing {
-                        0x666666
-                    } else if light {
-                        0x777777
+                        rgb(if light { 0xa4aebb } else { 0x626f80 })
                     } else {
-                        0xaaaaaa
-                    });
+                        crate::theme::palette(light).muted
+                    };
                     window.paint_quad(
                         fill(
                             Bounds::new(p - point(radius, radius), size(radius * 2., radius * 2.)),

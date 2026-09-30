@@ -48,19 +48,17 @@ pub(super) fn overlay(
                         .size(px(font_size))
                         .border_1()
                         .rounded_full()
-                        .border_color(rgb(if checked {
-                            0x3f9aca
-                        } else if light {
-                            0xababab
+                        .border_color(if checked {
+                            crate::theme::palette(light).accent
                         } else {
-                            0x666666
-                        }))
+                            crate::theme::palette(light).muted
+                        })
                         .when(checked, |view| {
-                            view.bg(rgb(0x3f9aca)).child(
+                            view.bg(crate::theme::palette(light).accent).child(
                                 svg()
                                     .path("icons/check.svg")
                                     .size(px(font_size - 2.))
-                                    .text_color(rgb(if light { 0xffffff } else { 0x262626 })),
+                                    .text_color(crate::theme::palette(light).background),
                             )
                         });
                     let mut element = gpui_base::Checkbox::new(("live-task", id))

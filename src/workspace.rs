@@ -2289,9 +2289,9 @@ mod tests {
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
         let ribbon = visual.debug_bounds("workspace-ribbon").unwrap();
-        assert_eq!(ribbon.size.width, px(44.));
+        assert_eq!(ribbon.size.width, px(48.));
         visual.simulate_click(
-            ribbon.origin + point(px(22.), px(24.)),
+            ribbon.origin + point(ribbon.size.width / 2., px(24.)),
             Modifiers::default(),
         );
         handle
@@ -2315,7 +2315,7 @@ mod tests {
         visual.update(|w, cx| w.draw(cx).clear(cx));
         assert_eq!(
             visual.debug_bounds("workspace-ribbon").unwrap().size.width,
-            px(44.)
+            px(48.)
         );
     }
 

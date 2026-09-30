@@ -564,6 +564,13 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.tokens.list_hover =
             Hsla::from(rgba(if light { 0x00000008 } else { 0xffffff08 })).into();
         theme.primary = crate::theme::palette(light).accent.into();
+        theme.primary_hover = rgb(if light { 0x1c6577 } else { 0x8dcedc }).into();
+        theme.primary_active = rgb(if light { 0x175565 } else { 0x5bafc2 }).into();
+        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x142b33 }).into();
+        theme.button_primary = theme.primary;
+        theme.button_primary_hover = theme.primary_hover;
+        theme.button_primary_active = theme.primary_active;
+        theme.button_primary_foreground = theme.primary_foreground;
         theme.ring = crate::theme::palette(light).accent.into();
         theme.switch_thumb = rgb(0xffffff).into();
         theme.slider_thumb = rgb(0xffffff).into();
@@ -592,6 +599,51 @@ enum EditorSetting {
 }
 
 impl Workspace {
+    pub(super) fn settings_content(&self) -> Stateful<Div> {
+        div()
+            .id("settings-content")
+            .track_scroll(&self.ui.settings_scroll)
+            .relative()
+            .vertical_scrollbar(&self.ui.settings_scroll)
+            .overflow_y_scroll()
+            .min_h_0()
+            .h_full()
+            .flex_1()
+            .min_w_0()
+            .px(px(28.))
+            .py(px(28.))
+            .flex()
+            .flex_col()
+    }
+
+    fn empty_state(&self, symbol: &str, title: &str, description: &str) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_2()
+            .p_4()
+            .text_center()
+            .child(
+                icon(symbol)
+                    .size(px(24.))
+                    .text_color(crate::theme::palette(self.ui.prefs.light).accent),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(title.to_string()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                    .child(description.to_string()),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn settings_row(
         &self,
         name: &str,
@@ -828,8 +880,8 @@ fn tool(id: &'static str, name: &str, tip: &'static str) -> Button {
         .compact()
         .icon(icon(name))
         .tooltip(tip)
-        .w(px(30.))
-        .h(px(28.))
+        .w(px(32.))
+        .h(px(32.))
 }
 pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (0, "新建笔记", "Ctrl+N"),
@@ -2055,7 +2107,7 @@ impl Workspace {
         div()
             .id("workspace-ribbon")
             .debug_selector(|| "workspace-ribbon".into())
-            .w(px(44.))
+            .w(px(48.))
             .h_full()
             .flex_shrink_0()
             .flex()
@@ -2316,7 +2368,7 @@ impl Workspace {
                             .max_w(px(320.))
                             .px_2()
                             .gap_1()
-                            .rounded_t(px(6.))
+                            .rounded_t(px(9.))
                             .text_color(if selected {
                                 self.fg()
                             } else {
@@ -2723,7 +2775,7 @@ impl Workspace {
                     div()
                         .px_3()
                         .text_xs()
-                        .text_color(rgb(0x999999))
+                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                         .flex()
                         .items_center()
                         .justify_between()
@@ -2782,7 +2834,7 @@ impl Workspace {
                             s.child(
                                 div()
                                     .p_2()
-                                    .text_color(rgb(0x888888))
+                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child("使用文件菜单添加书签"),
                             )
                         })
@@ -2935,7 +2987,7 @@ impl Workspace {
             return self.grouped_search_results(cx);
         }
         let hits = self.visible_search_hits(modal, cx);
-        let empty_templates = modal && self.ui.template_mode && hits.is_empty();
+        let empty = hits.is_empty();
         div()
             .id(if modal {
                 "quick-results"
@@ -2947,20 +2999,34 @@ impl Workspace {
             .min_h_0()
             .overflow_y_scroll()
             .p_2()
-            .when(empty_templates, |s| {
-                s.child(div().p_3().text_color(rgb(0x999999)).child("未找到模板"))
+            .when(empty, |s| {
+                s.child(self.empty_state(
+                    "search",
+                    if self.ui.template_mode {
+                        "未找到模板"
+                    } else {
+                        "未找到笔记"
+                    },
+                    if self.ui.template_mode {
+                        "请在设置中检查模板文件夹。"
+                    } else {
+                        "试试其他关键词，或创建一篇新笔记。"
+                    },
+                ))
             })
             .children(hits.into_iter().enumerate().map(|(i, hit)| {
                 let path = hit.path;
                 let offset = hit.offset;
                 div()
                     .id(("result", i))
-                    .when(modal && self.ui.selected == i, |s| s.bg(rgba(0x88888822)))
+                    .when(modal && self.ui.selected == i, |s| {
+                        s.bg(crate::theme::palette(self.ui.prefs.light).selected)
+                    })
                     .p_2()
-                    .when(modal, |s| s.py(px(6.)).px_3().h(px(33.)).overflow_hidden())
+                    .when(modal, |s| s.py(px(6.)).px_3().h(px(38.)).overflow_hidden())
                     .rounded(px(4.))
                     .cursor_pointer()
-                    .hover(|s| s.bg(rgba(0x88888822)))
+                    .hover(|s| s.bg(crate::theme::palette(self.ui.prefs.light).selected))
                     .child(div().text_size(px(14.)).truncate().child(
                         hit.display_name.unwrap_or_else(|| {
                             if modal {
@@ -2976,13 +3042,17 @@ impl Workspace {
                         }),
                     ))
                     .when(!modal, |s| {
-                        s.child(div().text_xs().text_color(rgb(0x888888)).truncate().child(
-                            if hit.excerpt.is_empty() {
-                                path.to_string_lossy().to_string()
-                            } else {
-                                format!("{}: {}", hit.line, hit.excerpt)
-                            },
-                        ))
+                        s.child(
+                            div()
+                                .text_xs()
+                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                                .truncate()
+                                .child(if hit.excerpt.is_empty() {
+                                    path.to_string_lossy().to_string()
+                                } else {
+                                    format!("{}: {}", hit.line, hit.excerpt)
+                                }),
+                        )
                     })
                     .on_click(cx.listener(move |this, _, w, cx| {
                         if this.ui.template_mode {
@@ -3068,7 +3138,7 @@ impl Workspace {
                         div()
                             .p_2()
                             .text_sm()
-                            .text_color(rgb(0x999999))
+                            .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                             .child("未找到匹配结果"),
                     )
                 },
@@ -3141,7 +3211,7 @@ impl Workspace {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(rgb(0x999999))
+                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child(hits.len().to_string()),
                             ),
                     )
@@ -3157,7 +3227,9 @@ impl Workspace {
                                 .border_color(self.border())
                                 .when(j == 0, |s| s.rounded_t(px(4.)))
                                 .cursor_pointer()
-                                .hover(|s| s.bg(rgba(0x88888822)))
+                                .hover(|s| {
+                                    s.bg(crate::theme::palette(self.ui.prefs.light).selected)
+                                })
                                 .child(
                                     div()
                                         .text_size(px(12.))
@@ -3403,7 +3475,7 @@ impl Workspace {
                                 .px_2()
                                 .h(px(32.))
                                 .text_size(px(12.))
-                                .text_color(rgb(0x999999))
+                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                 .child("链接当前文件")
                                 .child(self.backlinks.len().to_string()),
                         )
@@ -3457,7 +3529,7 @@ impl Workspace {
                                 .px_2()
                                 .h(px(32.))
                                 .text_size(px(12.))
-                                .text_color(rgb(0x999999))
+                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                 .child("当前笔记中的链接")
                                 .child(links.len().to_string()),
                         )
@@ -3536,13 +3608,19 @@ impl Workspace {
                                 .text_size(px(13.))
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgba(0x88888818)))
-                                .child(icon(symbol).size(px(16.)).text_color(rgb(0x999999)))
+                                .child(
+                                    icon(symbol).size(px(16.)).text_color(
+                                        crate::theme::palette(self.ui.prefs.light).muted,
+                                    ),
+                                )
                                 .child(
                                     div()
                                         .w(px(100.))
                                         .flex_shrink_0()
                                         .truncate()
-                                        .text_color(rgb(0x999999))
+                                        .text_color(
+                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        )
                                         .child(name.clone()),
                                 )
                                 .child(div().flex_1().min_w_0().truncate().child(display))
@@ -3564,7 +3642,9 @@ impl Workspace {
                                         .items_center()
                                         .gap_2()
                                         .text_size(px(13.))
-                                        .text_color(rgb(0x999999))
+                                        .text_color(
+                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        )
                                         .child(icon("plus").size(px(14.)))
                                         .child("添加笔记属性"),
                                 )
@@ -3773,13 +3853,16 @@ impl Workspace {
             .when(
                 items.is_empty() && options.show_filter && !options.query.is_empty(),
                 |s| {
-                    s.child(div().text_sm().text_color(rgb(0x999999)).child(
-                        if options.show_filter && !options.query.is_empty() {
-                            "未找到匹配标签"
-                        } else {
-                            "没有标签"
-                        },
-                    ))
+                    s.child(
+                        div()
+                            .text_sm()
+                            .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                            .child(if options.show_filter && !options.query.is_empty() {
+                                "未找到匹配标签"
+                            } else {
+                                "没有标签"
+                            }),
+                    )
                 },
             )
             .child(
@@ -3811,7 +3894,7 @@ impl Workspace {
                             .py_1()
                             .pl(px(row.depth as f32 * 17.))
                             .cursor_pointer()
-                            .hover(|s| s.bg(rgba(0x88888822)))
+                            .hover(|s| s.bg(crate::theme::palette(self.ui.prefs.light).selected))
                             .child(div().w(px(20.)).flex_shrink_0().when(row.children, |s| {
                                 s.child(
                                     Button::new(("tag-fold", i))
@@ -3841,7 +3924,7 @@ impl Workspace {
                             .child(
                                 div()
                                     .text_xs()
-                                    .text_color(rgb(0x999999))
+                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child(row.count.to_string()),
                             )
                             .on_click(cx.listener(move |this, event: &ClickEvent, w, cx| {
@@ -3858,6 +3941,7 @@ impl Workspace {
         secondary: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let colors = crate::theme::palette(self.ui.prefs.light);
         let active = index
             .and_then(|i| self.tabs.get(i))
             .filter(|t| !t.path.as_os_str().is_empty());
@@ -3907,9 +3991,11 @@ impl Workspace {
                         .child(
                             div()
                                 .flex_1()
+                                .min_w_0()
+                                .truncate()
                                 .text_center()
                                 .text_size(px(13.))
-                                .text_color(rgb(0x999999))
+                                .text_color(colors.muted)
                                 .child(breadcrumb),
                         )
                         .child(
@@ -3988,7 +4074,7 @@ impl Workspace {
                                                     .child(
                                                         div()
                                                             .text_size(px(11.))
-                                                            .text_color(rgb(0x888888))
+                                                            .text_color(colors.muted)
                                                             .child(shortcut.clone()),
                                                     )
                                             })
@@ -4079,36 +4165,70 @@ impl Workspace {
                         .flex_col()
                         .items_center()
                         .justify_center()
-                        .gap_0()
+                        .gap_2()
+                        .px_4()
+                        .child(
+                            div()
+                                .size(px(56.))
+                                .rounded(px(16.))
+                                .bg(colors.selected)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(icon("square-pen").size(px(28.)).text_color(colors.accent)),
+                        )
+                        .child(
+                            div()
+                                .mt_2()
+                                .text_size(px(24.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("留一点空间，写下想法"),
+                        )
+                        .child(div().mb_4().text_sm().text_color(colors.muted).child(
+                            if self.vault.is_some() {
+                                "从一篇新笔记开始，或继续之前的记录。"
+                            } else {
+                                "打开一个本地文件夹，开始整理你的笔记。"
+                            },
+                        ))
                         .children(
-                            [
-                                ("empty-new", "创建新文件 (Ctrl + N)", 0),
-                                ("empty-open", "打开文件 (Ctrl + O)", 2),
-                                if index.is_some() {
-                                    ("empty-close", "关闭标签页", 5)
-                                } else {
-                                    ("empty-vault", "打开笔记库", 1)
-                                },
-                            ]
+                            if self.vault.is_some() {
+                                vec![
+                                    ("empty-new", "创建新笔记", "file-plus", 0),
+                                    ("empty-open", "查找笔记", "search", 2),
+                                ]
+                            } else {
+                                vec![("empty-vault", "打开笔记库", "folder-open", 1)]
+                            }
                             .into_iter()
-                            .map(|(id, label, command)| {
-                                Button::new(id)
-                                    .ghost()
-                                    .h(px(36.))
-                                    .accessibility_label(label)
-                                    .child(
-                                        div()
-                                            .text_size(px(self.ui.prefs.font_size))
-                                            .font_weight(FontWeight::NORMAL)
-                                            .text_color(
-                                                crate::theme::palette(self.ui.prefs.light).accent,
-                                            )
-                                            .child(label),
-                                    )
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.execute_command(command, w, cx)
-                                    }))
-                            }),
+                            .enumerate()
+                            .map(
+                                |(i, (id, label, symbol, command))| {
+                                    Button::new(id)
+                                        .when(i == 0, |button| button.primary())
+                                        .when(i > 0, |button| button.ghost())
+                                        .h(px(42.))
+                                        .w(px(240.))
+                                        .accessibility_label(label)
+                                        .child(
+                                            div()
+                                                .w_full()
+                                                .flex()
+                                                .items_center()
+                                                .gap_2()
+                                                .child(icon(symbol).size(px(16.)))
+                                                .child(div().flex_1().child(label))
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .child(self.hotkey_label(command)),
+                                                ),
+                                        )
+                                        .on_click(cx.listener(move |this, _, w, cx| {
+                                            this.execute_command(command, w, cx)
+                                        }))
+                                },
+                            ),
                         ),
                 )
             })
@@ -4195,40 +4315,6 @@ impl Workspace {
             }
         }
         cx.notify();
-    }
-}
-
-#[cfg(test)]
-mod outline_tests {
-    use super::outline_rows;
-
-    #[test]
-    fn outline_folds_respect_hierarchy_and_filter_reveals_hidden_matches() {
-        let headings: Vec<_> = [1, 3, 4, 2, 1]
-            .into_iter()
-            .enumerate()
-            .map(|(offset, level)| inkstone::index::Heading {
-                level,
-                offset,
-                title: format!("Section {offset}"),
-            })
-            .collect();
-        let offsets = |rows: Vec<(inkstone::index::Heading, bool, bool)>| {
-            rows.into_iter().map(|row| row.0.offset).collect::<Vec<_>>()
-        };
-        assert_eq!(
-            offsets(outline_rows(&headings, &[0].into(), "")),
-            vec![0, 4]
-        );
-        assert_eq!(
-            offsets(outline_rows(&headings, &[1].into(), "")),
-            vec![0, 1, 3, 4]
-        );
-        assert_eq!(
-            offsets(outline_rows(&headings, &[0, 1].into(), "section 2")),
-            vec![2]
-        );
-        assert!(!outline_rows(&headings, &Default::default(), "")[4].1);
     }
 }
 
@@ -4464,7 +4550,7 @@ impl Render for Workspace {
                     .pl_0()
                     .bg(self.side())
                     .when(self.ui.prefs.show_ribbon, |bar| {
-                        bar.child(div().w(px(44.)).flex_shrink_0())
+                        bar.child(div().w(px(48.)).flex_shrink_0())
                     })
                     .when(left_open, |s| {
                         s.child(
@@ -4512,10 +4598,11 @@ impl Render for Workspace {
                     .id("workspace-status-bar")
                     .debug_selector(|| "workspace-status-bar".into())
                     .occlude()
-                    .absolute()
-                    .bottom_0()
-                    .right_0()
-                    .max_w(_window.viewport_size().width * 0.8)
+                    .w_full()
+                    .flex_shrink_0()
+                    .justify_end()
+                    .border_t_1()
+                    .border_color(self.border())
                     .flex()
                     .items_center()
                     .h(px(28.))
@@ -4538,7 +4625,9 @@ impl Render for Workspace {
                                 .child(
                                     div()
                                         .text_size(px(12.))
-                                        .text_color(rgb(0x999999))
+                                        .text_color(
+                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        )
                                         .child(format!("{} 条反向链接", self.backlinks.len())),
                                 )
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -4708,7 +4797,7 @@ impl Workspace {
                     .pb_1()
                     .when(picker, |s| s.hidden())
                     .when(self.ui.settings, |s| {
-                        s.h(px(32.))
+                        s.h(px(48.))
                             .flex_shrink_0()
                             .px_3()
                             .border_b_1()
@@ -4751,6 +4840,13 @@ impl Workspace {
                         .overflow_y_scroll()
                         .min_h_0()
                         .p_3()
+                        .when(self.filtered_commands(cx).is_empty(), |list| {
+                            list.child(self.empty_state(
+                                "command",
+                                "未找到命令",
+                                "试试搜索功能名称，例如「设置」或「分屏」。",
+                            ))
+                        })
                         .max_h(px(384.).min((available_height - px(80.)).max(px(40.))))
                         .children(self.filtered_commands(cx).into_iter().enumerate().map(
                             |(i, (id, label, _))| {
@@ -4759,17 +4855,23 @@ impl Workspace {
                                     .flex()
                                     .items_center()
                                     .justify_between()
-                                    .h(px(33.))
+                                    .h(px(38.))
                                     .px_3()
                                     .gap_3()
                                     .rounded(px(4.))
                                     .cursor_pointer()
-                                    .when(self.ui.selected == i, |s| s.bg(rgba(0x88888822)))
-                                    .hover(|s| s.bg(rgba(0x88888822)))
+                                    .when(self.ui.selected == i, |s| {
+                                        s.bg(crate::theme::palette(self.ui.prefs.light).selected)
+                                    })
+                                    .hover(|s| {
+                                        s.bg(crate::theme::palette(self.ui.prefs.light).selected)
+                                    })
                                     .child(div().flex_1().min_w_0().truncate().child(label))
                                     .child(
                                         div()
-                                            .text_color(rgb(0x888888))
+                                            .text_color(
+                                                crate::theme::palette(self.ui.prefs.light).muted,
+                                            )
                                             .text_size(px(12.))
                                             .flex_shrink_0()
                                             .child(self.hotkey_label(id)),
@@ -4783,7 +4885,7 @@ impl Workspace {
             })
             .when(self.ui.quick_open, |s| {
                 let result_height =
-                    (self.visible_search_hits(true, cx).len().max(1) as f32 * 33. + 16.).min(360.);
+                    (self.visible_search_hits(true, cx).len().max(3) as f32 * 38. + 16.).min(360.);
                 s.child(self.picker_search(false, cx)).child(
                     div()
                         .flex()
@@ -4803,7 +4905,7 @@ impl Workspace {
                         .items_center()
                         .justify_center()
                         .text_size(px(11.))
-                        .text_color(rgb(0x999999))
+                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                         .child(if self.command_open {
                             "↑↓ 导航　↵ 使用　esc 退出"
                         } else {
@@ -4816,7 +4918,7 @@ impl Workspace {
                     .child(
                         div()
                             .text_xs()
-                            .text_color(rgb(0x999999))
+                            .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                             .child("使用 / 指定文件夹路径，Enter 确认"),
                     )
                     .child(
@@ -4890,7 +4992,7 @@ impl Workspace {
                         .child(
                             div()
                                 .p_2()
-                                .text_color(rgb(0x999999))
+                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                 .child("回收站 · 恢复到原目录"),
                         )
                         .when(self.ui.trash.is_empty(), |s| {
@@ -4920,7 +5022,7 @@ impl Workspace {
                         .child(
                             div()
                                 .p_2()
-                                .text_color(rgb(0x999999))
+                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                 .child("未保存草稿 · 恢复为新笔记"),
                         )
                         .children(self.recoveries.iter().enumerate().map(|(i, e)| {
@@ -5211,20 +5313,7 @@ impl Workspace {
             .min_h_0()
             .child(self.settings_nav(cx))
             .child(
-                div()
-                    .id("settings-content")
-                    .track_scroll(&self.ui.settings_scroll)
-                    .relative()
-                    .vertical_scrollbar(&self.ui.settings_scroll)
-                    .overflow_y_scroll()
-                    .min_h_0()
-                    .h_full()
-                    .flex_1()
-                    .min_w_0()
-                    .px(px(32.))
-                    .py(px(48.))
-                    .flex()
-                    .flex_col()
+                self.settings_content()
                     .gap_2()
                     .child(
                         div()
@@ -5260,5 +5349,39 @@ impl Workspace {
                     ),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod outline_tests {
+    use super::outline_rows;
+
+    #[test]
+    fn outline_folds_respect_hierarchy_and_filter_reveals_hidden_matches() {
+        let headings: Vec<_> = [1, 3, 4, 2, 1]
+            .into_iter()
+            .enumerate()
+            .map(|(offset, level)| inkstone::index::Heading {
+                level,
+                offset,
+                title: format!("Section {offset}"),
+            })
+            .collect();
+        let offsets = |rows: Vec<(inkstone::index::Heading, bool, bool)>| {
+            rows.into_iter().map(|row| row.0.offset).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            offsets(outline_rows(&headings, &[0].into(), "")),
+            vec![0, 4]
+        );
+        assert_eq!(
+            offsets(outline_rows(&headings, &[1].into(), "")),
+            vec![0, 1, 3, 4]
+        );
+        assert_eq!(
+            offsets(outline_rows(&headings, &[0, 1].into(), "section 2")),
+            vec![2]
+        );
+        assert!(!outline_rows(&headings, &Default::default(), "")[4].1);
     }
 }
