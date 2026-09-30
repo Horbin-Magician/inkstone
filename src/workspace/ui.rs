@@ -4020,6 +4020,16 @@ impl Render for Workspace {
             })
             .unwrap_or("新标签页".into());
         let pane = self.current_pane();
+        let status_mode = pane.as_ref().filter(|_| !self.graph_open).map(|pane| {
+            let pane = pane.read(cx);
+            if pane.reading {
+                ("book-open", "阅读视图")
+            } else if pane.live {
+                ("pencil", "实时预览")
+            } else {
+                ("code", "源码模式")
+            }
+        });
         let count = pane
             .as_ref()
             .filter(|_| !self.graph_open)
@@ -4241,7 +4251,41 @@ impl Render for Workspace {
                     .when(!self.status.is_empty(), |bar| {
                         bar.child(div().truncate().child(self.status.clone()))
                     })
-                    .child(count),
+                    .when_some(status_mode, |bar, (symbol, mode)| {
+                        bar.child(
+                            Button::new("status-backlinks")
+                                .ghost()
+                                .compact()
+                                .h(px(22.))
+                                .accessibility_label("显示反向链接")
+                                .child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(rgb(0x999999))
+                                        .child(format!("{} 条反向链接", self.backlinks.len())),
+                                )
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.ui.prefs.right_open = true;
+                                    this.ui.right_mode = 1;
+                                    this.persist_workspace(cx);
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("status-editor-mode")
+                                .ghost()
+                                .compact()
+                                .w(px(24.))
+                                .h(px(22.))
+                                .icon(icon(symbol).size(px(15.)))
+                                .accessibility_label(format!("{mode}；切换阅读或编辑视图"))
+                                .tooltip(mode)
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.execute_command(6, w, cx)),
+                                ),
+                        )
+                    })
+                    .child(div().px_1().child(count)),
             )
             .when(
                 self.command_open
