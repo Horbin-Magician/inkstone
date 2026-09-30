@@ -65,7 +65,7 @@ impl Workspace {
             .unwrap_or_else(|error| error);
         div()
             .flex()
-            .gap_4()
+            .gap_0()
             .flex_1()
             .min_h_0()
             .child(self.settings_nav(cx))
@@ -80,7 +80,8 @@ impl Workspace {
                     .h_full()
                     .flex_1()
                     .min_w_0()
-                    .p_3()
+                    .px(px(32.))
+                    .py(px(48.))
                     .flex()
                     .flex_col()
                     .gap_5()

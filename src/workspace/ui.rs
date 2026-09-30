@@ -653,7 +653,7 @@ impl Workspace {
                     .bg(rgb(if self.ui.prefs.light {
                         0xfafafa
                     } else {
-                        0x232323
+                        0x212121
                     }))
                     .children(rows),
             )
@@ -765,8 +765,13 @@ impl Workspace {
     }
 }
 
-fn icon(name: &str) -> Icon {
+pub(super) fn icon(name: &str) -> Icon {
     let shape = match name {
+        "monitor" => Some("M3 3h18v14H3zM12 17v4M8 21h8"),
+        "command" => {
+            Some("M9 7V5a2 2 0 1 0-2 2h10a2 2 0 1 0-2-2v14a2 2 0 1 0 2-2H7a2 2 0 1 0 2 2V7")
+        }
+        "chevrons-up-down" => Some("m8 9 4-4 4 4m-8 6 4 4 4-4"),
         "x" => Some("M6 6l12 12M18 6 6 18"),
         "file-plus" => Some(
             "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 11v7M8.5 14.5h7",
@@ -4174,6 +4179,7 @@ impl Workspace {
             .when(self.ui.settings, |s| s.h(px(700.).min(available_height)))
             .p_3()
             .gap_2()
+            .when(self.ui.settings, |s| s.p_0().gap_0().overflow_hidden())
             .rounded(px(12.))
             .bg(self.bg())
             .border_1()
@@ -4220,6 +4226,13 @@ impl Workspace {
                     .items_center()
                     .justify_between()
                     .pb_1()
+                    .when(self.ui.settings, |s| {
+                        s.h(px(32.))
+                            .flex_shrink_0()
+                            .px_3()
+                            .border_b_1()
+                            .border_color(self.border())
+                    })
                     .child(if self.command_open {
                         "命令面板"
                     } else if self.ui.quick_open {
@@ -4574,11 +4587,19 @@ impl Workspace {
         let reading = self.ui.prefs.default_reading;
         let weak = cx.entity().downgrade();
         let default_view = Button::new("default-view-mode")
-            .label(if reading {
-                "阅读视图"
-            } else {
-                "编辑视图"
-            })
+            .h(px(32.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(if reading {
+                        "阅读视图"
+                    } else {
+                        "编辑视图"
+                    })
+                    .child(icon("chevrons-up-down").size(px(14.))),
+            )
             .dropdown_menu(move |mut menu, _, _| {
                 for (value, label) in [(false, "编辑视图"), (true, "阅读视图")] {
                     let weak = weak.clone();
@@ -4596,7 +4617,15 @@ impl Workspace {
         let live = self.ui.prefs.default_live_preview;
         let weak = cx.entity().downgrade();
         let editing_mode = Button::new("default-editing-mode")
-            .label(if live { "实时预览" } else { "源码模式" })
+            .h(px(32.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(if live { "实时预览" } else { "源码模式" })
+                    .child(icon("chevrons-up-down").size(px(14.))),
+            )
             .dropdown_menu(move |mut menu, _, _| {
                 for (value, label) in [(true, "实时预览"), (false, "源码模式")] {
                     let weak = weak.clone();
@@ -4642,11 +4671,11 @@ impl Workspace {
         let card = rgb(if self.ui.prefs.light {
             0xfafafa
         } else {
-            0x232323
+            0x212121
         });
         div()
             .flex()
-            .gap_4()
+            .gap_0()
             .flex_1()
             .min_h_0()
             .child(self.settings_nav(cx))
@@ -4662,20 +4691,14 @@ impl Workspace {
                     .flex_1()
                     .min_w_0()
                     .px(px(32.))
-                    .py_3()
+                    .py(px(48.))
                     .flex()
                     .flex_col()
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(13.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .mb_3()
-                            .child("编辑器"),
-                    )
-                    .child(
-                        div()
-                            .px_4()
+                            .px_5()
+                            .flex_shrink_0()
                             .rounded(px(12.))
                             .bg(card)
                             .child(self.settings_row(
@@ -4683,20 +4706,14 @@ impl Workspace {
                                 "选择新标签页使用编辑视图还是阅读视图。",
                                 default_view,
                                 false,
-                                16.,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .px_4()
-                            .rounded(px(12.))
-                            .bg(card)
+                                20.,
+                            ))
                             .child(self.settings_row(
                                 "默认编辑模式",
                                 "选择编辑视图默认使用实时预览还是源码模式。",
                                 editing_mode,
-                                false,
-                                16.,
+                                true,
+                                20.,
                             )),
                     )
                     .child(self.settings_group("显示", display))
