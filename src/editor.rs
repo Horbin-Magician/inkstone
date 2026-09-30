@@ -737,26 +737,35 @@ impl EditorPane {
             .then(|| state.search_session().query.clone());
         let search_matches = state.search_session().matcher.matched_ranges();
         if self.parse_source != text || self.parsed_context_revision != self.context_revision {
-            self.spans =
-                markdown::rebase_spans(&self.parse_source, &text, std::mem::take(&mut self.spans));
+            let initial_parse = self.parse_revision == 0;
+            // Present only syntax for the current text. Dropping edited spans or
+            // task markers while awaiting a background parse exposes source for
+            // one frame on every keystroke (including spaces and punctuation).
+            // Keep the initial load asynchronous so opening a note retains its
+            // existing layout/focus initialization order. Subsequent edits must
+            // never pass through that unstyled loading state.
+            if !initial_parse {
+                self.spans = markdown::spans(&text);
+                self.parsed = index::parse(&text);
+                self.typography_ready = true;
+                *self.link_cache.borrow_mut() = (text.clone(), self.parsed.clone());
+            }
             self.parse_source = text.clone();
             self.parsed_context_revision = self.context_revision;
             self.parse_revision += 1;
             let revision = self.parse_revision;
-            self.parsed = ParsedNote::default();
-            self.typography_ready = false;
-            *self.link_cache.borrow_mut() = (SharedString::default(), ParsedNote::default());
             let source = text.clone();
             let references = self.reference_index.clone();
             let path = self.current_path.clone();
             let context_revision = self.context_revision;
             let task = cx.background_executor().spawn(async move {
-                let parsed = index::parse(&source);
+                let initial =
+                    initial_parse.then(|| (markdown::spans(&source), index::parse(&source)));
                 let reading = inkstone::rendering::reading_document(&references, &path, &source);
-                (markdown::spans(&source), parsed, reading)
+                (initial, reading)
             });
             self.parse_task = Some(cx.spawn(async move |this, cx| {
-                let (spans, parsed, reading) = task.await;
+                let (initial, reading) = task.await;
                 let _ = this.update(cx, |this, cx| {
                     if this.parse_revision != revision
                         || this.context_revision != context_revision
@@ -764,8 +773,13 @@ impl EditorPane {
                     {
                         return;
                     }
-                    this.spans = spans;
-                    this.parsed = parsed;
+                    if let Some((spans, parsed)) = initial {
+                        this.spans = spans;
+                        this.parsed = parsed;
+                        this.typography_ready = true;
+                        *this.link_cache.borrow_mut() =
+                            (this.parse_source.clone(), this.parsed.clone());
+                    }
                     this.editor.update(cx, |state, cx| {
                         state.apply_highlighter_fold_candidates(
                             this.parsed
@@ -776,9 +790,6 @@ impl EditorPane {
                             cx,
                         )
                     });
-                    this.typography_ready = true;
-                    *this.link_cache.borrow_mut() =
-                        (this.parse_source.clone(), this.parsed.clone());
                     this.preview
                         .update(cx, |state, cx| state.set_text(&reading.markdown, cx));
                     this.rendered = Arc::new(reading);
@@ -1438,6 +1449,58 @@ impl Render for EditorPane {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn live_edits_present_current_syntax_before_background_reading(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "# PLACE\n\n**粗体** [[目标|别名]]\n\n- [x] 完成任务\n\n> 引用\n\n---\n\n正文";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        for replacement in ["空 格", "，标点!", "*强调*", "中文😀", "标题\n新行", ""]
+        {
+            let immediate = handle
+                .update(cx, |p, window, cx| {
+                    p.live = true;
+                    p.editor
+                        .update(cx, |state, cx| state.set_value(source, window, cx));
+                    p.update_presentation(cx);
+                    p.editor.update(cx, |state, cx| {
+                        state.set_selected_range(2..7, cx);
+                        state.replace(replacement, window, cx);
+                    });
+                    // Do not run the executor: this is the frame immediately
+                    // after typing, before the reading view can finish parsing.
+                    p.update_presentation(cx);
+                    let text = p.editor.read(cx).value();
+                    assert_eq!(p.spans, markdown::spans(&text));
+                    assert_eq!(p.parsed.tasks.len(), 1);
+                    assert_eq!(p.live_tasks.len(), 1);
+                    assert!(!p.live_quotes.is_empty());
+                    assert_eq!(p.live_rules.len(), 1);
+                    (
+                        p.editor.read(cx).concealed_ranges(),
+                        p.decorations.get_ranges(cx).len(),
+                        p.live_tasks[0].range.clone(),
+                        p.live_quotes.clone(),
+                        p.live_rules.clone(),
+                    )
+                })
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |p, _, cx| {
+                    p.update_presentation(cx);
+                    let settled = (
+                        p.editor.read(cx).concealed_ranges(),
+                        p.decorations.get_ranges(cx).len(),
+                        p.live_tasks[0].range.clone(),
+                        p.live_quotes.clone(),
+                        p.live_rules.clone(),
+                    );
+                    assert_eq!(immediate, settled, "replacement: {replacement:?}");
+                })
+                .unwrap();
+        }
+    }
+
     #[gpui::test]
     fn reading_comments_leave_no_placeholder_in_copied_text(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
