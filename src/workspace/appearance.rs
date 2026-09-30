@@ -164,11 +164,7 @@ impl Workspace {
                 }
                 menu
             });
-        let card = rgb(if self.ui.prefs.light {
-            0xfafafa
-        } else {
-            0x212121
-        });
+        let card = crate::theme::palette(self.ui.prefs.light).surface;
         let content = if interface {
             vec![
                 div()

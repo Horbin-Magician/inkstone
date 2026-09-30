@@ -261,11 +261,7 @@ impl Workspace {
                         .selected(self.ui.settings_tab == i)
                         .toggled(self.ui.settings_tab == i)
                         .when(self.ui.settings_tab == i, |button| {
-                            button.bg(rgb(if self.ui.prefs.light {
-                                0xe8e8e8
-                            } else {
-                                0x333333
-                            }))
+                            button.bg(crate::theme::palette(self.ui.prefs.light).selected)
                         })
                         .accessibility_label(title)
                         .child(

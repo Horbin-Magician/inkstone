@@ -852,7 +852,7 @@ impl EditorPane {
                     }
                     Kind::Heading => HighlightStyle {
                         font_weight: Some(FontWeight::BOLD),
-                        color: Some(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into()),
+                        color: Some(crate::theme::palette(self.light).foreground.into()),
                         ..Default::default()
                     },
                     Kind::Strong => HighlightStyle {
@@ -877,14 +877,12 @@ impl EditorPane {
                         ..Default::default()
                     },
                     Kind::Code => HighlightStyle {
-                        color: Some(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into()),
-                        background_color: Some(
-                            rgb(if self.light { 0xf5f5f5 } else { 0x212121 }).into(),
-                        ),
+                        color: Some(crate::theme::palette(self.light).foreground.into()),
+                        background_color: Some(crate::theme::palette(self.light).surface.into()),
                         ..Default::default()
                     },
                     Kind::WikiLink | Kind::Link => HighlightStyle {
-                        color: Some(rgb(0x3f9aca).into()),
+                        color: Some(crate::theme::palette(self.light).accent.into()),
                         ..Default::default()
                     },
                 };
@@ -1169,14 +1167,14 @@ impl Render for EditorPane {
             .line_height(relative(1.5))
             .style(
                 gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
-                    .with_foreground(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into())
-                    .with_link(rgb(0x3f9aca).into())
-                    .with_code_background(rgb(if self.light { 0xf5f5f5 } else { 0x212121 }).into())
+                    .with_foreground(crate::theme::palette(self.light).foreground.into())
+                    .with_link(crate::theme::palette(self.light).accent.into())
+                    .with_code_background(crate::theme::palette(self.light).surface.into())
                     .with_inline_code(HighlightStyle {
-                        color: Some(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into()),
+                        color: Some(crate::theme::palette(self.light).foreground.into()),
                         ..Default::default()
                     })
-                    .with_border(rgb(if self.light { 0xe6e6e6 } else { 0x363636 }).into())
+                    .with_border(crate::theme::palette(self.light).border.into())
                     .with_task_checkbox(
                         StyleRefinement::default()
                             .rounded_full()
@@ -1198,8 +1196,8 @@ impl Render for EditorPane {
                     .with_table_cell(StyleRefinement::default().text_size(px(font_size)))
                     .with_table_head(
                         StyleRefinement::default()
-                            .bg(rgb(if self.light { 0xffffff } else { 0x262626 }))
-                            .text_color(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 })),
+                            .bg(crate::theme::palette(self.light).background)
+                            .text_color(crate::theme::palette(self.light).foreground),
                     ),
             )
             .scrollable(true)
@@ -1358,8 +1356,8 @@ impl Render for EditorPane {
             .flex_col()
             .size_full()
             .min_h_0()
-            .bg(rgb(if self.light { 0xffffff } else { 0x262626 }))
-            .text_color(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }))
+            .bg(crate::theme::palette(self.light).background)
+            .text_color(crate::theme::palette(self.light).foreground)
             .px(px(if self.readable_width || self.reading {
                 32.
             } else {

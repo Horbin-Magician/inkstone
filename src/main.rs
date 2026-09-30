@@ -5,6 +5,7 @@ mod editor_links;
 mod graph_view;
 #[cfg(feature = "metrics")]
 mod metrics;
+mod theme;
 mod workspace;
 use gpui::{prelude::*, *};
 use gpui_component::Root;
