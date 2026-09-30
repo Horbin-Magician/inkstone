@@ -215,6 +215,17 @@ impl EditorPane {
 
 fn footnote_body(source: &str, cursor: usize) -> Option<(Range<usize>, String, String)> {
     let parsed = index::parse(source);
+    if let Some(note) = parsed
+        .inline_footnotes
+        .iter()
+        .find(|n| n.range.start <= cursor && cursor <= n.range.end)
+    {
+        return Some((
+            note.content.clone(),
+            source[note.content.clone()].to_owned(),
+            String::new(),
+        ));
+    }
     let (_, id) = parsed
         .footnotes
         .iter()
@@ -274,6 +285,31 @@ fn footnote_body(source: &str, cursor: usize) -> Option<(Range<usize>, String, S
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[gpui::test]
+    fn inline_footnote_popup_writes_only_body_and_undo_restores_source(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "正文^[**说明**] 后续\r\n";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                let start = source.find("^[").unwrap();
+                p.editor
+                    .update(cx, |s, cx| s.set_selected_range(start..start, cx));
+                assert!(p.open_footnote(w, cx));
+                let input = p.footnote_edit.as_ref().unwrap().input.clone();
+                input.update(cx, |s, cx| s.set_value("新说明😀", w, cx));
+                p.sync_footnote(w, cx);
+                assert_eq!(
+                    p.editor.read(cx).value().as_ref(),
+                    "正文^[新说明😀] 后续\r\n"
+                );
+                p.close_footnote(w, cx);
+                p.editor
+                    .update(cx, |s, cx| s.undo(&gpui_component::input::Undo, w, cx));
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
     use core::prelude::v1::test;
     #[gpui::test]
     fn footnote_popup_grows_caps_and_shrinks_with_content(cx: &mut TestAppContext) {
