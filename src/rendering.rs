@@ -49,6 +49,7 @@ struct SourceMap {
     output: Range<usize>,
     path: PathBuf,
     start: usize,
+    source_end: usize,
 }
 impl ReadingDocument {
     pub fn source_matches(&self, path: &Path, text: &str) -> bool {
@@ -58,9 +59,13 @@ impl ReadingDocument {
         if let Some(m) = self
             .locations
             .iter()
-            .find(|m| m.path == path && m.start <= source && source <= m.start + m.output.len())
+            .find(|m| m.path == path && m.start <= source && source <= m.source_end)
         {
-            return Some(m.output.start + source - m.start);
+            return Some(if m.source_end - m.start == m.output.len() {
+                m.output.start + source - m.start
+            } else {
+                m.output.start
+            });
         }
         self.locations
             .iter()
@@ -81,12 +86,14 @@ struct Builder<'a> {
     footnote_namespaces: BTreeMap<PathBuf, usize>,
     footnote_identifiers: BTreeMap<(PathBuf, String), usize>,
     included_footnotes: std::collections::BTreeSet<(PathBuf, String)>,
+    footnote_indent: usize,
 }
 enum Action {
     Wiki(index::WikiLink, bool),
     Destination(String),
     Remove,
     Literal(String),
+    InlineFootnote(crate::syntax::InlineFootnote, String),
 }
 fn label(text: &str) -> String {
     text.replace('\\', "\\\\")
@@ -122,6 +129,11 @@ impl Builder<'_> {
             if self.line_start && self.quote > 0 {
                 self.output.markdown.push_str(&"> ".repeat(self.quote));
             }
+            if self.line_start && self.footnote_indent > 0 {
+                self.output
+                    .markdown
+                    .push_str(&"    ".repeat(self.footnote_indent));
+            }
             let start = self.output.markdown.len();
             self.output.markdown.push_str(part);
             if let Some((path, source)) = origin {
@@ -129,6 +141,7 @@ impl Builder<'_> {
                     output: start..self.output.markdown.len(),
                     path: path.to_path_buf(),
                     start: source + offset,
+                    source_end: source + offset + part.len(),
                 });
             }
             self.line_start = part.ends_with('\n');
@@ -219,6 +232,16 @@ impl Builder<'_> {
             .footnote_namespaces
             .entry(path.to_path_buf())
             .or_insert(next);
+        for note in &parsed.inline_footnotes {
+            actions.push((
+                note.range.clone(),
+                Action::InlineFootnote(
+                    note.clone(),
+                    format!("inline-fn{namespace}-{}", note.range.start),
+                ),
+            ));
+        }
+        let mut inline_definitions = vec![];
         for (span, identifier) in &parsed.footnotes {
             if definitions.contains_key(identifier) {
                 let next = self.footnote_identifiers.len();
@@ -279,6 +302,19 @@ impl Builder<'_> {
                 }
                 Action::Remove => (),
                 Action::Literal(text) => self.push(&text, None),
+                Action::InlineFootnote(note, id) => {
+                    let start = self.output.markdown.len();
+                    self.push(&format!("[^{id}]"), None);
+                    // Atomic generated reference: map its whole visible marker
+                    // back to the original inline reference rather than inventing offsets.
+                    self.maps.push(SourceMap {
+                        output: start..self.output.markdown.len(),
+                        path: path.to_path_buf(),
+                        start: note.range.start,
+                        source_end: note.range.end,
+                    });
+                    inline_definitions.push((note, id));
+                }
                 Action::Wiki(link, embed) => {
                     let uri = self.reference(path, link.target.clone(), true);
                     if embed && image_target(&link.target) {
@@ -353,6 +389,19 @@ impl Builder<'_> {
         if cursor <= range.end {
             self.push(&source[cursor..range.end], Some((path, cursor)));
         }
+        for (note, id) in inline_definitions {
+            if !self
+                .included_footnotes
+                .insert((path.to_path_buf(), id.clone()))
+            {
+                continue;
+            }
+            self.push(&format!("\n\n[^{id}]: "), None);
+            self.footnote_indent += 1;
+            self.note(path, source.clone(), note.content);
+            self.footnote_indent -= 1;
+            self.push("\n", None);
+        }
         for id in needed {
             if !self
                 .included_footnotes
@@ -405,6 +454,7 @@ pub fn reading_document(index: &Index, path: &Path, source: &str) -> ReadingDocu
         footnote_namespaces: BTreeMap::new(),
         footnote_identifiers: BTreeMap::new(),
         included_footnotes: Default::default(),
+        footnote_indent: 0,
     };
     builder.note(path, Arc::from(source), 0..source.len());
     builder.finish()
@@ -486,6 +536,26 @@ pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inline_footnotes_convert_only_for_display_and_keep_body_links_and_source_mapping() {
+        let source = "A^[短] B[^long] C^[**文字** [链接](target.md)]\r\n\r\n[^long]: named\r\n";
+        let path = Path::new("note.md");
+        let document = reading_document(&Index::default(), path, source);
+        let parsed = index::parse(&document.markdown);
+        assert_eq!(
+            parsed.footnote_definitions.len(),
+            3,
+            "{}",
+            document.markdown
+        );
+        assert_eq!(parsed.footnote_references.len(), 3);
+        assert_eq!(document.references[0].target, "target.md");
+        assert!(document.markdown.contains("**文字**"));
+        assert!(document.source_matches(path, source));
+        let start = source.find("^[短]").unwrap();
+        assert_eq!(document.output_offset(path, start), Some(1));
+        assert_eq!(document.output_offset(path, start + 2), Some(1));
+    }
     #[test]
     fn uri_schemes_ignore_case_without_reclassifying_local_names() {
         for value in [
