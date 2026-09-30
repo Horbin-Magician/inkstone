@@ -87,6 +87,7 @@ struct Builder<'a> {
     footnote_identifiers: BTreeMap<(PathBuf, String), usize>,
     included_footnotes: std::collections::BTreeSet<(PathBuf, String)>,
     footnote_indent: usize,
+    snapshots: BTreeMap<PathBuf, Arc<crate::syntax::Snapshot>>,
 }
 enum Action {
     Wiki(index::WikiLink, bool),
@@ -171,7 +172,15 @@ impl Builder<'_> {
         }
         self.stack.push((path.to_path_buf(), range.clone()));
         self.sources.insert(path.to_path_buf(), source.clone());
-        let parsed = index::parse(&source);
+        let snapshot = if let Some(cached) = self.snapshots.get(path).filter(|s| s.source == source)
+        {
+            cached.clone()
+        } else {
+            let snapshot = Arc::new(crate::syntax::Snapshot::new(&source));
+            self.snapshots.insert(path.to_path_buf(), snapshot.clone());
+            snapshot
+        };
+        let parsed = index::parse_snapshot(&snapshot);
         let mut actions: Vec<_> = parsed
             .comments
             .iter()
@@ -276,7 +285,7 @@ impl Builder<'_> {
         for (range, url) in parsed.destinations {
             actions.push((range, Action::Destination(url)));
         }
-        for span in crate::markdown::spans(&source)
+        for span in crate::markdown::spans_snapshot(&snapshot)
             .into_iter()
             .filter(|s| s.kind == crate::markdown::Kind::Highlight)
         {
@@ -442,6 +451,21 @@ impl Builder<'_> {
     }
 }
 pub fn reading_document(index: &Index, path: &Path, source: &str) -> ReadingDocument {
+    reading_snapshot(
+        index,
+        path,
+        Arc::new(crate::syntax::Snapshot::new(source)),
+        0..source.len(),
+    )
+}
+
+pub fn reading_snapshot(
+    index: &Index,
+    path: &Path,
+    snapshot: Arc<crate::syntax::Snapshot>,
+    range: Range<usize>,
+) -> ReadingDocument {
+    let source = snapshot.source.clone();
     let mut builder = Builder {
         index,
         output: ReadingDocument::default(),
@@ -455,8 +479,9 @@ pub fn reading_document(index: &Index, path: &Path, source: &str) -> ReadingDocu
         footnote_identifiers: BTreeMap::new(),
         included_footnotes: Default::default(),
         footnote_indent: 0,
+        snapshots: BTreeMap::from([(path.to_path_buf(), snapshot)]),
     };
-    builder.note(path, Arc::from(source), 0..source.len());
+    builder.note(path, source, range);
     builder.finish()
 }
 
