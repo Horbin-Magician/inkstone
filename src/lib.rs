@@ -1,5 +1,6 @@
 pub mod comments;
 pub mod file_order;
+pub mod graphics;
 pub mod index;
 pub mod line_edit;
 pub mod locations;
