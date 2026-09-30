@@ -55,6 +55,52 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn lazy_quote_border_continues_without_changing_source_positions(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "> first\ncontinuation\n\noutside";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, _, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(source.len()..source.len(), cx)
+                });
+                p.update_presentation(cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..4 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let first = visual.debug_bounds("live-quote-0").unwrap();
+        let next = visual.debug_bounds("live-quote-8").unwrap();
+        assert_eq!(first.bottom(), next.top());
+        assert_eq!(first.left(), next.left());
+        assert!(visual.debug_bounds("live-quote-22").is_none());
+        let position = handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(p.live_quotes.len(), 2);
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+                let position = p.editor.read(cx).range_to_bounds(&(8..8)).unwrap();
+                p.live = false;
+                p.update_presentation(cx);
+                position
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("live-quote-8").is_none());
+        handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(
+                    p.editor.read(cx).range_to_bounds(&(8..8)).unwrap(),
+                    position
+                );
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn quote_borders_follow_nested_source_positions_and_source_mode(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "> outer\n> > inner\n\nplain";
