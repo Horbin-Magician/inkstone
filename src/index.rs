@@ -256,7 +256,7 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
         ..Default::default()
     };
     if let Some(root) = snapshot.ast.as_deref() {
-        walk(&root, source, &mut result);
+        walk(root, source, &mut result);
         fn folds(node: &Node, out: &mut Vec<(Range<usize>, FoldKind)>) {
             if matches!(
                 node,
@@ -299,7 +299,7 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
                 }
             }
         }
-        folds(&root, &mut result.fold_regions);
+        folds(root, &mut result.fold_regions);
         result.folds = result.fold_ranges(true, true);
         fn collect_blocks(
             node: &Node,
@@ -358,7 +358,7 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
                 }
             }
         }
-        collect_blocks(&root, source, None, &mut result.blocks);
+        collect_blocks(root, source, None, &mut result.blocks);
         fn definitions(node: &Node, out: &mut BTreeMap<String, String>) {
             if let Node::Definition(d) = node {
                 out.entry(d.identifier.to_lowercase())
@@ -388,8 +388,8 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
             }
         }
         let mut defs = BTreeMap::new();
-        definitions(&root, &mut defs);
-        references(&root, &defs, &mut result.standard_links);
+        definitions(root, &mut defs);
+        references(root, &defs, &mut result.standard_links);
     }
     for tag in &result.tags {
         *result.tag_counts.entry(tag.clone()).or_default() += 1;
