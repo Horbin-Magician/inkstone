@@ -16,7 +16,6 @@ impl Workspace {
         } else {
             self.ui.link_update = Some(edits);
             self.ui.link_update_scroll = UniformListScrollHandle::new();
-            self.ui.more = false;
             window.focus(&self.ui.modal_focus, cx);
             cx.notify();
         }

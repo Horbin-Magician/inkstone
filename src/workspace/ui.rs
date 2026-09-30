@@ -125,7 +125,6 @@ pub(super) struct UiState {
     pub search_signature: Option<(String, bool, SortBy, bool)>,
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
-    pub more: bool,
     pub trash_open: bool,
     pub trash: Vec<inkstone::vault::TrashEntry>,
     pub command: Entity<InputState>,
@@ -471,13 +470,12 @@ impl UiState {
             search_group_scroll: ScrollHandle::new(),
             search_group_query: String::new(),
             search_limit: 200,
-            search_has_more: false,
             search_loading: false,
+            search_has_more: false,
             search_error: String::new(),
             search_signature: None,
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
-            more: false,
             trash_open: false,
             trash: vec![],
             command,
@@ -1119,7 +1117,6 @@ impl Workspace {
     }
     fn open_commands(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.command_open = true;
-        self.ui.more = false;
         self.ui.selected = 0;
         self.ui.command.update(cx, |s, cx| {
             s.set_value("", window, cx);
@@ -1137,7 +1134,6 @@ impl Workspace {
             mode = NameMode::New;
         }
         self.ui.name_mode = Some(mode);
-        self.ui.more = false;
         let name = if mode == NameMode::Rename {
             self.active
                 .and_then(|i| self.tabs.get(i))
@@ -1604,7 +1600,6 @@ impl Workspace {
             self.graph_open = false;
         }
         self.command_open = false;
-        self.ui.more = false;
         match id {
             0 => self.focus_new(window, cx),
             1 => self.choose_vault(window, cx),
@@ -1932,7 +1927,6 @@ impl Workspace {
         self.ui.property_error.clear();
         self.ui.property_baseline = None;
         self.ui.property_original = None;
-        self.ui.more = false;
         self.ui.trash_open = false;
         if let Some(pane) = self.current_pane() {
             pane.update(cx, |p, cx| p.focus_view(window, cx));
@@ -3788,6 +3782,12 @@ impl Workspace {
             .unwrap_or_default();
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
         let title_tab_id = active.map(|tab| tab.id);
+        let menu_weak = cx.entity().downgrade();
+        let menu_items: Vec<_> = [6, 7, 31, 32, 8, 15, 11, 23, 19, 18, 10, 16]
+            .into_iter()
+            .map(|id| (id, self.hotkey_label(id)))
+            .collect();
+        let menu_tab_id = index.and_then(|i| self.tabs.get(i)).map(|tab| tab.id);
         div()
             .flex()
             .flex_col()
@@ -3831,10 +3831,87 @@ impl Workspace {
                                 "ellipsis-vertical",
                                 "更多选项",
                             )
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.ui.more = !this.ui.more;
-                                cx.notify();
-                            })),
+                            .dropdown_menu_with_anchor(
+                                gpui::Anchor::TopRight,
+                                move |mut menu, _, _| {
+                                    for (id, shortcut) in &menu_items {
+                                        let id = *id;
+                                        if matches!(id, 31 | 8 | 23 | 10) {
+                                            menu = menu.separator();
+                                        }
+                                        let label = if id == 6 {
+                                            if reading {
+                                                "编辑视图"
+                                            } else {
+                                                "阅读视图"
+                                            }
+                                        } else {
+                                            COMMANDS[id].1
+                                        };
+                                        let symbol = match id {
+                                            6 => {
+                                                if reading {
+                                                    "pencil"
+                                                } else {
+                                                    "book-open"
+                                                }
+                                            }
+                                            7 => "code",
+                                            31 => "split-horizontal",
+                                            32 => "split-vertical",
+                                            8 => "pencil",
+                                            15 => "bookmark",
+                                            11 | 19 => "copy",
+                                            23 => "search",
+                                            18 => "folder",
+                                            10 => "trash",
+                                            _ => "history",
+                                        };
+                                        let shortcut = shortcut.clone();
+                                        let weak = menu_weak.clone();
+                                        menu = menu.item(
+                                            PopupMenuItem::element(move |_, _| {
+                                                div()
+                                                    .w(px(220.))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_3()
+                                                    .text_size(px(13.))
+                                                    .when(id == 10, |s| s.text_color(rgb(0xe76575)))
+                                                    .child(
+                                                        div()
+                                                            .flex_1()
+                                                            .min_w_0()
+                                                            .truncate()
+                                                            .child(label),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(11.))
+                                                            .text_color(rgb(0x888888))
+                                                            .child(shortcut.clone()),
+                                                    )
+                                            })
+                                            .icon(icon(symbol).size(px(16.)))
+                                            .on_click(move |_, window, cx| {
+                                                let _ = weak.update(cx, |this, cx| {
+                                                    if secondary {
+                                                        this.focus_secondary(cx);
+                                                    } else if let Some(i) = this
+                                                        .tabs
+                                                        .iter()
+                                                        .position(|tab| Some(tab.id) == menu_tab_id)
+                                                    {
+                                                        this.focus_primary(i, window, cx);
+                                                    }
+                                                    this.execute_command(id, window, cx);
+                                                });
+                                            }),
+                                        );
+                                    }
+                                    menu
+                                },
+                            ),
                         ),
                 )
             })
@@ -4302,84 +4379,6 @@ impl Render for Workspace {
                     || self.ui.link_update.is_some(),
                 |s| s.child(self.modal(_window, cx)),
             )
-            .when(self.ui.more, |s| {
-                s.child(
-                    div()
-                        .id("note-more-menu")
-                        .debug_selector(|| "note-more-menu".into())
-                        .absolute()
-                        .right(px(if right_open {
-                            self.ui.prefs.right_width + 12.
-                        } else {
-                            12.
-                        }))
-                        .top(px(72.))
-                        .w(px(270.))
-                        .max_h((_window.viewport_size().height - px(88.)).max(px(80.)))
-                        .overflow_y_scroll()
-                        .p_1()
-                        .rounded(px(8.))
-                        .bg(self.bg())
-                        .border_1()
-                        .border_color(self.border())
-                        .shadow_lg()
-                        .children(
-                            [6, 7, 31, 32, 8, 15, 11, 23, 19, 18, 10, 16]
-                                .into_iter()
-                                .map(|id| {
-                                    let (_, label, _) = COMMANDS[id];
-                                    let symbol = match id {
-                                        6 => "book-open",
-                                        7 => "code",
-                                        31 => "split-horizontal",
-                                        32 => "split-vertical",
-                                        8 => "pencil",
-                                        15 => "bookmark",
-                                        11 | 19 => "copy",
-                                        23 => "search",
-                                        18 => "folder",
-                                        10 => "trash",
-                                        _ => "history",
-                                    };
-                                    div()
-                                        .when(matches!(id, 31 | 8 | 23 | 10), |s| {
-                                            s.child(div().h(px(1.)).my_1().bg(self.border()))
-                                        })
-                                        .child(
-                                            div()
-                                                .id(("menu-item", id))
-                                                .h(px(28.))
-                                                .px_2()
-                                                .flex()
-                                                .items_center()
-                                                .gap_2()
-                                                .text_size(px(13.))
-                                                .cursor_pointer()
-                                                .rounded(px(4.))
-                                                .hover(|s| s.bg(rgba(0x88888822)))
-                                                .when(id == 10, |s| s.text_color(rgb(0xe76575)))
-                                                .child(icon(symbol).size(px(16.)))
-                                                .child(
-                                                    div()
-                                                        .flex_1()
-                                                        .min_w_0()
-                                                        .truncate()
-                                                        .child(label),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_size(px(11.))
-                                                        .text_color(rgb(0x888888))
-                                                        .child(self.hotkey_label(id)),
-                                                )
-                                                .on_click(cx.listener(move |this, _, w, cx| {
-                                                    this.execute_command(id, w, cx)
-                                                })),
-                                        )
-                                }),
-                        ),
-                )
-            })
     }
 }
 
