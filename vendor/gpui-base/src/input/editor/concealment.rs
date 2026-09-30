@@ -38,20 +38,30 @@ impl InputBaseState<EditorMode> {
     /// Edits touching a range discard it; other ranges follow the edit until replaced.
     pub fn set_concealed_ranges(
         &mut self,
-        mut ranges: Vec<Range<usize>>,
+        ranges: Vec<Range<usize>>,
         cx: &mut Context<Self>,
     ) -> bool {
-        ranges.sort_by_key(|r| (r.start, r.end));
-        if ranges.len() == self.concealment.len()
-            && ranges
-                .iter()
-                .zip(self.concealment.iter())
-                .all(|(a, (b, _))| a == b)
-        {
+        self.set_concealed_ranges_with_widths(
+            ranges.into_iter().map(|range| (range, px(0.))).collect(),
+            cx,
+        )
+    }
+
+    /// Reserve display width for source-backed controls. Overlapping replacements
+    /// are ignored; adjacent zero-width ranges can still be merged.
+    pub fn set_concealed_ranges_with_widths(
+        &mut self,
+        mut ranges: Vec<(Range<usize>, Pixels)>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        ranges.sort_by_key(|(r, _)| (r.start, r.end));
+        if ranges.as_slice() == self.concealment.as_ref() {
             return false;
         }
-        ranges.retain(|r| {
-            r.start < r.end
+        ranges.retain(|(r, width)| {
+            f32::from(*width).is_finite()
+                && *width >= px(0.)
+                && r.start < r.end
                 && r.end <= self.text.len()
                 && self.text.clip_offset(r.start, Bias::Left) == r.start
                 && self.text.clip_offset(r.end, Bias::Left) == r.end
@@ -65,13 +75,18 @@ impl InputBaseState<EditorMode> {
                     .any(|c| matches!(c, '\r' | '\n'))
         });
         let mut merged: Vec<(Range<usize>, Pixels)> = vec![];
-        for range in ranges {
-            if let Some((last, _)) = merged.last_mut()
+        for (range, width) in ranges {
+            if let Some((last, last_width)) = merged.last_mut()
                 && range.start <= last.end
+                && width == px(0.)
+                && *last_width == px(0.)
             {
                 last.end = last.end.max(range.end);
-            } else {
-                merged.push((range, px(0.)));
+            } else if merged
+                .last()
+                .is_none_or(|(last, _)| range.start >= last.end)
+            {
+                merged.push((range, width));
             }
         }
         if self.concealment.as_ref() == merged.as_slice() {
