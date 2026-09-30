@@ -180,6 +180,12 @@ impl MarkdownPlugin for Plugin {
             _ => return None,
         };
         let source = cx.node_source(node).unwrap_or(value);
+        if kind == Kind::InlineMath
+            && let Some(p) = node.position()
+            && !inkstone::syntax::valid_inline_math(cx.source(), &(p.start.offset..p.end.offset))
+        {
+            return None;
+        }
         Some(
             MarkdownNode::new(
                 self.name(),
