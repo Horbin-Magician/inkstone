@@ -745,8 +745,9 @@ impl EditorPane {
             // existing layout/focus initialization order. Subsequent edits must
             // never pass through that unstyled loading state.
             if !initial_parse {
-                self.spans = markdown::spans(&text);
-                self.parsed = index::parse(&text);
+                let snapshot = inkstone::syntax::Snapshot::new(&text);
+                self.spans = markdown::spans_snapshot(&snapshot);
+                self.parsed = index::parse_snapshot(&snapshot);
                 self.typography_ready = true;
                 *self.link_cache.borrow_mut() = (text.clone(), self.parsed.clone());
             }
@@ -759,8 +760,13 @@ impl EditorPane {
             let path = self.current_path.clone();
             let context_revision = self.context_revision;
             let task = cx.background_executor().spawn(async move {
-                let initial =
-                    initial_parse.then(|| (markdown::spans(&source), index::parse(&source)));
+                let initial = initial_parse.then(|| {
+                    let snapshot = inkstone::syntax::Snapshot::new(&source);
+                    (
+                        markdown::spans_snapshot(&snapshot),
+                        index::parse_snapshot(&snapshot),
+                    )
+                });
                 let reading = inkstone::rendering::reading_document(&references, &path, &source);
                 (initial, reading)
             });
@@ -1167,6 +1173,7 @@ impl Render for EditorPane {
             .font_family(self.text_font.clone())
             .markdown_extensions(
                 gpui_base::text::MarkdownExtensions::default()
+                    .frontmatter()
                     .custom_task_markers(true)
                     .soft_line_breaks(!self.strict_line_breaks),
             )
