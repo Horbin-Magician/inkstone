@@ -1,70 +1,6 @@
 use super::*;
 
 impl Workspace {
-    pub(super) fn open_graph(&mut self, local: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let root = if local {
-            self.active
-                .and_then(|i| self.tabs.get(i))
-                .map(|t| t.path.clone())
-                .filter(|p| !p.as_os_str().is_empty())
-        } else {
-            None
-        };
-        if local && root.is_none() {
-            self.status = "请先打开一篇笔记。".into();
-            cx.notify();
-            return;
-        }
-        let graph = cx.new(|cx| {
-            crate::graph_view::GraphView::new(
-                self.index.clone(),
-                root,
-                self.ui.prefs.light,
-                if local {
-                    self.ui.prefs.local_graph.clone()
-                } else {
-                    self.ui.prefs.graph.clone()
-                },
-                window,
-                cx,
-            )
-        });
-        self.graph_subscription =
-            Some(
-                cx.subscribe_in(&graph, window, |this, _, event, window, cx| {
-                    match event {
-                        crate::graph_view::GraphEvent::Settings(options) => {
-                            if options.root.is_some() {
-                                this.ui.prefs.local_graph = options.clone();
-                            } else {
-                                this.ui.prefs.graph = options.clone();
-                            }
-                            this.persist_workspace(cx);
-                        }
-                        crate::graph_view::GraphEvent::Open(path, missing) => {
-                            this.graph_open = false;
-                            if *missing && !this.tabs.iter().any(|t| t.path == *path) {
-                                this.add_tab(path.clone(), None, true, window, cx);
-                                this.save_all(window, cx);
-                            } else {
-                                this.open_note(path.clone(), window, cx);
-                            }
-                        }
-                        crate::graph_view::GraphEvent::Close => {
-                            this.graph_open = false;
-                            if let Some(p) = this.current_pane() {
-                                p.update(cx, |p, cx| p.focus_view(window, cx));
-                            }
-                        }
-                    }
-                    cx.notify();
-                }),
-            );
-        self.graph = Some(graph);
-        self.graph_open = true;
-        window.focus(&self.ui.workspace_focus, cx);
-        cx.notify();
-    }
     pub(super) fn duplicate_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.ui.file_operation {
             return;
@@ -721,11 +657,6 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.ui.link_update.is_some() {
-            return;
-        }
-        if self.graph_open {
-            self.status = "请先返回笔记，再插入附件。".into();
-            cx.notify();
             return;
         }
         if self.ui.file_operation {

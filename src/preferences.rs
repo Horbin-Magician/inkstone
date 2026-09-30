@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 
 pub const RIBBON_COMMANDS: &[(usize, &str, &str, &str)] = &[
     (2, "ribbon-switcher", "search", "快速切换"),
-    (43, "open-graph", "network", "关系图谱"),
     (39, "ribbon-commands", "list", "打开命令面板"),
 ];
 
@@ -69,8 +68,6 @@ pub struct Preferences {
     pub tags: crate::tags::Options,
     pub property_types: std::collections::BTreeMap<String, crate::properties::Kind>,
     pub hotkeys: std::collections::BTreeMap<usize, Vec<String>>,
-    pub graph: crate::graph::Options,
-    pub local_graph: crate::graph::Options,
     pub locations: crate::locations::Locations,
     pub always_update_links: bool,
     pub link_format: crate::locations::LinkFormat,
@@ -132,8 +129,6 @@ impl Default for Preferences {
             tags: Default::default(),
             property_types: Default::default(),
             hotkeys: Default::default(),
-            graph: Default::default(),
-            local_graph: Default::default(),
             locations: Default::default(),
             always_update_links: false,
             link_format: Default::default(),
@@ -212,8 +207,6 @@ impl Preferences {
         }
         value.font_size = value.font_size.clamp(10., 30.);
         value.tab_size = value.tab_size.clamp(2, 8);
-        value.graph.normalize();
-        value.local_graph.normalize();
         value.left_width = value.left_width.clamp(180., 500.);
         value.right_width = value.right_width.clamp(180., 500.);
         if value.left_panel > 2 {
@@ -306,6 +299,41 @@ impl Navigation {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn removed_feature_settings_do_not_reset_existing_workspace() {
+        let path = std::env::temp_dir().join(format!(
+            "inkstone-legacy-features-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{
+                "daily": {"folder": "日记", "format": "YYYY-MM-DD"},
+                "templates": {"folder": "模板"},
+                "graph": {"node_size": 2},
+                "local_graph": {"depth": 3},
+                "font_size": 21,
+                "open_paths": ["笔记.md"],
+                "bookmarks": ["收藏.md"],
+                "ribbon_commands": [43, 39, 2]
+            }"#,
+        )
+        .unwrap();
+        let prefs = Preferences::load(&path);
+        assert_eq!(prefs.font_size, 21.);
+        assert_eq!(prefs.open_paths, [PathBuf::from("笔记.md")]);
+        assert_eq!(prefs.bookmarks, [PathBuf::from("收藏.md")]);
+        assert_eq!(prefs.ribbon_commands, [39, 2]);
+        prefs.save(&path).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        for removed in ["daily", "templates", "graph", "local_graph"] {
+            assert!(saved.get(removed).is_none());
+        }
+        assert_eq!(Preferences::load(&path).open_paths, prefs.open_paths);
+        std::fs::remove_file(path.with_extension("backup")).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
     #[test]
     fn ribbon_configuration_rejects_unknown_and_duplicate_items_but_keeps_empty() {
         let path = std::env::temp_dir().join(format!(
@@ -472,20 +500,10 @@ mod tests {
         prefs.link_format = crate::locations::LinkFormat::Relative;
         prefs.sort_by = crate::file_order::SortBy::Created;
         prefs.sort_descending = true;
-        prefs.graph.node_size = 2.;
-        prefs.graph.arrows = true;
-        prefs.graph.link_distance = 2.2;
         prefs.locations.notes = crate::locations::Location::Folder;
         prefs.locations.note_folder = "收件箱".into();
         prefs.locations.attachments = crate::locations::Location::Subfolder;
         prefs.locations.attachment_folder = "media".into();
-        prefs.local_graph.repel_force = 4.;
-        prefs.graph.groups = vec![crate::graph::ColorGroup {
-            query: "tag:work".into(),
-            color: 0x112233,
-        }];
-        prefs.local_graph.depth = 3;
-        prefs.local_graph.query = "#work".into();
         prefs.open_paths = vec!["中文.md".into()];
         prefs.views = vec![ViewState {
             path: "中文.md".into(),
@@ -560,9 +578,6 @@ mod tests {
             crate::file_order::SortBy::Created
         );
         assert!(Preferences::load(&path).sort_descending);
-        assert_eq!(Preferences::load(&path).graph.node_size, 2.);
-        assert!(Preferences::load(&path).graph.arrows);
-        assert_eq!(Preferences::load(&path).graph.link_distance, 2.2);
         assert_eq!(Preferences::load(&path).locations.note_folder, "收件箱");
         assert_eq!(
             Preferences::load(&path).locations.attachments,
@@ -572,11 +587,6 @@ mod tests {
             Preferences::load(&path).locations.attachment_folder,
             "media"
         );
-        assert_eq!(Preferences::load(&path).local_graph.repel_force, 4.);
-        assert_eq!(Preferences::load(&path).graph.groups[0].color, 0x112233);
-        assert_eq!(Preferences::load(&path).graph.groups[0].query, "tag:work");
-        assert_eq!(Preferences::load(&path).local_graph.depth, 3);
-        assert_eq!(Preferences::load(&path).local_graph.query, "#work");
         assert_eq!(
             Preferences::load(&path).open_paths,
             vec![PathBuf::from("中文.md")]
