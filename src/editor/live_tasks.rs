@@ -115,6 +115,68 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn folded_and_scrolled_tasks_do_not_leave_controls_on_other_lines(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = format!(
+            "# Section\n- [ ] hidden\n# Next\n- [ ] visible\n{}",
+            "tail\n".repeat(80)
+        );
+        let first = source.find("[ ]").unwrap() + 1;
+        let last = source.rfind("[ ]").unwrap() + 1;
+        let first_selector = Box::leak(format!("live-task-{first}").into_boxed_str());
+        let last_selector = Box::leak(format!("live-task-{last}").into_boxed_str());
+        let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+        handle
+            .update(cx, |p, _, cx| p.update_presentation(cx))
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..4 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let old_position = visual.debug_bounds(first_selector).unwrap().center();
+        assert!(visual.debug_bounds(last_selector).is_some());
+        handle
+            .update(&mut visual, |p, _, cx| {
+                p.editor.update(cx, |s, cx| s.restore_fold_lines(&[0], cx));
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(first_selector).is_none());
+        assert!(visual.debug_bounds(last_selector).is_some());
+        visual.simulate_click(old_position, Modifiers::default());
+        handle
+            .update(&mut visual, |p, _, cx| {
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+                p.editor.update(cx, |s, cx| s.restore_fold_lines(&[], cx));
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(first_selector).is_some());
+        handle
+            .update(&mut visual, |p, _, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_scroll_offset(point(px(0.), px(-400.)), cx)
+                });
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(first_selector).is_none());
+        assert!(visual.debug_bounds(last_selector).is_none());
+        handle
+            .update(&mut visual, |p, _, cx| {
+                assert!(
+                    p.editor
+                        .read(cx)
+                        .range_to_bounds(&(first - 1..first + 2))
+                        .is_none()
+                );
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn live_checkbox_preserves_multiple_selections_and_allows_scrolling(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = format!("- [✓] item\nword word\n{}", "正文\n".repeat(100));
