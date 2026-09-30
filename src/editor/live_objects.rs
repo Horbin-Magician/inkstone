@@ -1,11 +1,17 @@
 use super::*;
-use inkstone::{preview::Candidate, rendering::ReadingDocument};
+use inkstone::{
+    preview::{Fragment, Role},
+    rendering::ReadingDocument,
+};
 use std::ops::Range;
 
 #[derive(Clone)]
 pub(super) struct Widget {
     pub source: Range<usize>,
     block: bool,
+    role: Role,
+    numbers: std::collections::BTreeMap<String, usize>,
+    targets: Vec<(usize, PathBuf, usize)>,
     pub width: f32,
     pub height: f32,
     view: Entity<TextViewState>,
@@ -16,41 +22,56 @@ pub(super) struct Widget {
 impl EditorPane {
     pub(super) fn install_live_objects(
         &mut self,
-        fragments: Vec<(Candidate, ReadingDocument)>,
+        fragments: Vec<Fragment>,
         cx: &mut Context<Self>,
     ) {
-        let old = std::mem::take(&mut self.live_objects);
+        let mut old = std::mem::take(&mut self.live_objects);
         self.live_objects = fragments
             .into_iter()
-            .map(|(candidate, document)| {
-                let previous = old.iter().find(|w| {
-                    w.document.markdown == document.markdown && w.block == candidate.block
-                });
-                let (view, observer, width, height) = if let Some(previous) = previous {
-                    (
-                        previous.view.clone(),
-                        previous._observer.clone(),
-                        previous.width,
-                        previous.height,
-                    )
-                } else {
-                    let view = cx.new(|cx| TextViewState::markdown(&document.markdown, cx));
-                    let observer = Rc::new(cx.observe(&view, |pane, _, cx| {
-                        pane.last_presentation = None;
-                        cx.notify();
-                    }));
-                    (view, observer, self.font_size * 4., self.font_size * 1.5)
-                };
-                Widget {
-                    source: candidate.source,
-                    block: candidate.block,
-                    width,
-                    height,
-                    view,
-                    document: Arc::new(document),
-                    _observer: observer,
-                }
-            })
+            .map(
+                |Fragment {
+                     candidate,
+                     document,
+                     numbers,
+                     targets,
+                 }| {
+                    let previous = old
+                        .iter()
+                        .position(|w| {
+                            w.document.markdown == document.markdown
+                                && w.block == candidate.block
+                                && w.role == candidate.role
+                        })
+                        .map(|i| old.remove(i));
+                    let (view, observer, width, height) = if let Some(previous) = previous {
+                        (
+                            previous.view.clone(),
+                            previous._observer.clone(),
+                            previous.width,
+                            previous.height,
+                        )
+                    } else {
+                        let view = cx.new(|cx| TextViewState::markdown(&document.markdown, cx));
+                        let observer = Rc::new(cx.observe(&view, |pane, _, cx| {
+                            pane.last_presentation = None;
+                            cx.notify();
+                        }));
+                        (view, observer, self.font_size * 4., self.font_size * 1.5)
+                    };
+                    Widget {
+                        source: candidate.source,
+                        block: candidate.block,
+                        role: candidate.role,
+                        numbers,
+                        targets,
+                        width,
+                        height,
+                        view,
+                        document: Arc::new(document),
+                        _observer: observer,
+                    }
+                },
+            )
             .collect();
     }
 
@@ -66,7 +87,8 @@ impl EditorPane {
         self.live_objects
             .iter()
             .filter(|w| {
-                w.document.source_matches(&self.current_path, source)
+                w.role != Role::Hidden
+                    && w.document.source_matches(&self.current_path, source)
                     && !selections.iter().chain(matches).any(|s| {
                         if s.is_empty() {
                             w.source.start <= s.start && s.start <= w.source.end
@@ -81,6 +103,32 @@ impl EditorPane {
                 size: size(px(w.width.max(1.)), px(w.height.max(1.))),
                 baseline: None,
             })
+            .collect()
+    }
+
+    pub(super) fn hidden_live_ranges(
+        &self,
+        source: &str,
+        selections: &[Range<usize>],
+        matches: &[Range<usize>],
+    ) -> Vec<Range<usize>> {
+        if !self.live || self.reading {
+            return vec![];
+        }
+        self.live_objects
+            .iter()
+            .filter(|w| {
+                w.role == Role::Hidden
+                    && w.document.source_matches(&self.current_path, source)
+                    && !selections.iter().chain(matches).any(|s| {
+                        if s.is_empty() {
+                            w.source.start <= s.start && s.start <= w.source.end
+                        } else {
+                            s.start < w.source.end && w.source.start < s.end
+                        }
+                    })
+            })
+            .map(|w| w.source.clone())
             .collect()
     }
 }
@@ -108,6 +156,9 @@ fn element(
     let link_pane = pane.clone();
     let source_pane = pane;
     let start = widget.source.start;
+    let footnote = widget.role == Role::Reference;
+    let targets = widget.targets.clone();
+    let target_view = widget.view.clone();
     let root = appearance.root.clone();
     let files = appearance.files.clone();
     let font = appearance.font;
@@ -117,28 +168,74 @@ fn element(
         .debug_selector(move || format!("live-object-{start}"))
         .cursor_text()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(move |_, window, cx| {
+        .on_click(move |event, window, cx| {
             cx.stop_propagation();
             window.prevent_default();
             let _ = source_pane.update(cx, |pane, cx| {
+                let target = targets.iter().find(|(offset, _, _)| {
+                    target_view
+                        .read(cx)
+                        .bounds_for_source_offset(*offset)
+                        .is_some_and(|bounds| bounds.contains(&event.position()))
+                });
+                if let Some((_, path, _)) = target
+                    && path != &pane.current_path
+                {
+                    cx.emit(EditorEvent::FollowReference(
+                        inkstone::rendering::Reference {
+                            from: pane.current_path.clone(),
+                            target: path.to_string_lossy().into_owned(),
+                            wiki: true,
+                        },
+                    ));
+                    return;
+                }
+                let offset = target.map_or(start, |(_, _, offset)| *offset);
                 pane.editor.update(cx, |state, cx| {
-                    state.set_selected_range(start..start, cx);
+                    state.set_selected_range(offset..offset, cx);
                     state.focus(window, cx);
                 });
                 pane.last_presentation = None;
+                if footnote || target.is_some() {
+                    pane.open_footnote(window, cx);
+                }
                 cx.notify();
             });
         })
         .child(
             TextView::new(&widget.view)
                 .font_family(appearance.font_family.clone())
-                .markdown_extensions(crate::native_graphics::extensions(
-                    font,
-                    window.scale_factor(),
-                    light,
-                    appearance.strict,
-                    cx,
-                ))
+                .markdown_extensions({
+                    let mut extensions = crate::native_graphics::extensions(
+                        font,
+                        window.scale_factor(),
+                        light,
+                        appearance.strict,
+                        cx,
+                    )
+                    .footnote_numbers(widget.numbers.clone());
+                    if let Role::Footer(ranges) = &widget.role {
+                        let ranges = ranges.clone();
+                        extensions = extensions
+                            .block_parser_first(move |node, _| {
+                                let p = node.position()?;
+                                ranges
+                                    .iter()
+                                    .any(|r| r.start == p.start.offset && r.end == p.end.offset)
+                                    .then(|| {
+                                        gpui_base::text::MarkdownNode::new(
+                                            "inkstone-hidden-block",
+                                            (),
+                                        )
+                                        .text("")
+                                    })
+                            })
+                            .block_renderer("inkstone-hidden-block", |_, _, _| {
+                                div().h(px(0.)).w(px(0.))
+                            });
+                    }
+                    extensions
+                })
                 .text_size(px(font))
                 .line_height(relative(1.5))
                 .selectable(false)
@@ -309,6 +406,55 @@ pub(super) fn overlay(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn live_footnotes_share_numbering_render_footer_and_open_inline_editor(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let source = "# top\n\nA^[短] B[^named] C^[中文 **粗体**]\n\n尾部\n\n[^named]: 命名定义";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..8 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                let footer = pane
+                    .live_objects
+                    .iter()
+                    .find(|w| matches!(w.role, Role::Footer(_)))
+                    .unwrap();
+                footer.view.update(cx, |s, cx| {
+                    s.select_all(cx);
+                    let text = s.selected_text();
+                    assert!(
+                        text.contains("1. 短")
+                            && text.contains("2. 命名定义")
+                            && text.contains("3. 中文 粗体"),
+                        "{text:?}"
+                    );
+                    assert!(
+                        !text.contains("A1"),
+                        "hidden body should not repeat: {text:?}"
+                    );
+                });
+                assert!(!pane.editor.read(cx).concealed_lines().is_empty());
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+        let start = source.find("^[短]").unwrap();
+        let selector = Box::leak(format!("live-object-{start}").into_boxed_str());
+        let point = visual.debug_bounds(selector).unwrap().center();
+        visual.simulate_click(point, Modifiers::default());
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                assert!(pane.footnote_edit.is_some());
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
 
     #[gpui::test]
     fn live_objects_measure_reveal_selection_and_leave_copy_and_undo_as_source(

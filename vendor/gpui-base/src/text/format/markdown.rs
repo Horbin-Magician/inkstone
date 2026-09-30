@@ -103,6 +103,13 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
             number += 1;
         }
     }
+    for (id, info) in &mut cx.footnotes {
+        if info.number > 0
+            && let Some(number) = cx.markdown_extensions.footnote_numbers.get(id)
+        {
+            info.number = *number;
+        }
+    }
     cx.footnote_starts = cx
         .footnotes
         .values()
