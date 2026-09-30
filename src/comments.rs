@@ -55,9 +55,8 @@ fn scan(source: &str, editing: bool) -> Vec<Comment> {
     if !source.contains("%%") {
         return vec![];
     }
-    let options = crate::syntax::options();
     let mut blocked = vec![];
-    if let Ok(root) = markdown_parser::to_mdast(source, &options) {
+    if let Some(root) = crate::syntax::parse_raw(source) {
         exclude(&root, source, &mut blocked);
     }
     blocked.sort_by_key(|range| range.start);
@@ -106,7 +105,7 @@ fn scan(source: &str, editing: bool) -> Vec<Comment> {
         if changes_code {
             let clean = masked(source, &result);
             blocked.clear();
-            if let Ok(root) = markdown_parser::to_mdast(&clean, &options) {
+            if let Some(root) = crate::syntax::parse_raw(&clean) {
                 exclude(&root, &clean, &mut blocked);
             }
             blocked.sort_by_key(|range| range.start);

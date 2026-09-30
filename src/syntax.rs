@@ -10,6 +10,105 @@ pub fn options() -> ParseOptions {
     options
 }
 
+pub fn valid_inline_math(source: &str, range: &std::ops::Range<usize>) -> bool {
+    let Some(raw) = source.get(range.clone()) else {
+        return false;
+    };
+    if raw.starts_with("$$") {
+        return true;
+    }
+    raw.starts_with('$')
+        && raw.ends_with('$')
+        && raw.len() > 2
+        && raw[1..].chars().next().is_some_and(|c| !c.is_whitespace())
+        && raw[..raw.len() - 1]
+            .chars()
+            .next_back()
+            .is_some_and(|c| !c.is_whitespace())
+        && !source[range.end..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit())
+}
+
+pub fn parse_raw(source: &str) -> Option<Node> {
+    fn definitions(node: &Node, source: &str, out: &mut String) {
+        if matches!(node, Node::Definition(_) | Node::FootnoteDefinition(_))
+            && let Some(p) = node.position()
+        {
+            out.push_str(&source[p.start.offset..p.end.offset]);
+            out.push_str("\n\n");
+            return;
+        }
+        if let Some(children) = node.children() {
+            for n in children {
+                definitions(n, source, out);
+            }
+        }
+    }
+    fn shift(node: &mut Node, origin: &markdown_parser::unist::Point) {
+        if let Some(p) = node.position_mut() {
+            for point in [&mut p.start, &mut p.end] {
+                if point.line == 1 {
+                    point.column += origin.column - 1;
+                }
+                point.line += origin.line - 1;
+                point.offset += origin.offset;
+            }
+        }
+        if let Some(children) = node.children_mut() {
+            for n in children {
+                shift(n, origin);
+            }
+        }
+    }
+    fn normalize(node: &mut Node, source: &str, defs: &str) {
+        let Some(children) = node.children_mut() else {
+            return;
+        };
+        let mut i = 0;
+        while i < children.len() {
+            let position = if matches!(&children[i], Node::InlineMath(_)) {
+                children[i]
+                    .position()
+                    .cloned()
+                    .filter(|p| !valid_inline_math(source, &(p.start.offset..p.end.offset)))
+            } else {
+                None
+            };
+            if let Some(p) = position {
+                let mut prose = options();
+                prose.constructs.math_text = false;
+                prose.constructs.math_flow = false;
+                let raw = &source[p.start.offset..p.end.offset];
+                if let Ok(Node::Root(root)) =
+                    markdown_parser::to_mdast(&format!("{raw}\n\n{defs}"), &prose)
+                    && let Some(Node::Paragraph(paragraph)) = root.children.first()
+                {
+                    let mut replacement = paragraph.children.clone();
+                    for n in &mut replacement {
+                        shift(n, &p.start);
+                    }
+                    let len = replacement.len();
+                    children.splice(i..=i, replacement);
+                    i += len;
+                    continue;
+                }
+            }
+            normalize(&mut children[i], source, defs);
+            i += 1;
+        }
+    }
+    let mut ast = markdown_parser::to_mdast(source, &options()).ok()?;
+    if !source.contains('$') {
+        return Some(ast);
+    }
+    let mut defs = String::new();
+    definitions(&ast, source, &mut defs);
+    normalize(&mut ast, source, &defs);
+    Some(ast)
+}
+
 #[derive(Clone)]
 pub struct Snapshot {
     pub source: Arc<str>,
@@ -118,9 +217,7 @@ impl Snapshot {
     pub fn new(source: &str) -> Self {
         let comments = crate::comments::ranges(source);
         let structural: Arc<str> = crate::comments::masked(source, &comments).as_ref().into();
-        let ast = markdown_parser::to_mdast(&structural, &options())
-            .ok()
-            .map(Arc::new);
+        let ast = parse_raw(&structural).map(Arc::new);
         let inline_footnotes = inline_footnotes(&structural, ast.as_deref());
         Self {
             source: source.into(),
@@ -251,6 +348,18 @@ pub fn html_destinations(ast: &Node, source: &str) -> Vec<(std::ops::Range<usize
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn currency_remains_prose_with_real_links_comments_and_footnotes() {
+        let source = "spent $5 [link][r] %%hide%% and $10; formula $x^2$ and [^n]\n\n[r]: target.md\n[^n]: body";
+        let snapshot = Snapshot::new(source);
+        let parsed = crate::index::parse_snapshot(&snapshot);
+        assert_eq!(parsed.standard_links[0].0, "target.md");
+        assert_eq!(parsed.comments.len(), 1);
+        assert_eq!(parsed.footnote_references.len(), 1);
+        let candidates = crate::preview::candidates(&snapshot);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(&source[candidates[0].source.clone()], "$x^2$");
+    }
     #[test]
     fn inline_footnotes_keep_unicode_ranges_and_skip_escaped_code_and_math() {
         let source = r"正文^[短 **强调** [链接](note.md) \] 正文] `^[代码]` $\text{^[公式]}$ \^[转义] %%^[注释]%% ^[第二条]";

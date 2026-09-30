@@ -40,6 +40,17 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
     }
     link_definitions(&root, cx);
     cx.footnotes.clear();
+    if source.contains('$') {
+        {
+            let mut bodies = std::collections::HashMap::new();
+            definitions(&root, &mut cx.footnotes, &mut bodies, cx.offset);
+        }
+        let mut prose = cx.markdown_extensions.parse_options();
+        prose.constructs.math_text = false;
+        prose.constructs.math_flow = false;
+        flatten_unclaimed_math(&mut root, source, &prose, cx);
+        cx.footnotes.clear();
+    }
     fn definitions<'a>(
         node: &'a Node,
         out: &mut std::collections::HashMap<String, node::FootnoteInfo>,
@@ -279,7 +290,7 @@ fn flatten_unclaimed_math(node: &mut Node, source: &str, options: &ParseOptions,
                 {
                     None
                 } else {
-                    reparse_as_prose(&children[ix], source, options)
+                    reparse_as_prose(&children[ix], source, options, cx)
                 }
             }
             _ => None,
@@ -295,16 +306,28 @@ fn flatten_unclaimed_math(node: &mut Node, source: &str, options: &ParseOptions,
     }
 }
 
-fn reparse_as_prose(node: &Node, source: &str, options: &ParseOptions) -> Option<Vec<Node>> {
+fn reparse_as_prose(
+    node: &Node,
+    source: &str,
+    options: &ParseOptions,
+    cx: &NodeContext,
+) -> Option<Vec<Node>> {
     let position = node.position()?.clone();
     let literal = source.get(position.start.offset..position.end.offset)?;
     if !may_hold_inline_markup(literal) {
         return None;
     }
-    let Ok(Node::Root(mut root)) = markdown::to_mdast(literal, options) else {
+    let mut snippet = literal.to_string();
+    for (id, link) in &cx.link_refs {
+        snippet.push_str(&format!("\n\n[{}]: <{}>", id.replace(']', "\\]"), link.url));
+    }
+    for id in cx.footnotes.keys() {
+        snippet.push_str(&format!("\n\n[^{}]: placeholder", id.replace(']', "\\]")));
+    }
+    let Ok(Node::Root(mut root)) = markdown::to_mdast(&snippet, options) else {
         return None;
     };
-    let [Node::Paragraph(paragraph)] = root.children.as_mut_slice() else {
+    let Some(Node::Paragraph(paragraph)) = root.children.first_mut() else {
         return None;
     };
     if paragraph
