@@ -222,31 +222,41 @@ impl Workspace {
     pub(super) fn settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .id("settings-navigation")
-            .w(px(220.))
+            .w(px(224.))
             .flex_shrink_0()
             .min_h_0()
             .overflow_y_scrollbar()
             .p_3()
             .bg(self.side())
-            .rounded(px(6.))
+            .border_r_1()
+            .border_color(self.border())
             .flex()
             .flex_col()
             .gap_0()
+            .child(
+                div()
+                    .px_2()
+                    .pt_3()
+                    .pb_2()
+                    .text_size(px(12.))
+                    .text_color(rgb(0x777777))
+                    .child("选项"),
+            )
             .children(
                 [
-                    (5, "外观"),
-                    (6, "界面"),
-                    (0, "编辑器"),
-                    (2, "文件与链接"),
-                    (1, "快捷键"),
-                    (3, "日记"),
-                    (4, "模板"),
+                    (5, "外观", "palette"),
+                    (6, "界面", "monitor"),
+                    (0, "编辑器", "pencil"),
+                    (2, "文件与链接", "folder"),
+                    (1, "快捷键", "command"),
+                    (3, "日记", "calendar"),
+                    (4, "模板", "copy"),
                 ]
                 .into_iter()
-                .map(|(i, title)| {
+                .map(|(i, title, symbol)| {
                     Button::new(("settings-tab", i))
                         .ghost()
-                        .h(px(28.))
+                        .h(px(27.))
                         .w_full()
                         .selected(self.ui.settings_tab == i)
                         .toggled(self.ui.settings_tab == i)
@@ -258,7 +268,16 @@ impl Workspace {
                             }))
                         })
                         .accessibility_label(title)
-                        .child(div().w_full().text_left().child(title))
+                        .child(
+                            div()
+                                .w_full()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .text_size(px(13.))
+                                .child(ui::icon(symbol).size(px(16.)))
+                                .child(title),
+                        )
                         .on_click(cx.listener(move |this, _, w, cx| {
                             this.ui.settings_tab = i;
                             this.ui.settings_scroll.set_offset(Point::default());
@@ -282,7 +301,7 @@ impl Workspace {
         let query = self.ui.hotkey_filter.read(cx).value().to_lowercase();
         div()
             .flex()
-            .gap_4()
+            .gap_0()
             .flex_1()
             .min_h_0()
             .child(self.settings_nav(cx))
@@ -297,6 +316,8 @@ impl Workspace {
                     .h_full()
                     .flex_1()
                     .min_w_0()
+                    .px(px(32.))
+                    .py(px(48.))
                     .flex()
                     .flex_col()
                     .gap_2()
