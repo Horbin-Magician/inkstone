@@ -114,6 +114,8 @@ pub(super) struct UiState {
     pub tags_filter: Entity<InputState>,
     pub outline_filter: Entity<InputState>,
     pub outline_filter_open: bool,
+    outline_fold_key: Option<(PathBuf, Vec<inkstone::index::Heading>)>,
+    outline_collapsed: std::collections::BTreeSet<usize>,
     _outline_filter_subscription: Subscription,
     pub tags_focus: FocusHandle,
     pub tags_selected: Option<String>,
@@ -475,6 +477,8 @@ impl UiState {
             tags_filter,
             outline_filter,
             outline_filter_open: false,
+            outline_fold_key: None,
+            outline_collapsed: Default::default(),
             _outline_filter_subscription: outline_filter_subscription,
             tags_focus: cx.focus_handle(),
             tags_selected: None,
@@ -3276,12 +3280,19 @@ impl Workspace {
         } else {
             String::new()
         };
-        let headings: Vec<_> = headings
-            .into_iter()
-            .filter(|heading| {
-                outline_query.is_empty() || heading.title.to_lowercase().contains(&outline_query)
-            })
-            .collect();
+        let fold_key = (
+            pane.as_ref()
+                .map(|p| p.read(cx).current_path.clone())
+                .unwrap_or_default(),
+            headings.clone(),
+        );
+        let empty_folds = Default::default();
+        let collapsed = if self.ui.outline_fold_key.as_ref() == Some(&fold_key) {
+            &self.ui.outline_collapsed
+        } else {
+            &empty_folds
+        };
+        let headings = outline_rows(&headings, collapsed, &outline_query);
         let links = pane
             .as_ref()
             .map(|p| p.read(cx).parsed.links.clone())
@@ -3310,20 +3321,35 @@ impl Workspace {
                     .p_3()
                     .when(self.ui.right_mode == 0, |s| {
                         s.child(
-                            div().flex().items_center().h(px(28.)).mb_2().child(
-                                tool("outline-filter", "search", "筛选大纲")
-                                    .selected(self.ui.outline_filter_open)
-                                    .toggled(self.ui.outline_filter_open)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.ui.outline_filter_open = !this.ui.outline_filter_open;
-                                        if this.ui.outline_filter_open {
-                                            this.ui
-                                                .outline_filter
-                                                .update(cx, |input, cx| input.focus(window, cx));
-                                        }
-                                        cx.notify();
-                                    })),
-                            ),
+                            div()
+                                .flex()
+                                .items_center()
+                                .h(px(28.))
+                                .mb_2()
+                                .child(
+                                    tool("outline-filter", "search", "筛选大纲")
+                                        .selected(self.ui.outline_filter_open)
+                                        .toggled(self.ui.outline_filter_open)
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.ui.outline_filter_open =
+                                                !this.ui.outline_filter_open;
+                                            if this.ui.outline_filter_open {
+                                                this.ui.outline_filter.update(cx, |input, cx| {
+                                                    input.focus(window, cx)
+                                                });
+                                            }
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    tool("outline-collapse", "fold-vertical", "全部展开或折叠标题")
+                                        .on_click(cx.listener({
+                                            let key = fold_key.clone();
+                                            move |this, _, _, cx| {
+                                                this.toggle_outline_fold(key.clone(), None, cx)
+                                            }
+                                        })),
+                                ),
                         )
                         .when(self.ui.outline_filter_open, |s| {
                             s.child(
@@ -3346,24 +3372,64 @@ impl Workspace {
                                     }),
                             )
                         })
-                        .children(headings.into_iter().enumerate().map(|(i, h)| {
-                            let pane = pane.clone();
-                            div()
-                                .id(("outline", i))
-                                .h(px(27.))
-                                .text_size(px(13.))
-                                .rounded(px(4.))
-                                .hover(|s| s.bg(rgba(0x88888818)))
-                                .py_1()
-                                .pl(px(8. + (h.level - 1) as f32 * 17.))
-                                .cursor_pointer()
-                                .child(div().truncate().child(h.title))
-                                .on_click(cx.listener(move |_, _, w, cx| {
-                                    if let Some(pane) = &pane {
-                                        pane.update(cx, |p, cx| p.jump(h.offset, w, cx));
-                                    }
-                                }))
-                        }))
+                        .children(headings.into_iter().enumerate().map(
+                            |(i, (h, has_children, folded))| {
+                                let pane = pane.clone();
+                                let key = fold_key.clone();
+                                let offset = h.offset;
+                                div()
+                                    .id(("outline", i))
+                                    .h(px(27.))
+                                    .text_size(px(13.))
+                                    .rounded(px(4.))
+                                    .hover(|s| s.bg(rgba(0x88888818)))
+                                    .flex()
+                                    .items_center()
+                                    .gap_1()
+                                    .pl(px((h.level - 1) as f32 * 17.))
+                                    .cursor_pointer()
+                                    .child(div().w(px(18.)).flex_shrink_0().when(
+                                        has_children,
+                                        |s| {
+                                            s.child(
+                                                Button::new(("outline-fold", offset))
+                                                    .ghost()
+                                                    .compact()
+                                                    .w(px(18.))
+                                                    .h(px(24.))
+                                                    .icon(
+                                                        icon(if folded {
+                                                            "chevron-right"
+                                                        } else {
+                                                            "chevron-down"
+                                                        })
+                                                        .size(px(14.)),
+                                                    )
+                                                    .accessibility_label(format!(
+                                                        "展开或折叠 {}",
+                                                        h.title
+                                                    ))
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            this.toggle_outline_fold(
+                                                                key.clone(),
+                                                                Some(offset),
+                                                                cx,
+                                                            );
+                                                        },
+                                                    )),
+                                            )
+                                        },
+                                    ))
+                                    .child(div().flex_1().min_w_0().truncate().child(h.title))
+                                    .on_click(cx.listener(move |_, _, w, cx| {
+                                        if let Some(pane) = &pane {
+                                            pane.update(cx, |p, cx| p.jump(h.offset, w, cx));
+                                        }
+                                    }))
+                            },
+                        ))
                     })
                     .when(self.ui.right_mode == 1, |s| {
                         s.child(
@@ -4102,6 +4168,102 @@ impl Workspace {
                 }),
             )
             .into_any_element()
+    }
+}
+
+fn outline_rows(
+    headings: &[inkstone::index::Heading],
+    collapsed: &std::collections::BTreeSet<usize>,
+    query: &str,
+) -> Vec<(inkstone::index::Heading, bool, bool)> {
+    let mut hidden_below = None;
+    headings
+        .iter()
+        .enumerate()
+        .filter_map(|(i, heading)| {
+            let has_children = headings
+                .get(i + 1)
+                .is_some_and(|next| next.level > heading.level);
+            let folded = query.is_empty() && collapsed.contains(&heading.offset);
+            if !query.is_empty() {
+                return heading
+                    .title
+                    .to_lowercase()
+                    .contains(query)
+                    .then(|| (heading.clone(), has_children, false));
+            }
+            if hidden_below.is_some_and(|level| heading.level > level) {
+                return None;
+            }
+            hidden_below = if folded { Some(heading.level) } else { None };
+            Some((heading.clone(), has_children, folded))
+        })
+        .collect()
+}
+
+impl Workspace {
+    fn toggle_outline_fold(
+        &mut self,
+        key: (PathBuf, Vec<inkstone::index::Heading>),
+        offset: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.ui.outline_fold_key.as_ref() != Some(&key) {
+            self.ui.outline_collapsed.clear();
+            self.ui.outline_fold_key = Some(key.clone());
+        }
+        if let Some(offset) = offset {
+            if !self.ui.outline_collapsed.remove(&offset) {
+                self.ui.outline_collapsed.insert(offset);
+            }
+        } else {
+            let parents: std::collections::BTreeSet<_> = key
+                .1
+                .windows(2)
+                .filter(|pair| pair[1].level > pair[0].level)
+                .map(|pair| pair[0].offset)
+                .collect();
+            if parents.is_subset(&self.ui.outline_collapsed) {
+                self.ui.outline_collapsed.clear();
+            } else {
+                self.ui.outline_collapsed = parents;
+            }
+        }
+        cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod outline_tests {
+    use super::outline_rows;
+
+    #[test]
+    fn outline_folds_respect_hierarchy_and_filter_reveals_hidden_matches() {
+        let headings: Vec<_> = [1, 3, 4, 2, 1]
+            .into_iter()
+            .enumerate()
+            .map(|(offset, level)| inkstone::index::Heading {
+                level,
+                offset,
+                title: format!("Section {offset}"),
+            })
+            .collect();
+        let offsets = |rows: Vec<(inkstone::index::Heading, bool, bool)>| {
+            rows.into_iter().map(|row| row.0.offset).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            offsets(outline_rows(&headings, &[0].into(), "")),
+            vec![0, 4]
+        );
+        assert_eq!(
+            offsets(outline_rows(&headings, &[1].into(), "")),
+            vec![0, 1, 3, 4]
+        );
+        assert_eq!(
+            offsets(outline_rows(&headings, &[0, 1].into(), "section 2")),
+            vec![2]
+        );
+        assert!(!outline_rows(&headings, &Default::default(), "")[4].1);
     }
 }
 
