@@ -2,13 +2,13 @@ use super::*;
 
 pub(super) struct InlineTitle {
     pub id: usize,
-    pub secondary: bool,
     pub input: Entity<InputState>,
     pub focus_after: bool,
     _subscription: Subscription,
 }
 
 impl Workspace {
+    #[cfg(test)]
     pub(super) fn begin_inline_title(
         &mut self,
         index: usize,
@@ -54,7 +54,6 @@ impl Workspace {
         });
         self.ui.inline_title = Some(InlineTitle {
             id,
-            secondary,
             input: input.clone(),
             focus_after: false,
             _subscription: subscription,

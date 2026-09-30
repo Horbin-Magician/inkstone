@@ -540,7 +540,6 @@ pub(super) fn setting_switch(id: impl Into<ElementId>) -> gpui_component::switch
 
 #[derive(Clone, Copy)]
 enum EditorSetting {
-    InlineTitle,
     ReadableWidth,
     StrictBreaks,
     FoldHeadings,
@@ -686,12 +685,6 @@ impl Workspace {
         use EditorSetting::*;
         let p = &self.ui.prefs;
         let (id, name, description, checked) = match setting {
-            InlineTitle => (
-                "inline-title-setting",
-                "页面内标题",
-                "在正文上方显示可编辑的文件名。",
-                p.show_inline_title,
-            ),
             ReadableWidth => (
                 "width-setting",
                 "限制行宽",
@@ -759,7 +752,6 @@ impl Workspace {
             .on_click(cx.listener(move |this, enabled: &bool, window, cx| {
                 let p = &mut this.ui.prefs;
                 match setting {
-                    InlineTitle => p.show_inline_title = *enabled,
                     ReadableWidth => p.readable_width = *enabled,
                     StrictBreaks => p.strict_line_breaks = *enabled,
                     FoldHeadings => p.fold_headings = *enabled,
@@ -771,12 +763,7 @@ impl Workspace {
                     SmartLists => p.smart_lists = *enabled,
                     UseTabs => p.use_tabs = *enabled,
                 }
-                if matches!(setting, InlineTitle) {
-                    this.persist_workspace(cx);
-                    cx.notify();
-                } else {
-                    this.apply_editor_preferences(window, cx);
-                }
+                this.apply_editor_preferences(window, cx);
             }));
         self.settings_row(name, description, control, divider, 20.)
     }
@@ -3075,15 +3062,6 @@ impl Workspace {
             .and_then(|i| self.tabs.get(i))
             .filter(|t| !t.path.as_os_str().is_empty());
         let pane = if active.is_some() { pane } else { None };
-        let title = active
-            .map(|t| {
-                t.path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .unwrap_or("新标签页".into());
         let breadcrumb = active
             .map(|t| {
                 t.path
@@ -3094,7 +3072,6 @@ impl Workspace {
             })
             .unwrap_or_default();
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
-        let title_tab_id = active.map(|tab| tab.id);
         let menu_weak = cx.entity().downgrade();
         let menu_items: Vec<_> = [6, 7, 31, 32, 8, 15, 11, 23, 19, 18, 10, 16]
             .into_iter()
@@ -3229,60 +3206,6 @@ impl Workspace {
                             ),
                         ),
                 )
-            })
-            .when(pane.is_some() && self.ui.prefs.show_inline_title, |s| {
-                s.child(div().px(px(48.)).pt(px(12.)).child(
-                    if let Some(edit) = self.ui.inline_title.as_ref().filter(|edit| {
-                        active.is_some_and(|tab| tab.id == edit.id) && edit.secondary == secondary
-                    }) {
-                        div()
-                            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                                if event.keystroke.key == "escape" {
-                                    this.cancel_inline_title(window, cx);
-                                    cx.stop_propagation();
-                                }
-                            }))
-                            .child(
-                                Input::new(&edit.input)
-                                    .readonly(self.ui.file_operation)
-                                    .appearance(false)
-                                    .bordered(false)
-                                    .text_size(px(self.ui.prefs.font_size
-                                        * inkstone::markdown::HEADING_SCALES[0]))
-                                    .font_weight(FontWeight::BOLD)
-                                    .line_height(relative(1.2))
-                                    .h(px(self.ui.prefs.font_size
-                                        * inkstone::markdown::HEADING_SCALES[0]
-                                        * 1.2
-                                        + 8.)),
-                            )
-                            .into_any_element()
-                    } else {
-                        div()
-                            .id(if secondary {
-                                "secondary-inline-title"
-                            } else {
-                                "inline-title"
-                            })
-                            .cursor_text()
-                            .text_size(px(
-                                self.ui.prefs.font_size * inkstone::markdown::HEADING_SCALES[0]
-                            ))
-                            .line_height(relative(1.2))
-                            .font_weight(FontWeight::BOLD)
-                            .child(title)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                if let Some(index) = this
-                                    .tabs
-                                    .iter()
-                                    .position(|tab| Some(tab.id) == title_tab_id)
-                                {
-                                    this.begin_inline_title(index, secondary, window, cx);
-                                }
-                            }))
-                            .into_any_element()
-                    },
-                ))
             })
             .when(active.is_some(), |s| {
                 s.child(div().flex_1().min_h_0().children(pane))
@@ -3658,9 +3581,11 @@ impl Render for Workspace {
                                             "展开左侧栏"
                                         },
                                     )
-                                    .on_click(cx.listener(|this, _, w, cx| {
-                                        this.execute_command(12, w, cx)
-                                    })),
+                                    .on_click(
+                                        cx.listener(|this, _, w, cx| {
+                                            this.execute_command(12, w, cx)
+                                        }),
+                                    ),
                                 )
                                 .child(
                                     tool(
@@ -3672,9 +3597,11 @@ impl Render for Workspace {
                                             "展开右侧栏"
                                         },
                                     )
-                                    .on_click(cx.listener(|this, _, w, cx| {
-                                        this.execute_command(13, w, cx)
-                                    })),
+                                    .on_click(
+                                        cx.listener(|this, _, w, cx| {
+                                            this.execute_command(13, w, cx)
+                                        }),
+                                    ),
                                 )
                             })
                             .child(tool("title-settings", "settings", "设置").on_click(
@@ -4383,7 +4310,6 @@ impl Workspace {
                 menu
             });
         let display = [
-            EditorSetting::InlineTitle,
             EditorSetting::ReadableWidth,
             EditorSetting::StrictBreaks,
             EditorSetting::FoldHeadings,
