@@ -8,6 +8,14 @@ pub struct Comment {
 }
 
 pub fn ranges(source: &str) -> Vec<Comment> {
+    scan(source, false)
+}
+
+pub fn editing_ranges(source: &str) -> Vec<Comment> {
+    scan(source, true)
+}
+
+fn scan(source: &str, editing: bool) -> Vec<Comment> {
     use markdown_parser::mdast::Node;
     fn exclude(node: &Node, source: &str, out: &mut Vec<Range<usize>>) {
         if matches!(
@@ -79,7 +87,7 @@ pub fn ranges(source: &str) -> Vec<Comment> {
             .is_empty()
             && !source[cursor..line_end].contains('%')
             && line_end < source.len();
-        let end = if block {
+        let end = if block || editing {
             source[cursor..]
                 .find("%%")
                 .map_or(source.len(), |i| cursor + i + 2)
@@ -107,6 +115,140 @@ pub fn ranges(source: &str) -> Vec<Comment> {
     result
 }
 
+/// Toggle comment delimiters for all selections as one source transform.
+pub fn toggle(source: &str, selections: &[Range<usize>]) -> Option<(String, Vec<Range<usize>>)> {
+    use std::collections::BTreeMap;
+    use unicode_segmentation::UnicodeSegmentation;
+    if selections.iter().any(|r| {
+        r.start > r.end || !source.is_char_boundary(r.start) || !source.is_char_boundary(r.end)
+    }) {
+        return None;
+    }
+    let comments = editing_ranges(source);
+    let graphemes: Vec<_> = source.grapheme_indices(true).collect();
+    let word = |offset: usize| {
+        let is_word = |index: usize| {
+            graphemes[index]
+                .1
+                .chars()
+                .any(|c| c.is_alphanumeric() || c == '_')
+        };
+        let next = graphemes.partition_point(|(at, _)| *at < offset);
+        let at = if next < graphemes.len() && is_word(next) {
+            Some(next)
+        } else {
+            next.checked_sub(1).filter(|&i| is_word(i))
+        };
+        let Some(mut start) = at else {
+            return offset..offset;
+        };
+        let mut end = start + 1;
+        while start > 0 && is_word(start - 1) {
+            start -= 1;
+        }
+        while end < graphemes.len() && is_word(end) {
+            end += 1;
+        }
+        graphemes[start].0..graphemes.get(end).map_or(source.len(), |(at, _)| *at)
+    };
+    let mut removals = vec![];
+    let mut wraps = vec![];
+    let mut plans = vec![];
+    for selection in selections {
+        if let Some(comment) = comments.iter().find(|comment| {
+            comment.range.start <= selection.start && selection.end <= comment.range.end
+        }) {
+            removals.push(comment.range.start..comment.range.start + 2);
+            if comment.range.len() >= 4 && source[comment.range.clone()].ends_with("%%") {
+                removals.push(comment.range.end - 2..comment.range.end);
+            }
+            plans.push((selection.clone(), false));
+        } else {
+            let range = if selection.is_empty() {
+                word(selection.start)
+            } else {
+                selection.clone()
+            };
+            for comment in &comments {
+                let mut markers: Vec<_> =
+                    std::iter::once(comment.range.start..comment.range.start + 2).collect();
+                if comment.range.len() >= 4 && source[comment.range.clone()].ends_with("%%") {
+                    markers.push(comment.range.end - 2..comment.range.end);
+                }
+                removals.extend(
+                    markers
+                        .into_iter()
+                        .filter(|marker| marker.start < range.end && marker.end > range.start),
+                );
+            }
+            wraps.push(range.clone());
+            plans.push((range, true));
+        }
+    }
+    fn merged(mut ranges: Vec<Range<usize>>, adjacent: bool) -> Vec<Range<usize>> {
+        ranges.sort_by_key(|r| (r.start, r.end));
+        let mut out: Vec<Range<usize>> = vec![];
+        for range in ranges {
+            if let Some(last) = out.last_mut()
+                && (range.start < last.end || range == *last || adjacent && range.start == last.end)
+            {
+                last.end = last.end.max(range.end);
+            } else {
+                out.push(range);
+            }
+        }
+        out
+    }
+    let removals = merged(removals, true);
+    let mut insertions: BTreeMap<usize, String> = BTreeMap::new();
+    for range in merged(wraps, false) {
+        insertions.entry(range.start).or_default().push_str("%%");
+        insertions.entry(range.end).or_default().push_str("%%");
+    }
+    let mapped = |offset: usize| {
+        offset
+            - removals
+                .iter()
+                .map(|r| offset.saturating_sub(r.start).min(r.len()))
+                .sum::<usize>()
+            + insertions
+                .range(..offset)
+                .map(|(_, text)| text.len())
+                .sum::<usize>()
+    };
+    let selections = plans
+        .into_iter()
+        .map(|(range, wrapped)| {
+            if !wrapped {
+                mapped(range.start)..mapped(range.end)
+            } else if range.is_empty() {
+                let at = mapped(range.start) + 2;
+                at..at
+            } else {
+                mapped(range.start) + insertions.get(&range.start).map_or(0, String::len)
+                    ..mapped(range.end)
+            }
+        })
+        .collect();
+    let mut text = String::with_capacity(source.len() + insertions.len() * 2);
+    let mut removed = 0;
+    for (offset, ch) in source.char_indices() {
+        if let Some(inserted) = insertions.get(&offset) {
+            text.push_str(inserted);
+        }
+        while removed < removals.len() && removals[removed].end <= offset {
+            removed += 1;
+        }
+        if removals.get(removed).is_none_or(|r| r.start > offset) {
+            text.push(ch);
+        }
+    }
+    if let Some(inserted) = insertions.get(&source.len()) {
+        text.push_str(inserted);
+    }
+    Some((text, selections))
+}
+
 pub fn masked<'a>(source: &'a str, comments: &[Comment]) -> Cow<'a, str> {
     if comments.is_empty() {
         return Cow::Borrowed(source);
@@ -127,6 +269,37 @@ pub fn masked<'a>(source: &'a str, comments: &[Comment]) -> Cow<'a, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[allow(clippy::single_range_in_vec_init)]
+    fn toggle_comments_words_empty_ranges_and_multicursor() {
+        let (text, selected) = toggle("one 中文", &[1..1]).unwrap();
+        assert_eq!(text, "%%one%% 中文");
+        assert_eq!(selected, [2..5]);
+        assert_eq!(toggle(&text, &selected).unwrap().0, "one 中文");
+        let (text, selected) = toggle(" ", &[0..0]).unwrap();
+        assert_eq!(text, "%%%% ");
+        assert_eq!(selected, [2..2]);
+        assert_eq!(
+            toggle(&text, &selected).unwrap(),
+            (" ".into(), std::iter::once(0..0).collect())
+        );
+        let (text, selected) = toggle("one two", &[0..3, 4..7]).unwrap();
+        assert_eq!(text, "%%one%% %%two%%");
+        assert_eq!(selected, [2..5, 10..13]);
+        assert_eq!(toggle(&text, &selected).unwrap().0, "one two");
+        assert_eq!(
+            toggle("%%alpha beta%%", &[2..7, 8..12]).unwrap(),
+            ("alpha beta".into(), vec![0..5, 6..10])
+        );
+        assert_eq!(toggle("a %%b%% c", &[0..9]).unwrap().0, "%%a b c%%");
+        assert_eq!(toggle("one\r\ntwo", &[0..8]).unwrap().0, "%%one\r\ntwo%%");
+        assert_eq!(toggle("e\u{301}中", &[3..3]).unwrap().0, "%%e\u{301}中%%");
+        assert_eq!(
+            toggle("prefix %%unfinished", &[12..12]).unwrap().0,
+            "prefix unfinished"
+        );
+        assert!(toggle("中", &[1..1]).is_none());
+    }
     #[test]
     fn inline_block_code_escape_and_byte_positions() {
         let source = "---\ntitle: '%%yaml%%'\n---\nA %%中文%% B `%%code%%` \\%%literal\n\n%%\n```\n[[hidden]]\n%%\nvisible %%tail%%";

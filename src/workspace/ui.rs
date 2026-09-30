@@ -902,6 +902,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (95, "删除当前行", "Ctrl+Shift+K"),
     (96, "选中当前行", "Alt+L"),
     (97, "显示 / 隐藏功能区", ""),
+    (98, "切换注释", "Ctrl+/"),
 ];
 
 #[derive(Clone)]
@@ -1576,7 +1577,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.graph_open
-            && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=84 | 95..=96)
+            && matches!(id, 6 | 7 | 23..=26 | 35..=38 | 45..=67 | 71..=73 | 79..=84 | 95..=96 | 98)
         {
             self.graph_open = false;
         }
@@ -1789,6 +1790,22 @@ impl Workspace {
             }
             85 => self.open_current_note_in_new_tab(window, cx),
             97 => self.ui.prefs.show_ribbon = !self.ui.prefs.show_ribbon,
+            98 => {
+                if let Some(pane) = self.current_pane() {
+                    pane.update(cx, |pane, cx| {
+                        if !pane.reading {
+                            pane.editor.update(cx, |editor, cx| {
+                                editor.apply_selection_transform(
+                                    inkstone::comments::toggle,
+                                    window,
+                                    cx,
+                                );
+                                editor.focus(window, cx);
+                            });
+                        }
+                    });
+                }
+            }
             95..=96 => {
                 if let Some(pane) = self.current_pane() {
                     pane.update(cx, |pane, cx| {
