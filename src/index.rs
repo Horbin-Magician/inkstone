@@ -82,9 +82,11 @@ impl ParsedNote {
 }
 
 pub fn parse(source: &str) -> ParsedNote {
-    let comments = crate::comments::ranges(source);
-    let masked = crate::comments::masked(source, &comments);
-    let source = masked.as_ref();
+    parse_snapshot(&crate::syntax::Snapshot::new(source))
+}
+
+pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
+    let source = snapshot.structural.as_ref();
     fn label(node: &Node) -> String {
         match node {
             Node::Text(n) => n.value.replace('\u{1}', ""),
@@ -250,17 +252,19 @@ pub fn parse(source: &str) -> ParsedNote {
         }
     }
     let mut result = ParsedNote {
-        comments,
+        comments: snapshot.comments.clone(),
         ..Default::default()
     };
-    let mut options = markdown_parser::ParseOptions::gfm();
-    options.constructs.frontmatter = true;
-    if let Ok(root) = markdown_parser::to_mdast(source, &options) {
+    if let Some(root) = snapshot.ast.as_deref() {
         walk(&root, source, &mut result);
         fn folds(node: &Node, out: &mut Vec<(Range<usize>, FoldKind)>) {
             if matches!(
                 node,
-                Node::ListItem(_) | Node::Blockquote(_) | Node::Code(_) | Node::Yaml(_)
+                Node::ListItem(_)
+                    | Node::Blockquote(_)
+                    | Node::Code(_)
+                    | Node::Yaml(_)
+                    | Node::Math(_)
             ) && let Some(p) = node.position()
                 && p.end.line > p.start.line
             {
@@ -303,7 +307,14 @@ pub fn parse(source: &str) -> ParsedNote {
             parent: Option<Range<usize>>,
             out: &mut Vec<BlockReference>,
         ) {
-            if matches!(node, Node::Code(_) | Node::InlineCode(_) | Node::Yaml(_)) {
+            if matches!(
+                node,
+                Node::Code(_)
+                    | Node::InlineCode(_)
+                    | Node::Yaml(_)
+                    | Node::Math(_)
+                    | Node::InlineMath(_)
+            ) {
                 return;
             }
             let position = node.position().map(|p| p.start.offset..p.end.offset);

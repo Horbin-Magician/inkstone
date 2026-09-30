@@ -170,9 +170,11 @@ pub fn toggle_task_lines(text: &str, selection: Range<usize>) -> Option<(Range<u
 }
 
 pub fn spans(text: &str) -> Vec<Span> {
-    let comments = crate::comments::ranges(text);
-    let masked = crate::comments::masked(text, &comments);
-    let text = masked.as_ref();
+    spans_snapshot(&crate::syntax::Snapshot::new(text))
+}
+
+pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
+    let text = snapshot.structural.as_ref();
     use markdown_parser::mdast::Node;
     fn boundary(node: &Node) -> Option<Range<usize>> {
         node.position().map(|p| p.start.offset..p.end.offset)
@@ -300,7 +302,10 @@ pub fn spans(text: &str) -> Vec<Span> {
             }
             return;
         }
-        if matches!(node, Node::Code(_) | Node::Yaml(_) | Node::Html(_)) {
+        if matches!(
+            node,
+            Node::Code(_) | Node::Yaml(_) | Node::Html(_) | Node::Math(_) | Node::InlineMath(_)
+        ) {
             return;
         }
         if let Node::Text(_) = node {
@@ -365,23 +370,27 @@ pub fn spans(text: &str) -> Vec<Span> {
             }
         }
     }
-    let mut options = markdown_parser::ParseOptions::gfm();
-    options.constructs.frontmatter = true;
-    let mut result: Vec<_> = comments
-        .into_iter()
+    let mut result: Vec<_> = snapshot
+        .comments
+        .iter()
         .map(|comment| Span {
             kind: Kind::Comment,
             source: comment.range.clone(),
-            content: comment.range,
+            content: comment.range.clone(),
             markers: vec![],
         })
         .collect();
-    if let Ok(node) = markdown_parser::to_mdast(text, &options) {
+    if let Some(node) = snapshot.ast.as_deref() {
         walk(&node, text, &mut result, 0);
         fn excluded(node: &Node, out: &mut Vec<Range<usize>>) {
             if matches!(
                 node,
-                Node::Code(_) | Node::InlineCode(_) | Node::Html(_) | Node::Yaml(_)
+                Node::Code(_)
+                    | Node::InlineCode(_)
+                    | Node::Html(_)
+                    | Node::Yaml(_)
+                    | Node::Math(_)
+                    | Node::InlineMath(_)
             ) {
                 if let Some(r) = boundary(node) {
                     out.push(r);

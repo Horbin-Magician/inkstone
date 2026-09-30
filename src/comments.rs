@@ -26,6 +26,8 @@ fn scan(source: &str, editing: bool) -> Vec<Comment> {
                 | Node::Html(_)
                 | Node::Image(_)
                 | Node::Definition(_)
+                | Node::Math(_)
+                | Node::InlineMath(_)
         ) {
             if let Some(p) = node.position() {
                 out.push(p.start.offset..p.end.offset);
@@ -53,8 +55,7 @@ fn scan(source: &str, editing: bool) -> Vec<Comment> {
     if !source.contains("%%") {
         return vec![];
     }
-    let mut options = markdown_parser::ParseOptions::gfm();
-    options.constructs.frontmatter = true;
+    let options = crate::syntax::options();
     let mut blocked = vec![];
     if let Ok(root) = markdown_parser::to_mdast(source, &options) {
         exclude(&root, source, &mut blocked);
