@@ -295,7 +295,7 @@ impl Workspace {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(13.))
+                            .text_size(px(18.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .mb_3()
                             .child(if interface { "界面" } else { "外观" }),
