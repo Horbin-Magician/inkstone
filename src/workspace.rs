@@ -1,5 +1,4 @@
 mod appearance;
-mod daily;
 mod document;
 mod extras;
 mod file_settings;
@@ -7,7 +6,6 @@ mod hotkeys;
 mod inline_title;
 mod link_updates;
 mod navigation;
-mod templates;
 mod ui;
 mod views;
 mod welcome;
@@ -420,7 +418,6 @@ impl Workspace {
                             this.ui.inline_title = None;
                         }
                         let old = this.tabs[index].path.clone();
-                        this.ui.prefs.relocate_paths(&old, &path, false);
                         for item in this
                             .ui
                             .prefs
@@ -1368,7 +1365,6 @@ impl Workspace {
             self.ui.prefs.left_open = true;
         }
         self.ui.quick_open = !fulltext;
-        self.ui.template_mode = false;
         self.ui.selected = 0;
         self.command_open = false;
         self.ui.modal_scroll.set_offset(Point::default());
@@ -1381,7 +1377,6 @@ impl Workspace {
             return;
         }
         self.ui.quick_open = false;
-        self.ui.template_mode = false;
         self.fulltext = true;
         let query = self.ui.prefs.search_query.clone();
         self.search
@@ -1791,10 +1786,6 @@ impl Workspace {
         }
         let limit = self.ui.search_limit;
         self.ui.search_loading = true;
-        let template_folder = self
-            .ui
-            .template_mode
-            .then(|| self.ui.prefs.templates.directory().ok());
         if fulltext
             && let Err(error) = inkstone::search::Query::parse_with_case(&query, case_sensitive)
         {
@@ -1812,11 +1803,7 @@ impl Workspace {
             .map(|t| t.path.clone());
         let task = cx.background_executor().spawn(async move {
             let backlinks = active.map(|p| index.backlinks(&p)).unwrap_or_default();
-            let mut hits = if let Some(folder) = template_folder {
-                folder
-                    .map(|folder| inkstone::templates::search(&index, &folder, &query))
-                    .unwrap_or_default()
-            } else if query.trim().is_empty() {
+            let mut hits = if query.trim().is_empty() {
                 vec![]
             } else if fulltext {
                 index
@@ -4103,7 +4090,7 @@ mod tests {
             .unwrap();
     }
     #[gpui::test]
-    fn quick_switch_and_template_queries_do_not_replace_fulltext_search(cx: &mut TestAppContext) {
+    fn quick_switch_queries_do_not_replace_fulltext_search(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
         handle
@@ -4121,10 +4108,6 @@ mod tests {
                 assert_eq!(w.search.read(cx).value().as_ref(), "tag:work file:note");
                 assert!(w.fulltext);
                 w.focus_search(false, window, cx);
-                w.ui.template_mode = true;
-                w.search
-                    .update(cx, |s, cx| s.set_value("template query", window, cx));
-                w.close_overlays(window, cx);
                 assert_eq!(w.ui.prefs.search_query, "tag:work file:note");
                 w.focus_search(false, window, cx);
                 w.add_tab("note.md".into(), Some("body".into()), false, window, cx);
@@ -4430,249 +4413,6 @@ mod tests {
                 assert_eq!(editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
-    }
-    #[gpui::test]
-    fn template_properties_and_body_are_one_undoable_edit(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let handle = cx.add_window(Workspace::new);
-        handle
-            .update(cx, |w, window, cx| {
-                let source = "---\ntags: [old]\n---\n中文😀结束";
-                w.add_tab("note.md".into(), Some(source.into()), false, window, cx);
-                Arc::make_mut(&mut w.index)
-                    .update("template.md".into(), "---\ntags: [new]\n---\n插入".into());
-                let editor = w.current_pane().unwrap().read(cx).editor.clone();
-                let at = source.find("😀").unwrap();
-                editor.update(cx, |s, cx| s.set_selected_range(at..at + 4, cx));
-                w.insert_template(std::path::Path::new("template.md"), window, cx);
-                let merged = editor.read(cx).value();
-                assert!(merged.ends_with("中文插入结束"));
-                assert!(merged.contains("old") && merged.contains("new"));
-                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
-                assert_eq!(editor.read(cx).value().as_ref(), source);
-                assert_eq!(editor.read(cx).selected_range(), at..at + 4);
-                Arc::make_mut(&mut w.index)
-                    .update("bad.md".into(), "---\ntags: [\n---\n破损".into());
-                w.insert_template(std::path::Path::new("bad.md"), window, cx);
-                assert_eq!(editor.read(cx).value().as_ref(), source);
-                assert!(w.status.contains("YAML"));
-            })
-            .unwrap();
-    }
-    #[gpui::test]
-    fn daily_navigation_opens_existing_neighbors_without_creating_notes(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let handle = cx.add_window(Workspace::new);
-        let root =
-            std::env::temp_dir().join(format!("inkstone-daily-navigation-{}", std::process::id()));
-        std::fs::create_dir_all(root.join("日记")).unwrap();
-        for name in ["2026-08-31", "2026-09-02", "2026-09-04"] {
-            std::fs::write(root.join(format!("日记/{name}.md")), name).unwrap();
-        }
-        handle
-            .update(cx, |w, window, cx| {
-                let vault = Vault::open(&root, root.with_extension("recovery")).unwrap();
-                w.index = Arc::new(Index::build(&vault).unwrap());
-                w.vault = Some(vault);
-                w.ui.prefs.daily.folder = "日记".into();
-                w.add_tab(
-                    "日记/2026-09-02.md".into(),
-                    Some("2026-09-02".into()),
-                    false,
-                    window,
-                    cx,
-                );
-                w.execute_command(77, window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        handle
-            .update(cx, |w, window, cx| {
-                assert_eq!(
-                    w.tabs[w.active.unwrap()].path,
-                    PathBuf::from("日记/2026-08-31.md")
-                );
-                w.execute_command(77, window, cx);
-                assert_eq!(w.status, "没有上一篇日记。");
-                w.execute_command(78, window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        handle
-            .update(cx, |w, window, cx| {
-                assert_eq!(
-                    w.tabs[w.active.unwrap()].path,
-                    PathBuf::from("日记/2026-09-02.md")
-                );
-                w.execute_command(78, window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        handle
-            .update(cx, |w, _, _| {
-                assert_eq!(
-                    w.tabs[w.active.unwrap()].path,
-                    PathBuf::from("日记/2026-09-04.md")
-                );
-            })
-            .unwrap();
-        assert_eq!(std::fs::read_dir(root.join("日记")).unwrap().count(), 3);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-    #[gpui::test]
-    fn date_time_commands_insert_at_selection_head_and_undo(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let handle = cx.add_window(Workspace::new);
-        handle
-            .update(cx, |w, window, cx| {
-                w.execute_command(75, window, cx);
-                assert!(w.tabs.is_empty());
-                w.add_tab("note.md".into(), Some("中文😀".into()), false, window, cx);
-                w.ui.prefs.templates.date_format = "[日期]".into();
-                w.ui.prefs.templates.time_format = "[时间]".into();
-                let pane = w.current_pane().unwrap();
-                let editor = pane.read(cx).editor.clone();
-                editor.update(cx, |s, cx| s.set_selected_range(3..10, cx));
-                w.execute_command(75, window, cx);
-                assert_eq!(editor.read(cx).value().as_ref(), "中文😀日期");
-                assert_eq!(editor.read(cx).selected_range(), 16..16);
-                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
-                assert_eq!(editor.read(cx).value().as_ref(), "中文😀");
-                assert_eq!(editor.read(cx).selected_range(), 3..10);
-                editor.update(cx, |s, cx| s.set_selected_range(3..3, cx));
-                w.execute_command(76, window, cx);
-                assert_eq!(editor.read(cx).value().as_ref(), "中时间文😀");
-                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
-                w.ui.prefs.templates.date_format = "[未闭合".into();
-                w.execute_command(75, window, cx);
-                assert_eq!(editor.read(cx).value().as_ref(), "中文😀");
-                assert!(w.status.contains("未闭合"));
-                pane.update(cx, |p, _| p.reading = true);
-                w.execute_command(76, window, cx);
-                assert_eq!(editor.read(cx).value().as_ref(), "中文😀");
-            })
-            .unwrap();
-    }
-    #[gpui::test]
-    fn template_picker_filters_empty_query_and_inserts_selected_template(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let handle = cx.add_window(Workspace::new);
-        let root = std::env::temp_dir().join(format!("inkstone-templates-{}", std::process::id()));
-        std::fs::create_dir_all(root.join("模板/子目录")).unwrap();
-        std::fs::write(root.join("a.md"), "").unwrap();
-        std::fs::write(
-            root.join("模板/子目录/会议.md"),
-            "# {{title}} {{date:YYYY}} {{time}}",
-        )
-        .unwrap();
-        handle
-            .update(cx, |w, window, cx| {
-                let vault = Vault::open(&root, root.with_extension("recovery")).unwrap();
-                w.index = Arc::new(Index::build(&vault).unwrap());
-                w.files = w.index.notes.keys().cloned().collect();
-                w.vault = Some(vault);
-                w.add_tab("a.md".into(), Some(String::new()), false, window, cx);
-                w.execute_command(29, window, cx);
-                assert!(!w.ui.quick_open);
-                assert!(w.status.contains("指定模板文件夹"));
-                w.ui.prefs.templates.folder = "模板".into();
-                w.ui.prefs.templates.time_format = "[测试时间]".into();
-                w.execute_command(29, window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        handle
-            .update(cx, |w, window, cx| {
-                assert_eq!(w.search_results.len(), 1);
-                assert_eq!(
-                    w.search_results[0].display_name.as_deref(),
-                    Some("子目录/会议")
-                );
-                w.open_selected_result(window, cx);
-                assert!(!w.ui.template_mode);
-                let text = w.current_pane().unwrap().read(cx).editor.read(cx).value();
-                assert!(text.starts_with("# a "));
-                assert!(text.ends_with(" 测试时间"));
-                w.ui.prefs.templates.folder = "缺失文件夹".into();
-                w.execute_command(29, window, cx);
-                assert!(!w.ui.quick_open);
-                assert!(w.status.contains("不存在"));
-            })
-            .unwrap();
-        cx.run_until_parked();
-        assert_eq!(
-            std::fs::read_to_string(root.join("模板/子目录/会议.md")).unwrap(),
-            "# {{title}} {{date:YYYY}} {{time}}"
-        );
-        std::fs::remove_dir_all(root).unwrap();
-    }
-    #[gpui::test]
-    fn daily_creation_uses_template_and_never_rewrites_existing_note(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let handle = cx.add_window(Workspace::new);
-        let root = std::env::temp_dir().join(format!("inkstone-daily-{}", std::process::id()));
-        std::fs::create_dir_all(root.join("日记")).unwrap();
-        std::fs::create_dir_all(root.join("模板")).unwrap();
-        std::fs::write(
-            root.join("模板/日记.md"),
-            "# {{title}}\n{{date:YYYY年MM月DD日}}\n",
-        )
-        .unwrap();
-        handle
-            .update(cx, |w, window, cx| {
-                w.vault = Some(Vault::open(&root, root.with_extension("recovery")).unwrap());
-                w.ui.prefs.daily.folder = "日记".into();
-                w.ui.prefs.daily.format = "[验收]/[今天]".into();
-                w.ui.prefs.daily.template = "模板/日记".into();
-                w.open_daily(window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        let path = root.join("日记/验收/今天.md");
-        let original = std::fs::read_to_string(&path).unwrap();
-        assert!(original.starts_with("# 今天\n"));
-        handle
-            .update(cx, |w, window, cx| {
-                assert_eq!(
-                    w.tabs[w.active.unwrap()].path,
-                    std::path::Path::new("日记/验收/今天.md")
-                );
-                w.ui.prefs.daily.template = "模板/不存在".into();
-                w.open_daily(window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-        handle
-            .update(cx, |w, window, cx| {
-                w.ui.prefs.daily.format = "[缺模板]".into();
-                w.open_daily(window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        assert!(!root.join("日记/缺模板.md").exists());
-        handle
-            .update(cx, |w, window, cx| {
-                assert!(w.status.contains("找不到日记模板"));
-                w.ui.prefs.daily.template.clear();
-                w.ui.prefs.daily.format = "[空白]".into();
-                w.open_daily(window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        assert_eq!(
-            std::fs::read_to_string(root.join("日记/空白.md")).unwrap(),
-            ""
-        );
-        handle
-            .update(cx, |w, window, cx| {
-                w.ui.prefs.daily.folder = "尚未创建".into();
-                w.open_daily(window, cx);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        assert!(!root.join("尚未创建").exists());
-        std::fs::remove_dir_all(root).unwrap();
     }
     #[gpui::test]
     fn reading_quote_link_opens_its_source_relative_note(cx: &mut TestAppContext) {
@@ -5045,7 +4785,6 @@ mod tests {
                     window,
                     cx,
                 );
-                w.ui.prefs.daily.template = "folder/old".into();
                 w.begin_inline_title(0, false, window, cx);
             })
             .unwrap();
@@ -5073,7 +4812,6 @@ mod tests {
                     w.ui.pending_file_writes
                 );
                 assert!(!root.join("folder/old.md").exists());
-                assert_eq!(w.ui.prefs.daily.template, "folder/新名😀");
                 assert_eq!(
                     w.tabs[w.active.unwrap()].path,
                     PathBuf::from("folder/other.md")
@@ -5107,7 +4845,6 @@ mod tests {
                         .as_ref(),
                     "other"
                 );
-                assert_eq!(w.ui.prefs.daily.template, "folder/新名😀");
                 assert_eq!(
                     std::fs::read_to_string(root.join("folder/新名😀.md")).unwrap(),
                     "body"
@@ -5236,9 +4973,6 @@ mod tests {
                 w.vault = Some(vault);
                 w.add_tab("old/note.md".into(), Some(source.into()), false, window, cx);
                 w.ui.prefs.bookmarks.push("old/note.md".into());
-                w.ui.prefs.daily.folder = "old".into();
-                w.ui.prefs.templates.folder = "old".into();
-                w.ui.prefs.daily.template = "old/target".into();
                 w.ui.closed.push("old/target.md".into());
                 w.manage_folder("old".into(), Some("archive/new".into()), window, cx);
                 assert!(w.ui.file_operation);
@@ -5258,9 +4992,6 @@ mod tests {
                     PathBuf::from("archive/new/note.md")
                 );
                 assert_eq!(w.ui.closed[0], PathBuf::from("archive/new/target.md"));
-                assert_eq!(w.ui.prefs.daily.folder, "archive/new");
-                assert_eq!(w.ui.prefs.templates.folder, "archive/new");
-                assert_eq!(w.ui.prefs.daily.template, "archive/new/target");
                 let disk = std::fs::read_to_string(root.join("archive/new/note.md")).unwrap();
                 assert_eq!(disk, "[[/archive/new/target]] [outside](../../outside.md)");
                 assert_eq!(w.tabs[0].save.baseline.borrow().as_ref(), Some(&disk));

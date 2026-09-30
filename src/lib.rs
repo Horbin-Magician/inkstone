@@ -1,5 +1,4 @@
 pub mod comments;
-pub mod daily;
 pub mod document;
 pub mod file_order;
 pub mod graph;
@@ -14,8 +13,6 @@ pub mod rendering;
 pub mod search;
 pub mod tables;
 pub mod tags;
-pub mod template_edit;
-pub mod templates;
 pub mod text_changes;
 pub mod vault;
 pub mod word_count;

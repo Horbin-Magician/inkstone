@@ -83,7 +83,6 @@ pub(super) struct UiState {
     pub left_mode: usize,
     pub right_mode: usize,
     pub quick_open: bool,
-    pub template_mode: bool,
     pub name_mode: Option<NameMode>,
     pub folder_target: Option<PathBuf>,
     pub settings: bool,
@@ -95,10 +94,6 @@ pub(super) struct UiState {
     _hotkey_filter_subscription: Subscription,
     pub note_folder_input: Entity<InputState>,
     pub attachment_folder_input: Entity<InputState>,
-    pub daily_inputs: [Entity<InputState>; 3],
-    _daily_subscriptions: Vec<Subscription>,
-    pub template_inputs: [Entity<InputState>; 3],
-    _template_subscriptions: Vec<Subscription>,
     _location_subscriptions: Vec<Subscription>,
     pub property_open: bool,
     pub property_kind: inkstone::properties::Kind,
@@ -362,46 +357,6 @@ impl UiState {
         })
         .collect();
         let hotkey_filter = cx.new(|cx| InputState::new(window, cx).placeholder("搜索快捷键命令…"));
-        let daily_inputs = ["YYYY-MM-DD", "留空使用新建笔记位置", "可选，如 模板/日记"]
-            .map(|placeholder| cx.new(|cx| InputState::new(window, cx).placeholder(placeholder)));
-        let daily_subscriptions = daily_inputs
-            .iter()
-            .enumerate()
-            .map(|(i, input)| {
-                cx.subscribe(input, move |this, input, event: &InputEvent, cx| {
-                    if matches!(event, InputEvent::Change) {
-                        let value = input.read(cx).value().to_string();
-                        match i {
-                            0 => this.ui.prefs.daily.format = value,
-                            1 => this.ui.prefs.daily.folder = value,
-                            _ => this.ui.prefs.daily.template = value,
-                        }
-                        this.persist_workspace(cx);
-                        cx.notify();
-                    }
-                })
-            })
-            .collect();
-        let template_inputs = ["模板文件夹", "YYYY-MM-DD", "HH:mm"]
-            .map(|placeholder| cx.new(|cx| InputState::new(window, cx).placeholder(placeholder)));
-        let template_subscriptions = template_inputs
-            .iter()
-            .enumerate()
-            .map(|(i, input)| {
-                cx.subscribe(input, move |this, input, event: &InputEvent, cx| {
-                    if matches!(event, InputEvent::Change) {
-                        let value = input.read(cx).value().to_string();
-                        match i {
-                            0 => this.ui.prefs.templates.folder = value,
-                            1 => this.ui.prefs.templates.date_format = value,
-                            _ => this.ui.prefs.templates.time_format = value,
-                        }
-                        this.persist_workspace(cx);
-                        cx.notify();
-                    }
-                })
-            })
-            .collect();
         let hotkey_filter_subscription = cx.observe(&hotkey_filter, |_, _, cx| cx.notify());
         let weak = cx.entity().downgrade();
         let window_id = window.window_handle().window_id();
@@ -446,7 +401,6 @@ impl UiState {
             left_mode: 0,
             right_mode: 0,
             quick_open: false,
-            template_mode: false,
             name_mode: None,
             folder_target: None,
             settings: false,
@@ -458,10 +412,6 @@ impl UiState {
             _hotkey_filter_subscription: hotkey_filter_subscription,
             note_folder_input,
             attachment_folder_input,
-            daily_inputs,
-            _daily_subscriptions: daily_subscriptions,
-            template_inputs,
-            _template_subscriptions: template_subscriptions,
             _location_subscriptions: location_subscriptions,
             property_open: false,
             property_kind: Default::default(),
@@ -912,8 +862,6 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (25, "切换斜体", "Ctrl+I"),
     (26, "插入内部链接", ""),
     (27, "固定 / 取消固定标签页", ""),
-    (28, "打开今天的日记", ""),
-    (29, "插入模板", ""),
     (30, "插入附件", ""),
     (31, "向右分屏", "Ctrl+\\"),
     (32, "向下分屏", ""),
@@ -959,10 +907,6 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (72, "插入脚注", ""),
     (73, "编辑光标处的脚注", ""),
     (74, "在文件列表中显示当前文件", ""),
-    (75, "插入当前日期", ""),
-    (76, "插入当前时间", ""),
-    (77, "打开上一篇日记", ""),
-    (78, "打开下一篇日记", ""),
     (79, "选择下一个相同文本", "Ctrl+D"),
     (80, "选择所有相同文本", "Ctrl+Shift+L"),
     (81, "上移当前行", "Alt+Up"),
@@ -1673,8 +1617,6 @@ impl Workspace {
             13 => self.ui.prefs.right_open = !self.ui.prefs.right_open,
             14 => {
                 self.prepare_file_settings(window, cx);
-                self.prepare_daily_settings(window, cx);
-                self.prepare_template_settings(window, cx);
                 self.ui.settings = true;
                 window.focus(&self.ui.modal_focus, cx);
             }
@@ -1748,8 +1690,6 @@ impl Workspace {
                     tab.pinned = !tab.pinned;
                 }
             }
-            28 => self.open_daily(window, cx),
-            29 => self.open_template_picker(window, cx),
             30 => self.choose_attachments(window, cx),
             31 => self.split_active(false, window, cx),
             32 => self.split_active(true, window, cx),
@@ -1813,8 +1753,6 @@ impl Workspace {
                 self.ui.left_mode = 0;
                 self.reveal_current_file(cx);
             }
-            75..=76 => self.insert_current_date_time(id == 76, window, cx),
-            77..=78 => self.open_neighboring_daily(id == 78, window, cx),
             79..=80 => {
                 if let Some(pane) = self.current_pane() {
                     pane.update(cx, |pane, cx| {
@@ -1978,7 +1916,6 @@ impl Workspace {
         }
         self.command_open = false;
         self.close_quick_search(window, cx);
-        self.ui.template_mode = false;
         self.ui.name_mode = None;
         self.ui.settings = false;
         self.ui.hotkey_recording = None;
@@ -2910,19 +2847,12 @@ impl Workspace {
             .get(self.ui.selected)
             .map(|h| (h.path.clone(), h.offset));
         if let Some((path, offset)) = hit {
-            if self.ui.template_mode {
-                self.insert_template(&path, w, cx);
-                return;
-            }
             self.pending_jump = Some((path.clone(), offset));
             self.open_note(path, w, cx);
             self.apply_jump(w, cx);
         }
     }
     fn visible_search_hits(&self, modal: bool, cx: &Context<Self>) -> Vec<SearchHit> {
-        if modal && self.ui.template_mode {
-            return self.search_results.clone();
-        }
         if modal && self.search.read(cx).value().is_empty() {
             self.files
                 .iter()
@@ -2961,16 +2891,8 @@ impl Workspace {
             .when(empty, |s| {
                 s.child(self.empty_state(
                     "search",
-                    if self.ui.template_mode {
-                        "未找到模板"
-                    } else {
-                        "未找到笔记"
-                    },
-                    if self.ui.template_mode {
-                        "请在设置中检查模板文件夹。"
-                    } else {
-                        "试试其他关键词，或创建一篇新笔记。"
-                    },
+                    "未找到笔记",
+                    "试试其他关键词，或创建一篇新笔记。",
                 ))
             })
             .children(hits.into_iter().enumerate().map(|(i, hit)| {
@@ -3014,10 +2936,6 @@ impl Workspace {
                         )
                     })
                     .on_click(cx.listener(move |this, _, w, cx| {
-                        if this.ui.template_mode {
-                            this.insert_template(&path, w, cx);
-                            return;
-                        }
                         this.pending_jump = Some((path.clone(), offset));
                         this.open_note(path.clone(), w, cx);
                         this.apply_jump(w, cx);
@@ -4747,11 +4665,7 @@ impl Workspace {
                     .child(if self.command_open {
                         "命令面板"
                     } else if self.ui.quick_open {
-                        if self.ui.template_mode {
-                            "插入模板"
-                        } else {
-                            "快速切换"
-                        }
+                        "快速切换"
                     } else if self.ui.property_open {
                         "编辑属性"
                     } else if self.ui.settings {
@@ -5147,12 +5061,6 @@ impl Workspace {
     fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         if matches!(self.ui.settings_tab, 5 | 6) {
             return self.appearance_settings_panel(self.ui.settings_tab == 6, cx);
-        }
-        if self.ui.settings_tab == 4 {
-            return self.template_settings_panel(cx);
-        }
-        if self.ui.settings_tab == 3 {
-            return self.daily_settings_panel(cx);
         }
         if self.ui.settings_tab == 2 {
             return self.file_settings_panel(cx);

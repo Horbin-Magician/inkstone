@@ -261,8 +261,6 @@ impl Workspace {
                     (0, "编辑器", "pencil"),
                     (2, "文件与链接", "folder"),
                     (1, "快捷键", "command"),
-                    (3, "日记", "calendar"),
-                    (4, "模板", "copy"),
                 ]
                 .into_iter()
                 .map(|(i, title, symbol)| {
@@ -291,12 +289,6 @@ impl Workspace {
                             this.ui.settings_scroll.set_offset(Point::default());
                             if i == 2 {
                                 this.prepare_file_settings(w, cx);
-                            }
-                            if i == 3 {
-                                this.prepare_daily_settings(w, cx);
-                            }
-                            if i == 4 {
-                                this.prepare_template_settings(w, cx);
                             }
                             this.ui.hotkey_recording = None;
                             cx.notify();

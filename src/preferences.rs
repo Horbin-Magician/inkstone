@@ -66,8 +66,6 @@ impl Default for ViewState {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
-    pub daily: crate::daily::Settings,
-    pub templates: crate::templates::Settings,
     pub tags: crate::tags::Options,
     pub property_types: std::collections::BTreeMap<String, crate::properties::Kind>,
     pub hotkeys: std::collections::BTreeMap<usize, Vec<String>>,
@@ -131,8 +129,6 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            daily: Default::default(),
-            templates: Default::default(),
             tags: Default::default(),
             property_types: Default::default(),
             hotkeys: Default::default(),
@@ -196,15 +192,6 @@ impl Default for Preferences {
     }
 }
 impl Preferences {
-    /// Update configured vault paths only after a successful filesystem move.
-    pub fn relocate_paths(&mut self, old: &Path, new: &Path, folder: bool) {
-        if folder {
-            self.locations.relocate(old, new);
-            relocate_setting(&mut self.daily.folder, old, new, true, false);
-            relocate_setting(&mut self.templates.folder, old, new, true, false);
-        }
-        relocate_setting(&mut self.daily.template, old, new, folder, true);
-    }
     pub fn load(path: &Path) -> Self {
         let saved: Option<serde_json::Value> = std::fs::read(path)
             .ok()
@@ -257,40 +244,6 @@ impl Preferences {
         }
         std::fs::rename(pending, path)
     }
-}
-
-fn relocate_setting(value: &mut String, old: &Path, new: &Path, folder: bool, markdown: bool) {
-    if value.trim().is_empty() {
-        return;
-    }
-    let mut path = PathBuf::from(value.trim().replace('\\', "/"));
-    let omitted_extension = markdown && path.extension().is_none();
-    if omitted_extension {
-        path.set_extension("md");
-    }
-    let old = PathBuf::from(old.to_string_lossy().replace('\\', "/"));
-    let parts: Vec<_> = path.components().collect();
-    let prefix: Vec<_> = old.components().collect();
-    if prefix.is_empty()
-        || parts.len() < prefix.len()
-        || (!folder && parts.len() != prefix.len())
-        || !parts.iter().zip(&prefix).all(|(a, b)| {
-            a.as_os_str().to_string_lossy().to_lowercase()
-                == b.as_os_str().to_string_lossy().to_lowercase()
-        })
-    {
-        return;
-    }
-    let suffix: PathBuf = parts.into_iter().skip(prefix.len()).collect();
-    let mut target = if suffix.as_os_str().is_empty() {
-        new.to_path_buf()
-    } else {
-        new.join(suffix)
-    };
-    if omitted_extension && target.with_extension("").extension().is_none() {
-        target.set_extension("");
-    }
-    *value = target.to_string_lossy().replace('\\', "/");
 }
 
 #[derive(Clone, Default, Debug)]
@@ -387,37 +340,6 @@ mod tests {
         assert_eq!(Preferences::load(&path).theme, ThemeMode::System);
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_file(path.with_extension("backup")).unwrap();
-    }
-    #[test]
-    fn relocation_keeps_daily_and_template_settings_attached_to_files() {
-        let mut prefs = Preferences::default();
-        prefs.daily.folder = "OLD\\日记".into();
-        prefs.templates.folder = "old/模板".into();
-        prefs.daily.template = "old/模板/每日".into();
-        prefs.relocate_paths(Path::new("old"), Path::new("归档/new"), true);
-        assert_eq!(prefs.daily.folder, "归档/new/日记");
-        assert_eq!(prefs.templates.folder, "归档/new/模板");
-        assert_eq!(prefs.daily.template, "归档/new/模板/每日");
-        prefs.relocate_paths(
-            Path::new("归档/new/模板/每日.md"),
-            Path::new("新模板/每天.v2.md"),
-            false,
-        );
-        assert_eq!(prefs.daily.template, "新模板/每天.v2.md");
-        prefs.daily.template = "old-other/template.md".into();
-        prefs.relocate_paths(Path::new("old"), Path::new("moved"), true);
-        assert_eq!(prefs.daily.template, "old-other/template.md");
-        prefs.daily.template = "模板/每日.md".into();
-        prefs.relocate_paths(
-            Path::new("模板/每日.md"),
-            Path::new("模板/每日新版.md"),
-            false,
-        );
-        assert_eq!(prefs.daily.template, "模板/每日新版.md");
-        prefs.daily.folder.clear();
-        prefs.templates.folder.clear();
-        prefs.relocate_paths(Path::new("模板"), Path::new("更名"), true);
-        assert!(prefs.daily.folder.is_empty() && prefs.templates.folder.is_empty());
     }
     #[test]
     fn navigation_discards_forward_branch_and_deduplicates() {
@@ -540,12 +462,6 @@ mod tests {
         prefs
             .property_types
             .insert("code".into(), crate::properties::Kind::Text);
-        prefs.daily.folder = "日记".into();
-        prefs.daily.format = "YYYY/MM/DD".into();
-        prefs.daily.template = "模板/日记.md".into();
-        prefs.templates.folder = "模板".into();
-        prefs.templates.date_format = "YYYY年MM月DD日".into();
-        prefs.templates.time_format = "HH:mm:ss".into();
         prefs.always_update_links = true;
         prefs.use_markdown_links = true;
         prefs.auto_reveal_file = true;
@@ -617,15 +533,6 @@ mod tests {
             Preferences::load(&path).property_types["code"],
             crate::properties::Kind::Text
         );
-        assert_eq!(Preferences::load(&path).daily.folder, "日记");
-        assert_eq!(Preferences::load(&path).daily.format, "YYYY/MM/DD");
-        assert_eq!(Preferences::load(&path).daily.template, "模板/日记.md");
-        assert_eq!(Preferences::load(&path).templates.folder, "模板");
-        assert_eq!(
-            Preferences::load(&path).templates.date_format,
-            "YYYY年MM月DD日"
-        );
-        assert_eq!(Preferences::load(&path).templates.time_format, "HH:mm:ss");
         assert_eq!(
             Preferences::load(&path).views[0].callout_states.get(&42),
             Some(&true)
