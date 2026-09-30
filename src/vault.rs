@@ -521,6 +521,16 @@ impl Vault {
         fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
+                // Workspace settings and recovery metadata are not vault assets.
+                // Match the watcher's exclusion so saving settings cannot change
+                // the indexed file list during a structural refresh.
+                if entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".inkstone-")
+                {
+                    continue;
+                }
                 let path = entry.path();
                 let meta = fs::symlink_metadata(&path)?;
                 if is_reparse(&meta) {
