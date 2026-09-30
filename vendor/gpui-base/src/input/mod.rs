@@ -135,4 +135,4 @@ pub use line_typography::LineTypography;
 
 #[path = "editor/display_objects.rs"]
 mod display_objects;
-pub use display_objects::{DisplayObject, DisplayProjection};
+pub use display_objects::{DisplayObject, DisplayProjection, DisplayScrollAnchor};

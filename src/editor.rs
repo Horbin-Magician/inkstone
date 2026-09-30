@@ -83,6 +83,7 @@ pub struct EditorPane {
     parsed_context_revision: u64,
     syntax_snapshot: Option<Arc<inkstone::syntax::Snapshot>>,
     live_objects: Vec<live_objects::Widget>,
+    pending_live_anchor: Option<gpui_base::input::DisplayScrollAnchor>,
     rendered: Arc<inkstone::rendering::ReadingDocument>,
     link_cache: ParsedCache,
     path_cache: PathCache,
@@ -717,6 +718,7 @@ impl EditorPane {
             parsed_context_revision: 0,
             syntax_snapshot: None,
             live_objects: vec![],
+            pending_live_anchor: None,
             rendered: Arc::default(),
             link_cache,
             path_cache,
@@ -742,6 +744,7 @@ impl EditorPane {
             .then(|| state.search_session().query.clone());
         let search_matches = state.search_session().matcher.matched_ranges();
         if self.parse_source != text || self.parsed_context_revision != self.context_revision {
+            self.pending_live_anchor = None;
             let initial_parse = self.parse_revision == 0;
             // Present only syntax for the current text. Dropping edited spans or
             // task markers while awaiting a background parse exposes source for
@@ -1163,6 +1166,14 @@ impl EditorPane {
 impl Render for EditorPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_presentation(cx);
+        if let Some(anchor) = self.pending_live_anchor.take() {
+            self.reveal_after_concealment = false;
+            cx.on_next_frame(_window, move |pane, _, cx| {
+                pane.editor.update(cx, |state, cx| {
+                    state.restore_display_scroll_anchor(anchor, cx);
+                });
+            });
+        }
         if std::mem::take(&mut self.reveal_after_concealment) && !self.reading {
             cx.on_next_frame(_window, |this, window, cx| {
                 if this.reading {

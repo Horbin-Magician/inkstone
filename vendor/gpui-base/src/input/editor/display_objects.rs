@@ -1,6 +1,6 @@
 //! Transient source-backed presentation objects, separate from editable tokens.
 use crate::input::{EditorMode, InputBaseState, LineTypography, RopeExt};
-use gpui::{Bounds, Context, Pixels, Size, px};
+use gpui::{Bounds, Context, Pixels, Size, point, px};
 use std::{ops::Range, rc::Rc};
 use sum_tree::Bias;
 
@@ -19,7 +19,64 @@ pub struct DisplayProjection {
     pub typography: Vec<LineTypography>,
 }
 
+#[derive(Clone, Copy)]
+pub struct DisplayScrollAnchor {
+    offset: usize,
+    y: Pixels,
+    revision: u64,
+}
+impl DisplayScrollAnchor {
+    pub fn source_offset(&self) -> usize {
+        self.offset
+    }
+    pub fn viewport_y(&self) -> Pixels {
+        self.y
+    }
+}
+
 impl InputBaseState<EditorMode> {
+    pub fn display_scroll_anchor(&self) -> Option<DisplayScrollAnchor> {
+        let bounds = self.last_bounds?;
+        let layout = self.last_layout.as_ref()?;
+        let (offset, _) =
+            self.index_for_mouse_position(self.input_bounds().origin + point(px(1.), px(1.)));
+        let p = self.text.offset_to_point(offset);
+        let row = self
+            .display_map
+            .buffer_pos_to_display_pos(crate::input::BufferPoint::new(p.row, p.column))
+            .row;
+        Some(DisplayScrollAnchor {
+            offset,
+            y: bounds.top() + self.display_map.row_top(row, layout.line_height),
+            revision: self.document_revision,
+        })
+    }
+    pub fn restore_display_scroll_anchor(
+        &mut self,
+        anchor: DisplayScrollAnchor,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if anchor.revision != self.document_revision {
+            return false;
+        }
+        let (Some(bounds), Some(layout)) = (self.last_bounds, self.last_layout.as_ref()) else {
+            return false;
+        };
+        let p = self.text.offset_to_point(anchor.offset);
+        let row = self
+            .display_map
+            .buffer_pos_to_display_pos(crate::input::BufferPoint::new(p.row, p.column))
+            .row;
+        let current = bounds.top() + self.display_map.row_top(row, layout.line_height);
+        self.set_scroll_offset(
+            point(
+                self.scroll_offset().x,
+                self.scroll_offset().y + anchor.y - current,
+            ),
+            cx,
+        );
+        true
+    }
     /// Install metadata for the exact current source snapshot. Invalid or
     /// overlapping objects are ignored. This never modifies content/history.
     /// The host composes `display_projection` with its other display layers.
