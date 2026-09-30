@@ -189,29 +189,6 @@ impl Workspace {
                         ),
                     )
                     .into_any_element(),
-                div()
-                    .px_4()
-                    .rounded(px(12.))
-                    .bg(card)
-                    .flex_shrink_0()
-                    .child(
-                        self.settings_row(
-                            "显示功能区",
-                            "显示窗口左侧的快捷操作功能区。",
-                            ui::setting_switch("ribbon-setting")
-                                .accessibility_label("显示功能区")
-                                .checked(self.ui.prefs.show_ribbon)
-                                .on_click(cx.listener(|this, enabled: &bool, _, cx| {
-                                    this.ui.prefs.show_ribbon = *enabled;
-                                    this.persist_workspace(cx);
-                                    cx.notify();
-                                })),
-                            false,
-                            16.,
-                        ),
-                    )
-                    .into_any_element(),
-                self.ribbon_settings(cx),
             ]
         } else {
             let mut fonts: Vec<_> = [

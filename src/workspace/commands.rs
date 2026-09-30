@@ -93,7 +93,6 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (94, "切换到最后一个标签页", "Ctrl+9"),
     (95, "删除当前行", "Ctrl+Shift+K"),
     (96, "选中当前行", "Alt+L"),
-    (97, "显示 / 隐藏功能区", ""),
     (98, "切换注释", "Ctrl+/"),
 ];
 
@@ -545,7 +544,6 @@ impl Workspace {
                 }
             }
             85 => self.open_current_note_in_new_tab(window, cx),
-            97 => self.ui.prefs.show_ribbon = !self.ui.prefs.show_ribbon,
             98 => {
                 if let Some(pane) = self.current_pane() {
                     pane.update(cx, |pane, cx| {

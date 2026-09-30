@@ -839,22 +839,6 @@ fn tool(id: &'static str, name: &str, tip: &'static str) -> Button {
         .h(px(32.))
 }
 #[derive(Clone)]
-struct DraggedRibbonAction {
-    id: usize,
-    label: String,
-}
-impl Render for DraggedRibbonAction {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .p_2()
-            .rounded(px(6.))
-            .bg(rgb(0x363636))
-            .text_color(rgb(0xdddddd))
-            .child(self.label.clone())
-    }
-}
-
-#[derive(Clone)]
 struct DraggedTab {
     id: usize,
     label: String,
@@ -1372,166 +1356,6 @@ impl Workspace {
             window.focus(&self.ui.workspace_focus, cx);
         }
         cx.notify();
-    }
-
-    pub(super) fn set_ribbon_command(
-        &mut self,
-        command: usize,
-        enabled: bool,
-        cx: &mut Context<Self>,
-    ) {
-        if !inkstone::preferences::RIBBON_COMMANDS
-            .iter()
-            .any(|item| item.0 == command)
-        {
-            return;
-        }
-        if enabled {
-            if !self.ui.prefs.ribbon_commands.contains(&command) {
-                self.ui.prefs.ribbon_commands.push(command);
-            }
-        } else {
-            self.ui.prefs.ribbon_commands.retain(|id| *id != command);
-        }
-        self.persist_workspace(cx);
-        cx.notify();
-    }
-
-    fn move_ribbon_command(&mut self, command: usize, target: usize, cx: &mut Context<Self>) {
-        let Some(from) = self
-            .ui
-            .prefs
-            .ribbon_commands
-            .iter()
-            .position(|id| *id == command)
-        else {
-            return;
-        };
-        let Some(to) = self
-            .ui
-            .prefs
-            .ribbon_commands
-            .iter()
-            .position(|id| *id == target)
-        else {
-            return;
-        };
-        let command = self.ui.prefs.ribbon_commands.remove(from);
-        self.ui.prefs.ribbon_commands.insert(to, command);
-        self.persist_workspace(cx);
-        cx.notify();
-    }
-
-    pub(super) fn ribbon_settings(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut order = self.ui.prefs.ribbon_commands.clone();
-        for &(id, _, _, _) in inkstone::preferences::RIBBON_COMMANDS {
-            if !order.contains(&id) {
-                order.push(id);
-            }
-        }
-        let rows = order
-            .into_iter()
-            .filter_map(|command| {
-                inkstone::preferences::RIBBON_COMMANDS
-                    .iter()
-                    .find(|item| item.0 == command)
-            })
-            .enumerate()
-            .map(|(index, &(command, _, _, label))| {
-                let enabled = self.ui.prefs.ribbon_commands.contains(&command);
-                div()
-                    .id(("ribbon-config", command))
-                    .when(enabled, |row| {
-                        row.on_drag(
-                            DraggedRibbonAction {
-                                id: command,
-                                label: label.into(),
-                            },
-                            |drag, _, _, cx| {
-                                cx.stop_propagation();
-                                cx.new(|_| drag.clone())
-                            },
-                        )
-                        .on_drop(cx.listener(
-                            move |this, drag: &DraggedRibbonAction, _, cx| {
-                                this.move_ribbon_command(drag.id, command, cx)
-                            },
-                        ))
-                    })
-                    .child(
-                        self.settings_row(
-                            label,
-                            if enabled {
-                                "拖动可调整显示顺序。"
-                            } else {
-                                "开启后在功能区显示。"
-                            },
-                            setting_switch(("ribbon-toggle", command))
-                                .accessibility_label(label)
-                                .checked(enabled)
-                                .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                                    this.set_ribbon_command(command, *checked, cx)
-                                })),
-                            index > 0,
-                            20.,
-                        ),
-                    )
-                    .into_any_element()
-            })
-            .collect();
-        self.settings_group("功能区按钮", rows)
-    }
-
-    fn ribbon(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .id("workspace-ribbon")
-            .debug_selector(|| "workspace-ribbon".into())
-            .w(px(48.))
-            .h_full()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .items_center()
-            .py_2()
-            .gap_1()
-            .bg(self.side())
-            .border_r_1()
-            .border_color(self.border())
-            .children(
-                self.ui
-                    .prefs
-                    .ribbon_commands
-                    .iter()
-                    .filter_map(|command| {
-                        inkstone::preferences::RIBBON_COMMANDS
-                            .iter()
-                            .find(|item| item.0 == *command)
-                    })
-                    .map(|&(command, id, icon, label)| {
-                        div()
-                            .id(("ribbon-drag", command))
-                            .debug_selector(move || format!("ribbon-action-{command}"))
-                            .on_drag(
-                                DraggedRibbonAction {
-                                    id: command,
-                                    label: label.into(),
-                                },
-                                |drag, _, _, cx| {
-                                    cx.stop_propagation();
-                                    cx.new(|_| drag.clone())
-                                },
-                            )
-                            .on_drop(cx.listener(move |this, drag: &DraggedRibbonAction, _, cx| {
-                                this.move_ribbon_command(drag.id, command, cx)
-                            }))
-                            .child(tool(id, icon, label).w(px(32.)).h(px(32.)).on_click(
-                                cx.listener(move |this, _, window, cx| {
-                                    this.execute_command(command, window, cx)
-                                }),
-                            ))
-                    }),
-            )
-            .into_any_element()
     }
 
     fn left_header(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -3856,9 +3680,6 @@ impl Render for Workspace {
                         .flex_1()
                         .min_h_0()
                         .flex()
-                        .when(self.ui.prefs.show_ribbon, |body| {
-                            body.child(self.ribbon(cx))
-                        })
                         .child(div().flex_1().min_w_0().h_full().child(panels)),
                 )
             })

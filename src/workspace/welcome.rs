@@ -110,7 +110,6 @@ mod tests {
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds("welcome").is_some());
-        assert!(visual.debug_bounds("workspace-ribbon").is_none());
         assert!(visual.debug_bounds("workspace-right-panel").is_none());
         assert!(visual.debug_bounds("workspace-status-bar").is_none());
         visual.simulate_keystrokes("ctrl-,");
