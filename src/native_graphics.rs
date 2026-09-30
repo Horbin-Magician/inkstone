@@ -89,6 +89,13 @@ impl Service {
                 } else {
                     graphics::FONT_SIZE
                 };
+            let pixels = f64::from(asset.width)
+                * f64::from(asset.height)
+                * f64::from(scale * dpi * gpui::SMOOTH_SVG_SCALE_FACTOR).powi(2);
+            anyhow::ensure!(
+                pixels.is_finite() && pixels * 4. <= CACHE_LIMIT as f64,
+                "图形超过 64 MiB 渲染预算，请减小内容或字号"
+            );
             let image = self.renderer.render_single_frame(&asset.svg, scale * dpi)?;
             Ok::<_, anyhow::Error>(Prepared {
                 image,
