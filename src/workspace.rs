@@ -734,8 +734,7 @@ impl Workspace {
                         this.views = Default::default();
                         this.tabs.clear();
                         this.active = None;
-                        this.status =
-                            "笔记库已打开。每 2 秒自动保存，恢复副本在应用恢复区。".into();
+                        this.status.clear();
                         this.loading = true;
                         let mut restored_active = None;
                         let saved_views = this.ui.prefs.views.clone();

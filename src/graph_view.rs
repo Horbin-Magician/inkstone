@@ -138,7 +138,7 @@ impl GraphView {
             .rounded(px(6.))
             .border_1()
             .border_color(rgb(if self.light { 0xdddddd } else { 0x454545 }))
-            .bg(rgb(if self.light { 0xf7f7f7 } else { 0x202020 }))
+            .bg(rgb(if self.light { 0xf7f7f7 } else { 0x212121 }))
             .shadow_sm()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
@@ -623,7 +623,7 @@ impl Render for GraphView {
                         px(4. * options.node_size)
                     };
                     let color = rgb(if selected {
-                        0xa88bfa
+                        0x3f9aca
                     } else if let Some(color) = n.color {
                         color
                     } else if n.missing {
