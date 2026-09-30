@@ -35,7 +35,7 @@ impl Workspace {
         if id == 39 {
             return vec!["ctrl-p".into(), "ctrl-shift-p".into()];
         }
-        ui::COMMANDS
+        commands::COMMANDS
             .iter()
             .find(|c| c.0 == id)
             .map(|c| {
@@ -57,7 +57,7 @@ impl Workspace {
                     };
                     !self.ui.prefs.hotkeys.iter().any(|(other, keys)| {
                         *other != id
-                            && ui::COMMANDS.iter().any(|c| c.0 == *other)
+                            && commands::COMMANDS.iter().any(|c| c.0 == *other)
                             && keys.iter().any(|key| Self::key_matches(key, &stroke))
                     })
                 })
@@ -115,7 +115,7 @@ impl Workspace {
         {
             return Err("该组合用于编辑器的选择、剪贴板、撤销、查找或链接跳转。".into());
         }
-        if let Some((_, title, _)) = ui::COMMANDS
+        if let Some((_, title, _)) = commands::COMMANDS
             .iter()
             .find(|c| c.0 != id && self.hotkeys(c.0).iter().any(|s| Self::key_matches(s, key)))
         {
@@ -131,7 +131,7 @@ impl Workspace {
     fn reset_hotkeys(&mut self, id: usize) -> Result<(), String> {
         for key in Self::default_hotkeys(id) {
             if let Ok(stroke) = Keystroke::parse(&key)
-                && let Some((_, title, _)) = ui::COMMANDS.iter().find(|c| {
+                && let Some((_, title, _)) = commands::COMMANDS.iter().find(|c| {
                     c.0 != id
                         && self
                             .hotkeys(c.0)
@@ -162,7 +162,7 @@ impl Workspace {
                 .current_pane()
                 .is_some_and(|p| p.read(cx).has_footnote_editor())
         {
-            if ui::COMMANDS.iter().any(|c| {
+            if commands::COMMANDS.iter().any(|c| {
                 self.hotkeys(c.0)
                     .iter()
                     .chain(Self::default_hotkeys(c.0).iter())
@@ -199,7 +199,7 @@ impl Workspace {
         {
             return;
         }
-        if let Some(id) = ui::COMMANDS
+        if let Some(id) = commands::COMMANDS
             .iter()
             .find(|c| self.hotkeys(c.0).iter().any(|s| Self::key_matches(s, key)))
             .map(|c| c.0)
@@ -222,7 +222,7 @@ impl Workspace {
                 return;
             }
             self.execute_command(id, window, cx);
-        } else if ui::COMMANDS.iter().any(|c| {
+        } else if commands::COMMANDS.iter().any(|c| {
             Self::default_hotkeys(c.0)
                 .iter()
                 .any(|s| Self::key_matches(s, key))
@@ -324,7 +324,7 @@ impl Workspace {
                             .overflow_y_scroll()
                             .max_h(px(430.))
                             .children(
-                                ui::COMMANDS
+                                commands::COMMANDS
                                     .iter()
                                     .filter(|(_, title, _)| title.to_lowercase().contains(&query))
                                     .map(|&(id, title, _)| {
