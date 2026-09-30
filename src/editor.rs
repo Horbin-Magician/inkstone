@@ -9,6 +9,7 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 mod font_zoom;
 mod footnotes;
 mod live_quotes;
+mod live_rules;
 mod live_tasks;
 
 pub enum EditorEvent {
@@ -50,6 +51,7 @@ pub struct EditorPane {
     footnote_edit: Option<footnotes::FootnoteEdit>,
     live_tasks: Vec<live_tasks::TaskWidget>,
     live_quotes: Vec<std::ops::Range<usize>>,
+    live_rules: Vec<std::ops::Range<usize>>,
     pub editor: Entity<EditorState>,
     decorations: TextDecorationCollection,
     pub live: bool,
@@ -690,6 +692,7 @@ impl EditorPane {
             navigation: Default::default(),
             live_tasks: vec![],
             live_quotes: vec![],
+            live_rules: vec![],
             font_size: 16.,
             quick_font_size: false,
             font_zoom: Default::default(),
@@ -800,9 +803,25 @@ impl EditorPane {
         let mut concealed = vec![];
         let mut concealed_lines = vec![];
         self.live_quotes.clear();
+        self.live_rules.clear();
         if self.live {
             for span in &self.spans {
                 let style = match span.kind {
+                    Kind::Rule => {
+                        let revealed = selections.iter().any(|selection| span.active(selection))
+                            || search_query.is_some()
+                                && search_matches
+                                    .get(
+                                        search_matches
+                                            .partition_point(|r| r.end <= span.content.start),
+                                    )
+                                    .is_some_and(|r| r.start < span.content.end);
+                        if !revealed {
+                            concealed.push(span.content.clone());
+                            self.live_rules.push(span.content.clone());
+                        }
+                        continue;
+                    }
                     Kind::QuoteContinuation => {
                         self.live_quotes.push(span.source.clone());
                         continue;
@@ -1370,6 +1389,13 @@ impl Render for EditorPane {
                 ),
             )
             .child(font_zoom::capture(cx.entity().downgrade()))
+            .when(!self.reading && self.live, |view| {
+                view.child(live_rules::overlay(
+                    self.editor.clone(),
+                    self.live_rules.clone(),
+                    self.light,
+                ))
+            })
             .when(!self.reading && self.live, |view| {
                 view.child(live_quotes::overlay(
                     self.editor.clone(),

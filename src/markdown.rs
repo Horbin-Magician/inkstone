@@ -6,6 +6,7 @@ pub const HEADING_SCALES: [f32; 6] = [1.618, 1.462, 1.318, 1.188, 1.076, 1.0];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
+    Rule,
     QuoteMarker,
     QuoteContinuation,
     Heading,
@@ -176,6 +177,19 @@ pub fn spans(text: &str) -> Vec<Span> {
         let Some(range) = boundary(node) else {
             return;
         };
+        if matches!(node, Node::ThematicBreak(_)) {
+            let start = text[..range.start].rfind('\n').map_or(0, |i| i + 1);
+            let end = text[range.start..]
+                .find(['\r', '\n'])
+                .map_or(text.len(), |i| range.start + i);
+            out.push(Span {
+                kind: Kind::Rule,
+                source: start..end,
+                content: range.clone(),
+                markers: std::iter::once(range).collect(),
+            });
+            return;
+        }
         let quote_depth = quote_depth + usize::from(matches!(node, Node::Blockquote(_)));
         if matches!(node, Node::Blockquote(_)) {
             let mut offset = range.start;
@@ -593,6 +607,17 @@ mod tests {
                 .iter()
                 .all(|span| span.kind != Kind::QuoteContinuation)
         );
+    }
+    #[test]
+    fn rules_exclude_setext_yaml_and_fenced_code() {
+        let source = "---\ntitle: test\n---\n\nheading\n---\n\n***\n\n> ___\n\n```\n---\n```";
+        let rules: Vec<_> = spans(source)
+            .into_iter()
+            .filter(|span| span.kind == Kind::Rule)
+            .collect();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(&source[rules[0].content.clone()], "***");
+        assert_eq!(&source[rules[1].content.clone()], "___");
     }
     #[test]
     fn highlight_handles_nested_formatting_and_escaped_openers() {
