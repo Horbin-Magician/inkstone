@@ -101,36 +101,11 @@ pub fn rebase_spans(before: &str, after: &str, spans: Vec<Span>) -> Vec<Span> {
     let delta = after.len() as isize - before.len() as isize;
     let shifted =
         |r: &Range<usize>| r.start.saturating_add_signed(delta)..r.end.saturating_add_signed(delta);
-    // Plain content edits cannot change delimiters. Keep their presentation until
-    // the authoritative parse arrives, including during Unicode/IME input.
-    let plain_edit = before[start..end]
-        .chars()
-        .chain(after[start..after.len() - suffix].chars())
-        .all(|ch| !ch.is_ascii_punctuation() && !ch.is_whitespace());
     spans
         .into_iter()
         .filter_map(|mut span| {
-            if span.source.start < end && start < span.source.end
-                || start == end && span.source.start < start && start < span.source.end
-            {
-                if !plain_edit
-                    || start < span.content.start
-                    || end > span.content.end
-                    || span.markers.iter().any(|marker| {
-                        marker.start < end && start < marker.end
-                            || start == end && marker.start < start && start < marker.end
-                    })
-                {
-                    return None;
-                }
-                span.source.end = span.source.end.saturating_add_signed(delta);
-                span.content.end = span.content.end.saturating_add_signed(delta);
-                for marker in &mut span.markers {
-                    if marker.start >= end {
-                        *marker = shifted(marker);
-                    }
-                }
-                return Some(span);
+            if span.source.start <= end && start <= span.source.end {
+                return None;
             }
             if span.source.start >= end {
                 span.source = shifted(&span.source);
@@ -481,25 +456,8 @@ mod tests {
         assert_eq!(&after[retained[0].source.clone()], "**one**");
         assert_eq!(&after[retained[1].content.clone()], "alias");
         let changed = rebase_spans(before, "**oXne**\ntext\n[[far|alias]]", spans(before));
-        assert_eq!(changed.len(), 2);
-        assert_eq!(changed[0].kind, Kind::Strong);
-        assert_eq!(changed[0].content, 2..6);
-        assert_eq!(changed[1].kind, Kind::WikiLink);
-    }
-    #[test]
-    fn content_edits_keep_nested_styles_but_syntax_edits_invalidate_them() {
-        let before = "**中文 *内容*😀**\n[[目标|别名]]";
-        for after in [
-            "**中文 *新内容*😀**\n[[目标|别名]]",
-            "**中文 *内*😀**\n[[目标|别名]]",
-            "**中文 *内容*你**\n[[目标|别名]]",
-            "**中文 *内容*😀**\n[[目标|新别名]]",
-        ] {
-            assert_eq!(rebase_spans(before, after, spans(before)), spans(after));
-        }
-        let after = "**中文 *内`容*😀**\n[[目标|别名]]";
-        let retained = rebase_spans(before, after, spans(before));
-        assert!(retained.iter().all(|span| span.kind == Kind::WikiLink));
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].kind, Kind::WikiLink);
     }
     #[test]
     fn chinese_ranges_are_source_bytes_and_source_is_unchanged() {
