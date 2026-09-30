@@ -1149,12 +1149,13 @@ impl Workspace {
                 let Some(vault) = self.vault.clone() else {
                     return;
                 };
-                let name = self.name.read(cx).value().to_string();
+                let folder = PathBuf::from(self.name.read(cx).value().as_ref());
+                let path = folder.clone();
                 let generation = self.generation;
                 self.ui.pending_file_writes += 1;
                 let task = cx
                     .background_executor()
-                    .spawn(async move { vault.create_folder(std::path::Path::new(&name)) });
+                    .spawn(async move { vault.create_folder(&path) });
                 cx.spawn(async move |this, cx| {
                     let result = task.await;
                     let _ = this.update(cx, |this, cx| {
@@ -1163,9 +1164,23 @@ impl Workspace {
                             return;
                         }
                         this.status = match result {
-                            Ok(()) => "文件夹已创建".into(),
+                            Ok(()) => {
+                                for path in folder.ancestors().filter(|p| !p.as_os_str().is_empty())
+                                {
+                                    if !this.ui.folders.iter().any(|p| p == path) {
+                                        this.ui.folders.push(path.to_path_buf());
+                                    }
+                                }
+                                this.ui.folders.sort();
+                                this.folder_revision += 1;
+                                this.ui.tree_folders = this.ui.folders.clone();
+                                this.rebuild_sorted_tree(cx);
+                                "文件夹已创建".into()
+                            }
                             Err(e) => e.to_string(),
                         };
+                        // Reconcile even on failure: mkdir may have created some parents.
+                        this.structure_changed = true;
                         this.refresh_requested = true;
                         cx.notify();
                     });
