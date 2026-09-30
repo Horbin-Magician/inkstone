@@ -38,6 +38,7 @@ pub struct BlockReference {
 }
 #[derive(Clone, Debug, Default)]
 pub struct ParsedNote {
+    pub inline_footnotes: Vec<crate::syntax::InlineFootnote>,
     pub comments: Vec<crate::comments::Comment>,
     pub footnotes: Vec<(Range<usize>, String)>,
     pub footnote_references: Vec<(Range<usize>, String)>,
@@ -252,6 +253,7 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
         }
     }
     let mut result = ParsedNote {
+        inline_footnotes: snapshot.inline_footnotes.clone(),
         comments: snapshot.comments.clone(),
         ..Default::default()
     };

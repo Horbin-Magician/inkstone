@@ -16,6 +16,102 @@ pub struct Snapshot {
     pub structural: Arc<str>,
     pub comments: Vec<crate::comments::Comment>,
     pub ast: Option<Arc<Node>>,
+    pub inline_footnotes: Vec<InlineFootnote>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlineFootnote {
+    pub range: std::ops::Range<usize>,
+    pub content: std::ops::Range<usize>,
+}
+
+fn inline_footnotes(source: &str, ast: Option<&Node>) -> Vec<InlineFootnote> {
+    fn excluded(node: &Node, out: &mut Vec<std::ops::Range<usize>>) {
+        if matches!(
+            node,
+            Node::Code(_)
+                | Node::InlineCode(_)
+                | Node::Yaml(_)
+                | Node::Html(_)
+                | Node::Math(_)
+                | Node::InlineMath(_)
+                | Node::Definition(_)
+                | Node::Link(_)
+                | Node::Image(_)
+        ) {
+            if let Some(p) = node.position() {
+                out.push(p.start.offset..p.end.offset);
+            }
+            return;
+        }
+        if let Some(children) = node.children() {
+            for n in children {
+                excluded(n, out);
+            }
+        }
+    }
+    let mut blocked = vec![];
+    if let Some(ast) = ast {
+        excluded(ast, &mut blocked);
+    }
+    blocked.sort_by_key(|r| r.start);
+    let mut notes = vec![];
+    let mut cursor = 0;
+    while let Some(offset) = source[cursor..].find("^[") {
+        let start = cursor + offset;
+        cursor = start + 2;
+        if source[..start]
+            .bytes()
+            .rev()
+            .take_while(|b| *b == b'\\')
+            .count()
+            % 2
+            == 1
+            || blocked.iter().any(|r| r.contains(&start))
+        {
+            continue;
+        }
+        let mut depth = 1;
+        let mut i = cursor;
+        while i < source.len() {
+            if let Some(range) = blocked
+                .get(blocked.partition_point(|r| r.end <= i))
+                .filter(|r| r.contains(&i))
+            {
+                i = range.end;
+                continue;
+            }
+            let ch = source[i..].chars().next().unwrap();
+            if ch == '\\' {
+                i += 1;
+                if let Some(next) = source[i..].chars().next() {
+                    i += next.len_utf8();
+                }
+                continue;
+            }
+            if ch == '[' {
+                depth += 1;
+            }
+            if ch == ']' {
+                depth -= 1;
+                if depth == 0 {
+                    if i > cursor {
+                        notes.push(InlineFootnote {
+                            range: start..i + 1,
+                            content: cursor..i,
+                        });
+                    }
+                    cursor = i + 1;
+                    break;
+                }
+            }
+            if ch == '\n' && source[i + 1..].trim_start_matches('\r').starts_with('\n') {
+                break;
+            }
+            i += ch.len_utf8();
+        }
+    }
+    notes
 }
 
 impl Snapshot {
@@ -25,11 +121,13 @@ impl Snapshot {
         let ast = markdown_parser::to_mdast(&structural, &options())
             .ok()
             .map(Arc::new);
+        let inline_footnotes = inline_footnotes(&structural, ast.as_deref());
         Self {
             source: source.into(),
             structural,
             comments,
             ast,
+            inline_footnotes,
         }
     }
 }
@@ -37,6 +135,30 @@ impl Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inline_footnotes_keep_unicode_ranges_and_skip_escaped_code_and_math() {
+        let source = r"正文^[短 **强调** [链接](note.md) \] 正文] `^[代码]` $\text{^[公式]}$ \^[转义] %%^[注释]%% ^[第二条]";
+        let snapshot = Snapshot::new(source);
+        assert_eq!(snapshot.inline_footnotes.len(), 2);
+        let first = &snapshot.inline_footnotes[0];
+        assert_eq!(
+            &source[first.content.clone()],
+            r"短 **强调** [链接](note.md) \] 正文"
+        );
+        assert_eq!(
+            &source[first.range.clone()],
+            r"^[短 **强调** [链接](note.md) \] 正文]"
+        );
+        assert_eq!(
+            &source[snapshot.inline_footnotes[1].content.clone()],
+            "第二条"
+        );
+        assert!(
+            Snapshot::new("^[未闭合\n\n后续]")
+                .inline_footnotes
+                .is_empty()
+        );
+    }
     #[test]
     fn math_and_code_do_not_leak_note_structure_or_comment_markers() {
         let source = "# 真标题\r\n$\\text{[[伪链接]] #伪标签 %%公式%% ==文字==}$\r\n$$\r\n# 伪标题\r\n- [ ] 伪任务\r\n[[伪链接]]\r\n$$\r\n```mermaid\r\nA[\"[[伪链接]]\"]\r\n```\r\n[[真实]] %%注释%%";
