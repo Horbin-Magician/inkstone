@@ -1,4 +1,5 @@
 mod appearance;
+mod commands;
 mod document;
 mod extras;
 mod file_settings;
@@ -2082,6 +2083,71 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn replace_command_opens_the_focused_view_in_editing_mode(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("note.md".into(), Some("text".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                w.focus_secondary(cx);
+                let primary = w.tabs[0].pane.clone();
+                let secondary = w.current_pane().unwrap();
+                assert_ne!(primary, secondary);
+                for pane in [&primary, &secondary] {
+                    pane.update(cx, |pane, _| pane.reading = true);
+                }
+                w.execute_command(23, window, cx);
+                assert!(primary.read(cx).reading);
+                assert_eq!(
+                    primary
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .search_activation_revision(),
+                    0
+                );
+                assert!(!secondary.read(cx).reading);
+                assert_eq!(
+                    secondary
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .search_activation_revision(),
+                    1
+                );
+                assert!(
+                    secondary
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .search_session()
+                        .replace_mode
+                );
+                w.focus_primary(0, window, cx);
+                w.execute_command(23, window, cx);
+                assert!(!primary.read(cx).reading);
+                assert_eq!(
+                    primary
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .search_activation_revision(),
+                    1
+                );
+                assert_eq!(
+                    secondary
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .search_activation_revision(),
+                    1
+                );
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn live_task_click_updates_shared_views_and_undo(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
