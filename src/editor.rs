@@ -1169,6 +1169,13 @@ impl Render for EditorPane {
             .line_height(relative(1.5))
             .style(
                 gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
+                    .with_foreground(rgb(if self.light { 0x0f0f0f } else { 0xd1d1d1 }).into())
+                    .with_link(rgb(0x3f9aca).into())
+                    .with_task_checkbox(
+                        StyleRefinement::default()
+                            .rounded_full()
+                            .border_color(rgb(if self.light { 0xababab } else { 0x666666 })),
+                    )
                     .with_paragraph_gap(rems(16. / f32::from(_window.rem_size()).max(1.)))
                     .with_heading(move |level| {
                         let i = usize::from(level.saturating_sub(1)).min(5);

@@ -24,6 +24,7 @@ pub struct TextViewStyle {
     table: StyleRefinement,
     table_head: StyleRefinement,
     table_cell: StyleRefinement,
+    task_checkbox: StyleRefinement,
     inline_code: HighlightStyle,
     is_dark: bool,
 }
@@ -42,6 +43,7 @@ impl PartialEq for TextViewStyle {
             && self.table == other.table
             && self.table_head == other.table_head
             && self.table_cell == other.table_cell
+            && self.task_checkbox == other.task_checkbox
             && self.inline_code == other.inline_code
             && self.is_dark == other.is_dark
     }
@@ -81,6 +83,7 @@ impl TextViewStyle {
             table: StyleRefinement::default(),
             table_head: StyleRefinement::default(),
             table_cell: StyleRefinement::default(),
+            task_checkbox: StyleRefinement::default(),
             inline_code: HighlightStyle {
                 background_color: Some(colors.accent),
                 ..Default::default()
@@ -185,6 +188,16 @@ impl TextViewStyle {
     pub fn with_table_cell(mut self, style: StyleRefinement) -> Self {
         self.table_cell = style;
         self
+    }
+
+    /// Styles the task indicator before its checked colors are applied.
+    pub fn with_task_checkbox(mut self, style: StyleRefinement) -> Self {
+        self.task_checkbox = style;
+        self
+    }
+
+    pub fn task_checkbox(&self) -> &StyleRefinement {
+        &self.task_checkbox
     }
 
     /// Sets whether content-specific assets should use their dark variant.
