@@ -771,6 +771,11 @@ impl Workspace {
 
 pub(super) fn icon(name: &str) -> Icon {
     let shape = match name {
+        "text" => Some("M4 5h16M4 10h10M4 15h16M4 20h10"),
+        "hash" => Some("M10 3 8 21M16 3l-2 18M4 9h17M3 15h17"),
+        "check-square" => {
+            Some("M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8M9 11l3 3L22 4")
+        }
         "square-pen" => Some(
             "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M16 3l5 5M9 15l1-5L18 2l4 4-8 8z",
         ),
@@ -3384,40 +3389,90 @@ impl Workspace {
                         }))
                     })
                     .when(self.ui.right_mode == 4, |s| {
-                        s.child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .pb_3()
-                                .child("属性")
-                                .child(tool("new-property", "plus", "添加属性").on_click(
-                                    cx.listener(|this, _, w, cx| this.edit_property("", "", w, cx)),
-                                )),
-                        )
-                        .children(properties.iter().enumerate().map(|(i, p)| {
+                        s.children(properties.iter().enumerate().map(|(i, p)| {
                             let name = p.name.clone();
                             let value = p.value.clone();
+                            let kind = self
+                                .ui
+                                .prefs
+                                .property_types
+                                .get(&name.to_lowercase())
+                                .copied()
+                                .unwrap_or_else(|| inkstone::properties::Kind::infer(&value));
+                            let symbol = if name == "tags" {
+                                "tags"
+                            } else {
+                                match kind {
+                                    inkstone::properties::Kind::Number => "hash",
+                                    inkstone::properties::Kind::Checkbox => "check-square",
+                                    inkstone::properties::Kind::Date
+                                    | inkstone::properties::Kind::DateTime => "calendar",
+                                    inkstone::properties::Kind::List => "list",
+                                    _ => "text",
+                                }
+                            };
+                            let display = match serde_json::from_str::<serde_json::Value>(&value) {
+                                Ok(serde_json::Value::String(text)) => text,
+                                Ok(serde_json::Value::Null) => String::new(),
+                                Ok(serde_json::Value::Array(items)) => items
+                                    .iter()
+                                    .map(|item| {
+                                        item.as_str()
+                                            .map(str::to_owned)
+                                            .unwrap_or_else(|| item.to_string())
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                                _ => value.clone(),
+                            };
                             div()
                                 .id(("property", i))
-                                .p_2()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .min_h(px(34.))
+                                .px_2()
+                                .py_1()
+                                .rounded(px(4.))
+                                .text_size(px(13.))
                                 .cursor_pointer()
+                                .hover(|s| s.bg(rgba(0x88888818)))
+                                .child(icon(symbol).size(px(16.)).text_color(rgb(0x999999)))
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .w(px(100.))
+                                        .flex_shrink_0()
+                                        .truncate()
                                         .text_color(rgb(0x999999))
                                         .child(name.clone()),
                                 )
-                                .child(
-                                    div().truncate().child(
-                                        serde_json::from_str::<String>(&value)
-                                            .unwrap_or_else(|_| value.clone()),
-                                    ),
-                                )
+                                .child(div().flex_1().min_w_0().truncate().child(display))
                                 .on_click(cx.listener(move |this, _, w, cx| {
                                     this.edit_property(&name, &value, w, cx)
                                 }))
                         }))
+                        .child(
+                            Button::new("new-property")
+                                .ghost()
+                                .w_full()
+                                .justify_start()
+                                .h(px(34.))
+                                .accessibility_label("添加笔记属性")
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .text_size(px(13.))
+                                        .text_color(rgb(0x999999))
+                                        .child(icon("plus").size(px(14.)))
+                                        .child("添加笔记属性"),
+                                )
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.edit_property("", "", w, cx)),
+                                ),
+                        )
                     })
                     .when(self.ui.right_mode == 3, |s| {
                         s.child(self.tags_panel(window, cx))
