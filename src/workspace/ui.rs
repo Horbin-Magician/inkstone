@@ -1391,11 +1391,6 @@ impl Workspace {
                         cx.notify();
                     })),
             )
-            .child(div().flex_1())
-            .child(
-                tool("left-hide", "panel-left-close", "收起左侧栏")
-                    .on_click(cx.listener(|this, _, w, cx| this.execute_command(12, w, cx))),
-            )
             .into_any_element()
     }
     fn right_header(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1470,12 +1465,6 @@ impl Workspace {
             .bg(self.side())
             .border_b_1()
             .border_color(self.border())
-            .when(!self.ui.prefs.left_open, |s| {
-                s.child(
-                    tool("show-left", "panel-left", "展开左侧栏")
-                        .on_click(cx.listener(|this, _, w, cx| this.execute_command(12, w, cx))),
-                )
-            })
             .child(
                 div()
                     .id("tabs")
@@ -1709,18 +1698,6 @@ impl Workspace {
                         menu
                     },
                 ),
-            )
-            .child(
-                tool(
-                    "show-right",
-                    "panel-right",
-                    if self.ui.prefs.right_open {
-                        "收起右侧栏"
-                    } else {
-                        "展开右侧栏"
-                    },
-                )
-                .on_click(cx.listener(|this, _, w, cx| this.execute_command(13, w, cx))),
             )
             .into_any_element()
     }
@@ -3659,11 +3636,46 @@ impl Render for Workspace {
                         div()
                             .flex()
                             .items_center()
+                            .gap_1()
                             .px_2()
                             // Keep title-bar actions out of the native window drag hitbox.
                             .occlude()
                             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                 cx.stop_propagation();
+                            })
+                            .when(has_workspace, |bar| {
+                                bar.child(
+                                    tool(
+                                        "title-toggle-left",
+                                        if self.ui.prefs.left_open {
+                                            "panel-left-close"
+                                        } else {
+                                            "panel-left"
+                                        },
+                                        if self.ui.prefs.left_open {
+                                            "收起左侧栏"
+                                        } else {
+                                            "展开左侧栏"
+                                        },
+                                    )
+                                    .on_click(cx.listener(|this, _, w, cx| {
+                                        this.execute_command(12, w, cx)
+                                    })),
+                                )
+                                .child(
+                                    tool(
+                                        "title-toggle-right",
+                                        "panel-right",
+                                        if self.ui.prefs.right_open {
+                                            "收起右侧栏"
+                                        } else {
+                                            "展开右侧栏"
+                                        },
+                                    )
+                                    .on_click(cx.listener(|this, _, w, cx| {
+                                        this.execute_command(13, w, cx)
+                                    })),
+                                )
                             })
                             .child(tool("title-settings", "settings", "设置").on_click(
                                 cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
