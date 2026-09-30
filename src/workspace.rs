@@ -99,6 +99,8 @@ pub struct Workspace {
     command_open: bool,
     changed_paths: std::collections::BTreeSet<PathBuf>,
     rescan: bool,
+    structure_changed: bool,
+    folder_revision: u64,
     ui: ui::UiState,
     views: views::Views,
 }
@@ -130,6 +132,10 @@ impl Workspace {
         if let Some(receiver) = &self.watch_events {
             for event in receiver.try_iter() {
                 match event {
+                    Ok(event) if event.need_rescan() => {
+                        self.refresh_requested = true;
+                        self.rescan = true;
+                    }
                     Ok(event)
                         if !matches!(event.kind, notify::EventKind::Access(_))
                             && event.paths.iter().any(|p| {
@@ -146,6 +152,9 @@ impl Workspace {
                             {
                                 continue;
                             }
+                            if matches!(event.kind, notify::EventKind::Create(_)) {
+                                self.structure_changed = true;
+                            }
                             if path
                                 .extension()
                                 .is_some_and(|e| e.eq_ignore_ascii_case("md"))
@@ -159,7 +168,7 @@ impl Workspace {
                                 } else {
                                     self.rescan = true;
                                 }
-                            } else {
+                            } else if !matches!(event.kind, notify::EventKind::Create(_)) {
                                 self.rescan = true;
                             }
                         }
@@ -191,8 +200,10 @@ impl Workspace {
         self.refresh_requested = false;
         self.refreshing = true;
         let generation = self.generation;
+        let folder_revision = self.folder_revision;
         let changed = std::mem::take(&mut self.changed_paths);
-        let rescan = std::mem::take(&mut self.rescan) || changed.is_empty();
+        let structure_changed = std::mem::take(&mut self.structure_changed);
+        let rescan = std::mem::take(&mut self.rescan) || (changed.is_empty() && !structure_changed);
         let previous = self.index.clone();
         let requests: Vec<_> = self
             .tabs
@@ -201,15 +212,20 @@ impl Workspace {
             .collect();
         let task = cx.background_executor().spawn(async move {
             let index = if rescan {
-                Index::build(&vault)?
+                Arc::new(Index::build(&vault)?)
+            } else if structure_changed {
+                refresh_created_index(&vault, previous.clone(), changed)?
             } else {
                 let mut index = (*previous).clone();
                 index.refresh_paths(&vault, changed)?;
-                index
+                Arc::new(index)
             };
             let files = index.notes.keys().cloned().collect();
             let mut documents = vec![];
             for (id, path, baseline) in requests {
+                if Arc::ptr_eq(&previous, &index) {
+                    break;
+                }
                 let disk = vault.read(&path)?;
                 documents.push((id, path, baseline, disk));
             }
@@ -228,10 +244,18 @@ impl Workspace {
                 }
                 match result {
                     Ok((files, documents, index, folders)) => {
-                        this.ui.folders = folders;
+                        if this.folder_revision == folder_revision {
+                            this.ui.folders = folders;
+                        }
                         this.files = files;
-                        this.index = Arc::new(index);
-                        this.sync_index_ui(cx);
+                        let index_changed = !Arc::ptr_eq(&this.index, &index);
+                        if index_changed {
+                            this.index = index;
+                            this.sync_index_ui(cx);
+                        } else if this.ui.tree_folders != this.ui.folders {
+                            this.ui.tree_folders = this.ui.folders.clone();
+                            this.rebuild_sorted_tree(cx);
+                        }
                         for (id, path, baseline, disk) in documents {
                             let split_pending=this.has_pending_input(id,window,cx);
                             let Some(tab) = this.tabs.iter_mut().find(|t|t.id == id) else { continue; };
@@ -249,10 +273,12 @@ impl Workspace {
                                 this.document_changed(editor, window, cx);
                             }
                         }
+                        if index_changed {
+                            this.run_search(cx);
+                        }
                     }
                     Err(error) => this.status = error.to_string(),
                 }
-                this.run_search(cx);
                 cx.notify();
             });
         }).detach();
@@ -562,6 +588,8 @@ impl Workspace {
             command_open: false,
             changed_paths: Default::default(),
             rescan: false,
+            structure_changed: false,
+            folder_revision: 0,
         }
     }
     fn choose_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -719,6 +747,7 @@ impl Workspace {
                         this.refresh_requested = false;
                         this.changed_paths.clear();
                         this.rescan = false;
+                        this.structure_changed = false;
                         this.files = files;
                         this.views = Default::default();
                         this.tabs.clear();
@@ -1981,6 +2010,38 @@ impl Workspace {
         self.save_all(window, cx);
         cx.notify();
     }
+}
+
+// Creation events (including Windows' CreateKind::Any) can describe an empty
+// folder or an imported directory. Discover new files without reparsing notes
+// whose contents did not change.
+fn refresh_created_index(
+    vault: &Vault,
+    previous: Arc<Index>,
+    mut changed: std::collections::BTreeSet<PathBuf>,
+) -> Result<Arc<Index>, VaultError> {
+    let files = vault.scan_files()?;
+    let notes: std::collections::BTreeSet<_> = files
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")))
+        .cloned()
+        .collect();
+    changed.retain(|p| notes.contains(p));
+    changed.extend(
+        notes
+            .iter()
+            .filter(|p| !previous.notes.contains_key(*p))
+            .cloned(),
+    );
+    let removed = previous.notes.keys().any(|p| !notes.contains(p));
+    if changed.is_empty() && !removed && files == previous.files {
+        return Ok(previous);
+    }
+    let mut index = (*previous).clone();
+    index.notes.retain(|p, _| notes.contains(p));
+    index.refresh_paths(vault, changed)?;
+    index.files = files;
+    Ok(Arc::new(index))
 }
 
 fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
@@ -5995,6 +6056,180 @@ mod tests {
                 assert_eq!(workspace.ui.closed, vec![PathBuf::from("中文.md")]);
             })
             .unwrap();
+    }
+
+    #[test]
+    fn folder_creation_refresh_preserves_notes_and_discovers_imported_files() {
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-folder-index-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("old.md"), "# Original").unwrap();
+        let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+        let index = Arc::new(Index::build(&vault).unwrap());
+        // Any unnecessary read of an existing note now fails UTF-8 decoding.
+        std::fs::write(root.join("old.md"), [0xff]).unwrap();
+        std::fs::write(root.join(".inkstone-workspace.pending"), "settings").unwrap();
+        vault
+            .create_folder(std::path::Path::new("parent/empty.md"))
+            .unwrap();
+        let same = refresh_created_index(&vault, index.clone(), ["parent/empty.md".into()].into())
+            .unwrap();
+        assert!(Arc::ptr_eq(&same, &index));
+
+        std::fs::write(root.join("parent/new.md"), "# Imported").unwrap();
+        std::fs::write(root.join("parent/image.png"), []).unwrap();
+        let imported = refresh_created_index(&vault, same, Default::default()).unwrap();
+        assert_eq!(
+            imported.notes[std::path::Path::new("old.md")].text,
+            "# Original"
+        );
+        assert_eq!(
+            imported.notes[std::path::Path::new("parent/new.md")].text,
+            "# Imported"
+        );
+        assert!(imported.files.contains(&PathBuf::from("parent/image.png")));
+
+        std::fs::write(root.join("old.md"), "# Changed").unwrap();
+        std::fs::remove_file(root.join("parent/new.md")).unwrap();
+        let updated = refresh_created_index(&vault, imported, ["old.md".into()].into()).unwrap();
+        assert_eq!(
+            updated.notes[std::path::Path::new("old.md")].text,
+            "# Changed"
+        );
+        assert!(
+            !updated
+                .notes
+                .contains_key(std::path::Path::new("parent/new.md"))
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn folder_creation_updates_tree_before_tick_and_reuses_index(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-folder-ui-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("old.md"), "# Original").unwrap();
+        std::fs::write(root.join(".inkstone-workspace.json"), "{}").unwrap();
+        let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+        let index = Arc::new(Index::build(&vault).unwrap());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.index = index.clone();
+                w.files = index.notes.keys().cloned().collect();
+                w.sync_index_ui(cx);
+                w.watch_events = Some(receiver);
+                w.ui.name_mode = Some(ui::NameMode::Folder);
+                w.name.update(cx, |input, cx| {
+                    input.set_value("parent/empty.md", window, cx)
+                });
+                w.submit_name(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.status, "文件夹已创建");
+                assert_eq!(w.ui.pending_file_writes, 0);
+                assert!(Arc::ptr_eq(&index, &w.index));
+                assert!(!w.refreshing);
+                let tree = w.tree.read(cx);
+                assert!(
+                    tree.entry(tree.index_of(&SharedString::from("parent")).unwrap())
+                        .unwrap()
+                        .is_folder()
+                );
+                assert!(w.ui.folders.contains(&PathBuf::from("parent/empty.md")));
+            })
+            .unwrap();
+        std::fs::write(root.join("old.md"), [0xff]).unwrap();
+        for kind in [
+            notify::event::CreateKind::Any,
+            notify::event::CreateKind::Folder,
+        ] {
+            sender
+                .send(Ok(notify::Event::new(notify::EventKind::Create(kind))
+                    .add_path(vault.root.join("parent"))
+                    .add_path(vault.root.join("parent/empty.md"))))
+                .unwrap();
+            handle
+                .update(cx, |w, window, cx| w.tick(window, cx))
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, _, _| {
+                    assert!(Arc::ptr_eq(&index, &w.index));
+                    assert!(!w.refreshing);
+                    assert!(!w.refresh_requested);
+                    assert_eq!(w.status, "文件夹已创建");
+                })
+                .unwrap();
+        }
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.name_mode = Some(ui::NameMode::Folder);
+                w.submit_name(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_ne!(w.status, "文件夹已创建");
+                assert_eq!(w.ui.folders.len(), 2);
+                assert_eq!(w.ui.pending_file_writes, 0);
+                w.tick(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| assert!(Arc::ptr_eq(&index, &w.index)))
+            .unwrap();
+
+        // A note edit batched with directory creation must still be indexed.
+        std::fs::write(root.join("old.md"), "# Changed").unwrap();
+        std::fs::create_dir(root.join("external")).unwrap();
+        sender
+            .send(Ok(notify::Event::new(notify::EventKind::Create(
+                notify::event::CreateKind::Any,
+            ))
+            .add_path(vault.root.join("external"))))
+            .unwrap();
+        sender
+            .send(Ok(notify::Event::new(notify::EventKind::Modify(
+                notify::event::ModifyKind::Any,
+            ))
+            .add_path(vault.root.join("old.md"))))
+            .unwrap();
+        handle
+            .update(cx, |w, window, cx| w.tick(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(
+                    w.index.notes[std::path::Path::new("old.md")].text,
+                    "# Changed"
+                );
+                assert!(w.ui.folders.contains(&PathBuf::from("external")));
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[gpui::test]
