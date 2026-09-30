@@ -1,4 +1,4 @@
-# 砚台 / Inkstone
+# 砚台Inkstone
 
 Rust + GPUI 本地 Markdown 笔记应用。正在按本机 Obsidian 1.13.7 对齐 UI 与基础功能，整体目标尚未完成。当前实现及剩余差距见 [对齐清单](docs/OBSIDIAN_PARITY.md)。
 

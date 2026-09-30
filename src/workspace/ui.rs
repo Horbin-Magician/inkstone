@@ -4355,7 +4355,7 @@ impl Render for Workspace {
             .unwrap_or_default();
         let error = active.and_then(|t| t.save.error.borrow().clone());
         _window.set_window_title(&format!(
-            "{} - 砚台",
+            "{} - 砚台Inkstone",
             if self.graph_open {
                 "关系图谱"
             } else {
