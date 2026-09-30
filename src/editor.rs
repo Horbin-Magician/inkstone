@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 mod font_zoom;
 mod footnotes;
+mod live_objects;
 mod live_quotes;
 mod live_rules;
 mod live_tasks;
@@ -80,6 +81,8 @@ pub struct EditorPane {
     reference_index: Arc<index::Index>,
     context_revision: u64,
     parsed_context_revision: u64,
+    syntax_snapshot: Option<Arc<inkstone::syntax::Snapshot>>,
+    live_objects: Vec<live_objects::Widget>,
     rendered: Arc<inkstone::rendering::ReadingDocument>,
     link_cache: ParsedCache,
     path_cache: PathCache,
@@ -712,6 +715,8 @@ impl EditorPane {
             reference_index: Arc::default(),
             context_revision: 0,
             parsed_context_revision: 0,
+            syntax_snapshot: None,
+            live_objects: vec![],
             rendered: Arc::default(),
             link_cache,
             path_cache,
@@ -745,9 +750,10 @@ impl EditorPane {
             // existing layout/focus initialization order. Subsequent edits must
             // never pass through that unstyled loading state.
             if !initial_parse {
-                let snapshot = inkstone::syntax::Snapshot::new(&text);
+                let snapshot = Arc::new(inkstone::syntax::Snapshot::new(&text));
                 self.spans = markdown::spans_snapshot(&snapshot);
                 self.parsed = index::parse_snapshot(&snapshot);
+                self.syntax_snapshot = Some(snapshot);
                 self.typography_ready = true;
                 *self.link_cache.borrow_mut() = (text.clone(), self.parsed.clone());
             }
@@ -759,19 +765,40 @@ impl EditorPane {
             let references = self.reference_index.clone();
             let path = self.current_path.clone();
             let context_revision = self.context_revision;
+            let cached_snapshot = self.syntax_snapshot.clone();
             let task = cx.background_executor().spawn(async move {
+                let snapshot = cached_snapshot
+                    .filter(|s| s.source.as_ref() == source.as_ref())
+                    .unwrap_or_else(|| Arc::new(inkstone::syntax::Snapshot::new(&source)));
                 let initial = initial_parse.then(|| {
-                    let snapshot = inkstone::syntax::Snapshot::new(&source);
                     (
+                        snapshot.clone(),
                         markdown::spans_snapshot(&snapshot),
                         index::parse_snapshot(&snapshot),
                     )
                 });
-                let reading = inkstone::rendering::reading_document(&references, &path, &source);
-                (initial, reading)
+                let reading = inkstone::rendering::reading_snapshot(
+                    &references,
+                    &path,
+                    snapshot.clone(),
+                    0..source.len(),
+                );
+                let fragments = inkstone::preview::candidates(&snapshot)
+                    .into_iter()
+                    .map(|candidate| {
+                        let document = inkstone::rendering::reading_snapshot(
+                            &references,
+                            &path,
+                            snapshot.clone(),
+                            candidate.source.clone(),
+                        );
+                        (candidate, document)
+                    })
+                    .collect();
+                (initial, reading, fragments)
             });
             self.parse_task = Some(cx.spawn(async move |this, cx| {
-                let (initial, reading) = task.await;
+                let (initial, reading, fragments) = task.await;
                 let _ = this.update(cx, |this, cx| {
                     if this.parse_revision != revision
                         || this.context_revision != context_revision
@@ -779,7 +806,8 @@ impl EditorPane {
                     {
                         return;
                     }
-                    if let Some((spans, parsed)) = initial {
+                    if let Some((snapshot, spans, parsed)) = initial {
+                        this.syntax_snapshot = Some(snapshot);
                         this.spans = spans;
                         this.parsed = parsed;
                         this.typography_ready = true;
@@ -799,6 +827,7 @@ impl EditorPane {
                     this.preview
                         .update(cx, |state, cx| state.set_text(&reading.markdown, cx));
                     this.rendered = Arc::new(reading);
+                    this.install_live_objects(fragments, cx);
                     this.last_presentation = None;
                     cx.notify();
                 });
@@ -1002,7 +1031,7 @@ impl EditorPane {
                 }
             }
         }
-        let styles = if !self.live {
+        let mut styles = if !self.live {
             Some(vec![])
         } else if self.typography_ready {
             let heading_lines: std::collections::BTreeMap<_, _> = self
@@ -1042,6 +1071,44 @@ impl EditorPane {
         } else {
             None
         };
+        let objects = self.active_live_objects(
+            &text,
+            &selections,
+            if search_query.is_some() {
+                &search_matches
+            } else {
+                &[]
+            },
+        );
+        let object_ranges: Vec<_> = objects.iter().map(|o| o.source.clone()).collect();
+        let projection = self.editor.update(cx, |s, cx| {
+            s.set_display_objects(&text, objects, cx);
+            s.display_projection(px(self.font_size * 1.5), styles.take().unwrap_or_default())
+        });
+        self.live_quotes.retain(|r| {
+            !object_ranges
+                .iter()
+                .any(|o| o.start <= r.start && r.end <= o.end)
+        });
+        self.live_rules.retain(|r| {
+            !object_ranges
+                .iter()
+                .any(|o| o.start <= r.start && r.end <= o.end)
+        });
+        self.live_tasks.retain(|t| {
+            !object_ranges
+                .iter()
+                .any(|o| o.start <= t.range.start && t.range.end <= o.end)
+        });
+        replacements.retain(|(r, _)| {
+            !projection
+                .replacements
+                .iter()
+                .any(|(o, _)| r.start < o.end && o.start < r.end)
+        });
+        replacements.extend(projection.replacements);
+        concealed_lines.extend(projection.hidden_lines);
+        styles = Some(projection.typography);
         let was_visible = self.last_geometry.is_some_and(|(_, visible)| visible);
         if let Some(styles) = styles
             && self
@@ -1429,6 +1496,21 @@ impl Render for EditorPane {
                 ),
             )
             .child(font_zoom::capture(cx.entity().downgrade()))
+            .when(!self.reading && self.live, |view| {
+                view.child(live_objects::overlay(
+                    cx.entity().downgrade(),
+                    self.editor.clone(),
+                    self.live_objects.clone(),
+                    (
+                        self.vault_root.clone(),
+                        self.reference_index.clone(),
+                        self.font_size,
+                        self.light,
+                        self.strict_line_breaks,
+                        self.text_font.clone(),
+                    ),
+                ))
+            })
             .when(!self.reading && self.live, |view| {
                 view.child(live_rules::overlay(
                     self.editor.clone(),
