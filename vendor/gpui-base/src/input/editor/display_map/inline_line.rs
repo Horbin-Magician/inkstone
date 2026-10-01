@@ -33,6 +33,17 @@ impl From<ShapedLine> for InputLine {
     }
 }
 impl InputLine {
+    pub(crate) fn glyph_height(&self) -> Pixels {
+        let height = |line: &ShapedLine| line.ascent.abs() + line.descent.abs();
+        match &self.content {
+            Content::Text(line) => height(line),
+            Content::Inline(fragments) => fragments
+                .iter()
+                .filter_map(|f| f.text.as_ref().map(height))
+                .max()
+                .unwrap_or(px(0.)),
+        }
+    }
     pub(crate) fn inline(text: SharedString, fragments: Vec<InlineFragment>) -> Self {
         let width = fragments.last().map_or(px(0.), |f| f.x + f.width);
         Self {

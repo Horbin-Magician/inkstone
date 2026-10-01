@@ -731,6 +731,7 @@ pub(crate) struct LineLayout {
     /// can skip the glyph walk for the common case of a line without highlights.
     has_background: bool,
     row_height: Option<Pixels>,
+    glyph_height: Pixels,
 }
 
 impl LineLayout {
@@ -744,6 +745,7 @@ impl LineLayout {
             whitespace_indicators: None,
             has_background: false,
             row_height: None,
+            glyph_height: px(0.),
         }
     }
     pub(crate) fn with_row_height(mut self, height: Pixels) -> Self {
@@ -791,9 +793,20 @@ impl LineLayout {
             .unwrap_or_default();
         self.longest_width = width;
         self.wrapped_lines = wrapped_lines.into_iter().map(InputLine::from).collect();
+        self.glyph_height = self
+            .wrapped_lines
+            .iter()
+            .map(InputLine::glyph_height)
+            .max()
+            .unwrap_or(px(0.));
     }
 
     pub(crate) fn inline_lines(mut self, lines: SmallVec<[InputLine; 1]>) -> Self {
+        self.glyph_height = lines
+            .iter()
+            .map(InputLine::glyph_height)
+            .max()
+            .unwrap_or(px(0.));
         self.len = lines.iter().map(|line| line.len).sum();
         self.longest_width = lines
             .iter()
@@ -1009,6 +1022,20 @@ impl LineLayout {
         )
     }
 
+    fn painted_rows(&self, y: Pixels, height: Pixels, window: &Window) -> Range<usize> {
+        let mask = window.content_mask().bounds;
+        // Include overhanging glyphs and one extra row at each edge. All rows
+        // stay shaped for source hit testing, selection and caret navigation.
+        painted_row_range(
+            y,
+            height,
+            mask.top(),
+            mask.bottom(),
+            self.glyph_height.max(height),
+            self.wrapped_lines.len(),
+        )
+    }
+
     /// Paint only the glyph background quads of this line.
     ///
     /// gpui's [`ShapedLine::paint`] does not draw backgrounds, so every line painted with
@@ -1029,7 +1056,9 @@ impl LineLayout {
         }
 
         let line_height = self.row_height(line_height);
-        for (ix, line) in self.wrapped_lines.iter().enumerate() {
+        let visible = self.painted_rows(pos.y, line_height, window);
+        for ix in visible {
+            let line = &self.wrapped_lines[ix];
             _ = line.paint_background(
                 pos + point(self.line_indent(ix), ix * line_height),
                 line_height,
@@ -1051,7 +1080,9 @@ impl LineLayout {
         cx: &mut App,
     ) {
         let line_height = self.row_height(line_height);
-        for (ix, line) in self.wrapped_lines.iter().enumerate() {
+        let visible = self.painted_rows(pos.y, line_height, window);
+        for ix in visible.clone() {
+            let line = &self.wrapped_lines[ix];
             _ = line.paint(
                 pos + point(self.line_indent(ix), ix * line_height),
                 line_height,
@@ -1065,6 +1096,9 @@ impl LineLayout {
         // Paint whitespace indicators
         if let Some(indicators) = self.whitespace_indicators.as_ref() {
             for (line_index, x_position, is_tab) in &self.whitespace_chars {
+                if !visible.contains(line_index) {
+                    continue;
+                }
                 let invisible = if *is_tab {
                     indicators.tab.clone()
                 } else {
@@ -1082,12 +1116,41 @@ impl LineLayout {
     }
 }
 
+fn painted_row_range(
+    y: Pixels,
+    height: Pixels,
+    top: Pixels,
+    bottom: Pixels,
+    overhang: Pixels,
+    count: usize,
+) -> Range<usize> {
+    if height <= px(0.) {
+        return 0..count;
+    }
+    let start = ((top - overhang - y) / height).floor().max(0.) as usize;
+    let end = ((bottom + overhang - y) / height).ceil().max(0.) as usize;
+    start.min(count)..end.min(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::rc::Rc;
 
     use gpui::{Boundary, FontFeatures, FontStyle, FontWeight, px};
+
+    #[test]
+    fn paint_row_culling_keeps_boundary_and_overhanging_glyph_rows() {
+        let visible = |y, top, bottom, overhang| {
+            painted_row_range(px(y), px(20.), px(top), px(bottom), px(overhang), 10_000)
+        };
+        assert_eq!(visible(0., 0., 100., 20.), 0..6);
+        assert_eq!(visible(-1_000., 0., 100., 20.), 49..56);
+        assert_eq!(visible(-1_000., 0., 100., 80.), 46..59);
+        assert_eq!(visible(200., 0., 100., 20.), 0..0);
+        assert_eq!(visible(-300_000., 0., 100., 20.), 10_000..10_000);
+        assert_eq!(visible(-1_000.5, 0., 100., 20.), 49..57);
+    }
 
     #[test]
     fn test_update() {
