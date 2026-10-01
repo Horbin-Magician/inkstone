@@ -48,6 +48,14 @@ impl EditorPane {
                                 && w.role == candidate.role
                         })
                         .map(|i| old.remove(i));
+                    let reuse_geometry =
+                        previous
+                            .as_ref()
+                            .is_some_and(|w| match (&w.graphic, &graphic) {
+                                (Some(old), Some(new)) => Arc::ptr_eq(old, new),
+                                (None, None) => true,
+                                _ => false,
+                            });
                     let (view, observer, width, height) = if let Some(previous) = previous {
                         (
                             previous.view.clone(),
@@ -65,6 +73,7 @@ impl EditorPane {
                     };
                     let (width, height) = graphic
                         .as_ref()
+                        .filter(|_| !reuse_geometry)
                         .and_then(|g| g.as_ref().as_ref().ok())
                         .map_or((width, height), |g| {
                             (g.width, g.height.max(self.font_size * 1.5))
@@ -154,10 +163,19 @@ struct Appearance {
     font_family: SharedString,
 }
 
+// Text rows center their ascent/descent within the reserved line height.
+// Reserve both sides of that baseline so fractions and deep subscripts fit.
+fn inline_math_height(height: f32, baseline: f32, base_height: f32, bias: f32) -> f32 {
+    base_height
+        .max(2. * (baseline - bias))
+        .max(2. * (height - baseline + bias))
+}
+
 fn element(
     widget: &Widget,
     pane: WeakEntity<EditorPane>,
     appearance: &Appearance,
+    row_height: Pixels,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -180,10 +198,31 @@ fn element(
         .as_ref()
         .and_then(|g| g.as_ref().as_ref().ok());
     let sprite_element = sprite.map(|g| {
-        img(g.image.clone())
-            .w(px(g.width))
-            .h(px(g.height))
-            .into_any_element()
+        let image = img(g.image.clone()).w(px(g.width)).h(px(g.height));
+        if !widget.block
+            && let Some(baseline) = g.baseline
+        {
+            let font = window.text_system().resolve_font(&Font {
+                family: appearance.font_family.clone(),
+                ..Default::default()
+            });
+            let base_height = px(appearance.font * 1.5);
+            let bias = window
+                .text_system()
+                .baseline_offset(font, px(appearance.font), base_height)
+                - base_height / 2.;
+            let height =
+                inline_math_height(g.height, baseline, f32::from(base_height), f32::from(bias));
+            let top = row_height.max(px(height)) / 2. + bias - px(baseline);
+            div()
+                .relative()
+                .w(px(g.width))
+                .h(px(height))
+                .child(image.absolute().top(top))
+                .into_any_element()
+        } else {
+            image.into_any_element()
+        }
     });
     div()
         .id(("live-object", start))
@@ -371,7 +410,12 @@ pub(super) fn overlay(
                         continue;
                     }
                     let available = (content.right() - bounds.left() - px(12.)).max(px(1.));
-                    let mut view = element(widget, pane.clone(), &appearance, window, cx);
+                    let row_height = editor
+                        .read(cx)
+                        .range_to_bounds(&(widget.source.start..widget.source.start))
+                        .map_or(bounds.size.height, |row| row.size.height);
+                    let mut view =
+                        element(widget, pane.clone(), &appearance, row_height, window, cx);
                     let width = if widget.block {
                         AvailableSpace::Definite(available)
                     } else {
@@ -438,6 +482,81 @@ pub(super) fn overlay(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn live_math_reserves_baseline_and_retains_measured_geometry_on_reparse(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let source = "top\n\n文字 $\\frac{1}{2}$ 和 $x_{i_j}$ 后续\n\n```mermaid\nflowchart LR\nA --> B\n```\n\ntail";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..10 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, window, cx| {
+                let font = window.text_system().resolve_font(&Font {
+                    family: pane.text_font.clone(),
+                    ..Default::default()
+                });
+                let bias = window.text_system().baseline_offset(
+                    font,
+                    px(pane.font_size),
+                    px(pane.font_size * 1.5),
+                ) - px(pane.font_size * 0.75);
+                for widget in pane.live_objects.iter().filter(|w| !w.block) {
+                    let graphic = widget.graphic.as_ref().unwrap().as_ref().as_ref().unwrap();
+                    let row = pane
+                        .editor
+                        .read(cx)
+                        .range_to_bounds(&(widget.source.start..widget.source.start))
+                        .unwrap();
+                    let top = row.size.height / 2. + bias - px(graphic.baseline.unwrap());
+                    assert!(top >= px(-0.1));
+                    assert!(top + px(graphic.height) <= row.size.height + px(0.1));
+                    assert!(widget.height >= graphic.height);
+                }
+                let old: Vec<_> = pane
+                    .live_objects
+                    .iter()
+                    .map(|w| (w.width, w.height))
+                    .collect();
+                let snapshot = Arc::new(inkstone::syntax::Snapshot::new(source));
+                let reading = inkstone::rendering::reading_snapshot(
+                    &pane.reference_index,
+                    &pane.current_path,
+                    snapshot.clone(),
+                    0..source.len(),
+                );
+                let service = crate::native_graphics::Service::get(cx);
+                let fragments = inkstone::preview::fragments(
+                    &pane.reference_index,
+                    &pane.current_path,
+                    snapshot,
+                    &reading,
+                )
+                .into_iter()
+                .map(|fragment| {
+                    let graphic = fragment.graphic.as_ref().map(|(kind, text)| {
+                        service.prepare(*kind, text, pane.light, pane.font_size, pane.graphic_dpi)
+                    });
+                    (fragment, graphic)
+                })
+                .collect();
+                pane.install_live_objects(fragments, cx);
+                assert_eq!(
+                    old,
+                    pane.live_objects
+                        .iter()
+                        .map(|w| (w.width, w.height))
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn live_footnotes_share_numbering_render_footer_and_open_inline_editor(
         cx: &mut TestAppContext,
