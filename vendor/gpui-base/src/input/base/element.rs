@@ -144,6 +144,27 @@ pub(super) struct DisplayMetricsKey {
     tab_size: usize,
 }
 
+/// One retained set of source-coordinate lines. Scrolling changes their origin,
+/// not their glyphs; keep the layout while all shaping inputs remain identical.
+#[derive(Clone, PartialEq)]
+pub(super) struct LineLayoutKey {
+    document_revision: u64,
+    presentation_revision: u64,
+    visible_buffer_lines: Vec<usize>,
+    font_size: Pixels,
+    line_height: Pixels,
+    wrap_width: Option<Pixels>,
+    wrapping_indent: super::WrappingIndent,
+    runs: Vec<TextRun>,
+    backgrounds: Vec<(Range<usize>, Hsla)>,
+    metrics: Rc<[(Range<usize>, Pixels)]>,
+}
+
+pub(super) struct LineLayoutCache {
+    key: LineLayoutKey,
+    lines: Rc<Vec<LineLayout>>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct EditorScrollbarSnapshot {
     layout: EditorScrollbarLayout,
@@ -2846,16 +2867,48 @@ impl<M: InputModeKind> Element for TextElement<M> {
         let whitespace_indicators =
             Self::layout_whitespace_indicators(&state, text_size, &text_style, window, cx);
 
-        let lines = Self::layout_lines(
-            &state,
-            &display_text,
-            &last_layout,
-            text_size,
-            &runs,
-            &document_colors,
-            whitespace_indicators,
-            window,
-        );
+        // Masking, placeholders, tokens and whitespace indicators have separate
+        // presentation inputs. Keep them on the existing layout path.
+        let cache_key = (!is_empty
+            && !state.masked
+            && state.mask_pattern.is_none()
+            && !state.tokens_visible()
+            && whitespace_indicators.is_none())
+        .then(|| LineLayoutKey {
+            document_revision: state.document_revision,
+            presentation_revision: state.presentation_revision,
+            visible_buffer_lines: last_layout.visible_buffer_lines.clone(),
+            font_size: text_size,
+            line_height,
+            wrap_width,
+            wrapping_indent,
+            runs: runs.clone(),
+            backgrounds: document_colors.clone(),
+            metrics: state.display_metrics.clone(),
+        });
+        let retained = state.line_layout_cache.borrow();
+        let cached = retained
+            .as_ref()
+            .filter(|cache| Some(&cache.key) == cache_key.as_ref());
+        let lines = if let Some(cached) = cached {
+            cached.lines.clone()
+        } else {
+            Rc::new(Self::layout_lines(
+                &state,
+                &display_text,
+                &last_layout,
+                text_size,
+                &runs,
+                &document_colors,
+                whitespace_indicators,
+                window,
+            ))
+        };
+        drop(retained);
+        *state.line_layout_cache.borrow_mut() = cache_key.map(|key| LineLayoutCache {
+            key,
+            lines: lines.clone(),
+        });
 
         let mut longest_line_width = wrap_width.unwrap_or(px(0.));
         // 1. Single line
@@ -2962,7 +3015,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                     .map_or(px(0.), |cache| cache.unwrapped_width)
             };
         }
-        last_layout.lines = Rc::new(lines);
+        last_layout.lines = lines;
 
         let (ghost_first_line, ghost_lines) = Self::layout_inline_completion(
             state,
@@ -3813,6 +3866,67 @@ mod tests {
             DecorationHarness(state)
         });
         (editor.unwrap(), window)
+    }
+
+    #[gpui::test]
+    fn scrolling_reuses_shaped_lines_and_presentation_changes_invalidate_them(
+        cx: &mut TestAppContext,
+    ) {
+        let source = "中文 é 👩‍💻 paragraph ".repeat(100);
+        let (editor, window) = decoration_editor(cx, &source, true);
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        let lines = |editor: &Entity<EditorState>, cx: &App| {
+            editor.read(cx).last_layout.as_ref().unwrap().lines.clone()
+        };
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let initial = lines(&editor, cx);
+            editor.update(cx, |state, cx| {
+                state.set_scroll_offset(point(px(0.), px(-10.)), cx);
+            });
+            window.draw(cx).clear(cx);
+            assert!(Rc::ptr_eq(&initial, &lines(&editor, cx)));
+
+            let decorations = editor.update(cx, |state, cx| {
+                state.create_decorations_collection(
+                    vec![TextDecoration::new(
+                        0..6,
+                        HighlightStyle {
+                            color: Some(gpui::red()),
+                            ..Default::default()
+                        },
+                    )],
+                    cx,
+                )
+            });
+            window.draw(cx).clear(cx);
+            let styled = lines(&editor, cx);
+            assert!(!Rc::ptr_eq(&initial, &styled));
+            window.draw(cx).clear(cx);
+            assert!(Rc::ptr_eq(&styled, &lines(&editor, cx)));
+
+            editor.update(cx, |state, cx| {
+                state.set_concealed_ranges(vec![0..6], cx);
+            });
+            window.draw(cx).clear(cx);
+            let concealed = lines(&editor, cx);
+            assert!(!Rc::ptr_eq(&styled, &concealed));
+            assert_eq!(editor.read(cx).value().as_ref(), source);
+
+            editor.update(cx, |state, cx| {
+                state.set_selected_range(0..0, cx);
+                state.replace("字", window, cx);
+            });
+            window.draw(cx).clear(cx);
+            assert!(!Rc::ptr_eq(&concealed, &lines(&editor, cx)));
+            drop(decorations);
+        });
+        let before_resize = visual.update(|_, cx| lines(&editor, cx));
+        visual.simulate_resize(size(px(400.), px(140.)));
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            assert!(!Rc::ptr_eq(&before_resize, &lines(&editor, cx)));
+        });
     }
 
     #[gpui::test]
