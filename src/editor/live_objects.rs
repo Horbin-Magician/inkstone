@@ -176,6 +176,7 @@ fn element(
     pane: WeakEntity<EditorPane>,
     appearance: &Appearance,
     row_height: Pixels,
+    available: Pixels,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -198,7 +199,14 @@ fn element(
         .as_ref()
         .and_then(|g| g.as_ref().as_ref().ok());
     let sprite_element = sprite.map(|g| {
-        let image = img(g.image.clone()).w(px(g.width)).h(px(g.height));
+        let scale = if g.kind == inkstone::graphics::Kind::Mermaid {
+            (f32::from(available) / g.width).min(1.)
+        } else {
+            1.
+        };
+        let image = img(g.image.clone())
+            .w(px(g.width * scale))
+            .h(px(g.height * scale));
         if !widget.block
             && let Some(baseline) = g.baseline
         {
@@ -414,8 +422,15 @@ pub(super) fn overlay(
                         .read(cx)
                         .range_to_bounds(&(widget.source.start..widget.source.start))
                         .map_or(bounds.size.height, |row| row.size.height);
-                    let mut view =
-                        element(widget, pane.clone(), &appearance, row_height, window, cx);
+                    let mut view = element(
+                        widget,
+                        pane.clone(),
+                        &appearance,
+                        row_height,
+                        available,
+                        window,
+                        cx,
+                    );
                     let width = if widget.block {
                         AvailableSpace::Definite(available)
                     } else {

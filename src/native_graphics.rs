@@ -15,6 +15,7 @@ use std::{
 const CACHE_LIMIT: usize = 64 * 1024 * 1024;
 #[derive(Clone)]
 pub(crate) struct Prepared {
+    pub kind: Kind,
     pub image: Arc<RenderImage>,
     pub asset: graphics::Graphic,
     pub width: f32,
@@ -110,6 +111,7 @@ impl Service {
             );
             let image = self.renderer.render_single_frame(&asset.svg, scale * dpi)?;
             Ok::<_, anyhow::Error>(Prepared {
+                kind,
                 image,
                 width: asset.width * scale,
                 height: asset.height * scale,
@@ -225,7 +227,25 @@ impl MarkdownPlugin for Plugin {
             .data::<Arc<Result<Prepared, String>>>()
             .map(|r| r.as_ref())
         {
-            Some(Ok(r)) => view = view.child(img(r.image.clone()).w(px(r.width)).h(px(r.height))),
+            Some(Ok(r)) => {
+                let offset = node.source_range().map_or(0, |r| r.start);
+                view = view.child(if r.kind == Kind::Mermaid {
+                    div()
+                        .id(("native-graphic-image", offset))
+                        .debug_selector(move || format!("native-graphic-image-{offset}"))
+                        .relative()
+                        .w_full()
+                        .max_w(px(r.width))
+                        .aspect_ratio(r.width / r.height)
+                        .child(img(r.image.clone()).absolute().inset_0().size_full())
+                        .into_any_element()
+                } else {
+                    img(r.image.clone())
+                        .w(px(r.width))
+                        .h(px(r.height))
+                        .into_any_element()
+                });
+            }
             Some(Err(error)) => {
                 view = view
                     .child(div().child(node.as_markdown().to_string()))
@@ -305,6 +325,77 @@ pub(crate) fn extensions(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn diagrams_fit_reading_and_live_width_without_changing_aspect_or_source(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let source = "```mermaid\nflowchart LR\nA[开始节点] --> B[处理节点] --> C[检查节点] --> D[完成节点]\n```\n\ntail";
+        let handle = cx.add_window(|window, cx| {
+            let mut pane = crate::editor::EditorPane::new(source, window, cx);
+            pane.reading = true;
+            pane
+        });
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        let mut wide = None;
+        for width in [1000., 480.] {
+            visual.simulate_resize(size(px(width), px(700.)));
+            for _ in 0..10 {
+                visual.run_until_parked();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            let bounds = visual.debug_bounds("native-graphic-image-0").unwrap();
+            assert!(bounds.size.width <= px(width));
+            if let Some(wide) = wide {
+                let wide: Size<Pixels> = wide;
+                assert!(bounds.size.width < wide.width);
+                assert!(
+                    (bounds.size.height - bounds.size.width * (wide.height / wide.width)).abs()
+                        <= px(1.),
+                    "wide={wide:?}, narrow={:?}",
+                    bounds.size
+                );
+            } else {
+                wide = Some(bounds.size);
+            }
+        }
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                pane.reading = false;
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(source.len()..source.len(), cx)
+                });
+                cx.notify();
+            })
+            .unwrap();
+        for _ in 0..10 {
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, window, cx| {
+                let object = pane.editor.read(cx).display_objects()[0].clone();
+                assert!(object.size.width <= px(480.));
+                let service = Service::get(cx);
+                let prepared = service.prepare(
+                    Kind::Mermaid,
+                    "flowchart LR\nA[开始节点] --> B[处理节点] --> C[检查节点] --> D[完成节点]",
+                    pane.light,
+                    pane.font_size,
+                    window.scale_factor(),
+                );
+                let prepared = prepared.as_ref().as_ref().unwrap();
+                assert!(
+                    (f32::from(object.size.height) / prepared.height
+                        - (f32::from(object.size.width) / prepared.width).min(1.))
+                    .abs()
+                        < 0.01
+                );
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn outlined_svg_rasterizes_at_dpi_and_cache_preserves_explicit_colors(cx: &mut TestAppContext) {
         cx.update(|cx| {
