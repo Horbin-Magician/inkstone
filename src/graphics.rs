@@ -74,7 +74,23 @@ fn diagram(source: &str, light: bool) -> Result<Graphic> {
         },
         ..Default::default()
     };
-    let svg = mermaid_rs_renderer::render_with_options(source, options).context("图表语法错误")?;
+    let mut parsed = mermaid_rs_renderer::parse_mermaid_strict(source).context("图表语法错误")?;
+    // 0.3.1 parses timeline sections but its SVG renderer omits their labels.
+    // Keep group names at the first period of each section in the native layout.
+    if parsed.graph.kind == mermaid_rs_renderer::DiagramKind::Timeline {
+        let mut previous = None;
+        for event in &mut parsed.graph.timeline.events {
+            if event.section != previous {
+                if let Some(section) = &event.section {
+                    event.time = format!("{section}<br/>{}", event.time);
+                }
+                previous = event.section.clone();
+            }
+        }
+    }
+    let layout =
+        mermaid_rs_renderer::compute_layout(&parsed.graph, &options.theme, &options.layout);
+    let svg = mermaid_rs_renderer::render_svg(&layout, &options.theme, &options.layout);
     static VIEWBOX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r#"viewBox="[\d.\-]+\s+[\d.\-]+\s+([\d.]+)\s+([\d.]+)""#).unwrap()
     });
@@ -170,5 +186,69 @@ mod tests {
             }
         }
         assert!(prepare(Kind::Mermaid, "flowchart TD\ninvalid -->", true).is_err());
+    }
+
+    #[test]
+    fn combined_diagrams_preserve_all_required_labels_in_both_themes() {
+        let snapshot =
+            crate::syntax::Snapshot::new(include_str!("../tests/fixtures/markdown/mermaid.md"));
+        let expected: &[&[&str]] = &[
+            &["分组", "开始", "判断", "结束", "是", "否"],
+            &[
+                "用户", "系统", "重试", "请求", "成功", "响应", "失败", "错误", "完成",
+            ],
+            &["Animal", "Duck", "Pond", "eat", "swim", "lives"],
+            &["Ready", "Running", "Done", "开始", "完成", "重试"],
+            &[
+                "USER", "NOTE", "FOLDER", "owns", "contains", "name", "title",
+            ],
+            &["计划", "开发", "设计", "实施", "验收", "测试"],
+            &["比例", "完成", "开发", "待办"],
+            &["主题", "分支一", "子项", "分支二"],
+            &["初始", "功能", "修复", "合并", "feature", "main"],
+            &[
+                "时间线",
+                "开发",
+                "2026",
+                "开始",
+                "设计",
+                "2027",
+                "实施",
+                "验收",
+                "2028",
+                "完成",
+            ],
+            &[
+                "工作", "开始", "规划", "用户", "系统", "实施", "开发", "验收",
+            ],
+        ];
+        let diagrams: Vec<_> = snapshot
+            .ast
+            .as_deref()
+            .unwrap()
+            .children()
+            .unwrap()
+            .iter()
+            .filter_map(|node| match node {
+                markdown_parser::mdast::Node::Code(n) if n.lang.as_deref() == Some("mermaid") => {
+                    Some(&n.value)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(diagrams.len(), expected.len());
+        for (source, labels) in diagrams.into_iter().zip(expected) {
+            for light in [true, false] {
+                let asset = prepare(Kind::Mermaid, source, light)
+                    .unwrap_or_else(|e| panic!("{source}: {e:#}"));
+                let svg = std::str::from_utf8(&asset.svg).unwrap();
+                for label in *labels {
+                    assert!(
+                        svg.contains(label),
+                        "missing {label:?} in diagram:\n{source}"
+                    );
+                }
+            }
+        }
     }
 }
