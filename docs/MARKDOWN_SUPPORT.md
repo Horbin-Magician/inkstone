@@ -12,7 +12,7 @@
 | 命名脚注 | 编号、导航、编辑 | 上标与文末内容 | 与阅读共用编号、来源隔离 |
 | 行内脚注 | 已接入 | 上标、文末内容、编辑窗 | 只转换展示，源码与撤销保持原语法 |
 | 数学公式 | RaTeX SVG | 后台准备图形 / 活动位置源码 | 必需公式、中文、化学、颜色、基线、错误回退 |
-| Mermaid | 原生 Rust SVG | 后台准备图形 / 活动位置源码 | 十一类图表测试通过，布局可与官方不同 |
+| Mermaid | 原生 Rust SVG | 后台准备图形 / 活动位置源码 | 十一类基础及组合测试通过，检查关键标签；布局可与官方不同 |
 | HTML | 原生格式、上下标、折叠 | 阅读片段 / 活动位置源码 | details 点击、源码复制、HTML 相对链接与图片 |
 
 测试样例在 `tests/fixtures/markdown/`，只在独立测试库使用。不得以用户笔记作为测试数据。
@@ -28,6 +28,8 @@
 ## 边界
 
 数学模式的常用 LaTeX，不包括完整文档、任意宏包与 TikZ。原生 Mermaid 可与官方布局不同，不能遗漏结构或文字。HTML 不执行脚本或任意网页样式。PDF、音视频保留附件入口。
+
+Mermaid 0.3.1 原生 SVG 会遗漏时间线 `section` 标签，Inkstone 在解析后的展示图中将分组名放入该分组的首个时间卡片，保留顺序和事件关联，不改动笔记原文。这与 [Mermaid 官方分组说明](https://mermaid.js.org/syntax/timeline.html#grouping-of-time-periods-in-sections-ages) 的横向分组标题布局不同。组合样例见 `tests/fixtures/markdown/mermaid.md`。
 
 ## 本轮实现与待验收
 
