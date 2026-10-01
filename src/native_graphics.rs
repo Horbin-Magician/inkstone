@@ -74,7 +74,7 @@ impl Service {
             font: font.to_bits(),
             dpi: dpi.to_bits(),
         };
-        {
+        let cached_asset = {
             let mut cache = self.cache.lock().unwrap();
             cache.tick += 1;
             let tick = cache.tick;
@@ -82,9 +82,19 @@ impl Service {
                 entry.used = tick;
                 return entry.result.clone();
             }
-        }
+            // Font size and DPI change rasterization, not the intrinsic SVG.
+            // Retain and rescale the prepared vector resource across zooms.
+            cache.entries.iter().find_map(|(old, entry)| {
+                (old.source == key.source && old.kind == kind && old.light == light)
+                    .then(|| entry.result.as_ref().as_ref().ok().map(|r| r.asset.clone()))
+                    .flatten()
+            })
+        };
         let result = (|| {
-            let asset = graphics::prepare(kind, source, light)?;
+            let asset = match cached_asset {
+                Some(asset) => asset,
+                None => graphics::prepare(kind, source, light)?,
+            };
             let scale = font
                 / if kind == Kind::Mermaid {
                     16.
@@ -304,6 +314,11 @@ mod tests {
             let repeat = service.prepare(Kind::InlineMath, formula, false, 16., 2.);
             assert!(Arc::ptr_eq(&first, &repeat));
             let prepared = first.as_ref().as_ref().unwrap();
+            let zoomed = service.prepare(Kind::InlineMath, formula, false, 24., 1.5);
+            let zoomed = zoomed.as_ref().as_ref().unwrap();
+            assert!(Arc::ptr_eq(&prepared.asset.svg, &zoomed.asset.svg));
+            assert!((zoomed.width / prepared.width - 1.5).abs() < 0.001);
+            assert!((zoomed.baseline.unwrap() / prepared.baseline.unwrap() - 1.5).abs() < 0.001);
             assert!(
                 std::str::from_utf8(&prepared.asset.svg)
                     .unwrap()
