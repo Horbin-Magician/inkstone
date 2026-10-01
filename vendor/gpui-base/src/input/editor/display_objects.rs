@@ -169,9 +169,9 @@ impl InputBaseState<EditorMode> {
     /// Bounds reflect scrolling, soft wrapping, row heights and fold visibility.
     pub fn display_object_bounds(&self, id: u64) -> Option<Bounds<Pixels>> {
         let object = self.display_objects.iter().find(|o| o.id == id)?;
-        let raw = self.text.slice(object.source.clone()).to_string();
-        let end = object.source.start + raw.find(['\r', '\n']).unwrap_or(raw.len());
-        let mut bounds = self.range_to_bounds(&(object.source.start..end))?;
+        // The source syntax can span wrapped rows. Its end is not a visual
+        // corner of the replacement: always anchor at the source start.
+        let mut bounds = self.range_to_bounds(&(object.source.start..object.source.start))?;
         bounds.size = object.size;
         Some(bounds)
     }

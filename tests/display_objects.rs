@@ -11,6 +11,49 @@ impl Render for Root {
 }
 
 #[gpui::test]
+fn object_bounds_anchor_at_start_when_source_wraps(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = format!("prefix {} tail", "中文😀 ".repeat(25));
+    let handle = cx.add_window(|window, cx| {
+        Root(cx.new(|cx| {
+            EditorState::new(window, cx)
+                .default_value(source.clone())
+                .line_number(false)
+                .soft_wrap(true)
+        }))
+    });
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(240.), px(500.)));
+    handle
+        .update(&mut visual, |root, _, cx| {
+            root.0.update(cx, |state, cx| {
+                state.set_display_objects(
+                    &source,
+                    vec![DisplayObject {
+                        id: 3,
+                        source: 7..source.len() - 5,
+                        size: size(px(100.), px(40.)),
+                        baseline: None,
+                    }],
+                    cx,
+                );
+            });
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    handle
+        .update(&mut visual, |root, _, cx| {
+            let state = root.0.read(cx);
+            let start = state.range_to_bounds(&(7..7)).unwrap();
+            let source_bounds = state.range_to_bounds(&(7..source.len() - 5)).unwrap();
+            assert!(source_bounds.size.height > start.size.height);
+            assert_eq!(state.display_object_bounds(3).unwrap().origin, start.origin);
+            assert_eq!(state.value().as_ref(), source);
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn object_height_changes_restore_the_visible_source_anchor(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let source = format!("before\n$$\nx^2\n$$\nafter\n{}", "tail\n".repeat(100));
