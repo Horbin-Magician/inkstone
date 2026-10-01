@@ -742,6 +742,12 @@ impl EditorPane {
 
     fn update_presentation(&mut self, cx: &mut Context<Self>) {
         let state = self.editor.read(cx);
+        if state.is_composing() {
+            // The component rebases prepared objects during preedit. Keep their
+            // geometry and widget resources until the candidate is committed.
+            self.last_presentation = None;
+            return;
+        }
         let text = state.value();
         let selections = state.selected_ranges();
         let search_query = state
@@ -809,7 +815,8 @@ impl EditorPane {
             self.parse_task = Some(cx.spawn(async move |this, cx| {
                 let (initial, reading, fragments) = task.await;
                 let _ = this.update(cx, |this, cx| {
-                    if this.parse_revision != revision
+                    if this.editor.read(cx).is_composing()
+                        || this.parse_revision != revision
                         || this.context_revision != context_revision
                         || this.editor.read(cx).value() != this.parse_source
                     {

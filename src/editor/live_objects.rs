@@ -454,6 +454,9 @@ pub(super) fn overlay(
                         let text = widget.document.markdown.clone();
                         window.defer(cx, move |_, cx| {
                             let _ = weak.update(cx, |pane, cx| {
+                                if pane.editor.read(cx).is_composing() {
+                                    return;
+                                }
                                 if let Some(current) = pane
                                     .live_objects
                                     .iter_mut()
@@ -497,6 +500,102 @@ pub(super) fn overlay(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn ime_keeps_prepared_objects_and_hidden_rows_stable_until_commit_or_cancel(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let source = "plain\r\n\r\n$x^2$\r\n\r\n| A | B |\r\n| --- | --- |\r\n| 中文 | 😀 |\r\n\r\n> [!note]+ title\r\n> body\r\n\r\ntail";
+        for commit in [true, false] {
+            let handle = cx.add_window(|window, cx| EditorPane::new(source, window, cx));
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            for _ in 0..10 {
+                visual.run_until_parked();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            let (objects, hidden, revision) = handle
+                .update(&mut visual, |pane, _, cx| {
+                    let state = pane.editor.read(cx);
+                    (
+                        state.display_objects().to_vec(),
+                        state.concealed_lines().to_vec(),
+                        pane.parse_revision,
+                    )
+                })
+                .unwrap();
+            assert_eq!(objects.len(), 3);
+            assert!(!hidden.is_empty());
+            for text in ["n", "ni"] {
+                handle
+                    .update(&mut visual, |pane, window, cx| {
+                        pane.editor.update(cx, |state, cx| {
+                            if !state.is_composing() {
+                                state.set_selected_range(0..0, cx);
+                            }
+                            state.replace_and_mark_text_in_range(None, text, None, window, cx);
+                        });
+                    })
+                    .unwrap();
+                for _ in 0..3 {
+                    visual.run_until_parked();
+                    visual.update(|window, cx| window.draw(cx).clear(cx));
+                }
+                handle
+                    .update(&mut visual, |pane, _, cx| {
+                        let state = pane.editor.read(cx);
+                        assert!(state.is_composing());
+                        assert_eq!(pane.parse_revision, revision);
+                        assert_eq!(state.concealed_lines(), hidden);
+                        assert_eq!(state.display_objects().len(), objects.len());
+                        for (before, current) in objects.iter().zip(state.display_objects()) {
+                            assert_eq!(current.id, before.id);
+                            assert_eq!(current.size, before.size);
+                            assert_eq!(
+                                current.source,
+                                before.source.start + text.len()..before.source.end + text.len()
+                            );
+                            assert!(state.display_object_bounds(current.id).is_some());
+                        }
+                    })
+                    .unwrap();
+            }
+            handle
+                .update(&mut visual, |pane, window, cx| {
+                    pane.editor.update(cx, |state, cx| {
+                        if commit {
+                            state.replace_text_in_range(None, "你", window, cx);
+                        } else {
+                            state.replace_and_mark_text_in_range(None, "", None, window, cx);
+                        }
+                    });
+                })
+                .unwrap();
+            for _ in 0..10 {
+                visual.run_until_parked();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            handle
+                .update(&mut visual, |pane, window, cx| {
+                    assert!(!pane.editor.read(cx).is_composing());
+                    assert_eq!(pane.editor.read(cx).display_objects().len(), objects.len());
+                    assert_eq!(
+                        pane.editor.read(cx).value().as_ref(),
+                        if commit {
+                            format!("你{source}")
+                        } else {
+                            source.to_string()
+                        }
+                    );
+                    if commit {
+                        pane.editor.update(cx, |state, cx| {
+                            state.undo(&gpui_base::input::Undo, window, cx)
+                        });
+                    }
+                    assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+                })
+                .unwrap();
+        }
+    }
     #[gpui::test]
     fn live_math_reserves_baseline_and_retains_measured_geometry_on_reparse(
         cx: &mut TestAppContext,
