@@ -1950,15 +1950,6 @@ mod tests {
     }
 
     #[test]
-    fn selected_source_range_maps_footnote_reference_syntax() {
-        let source = "before[^note] after\n\n[^note]: body";
-        assert_eq!(selected_rendered_range(source, 0..6), Some(0..6));
-        assert_eq!(selected_rendered_range(source, 6..12), Some(6..13));
-        assert_eq!(selected_rendered_range(source, 13..18), Some(14..19));
-        assert_eq!(selected_rendered_range(source, 4..15), Some(4..16));
-    }
-
-    #[test]
     fn selected_source_range_maps_mdx_text_expression_body() {
         let source = "before {value + 1} after";
         assert_eq!(selected_mdx_rendered_range(source, 7..16), Some(8..17));

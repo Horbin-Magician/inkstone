@@ -885,6 +885,7 @@ mod tests {
         use super::{LeafSpan, TextLeafKey};
         // "ab" then two objects of 2 bytes each, then "cd".
         let leaf = |len: usize| LeafSpan {
+            source_segments: vec![],
             range: 10..10 + len,
             key: TextLeafKey::block(0),
             objects: vec![2..4, 4..6],
