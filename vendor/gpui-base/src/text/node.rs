@@ -3744,6 +3744,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn selected_source_range_maps_footnote_reference_syntax() {
+        let source = "before[^note] after\n\n[^note]: body";
+        let mut cx = NodeContext::default();
+        let document = crate::text::format::markdown::parse(source, &mut cx).unwrap();
+        let paragraph = document
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                BlockNode::Paragraph(p) => Some(p),
+                _ => None,
+            })
+            .unwrap();
+        let footnote = paragraph
+            .children
+            .iter()
+            .find(|node| node.custom.is_some())
+            .unwrap();
+        assert_eq!(footnote.text.as_ref(), "1");
+        // Footnotes are now inline objects. The preceding run, the selected
+        // object and the trailing run have independent selection states.
+        let select = |before: Option<Range<usize>>, object: bool, after: Option<Range<usize>>| {
+            paragraph.clear_selection();
+            let mut run = footnote.state.lock().unwrap();
+            run.set_text("before".into());
+            run.selection = before.map(Into::into);
+            drop(run);
+            *footnote.custom_selection.lock().unwrap() = object;
+            let mut run = paragraph.state.lock().unwrap();
+            run.set_text(" after".into());
+            run.selection = after.map(Into::into);
+            drop(run);
+            document.selected_source_range()
+        };
+        assert_eq!(select(Some(0..6), false, None), Some(0..6));
+        assert_eq!(select(None, true, None), Some(6..13));
+        assert_eq!(select(None, false, Some(1..6)), Some(14..19));
+        assert_eq!(select(Some(4..6), true, Some(0..3)), Some(4..16));
+    }
+
+    #[test]
     fn selected_inline_objects_coalesce_surrounding_emphasis() {
         for (object_mark, expected) in [
             (TextMark::default().italic(), "*fore $x$ aft*"),

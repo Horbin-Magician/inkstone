@@ -1989,9 +1989,12 @@ impl<M: InputModeKind> TextElement<M> {
                                     bg_segments,
                                 );
                             }
+                            let fragment = &text[part.clone()];
+                            let line_runs = align_runs_to_char_boundaries(fragment, &line_runs)
+                                .unwrap_or(line_runs);
                             background |= has_background(&line_runs);
                             Some(window.text_system().shape_line(
-                                text[part.clone()].to_owned().into(),
+                                fragment.to_owned().into(),
                                 font_size,
                                 &line_runs,
                                 None,
@@ -2252,6 +2255,27 @@ impl<M: InputModeKind> TextElement<M> {
         let state = self.state.read(cx);
         let text = &state.text;
         let is_multi_line = state.is_multi_line();
+        let unhighlighted_styles = || {
+            (!state.masked)
+                .then(|| {
+                    compose_decoration_collections(
+                        Vec::new(),
+                        state.extras.decoration_layers().into_iter(),
+                        visible_byte_range.clone(),
+                    )
+                })
+                .flatten()
+                .map(|styles| {
+                    // Runs address concatenated visible rows, even when no
+                    // syntax highlighter is installed. Hidden rows must not
+                    // shift the style boundaries of subsequent fragments.
+                    let ranges: Vec<_> = visible_buffer_lines
+                        .iter()
+                        .map(|&row| text.line_start_offset(row)..text.line_start_offset(row + 1))
+                        .collect();
+                    clip_styles_to_ranges(styles, &ranges)
+                })
+        };
 
         let (mut highlighter, diagnostics) = match &state.mode {
             LayoutMode::CodeEditor {
@@ -2259,28 +2283,10 @@ impl<M: InputModeKind> TextElement<M> {
                 diagnostics,
                 ..
             } => (highlighter.borrow_mut(), diagnostics),
-            _ => {
-                return (!state.masked)
-                    .then(|| {
-                        compose_decoration_collections(
-                            Vec::new(),
-                            state.extras.decoration_layers().into_iter(),
-                            visible_byte_range,
-                        )
-                    })
-                    .flatten();
-            }
+            _ => return unhighlighted_styles(),
         };
         let Some(highlighter) = highlighter.as_mut() else {
-            return (!state.masked)
-                .then(|| {
-                    compose_decoration_collections(
-                        Vec::new(),
-                        state.extras.decoration_layers().into_iter(),
-                        visible_byte_range,
-                    )
-                })
-                .flatten();
+            return unhighlighted_styles();
         };
 
         let mut styles = Vec::with_capacity(visible_buffer_lines.len());
@@ -3851,6 +3857,44 @@ mod tests {
                 wide > narrow,
                 "more line-number digits must widen the gutter"
             );
+        });
+    }
+
+    #[gpui::test]
+    fn decoration_runs_exclude_hidden_rows_without_a_syntax_highlighter(cx: &mut TestAppContext) {
+        let source = "top\r\n隐藏的正文\r\n尾部😀\r\n";
+        let tail = source.find("尾部").unwrap();
+        let (editor, window) = decoration_editor(cx, source, false);
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        visual.update(|_, cx| {
+            let _decorations = editor.update(cx, |state, cx| {
+                state.create_decorations_collection(
+                    vec![TextDecoration::new(
+                        tail..tail + "尾部😀".len(),
+                        HighlightStyle {
+                            color: Some(gpui::red()),
+                            ..Default::default()
+                        },
+                    )],
+                    cx,
+                )
+            });
+            let styles = TextElement::new(editor.clone())
+                .highlight_lines(&[0, 2], px(0.), 0..source.len(), cx)
+                .unwrap();
+            assert_eq!(
+                styles.iter().map(|(r, _)| r.len()).sum::<usize>(),
+                "top\r\n尾部😀\r\n".len()
+            );
+            assert!(styles.iter().all(|(r, _)| r.end <= 5 || r.start >= tail));
+            assert!(
+                styles
+                    .iter()
+                    .any(|(r, style)| r.start == tail && style.color == Some(gpui::red()))
+            );
+            for (range, _) in styles {
+                assert!(source.is_char_boundary(range.start) && source.is_char_boundary(range.end));
+            }
         });
     }
 
