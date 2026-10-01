@@ -211,9 +211,10 @@ enum Action {
     Literal(String),
     InlineFootnote(crate::syntax::InlineFootnote, String),
     ReferenceImage(String, String, Option<String>),
+    ReferenceLink(String, Option<String>),
 }
 
-fn reference_image_actions(ast: &markdown_parser::mdast::Node) -> Vec<(Range<usize>, Action)> {
+fn reference_actions(ast: &markdown_parser::mdast::Node) -> Vec<(Range<usize>, Action)> {
     use markdown_parser::mdast::Node;
     fn definitions(node: &Node, out: &mut BTreeMap<String, (String, Option<String>)>) {
         if let Node::Definition(n) = node {
@@ -240,6 +241,17 @@ fn reference_image_actions(ast: &markdown_parser::mdast::Node) -> Vec<(Range<usi
                 Action::ReferenceImage(n.alt.clone(), url.clone(), title.clone()),
             ));
         }
+        if let Node::LinkReference(n) = node
+            && let Some(p) = &n.position
+            && let Some(last) = n.children.last().and_then(Node::position)
+            && let Some((url, title)) = definitions.get(&n.identifier.to_lowercase())
+        {
+            // Keep formatted label text available to other inline actions.
+            out.push((
+                last.end.offset..p.end.offset,
+                Action::ReferenceLink(url.clone(), title.clone()),
+            ));
+        }
         if let Some(children) = node.children() {
             for child in children {
                 images(child, definitions, out);
@@ -252,6 +264,12 @@ fn reference_image_actions(ast: &markdown_parser::mdast::Node) -> Vec<(Range<usi
     images(ast, &defs, &mut actions);
     actions
 }
+fn reference_title(title: Option<String>) -> String {
+    title
+        .map(|title| format!(" \"{}\"", title.replace('\\', "\\\\").replace('"', "\\\"")))
+        .unwrap_or_default()
+}
+
 fn label(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace('[', "\\[")
@@ -357,7 +375,7 @@ impl Builder<'_> {
             })
             .collect();
         if let Some(ast) = snapshot.ast.as_deref() {
-            actions.extend(reference_image_actions(ast));
+            actions.extend(reference_actions(ast));
         }
         let mut definitions = BTreeMap::new();
         for (span, id) in &parsed.footnote_definitions {
@@ -480,13 +498,13 @@ impl Builder<'_> {
                 }
                 Action::Remove => (),
                 Action::Literal(text) => self.push(&text, None),
+                Action::ReferenceLink(url, title) => {
+                    let uri = self.reference(path, url, false);
+                    self.push(&format!("]({uri}{})", reference_title(title)), None);
+                }
                 Action::ReferenceImage(alt, url, title) => {
                     let uri = self.reference(path, url, false);
-                    let title = title
-                        .map(|title| {
-                            format!(" \"{}\"", title.replace('\\', "\\\\").replace('"', "\\\""))
-                        })
-                        .unwrap_or_default();
+                    let title = reference_title(title);
                     let start = self.output.markdown.len();
                     self.push(&format!("![{}]({uri}{title})", label(&alt)), None);
                     self.maps.push(SourceMap {
@@ -745,6 +763,43 @@ pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Opti
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reference_links_keep_formatted_labels_when_definitions_are_outside_the_section() {
+        let source = "# 显示\r\n\r\n[**粗体** ==高亮==][DEST]、[简写][]、[快捷]\r\n\r\n# 定义\r\n\r\n[dest]: ../target.md#标题 \"链接标题\"\r\n[简写]: short.md\r\n[快捷]: quick.md\r\n";
+        let index = crate::index::Index::default();
+        let path = std::path::Path::new("folder/note.md");
+        let section = 0..source.find("# 定义").unwrap();
+        let document = super::reading_snapshot(
+            &index,
+            path,
+            std::sync::Arc::new(crate::syntax::Snapshot::new(source)),
+            section,
+        );
+        assert!(
+            document
+                .markdown
+                .contains("[**粗体** <mark>高亮</mark>](inkstone-reference:"),
+            "{}",
+            document.markdown
+        );
+        assert!(document.markdown.contains("\"链接标题\""));
+        let parsed = crate::index::parse(&document.markdown);
+        assert_eq!(parsed.standard_links.len(), 3);
+        assert_eq!(
+            document
+                .references
+                .iter()
+                .map(|r| r.target.as_str())
+                .collect::<Vec<_>>(),
+            ["../target.md#标题", "short.md", "quick.md"]
+        );
+        assert!(document.references.iter().all(|r| r.from == path));
+        assert_eq!(
+            document.output_offset(path, source.find("粗体").unwrap()),
+            document.markdown.find("粗体")
+        );
+        assert!(document.source_matches(path, source));
+    }
     use super::*;
     #[test]
     fn html_links_and_images_keep_source_context_and_ignore_quoted_fake_attributes() {
