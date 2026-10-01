@@ -210,6 +210,47 @@ enum Action {
     Remove,
     Literal(String),
     InlineFootnote(crate::syntax::InlineFootnote, String),
+    ReferenceImage(String, String, Option<String>),
+}
+
+fn reference_image_actions(ast: &markdown_parser::mdast::Node) -> Vec<(Range<usize>, Action)> {
+    use markdown_parser::mdast::Node;
+    fn definitions(node: &Node, out: &mut BTreeMap<String, (String, Option<String>)>) {
+        if let Node::Definition(n) = node {
+            out.entry(n.identifier.to_lowercase())
+                .or_insert_with(|| (n.url.clone(), n.title.clone()));
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                definitions(child, out);
+            }
+        }
+    }
+    fn images(
+        node: &Node,
+        definitions: &BTreeMap<String, (String, Option<String>)>,
+        out: &mut Vec<(Range<usize>, Action)>,
+    ) {
+        if let Node::ImageReference(n) = node
+            && let Some(p) = &n.position
+            && let Some((url, title)) = definitions.get(&n.identifier.to_lowercase())
+        {
+            out.push((
+                p.start.offset..p.end.offset,
+                Action::ReferenceImage(n.alt.clone(), url.clone(), title.clone()),
+            ));
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                images(child, definitions, out);
+            }
+        }
+    }
+    let mut defs = BTreeMap::new();
+    definitions(ast, &mut defs);
+    let mut actions = vec![];
+    images(ast, &defs, &mut actions);
+    actions
 }
 fn label(text: &str) -> String {
     text.replace('\\', "\\\\")
@@ -315,6 +356,9 @@ impl Builder<'_> {
                 )
             })
             .collect();
+        if let Some(ast) = snapshot.ast.as_deref() {
+            actions.extend(reference_image_actions(ast));
+        }
         let mut definitions = BTreeMap::new();
         for (span, id) in &parsed.footnote_definitions {
             if definitions.contains_key(id) {
@@ -436,6 +480,22 @@ impl Builder<'_> {
                 }
                 Action::Remove => (),
                 Action::Literal(text) => self.push(&text, None),
+                Action::ReferenceImage(alt, url, title) => {
+                    let uri = self.reference(path, url, false);
+                    let title = title
+                        .map(|title| {
+                            format!(" \"{}\"", title.replace('\\', "\\\\").replace('"', "\\\""))
+                        })
+                        .unwrap_or_default();
+                    let start = self.output.markdown.len();
+                    self.push(&format!("![{}]({uri}{title})", label(&alt)), None);
+                    self.maps.push(SourceMap {
+                        output: start..self.output.markdown.len(),
+                        path: path.to_path_buf(),
+                        start: span.start,
+                        source_end: span.end,
+                    });
+                }
                 Action::InlineFootnote(note, id) => {
                     let start = self.output.markdown.len();
                     self.push(&format!("[^{id}]"), None);

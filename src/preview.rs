@@ -27,7 +27,7 @@ pub fn candidates(snapshot: &Snapshot) -> Vec<Candidate> {
             .unwrap_or_default();
         let block = match node {
             Node::Math(_) | Node::Table(_) => Some(true),
-            Node::InlineMath(_) | Node::Image(_) => Some(false),
+            Node::InlineMath(_) | Node::Image(_) | Node::ImageReference(_) => Some(false),
             Node::Code(n)
                 if n.lang
                     .as_deref()
@@ -271,6 +271,40 @@ pub fn fragments(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reference_images_render_in_isolated_fragments_and_keep_origin_and_title() {
+        let source = "中文 ![替代😀][PIC]\r\n\r\n![pic][]\r\n\r\n![pic]\r\n\r\n`![pic]`\r\n\r\n[pic]: assets/image.svg \"图片标题\"\r\n[pic]: ignored.svg\r\n";
+        let path = Path::new("folder/note.md");
+        let index = crate::index::Index::default();
+        let snapshot = Arc::new(Snapshot::new(source));
+        let reading =
+            crate::rendering::reading_snapshot(&index, path, snapshot.clone(), 0..source.len());
+        let fragments = fragments(&index, path, snapshot, &reading);
+        assert_eq!(fragments.len(), 3);
+        for fragment in fragments {
+            assert!(!fragment.candidate.block);
+            assert_eq!(fragment.document.references.len(), 1);
+            assert_eq!(fragment.document.references[0].target, "assets/image.svg");
+            assert_eq!(fragment.document.references[0].from, path);
+            assert!(fragment.document.markdown.contains("\"图片标题\""));
+            assert_eq!(
+                fragment
+                    .document
+                    .output_offset(path, fragment.candidate.source.start),
+                Some(0)
+            );
+            let parsed = Snapshot::new(&fragment.document.markdown);
+            assert!(matches!(
+                parsed.ast.as_deref().unwrap().children().unwrap()[0]
+                    .children()
+                    .unwrap()[0],
+                Node::Image(_)
+            ));
+            assert!(fragment.document.source_matches(path, source));
+        }
+        assert!(reading.markdown.contains("`![pic]`"));
+    }
+
     #[test]
     fn footnote_fragments_number_refs_and_place_all_definitions_in_one_footer() {
         let source = "# top\n\nA^[短] B[^named] C^[中文 **粗体**]\n\n尾部\n\n[^named]: 命名定义";
