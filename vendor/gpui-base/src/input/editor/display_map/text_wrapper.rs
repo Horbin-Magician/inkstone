@@ -367,6 +367,16 @@ impl TextWrapper {
             .collect();
         rows.sort_unstable();
         rows.dedup();
+        // Rich display objects reserve row height without changing text width.
+        // Rewrap only rows whose font scale changes; DisplayMap rebuilds its
+        // height runs separately even when the wrap tree stays untouched.
+        rows.retain(|&row| {
+            let scale = |styles: &[crate::input::LineTypography]| {
+                crate::input::line_typography::for_line(styles, &text, row)
+                    .map_or(1., |s| s.font_scale)
+            };
+            scale(&self.typography) != scale(&styles)
+        });
         self.typography = styles;
         for row in rows {
             let start = text.line_start_offset(row);
@@ -1138,6 +1148,41 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::{Boundary, FontFeatures, FontStyle, FontWeight, px};
+
+    #[gpui::test]
+    fn height_only_typography_preserves_wrap_tree_but_font_changes_rewrap(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            let text = Rope::from("中文 paragraph ".repeat(100));
+            let font = gpui::Font {
+                family: "Arial".into(),
+                ..Default::default()
+            };
+            let mut wrapper = TextWrapper::new(font, px(16.), Some(px(200.)));
+            wrapper.prepare_if_need(&text, cx);
+            let baseline_tree = wrapper.lines.clone();
+            let baseline = wrapper.line(0).unwrap() as *const LineItem;
+            let count = wrapper.len();
+            wrapper.set_line_typography(
+                vec![crate::input::LineTypography::new(0..6, 1., 4.)].into(),
+                cx,
+            );
+            assert_eq!(wrapper.line(0).unwrap() as *const LineItem, baseline);
+            assert_eq!(wrapper.len(), count);
+            assert_eq!(wrapper.line_scales(0), (1., 4.));
+            wrapper.set_line_typography(Rc::from([]), cx);
+            assert_eq!(wrapper.line(0).unwrap() as *const LineItem, baseline);
+            assert_eq!(wrapper.line_scales(0), (1., 1.));
+            wrapper.set_line_typography(
+                vec![crate::input::LineTypography::new(0..6, 2., 4.)].into(),
+                cx,
+            );
+            assert_ne!(wrapper.line(0).unwrap() as *const LineItem, baseline);
+            assert!(wrapper.len() > count);
+            drop(baseline_tree);
+        });
+    }
 
     #[test]
     fn paint_row_culling_keeps_boundary_and_overhanging_glyph_rows() {
