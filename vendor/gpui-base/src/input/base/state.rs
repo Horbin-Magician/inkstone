@@ -3727,7 +3727,16 @@ impl<M: InputModeKind> InputBaseState<M> {
         selection_after: Option<CursorSelection>,
     ) -> bool {
         self.document_revision = self.document_revision.wrapping_add(1);
-        self.display_objects = Rc::from([]);
+        self.display_objects = if self.ime_marked_range.is_some() {
+            super::display_objects::rebase_for_composition(
+                &self.display_objects,
+                &self.text,
+                range,
+                new_text.len(),
+            )
+        } else {
+            Rc::from([])
+        };
         if !self.line_typography.is_empty() {
             self.line_typography = super::line_typography::rebase(
                 &self.line_typography,
@@ -3958,6 +3967,11 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Laid-out line height; `None` before first layout.
     pub fn line_height(&self) -> Option<gpui::Pixels> {
         self.last_layout.as_ref().map(|l| l.line_height)
+    }
+
+    /// Whether the platform currently owns an IME preedit transaction.
+    pub fn is_composing(&self) -> bool {
+        self.ime_marked_range.is_some()
     }
 
     /// Returns the active selection as a byte range into the text.
@@ -5317,6 +5331,12 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
         let selection_before = *self.active_selection();
 
         let starts_composition = self.ime_marked_range.is_none();
+        let concealed_line_anchors: Vec<_> = self
+            .display_map
+            .concealed_lines()
+            .iter()
+            .map(|&row| self.text.line_start_offset(row))
+            .collect();
         if starts_composition {
             // Even a canceled preedit separates the typing gestures on either
             // side; its no-op transaction must not reconnect those gestures.
@@ -5425,6 +5445,28 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                 auto_closed_pairs_before,
                 self.mode.auto_closed_pairs().clone(),
             );
+        }
+        if self.ime_marked_range.is_some() {
+            let delta = new_text.len() as isize - range.len() as isize;
+            let lines = concealed_line_anchors
+                .into_iter()
+                .filter_map(|anchor| {
+                    if range.start <= anchor && anchor < range.end {
+                        return None;
+                    }
+                    let anchor = if anchor >= range.end {
+                        anchor.checked_add_signed(delta)?
+                    } else {
+                        anchor
+                    };
+                    if anchor >= self.text.len() {
+                        return None;
+                    }
+                    let point = self.text.offset_to_point(anchor);
+                    (point.row > 0 && point.column == 0).then_some(point.row)
+                })
+                .collect();
+            self.display_map.set_concealed_lines(lines);
         }
         if new_text.is_empty() {
             self.undo_manager.commit_transaction();
