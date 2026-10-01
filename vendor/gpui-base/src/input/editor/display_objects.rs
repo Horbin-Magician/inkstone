@@ -19,6 +19,38 @@ pub struct DisplayProjection {
     pub typography: Vec<LineTypography>,
 }
 
+pub(crate) fn rebase_for_composition(
+    objects: &Rc<[DisplayObject]>,
+    text: &ropey::Rope,
+    edit: &Range<usize>,
+    len: usize,
+) -> Rc<[DisplayObject]> {
+    let delta = len as isize - edit.len() as isize;
+    objects
+        .iter()
+        .filter_map(|object| {
+            if (object.source.start < edit.end && edit.start < object.source.end)
+                || (edit.is_empty()
+                    && object.source.start < edit.start
+                    && edit.start < object.source.end)
+            {
+                return None;
+            }
+            let mut object = object.clone();
+            if object.source.start >= edit.end {
+                object.source = object.source.start.checked_add_signed(delta)?
+                    ..object.source.end.checked_add_signed(delta)?;
+            }
+            (object.source.end <= text.len()
+                && crate::input::grapheme_cursor::snap_grapheme(text, object.source.start, false)
+                    == object.source.start
+                && crate::input::grapheme_cursor::snap_grapheme(text, object.source.end, false)
+                    == object.source.end)
+                .then_some(object)
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy)]
 pub struct DisplayScrollAnchor {
     offset: usize,
@@ -178,5 +210,41 @@ impl InputBaseState<EditorMode> {
 
     pub(crate) fn clear_display_objects(&mut self) {
         self.display_objects = Rc::from([]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn composition_rebases_untouched_objects_and_removes_only_the_edited_object() {
+        let source = "头 $x$ 中 $y$";
+        let first = source.find("$x$").unwrap();
+        let second = source.find("$y$").unwrap();
+        let objects: Rc<[DisplayObject]> = [first, second]
+            .into_iter()
+            .enumerate()
+            .map(|(id, start)| DisplayObject {
+                id: id as u64,
+                source: start..start + 3,
+                size: gpui::size(px(60.), px(40.)),
+                baseline: Some(px(25.)),
+            })
+            .collect();
+        let mut text = ropey::Rope::from(source);
+        let edit = first + 1..first + 2;
+        text.replace(edit.clone(), "你");
+        let rebased = rebase_for_composition(&objects, &text, &edit, 3);
+        assert_eq!(rebased.len(), 1);
+        assert_eq!(rebased[0].id, objects[1].id);
+        assert_eq!(rebased[0].source, second + 2..second + 5);
+        assert_eq!(rebased[0].size, objects[1].size);
+        assert_eq!(rebased[0].baseline, objects[1].baseline);
+        let mut text = ropey::Rope::from(source);
+        text.replace(first..first, "😀");
+        let rebased = rebase_for_composition(&objects, &text, &(first..first), "😀".len());
+        assert_eq!(rebased.len(), 2);
+        assert_eq!(rebased[0].source, first + 4..first + 7);
+        assert_eq!(rebased[1].source, second + 4..second + 7);
     }
 }
