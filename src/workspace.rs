@@ -1,4 +1,5 @@
 mod appearance;
+mod backups;
 mod commands;
 mod conflicts;
 mod document;
@@ -184,6 +185,7 @@ impl Workspace {
         self.finish_pending_navigation(window, cx);
         self.finish_pending_closes(window, cx);
         self.persist_workspace(cx);
+        self.tick_backups(window, cx);
         self.finish_window_close(window, cx);
     }
     fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -630,6 +632,7 @@ impl Workspace {
     }
     fn load_vault(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if self.ui.pending_file_writes > 0
+            || self.ui.backup.pending.is_some()
             || self
                 .tabs
                 .iter()
@@ -746,6 +749,7 @@ impl Workspace {
                         this.ui.link_update = None;
                         this.ui.history = None;
                         this.ui.conflict_review = None;
+                        this.ui.backup = Default::default();
                         this.ui.trash_open = false;
                         this.ui.last_persisted.clear();
                         this.ui.persist_error = None;

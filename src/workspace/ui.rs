@@ -132,6 +132,7 @@ pub(super) struct UiState {
     pub trash_open: bool,
     pub history: Option<super::recovery::Browser>,
     pub conflict_review: Option<super::conflicts::Review>,
+    pub backup: super::backups::State,
     pub recovery_refresh: u64,
     pub trash: Vec<inkstone::vault::TrashEntry>,
     pub command: Entity<InputState>,
@@ -455,6 +456,7 @@ impl UiState {
             trash_open: false,
             history: None,
             conflict_review: None,
+            backup: Default::default(),
             recovery_refresh: 0,
             trash: vec![],
             command,
@@ -864,7 +866,7 @@ impl Workspace {
         crate::theme::palette(self.ui.prefs.light).border
     }
     pub(super) fn persist_workspace(&mut self, cx: &mut Context<Self>) {
-        if self.loading {
+        if self.loading || self.ui.backup.busy {
             return;
         }
         self.snapshot_views(cx);
@@ -4327,6 +4329,9 @@ impl Workspace {
             .into_any_element()
     }
     fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.ui.settings_tab == 7 {
+            return self.backup_settings_panel(cx);
+        }
         if matches!(self.ui.settings_tab, 5 | 6) {
             return self.appearance_settings_panel(self.ui.settings_tab == 6, cx);
         }

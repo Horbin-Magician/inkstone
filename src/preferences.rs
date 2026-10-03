@@ -60,6 +60,7 @@ impl Default for ViewState {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
+    pub backup: crate::vault::backup::Preferences,
     pub tags: crate::tags::Options,
     pub property_types: std::collections::BTreeMap<String, crate::properties::Kind>,
     pub hotkeys: std::collections::BTreeMap<usize, Vec<String>>,
@@ -120,6 +121,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             tags: Default::default(),
+            backup: Default::default(),
             property_types: Default::default(),
             hotkeys: Default::default(),
             locations: Default::default(),
