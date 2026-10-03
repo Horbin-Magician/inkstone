@@ -1,4 +1,6 @@
 //! Files remain authoritative. Every save keeps an application-owned recovery journal.
+mod history;
+pub use history::HistoryEntry;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},

@@ -130,6 +130,7 @@ pub(super) struct UiState {
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub trash_open: bool,
+    pub history: Option<super::recovery::Browser>,
     pub recovery_refresh: u64,
     pub trash: Vec<inkstone::vault::TrashEntry>,
     pub command: Entity<InputState>,
@@ -451,6 +452,7 @@ impl UiState {
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             trash_open: false,
+            history: None,
             recovery_refresh: 0,
             trash: vec![],
             command,
@@ -1349,6 +1351,8 @@ impl Workspace {
         self.ui.property_baseline = None;
         self.ui.property_original = None;
         self.ui.trash_open = false;
+        self.ui.history = None;
+        self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         if let Some(pane) = self.current_pane() {
             pane.update(cx, |p, cx| p.focus_view(window, cx));
         } else {
@@ -3106,7 +3110,7 @@ impl Workspace {
             .unwrap_or_default();
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
         let menu_weak = cx.entity().downgrade();
-        let menu_items: Vec<_> = [6, 7, 31, 32, 8, 15, 11, 23, 19, 18, 10, 16]
+        let menu_items: Vec<_> = [6, 7, 31, 32, 8, 15, 11, 23, 99, 19, 18, 10, 16]
             .into_iter()
             .filter_map(|id| command(id).map(|entry| (entry, self.hotkey_label(id))))
             .collect();
@@ -3835,6 +3839,7 @@ impl Workspace {
             .flex()
             .flex_col()
             .w(px(if self.ui.settings { 900. } else { 580. }))
+            .when(self.ui.history.is_some(), |s| s.w(px(900.)))
             .when(picker, |s| s.w(px(700.)))
             .max_w((window.viewport_size().width - px(32.)).max(px(280.)))
             .max_h(px(if self.ui.settings { 700. } else { 650. }).min(available_height))
@@ -3906,6 +3911,8 @@ impl Workspace {
                         "编辑属性"
                     } else if self.ui.settings {
                         "设置"
+                    } else if self.ui.history.is_some() {
+                        "笔记版本历史"
                     } else if self.ui.trash_open {
                         "文件恢复"
                     } else {
@@ -4072,7 +4079,10 @@ impl Workspace {
                     })
             })
             .when(self.ui.settings, |s| s.child(self.settings_panel(cx)))
-            .when(self.ui.trash_open, |s| {
+            .when(self.ui.history.is_some(), |s| {
+                s.child(self.history_panel(cx))
+            })
+            .when(self.ui.trash_open && self.ui.history.is_none(), |s| {
                 s.child(
                     div()
                         .id("trash-items")

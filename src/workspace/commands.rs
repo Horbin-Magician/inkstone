@@ -94,6 +94,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (95, "删除当前行", "Ctrl+Shift+K"),
     (96, "选中当前行", "Alt+L"),
     (98, "切换注释", "Ctrl+/"),
+    (99, "查看当前笔记版本历史", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -388,10 +389,12 @@ impl Workspace {
                 }
             }
             16 => {
+                self.ui.history = None;
                 self.ui.trash_open = true;
                 window.focus(&self.ui.modal_focus, cx);
                 self.refresh_trash(cx);
             }
+            99 => self.open_history(window, cx),
             17 => {
                 if let Some(closed) = self.ui.closed.pop() {
                     self.open_note_with_view(closed.view.path.clone(), Some(closed), window, cx);

@@ -7,6 +7,7 @@ mod hotkeys;
 mod inline_title;
 mod link_updates;
 mod navigation;
+mod recovery;
 mod ui;
 mod views;
 mod welcome;
@@ -290,12 +291,16 @@ impl Workspace {
         let Some(entry) = self.recoveries.get(index).cloned() else {
             return;
         };
-        let name = entry
-            .record
-            .relative
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy();
+        self.restore_text_as_copy(&entry.record.relative, entry.record.draft, window, cx);
+    }
+    fn restore_text_as_copy(
+        &mut self,
+        original: &std::path::Path,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = original.file_stem().unwrap_or_default().to_string_lossy();
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -303,9 +308,7 @@ impl Workspace {
         let path = PathBuf::from(format!("{name}-恢复-{unique}.md"));
         self.add_tab(path, None, true, window, cx);
         let editor = self.tabs.last().unwrap().pane.read(cx).editor.clone();
-        editor.update(cx, |state, cx| {
-            state.set_value(entry.record.draft, window, cx)
-        });
+        editor.update(cx, |state, cx| state.set_value(text, window, cx));
         self.status = "恢复内容已打开为新笔记，原文件与恢复记录均保留。".into();
         self.save_all(window, cx);
         cx.notify();
@@ -740,6 +743,8 @@ impl Workspace {
                             s.set_value(this.ui.prefs.tags.query.clone(), window, cx)
                         });
                         this.ui.link_update = None;
+                        this.ui.history = None;
+                        this.ui.trash_open = false;
                         this.ui.last_persisted.clear();
                         this.ui.persist_error = None;
                         this.ui.discard_workspace_on_close = false;
