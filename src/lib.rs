@@ -3,6 +3,7 @@ pub mod file_order;
 pub mod graphics;
 pub mod index;
 pub mod line_edit;
+pub mod link_audit;
 pub mod locations;
 pub mod markdown;
 pub mod markdown_edit;

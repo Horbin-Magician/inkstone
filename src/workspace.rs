@@ -9,6 +9,7 @@ mod extras;
 mod file_settings;
 mod hotkeys;
 mod inline_title;
+mod link_health;
 mod link_updates;
 mod navigation;
 mod recovery;
@@ -758,6 +759,7 @@ impl Workspace {
                         this.ui.backup = Default::default();
                         this.ui.exporting = false;
                         this.ui.attachment_manager = None;
+                        this.ui.link_health = None;
                         this.ui.trash_open = false;
                         this.ui.last_persisted.clear();
                         this.ui.persist_error = None;
