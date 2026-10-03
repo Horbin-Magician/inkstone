@@ -1,5 +1,6 @@
 mod appearance;
 mod commands;
+mod conflicts;
 mod document;
 mod extras;
 mod file_settings;
@@ -744,6 +745,7 @@ impl Workspace {
                         });
                         this.ui.link_update = None;
                         this.ui.history = None;
+                        this.ui.conflict_review = None;
                         this.ui.trash_open = false;
                         this.ui.last_persisted.clear();
                         this.ui.persist_error = None;
