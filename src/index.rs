@@ -1,3 +1,4 @@
+mod cache;
 use crate::vault::{Vault, VaultError};
 use markdown_parser::mdast::Node;
 const LINK_PATH_ESCAPE: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
@@ -12,31 +13,31 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WikiLink {
     pub range: Range<usize>,
     pub target: String,
     pub label: String,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Heading {
     pub level: u8,
     pub title: String,
     pub offset: usize,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TaskItem {
     pub start: usize,
     pub marker: Range<usize>,
     pub checked: bool,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BlockReference {
     pub id: String,
     pub range: Range<usize>,
     pub marker: Range<usize>,
 }
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct ParsedNote {
     pub inline_footnotes: Vec<crate::syntax::InlineFootnote>,
     pub comments: Vec<crate::comments::Comment>,
@@ -58,7 +59,7 @@ pub struct ParsedNote {
     pub fold_regions: Vec<(Range<usize>, FoldKind)>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum FoldKind {
     Heading,
     Indent,

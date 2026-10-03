@@ -118,7 +118,7 @@ pub struct Snapshot {
     pub inline_footnotes: Vec<InlineFootnote>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InlineFootnote {
     pub range: std::ops::Range<usize>,
     pub content: std::ops::Range<usize>,

@@ -664,8 +664,8 @@ impl Workspace {
             watcher
                 .watch(&vault.root, RecursiveMode::Recursive)
                 .map_err(|e| VaultError::Io(std::io::Error::other(e)))?;
-            let _ = vault.cleanup_history();
-            let index = Index::build(&vault)?;
+            let cache_path = Index::cache_path(&vault, &app_dir().join("index-cache"));
+            let index = Index::build_cached(&vault, &cache_path)?;
             let files = index.note_paths();
             let recoveries = vault.recoveries()?;
             let _ = std::fs::write(
@@ -783,6 +783,18 @@ impl Workspace {
                         this.watch_events = Some(receiver);
                         this.recoveries = recoveries;
                         this.index = Arc::new(index);
+                        let cached_index = this.index.clone();
+                        let maintenance_vault = this.vault.as_ref().unwrap().clone();
+                        cx.background_executor()
+                            .spawn(async move {
+                                let path = Index::cache_path(
+                                    &maintenance_vault,
+                                    &app_dir().join("index-cache"),
+                                );
+                                let _ = cached_index.save_cache(&maintenance_vault, &path);
+                                let _ = maintenance_vault.cleanup_history();
+                            })
+                            .detach();
                         this.sync_index_ui(cx);
                         this.run_search(cx);
                         this.refreshing = false;
