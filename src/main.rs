@@ -95,6 +95,13 @@ fn main() {
                         ..gpui_component::TitleBar::window_options()
                     },
                     |window, cx| {
+                        let main_window_id = window.window_handle().window_id();
+                        cx.on_window_closed(move |cx, window_id| {
+                            if window_id == main_window_id {
+                                cx.quit();
+                            }
+                        })
+                        .detach();
                         let view = cx.new(|cx| workspace::Workspace::new(window, cx));
                         #[cfg(target_os = "macos")]
                         app_menu::init(&view, window, cx);
