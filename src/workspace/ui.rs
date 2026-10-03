@@ -3977,6 +3977,10 @@ impl Workspace {
                 if !this.command_open && !this.ui.quick_open {
                     return;
                 }
+                // Let focused result buttons handle their own Enter/Space action.
+                if this.command_open && !this.ui.command.read(cx).focus_handle(cx).is_focused(w) {
+                    return;
+                }
                 let key = event.keystroke.key.as_str();
                 let n = if this.command_open {
                     this.filtered_commands(cx).len()
@@ -4074,8 +4078,13 @@ impl Workspace {
                         .max_h(px(384.).min((available_height - px(80.)).max(px(40.))))
                         .children(self.filtered_commands(cx).into_iter().enumerate().map(
                             |(i, (id, label, _))| {
-                                div()
-                                    .id(("command", id))
+                                Button::new(("command", id))
+                                    .ghost()
+                                    .w_full()
+                                    .accessibility_label(format!(
+                                        "{label} {}",
+                                        self.hotkey_label(id)
+                                    ))
                                     .flex()
                                     .items_center()
                                     .justify_between()
@@ -4085,9 +4094,6 @@ impl Workspace {
                                     .rounded(px(4.))
                                     .cursor_pointer()
                                     .when(self.ui.selected == i, |s| {
-                                        s.bg(crate::theme::palette(self.ui.prefs.light).selected)
-                                    })
-                                    .hover(|s| {
                                         s.bg(crate::theme::palette(self.ui.prefs.light).selected)
                                     })
                                     .child(div().flex_1().min_w_0().truncate().child(label))
@@ -4582,6 +4588,7 @@ impl Workspace {
         let reading = self.ui.prefs.default_reading;
         let weak = cx.entity().downgrade();
         let default_view = Button::new("default-view-mode")
+            .accessibility_label("新标签页的默认视图")
             .h(px(32.))
             .child(
                 div()
@@ -4612,6 +4619,7 @@ impl Workspace {
         let live = self.ui.prefs.default_live_preview;
         let weak = cx.entity().downgrade();
         let editing_mode = Button::new("default-editing-mode")
+            .accessibility_label("默认编辑模式")
             .h(px(32.))
             .child(
                 div()
