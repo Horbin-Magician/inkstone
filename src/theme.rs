@@ -17,14 +17,14 @@ pub(crate) struct Palette {
 pub(crate) fn palette(light: bool) -> Palette {
     let color = |day, night| rgb(if light { day } else { night });
     Palette {
-        background: color(0xffffff, 0x000000),
-        sidebar: color(0xf4f6f8, 0x000000),
-        surface: color(0xf8fafb, 0x141414),
+        background: color(0xffffff, 0x212121),
+        sidebar: color(0xf4f6f8, 0x1b1b1b),
+        surface: color(0xf8fafb, 0x292929),
         foreground: color(0x263342, 0xe8e8e8),
-        muted: color(0x627184, 0xa3a3a3),
-        border: color(0xe2e8ef, 0x303030),
-        hover: color(0xeaf0f5, 0x222222),
-        selected: color(0xe0eef2, 0x303030),
+        muted: color(0x627184, 0xadadad),
+        border: color(0xe2e8ef, 0x383838),
+        hover: color(0xeaf0f5, 0x303030),
+        selected: color(0xe0eef2, 0x3a3a3a),
         accent: color(0x24778a, 0x72bfd0),
     }
 }
