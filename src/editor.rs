@@ -765,7 +765,12 @@ impl EditorPane {
             // existing layout/focus initialization order. Subsequent edits must
             // never pass through that unstyled loading state.
             if !initial_parse {
-                let snapshot = Arc::new(inkstone::syntax::Snapshot::new(&text));
+                let snapshot = Arc::new(
+                    self.syntax_snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.update_plain_paragraph(&text))
+                        .unwrap_or_else(|| inkstone::syntax::Snapshot::new(&text)),
+                );
                 self.spans = markdown::spans_snapshot(&snapshot);
                 self.parsed = index::parse_snapshot(&snapshot);
                 self.syntax_snapshot = Some(snapshot);
@@ -1602,6 +1607,39 @@ mod tests {
     use super::*;
     use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn plain_edits_keep_following_live_syntax_and_undo_coordinates(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "# Heading\n\n中文 ordinary paragraph. end\n\n## Later\n\n- [x] task\n\n**bold** [[note]]";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        cx.run_until_parked();
+        handle
+            .update(cx, |pane, window, cx| {
+                let start = source.find("ordinary").unwrap();
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(start..start + 8, cx);
+                    state.replace("中文😀 prose", window, cx);
+                });
+                pane.update_presentation(cx);
+                let current = pane.editor.read(cx).value();
+                assert_eq!(
+                    pane.syntax_snapshot.as_ref().unwrap().ast,
+                    inkstone::syntax::Snapshot::new(&current).ast
+                );
+                assert_eq!(pane.spans, markdown::spans(&current));
+                assert_eq!(pane.parsed.tasks, index::parse(&current).tasks);
+                assert_eq!(pane.parsed.headings, index::parse(&current).headings);
+                pane.editor.update(cx, |state, cx| {
+                    state.undo(&gpui_component::input::Undo, window, cx)
+                });
+                pane.update_presentation(cx);
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+                assert_eq!(pane.spans, markdown::spans(source));
+                assert_eq!(pane.parsed.tasks, index::parse(source).tasks);
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn reading_currency_preserves_dollars_links_and_footnote_numbering(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
