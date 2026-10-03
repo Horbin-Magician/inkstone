@@ -412,6 +412,108 @@ impl Vault {
         Ok(entries)
     }
 
+    /// Bound successful history only. Failed journals and conflict backups are never pruned.
+    pub fn cleanup_history(&self) -> io::Result<()> {
+        self.cleanup_history_with_policy(
+            std::time::Duration::from_secs(30 * 24 * 3600),
+            128 * 1024 * 1024,
+        )
+    }
+    fn cleanup_history_with_policy(
+        &self,
+        max_age: std::time::Duration,
+        max_bytes: u64,
+    ) -> io::Result<()> {
+        let mut saved = Vec::new();
+        let mut protected = std::collections::BTreeSet::new();
+        for entry in fs::read_dir(&self.recovery_dir)? {
+            let path = entry?.path();
+            let Ok(meta) = fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if !meta.is_file() || is_reparse(&meta) {
+                continue;
+            }
+            let completed = path.extension().is_some_and(|e| e == "saved");
+            if !completed && path.extension().is_none_or(|e| e != "json") {
+                continue;
+            }
+            let Ok(bytes) = fs::read(&path) else {
+                continue;
+            };
+            let Ok(record) = serde_json::from_slice::<Recovery>(&bytes) else {
+                continue;
+            };
+            if record.root != self.root {
+                continue;
+            }
+            let Ok(note_path) = self.path(&record.relative) else {
+                continue;
+            };
+            if !completed {
+                protected.insert(record.relative);
+                continue;
+            }
+            let backup = note_path.parent().unwrap().join(format!(
+                ".inkstone-{}.saved-backup",
+                path.file_stem().unwrap().to_string_lossy()
+            ));
+            let backup_size = fs::symlink_metadata(&backup)
+                .ok()
+                .filter(|m| m.is_file() && !is_reparse(m))
+                .map_or(0, |m| m.len());
+            saved.push((
+                path,
+                record.relative,
+                meta.modified()?,
+                meta.len().saturating_add(backup_size),
+                backup,
+            ));
+        }
+        saved.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| b.0.cmp(&a.0)));
+        let mut total = saved.iter().fold(0u64, |n, e| n.saturating_add(e.3));
+        let mut latest = std::collections::BTreeSet::new();
+        let mut candidates = Vec::new();
+        for entry in saved {
+            if !latest.insert(entry.1.clone()) && !protected.contains(&entry.1) {
+                candidates.push(entry);
+            }
+        }
+        // Remove oldest first, retaining at least the latest successful version of every note.
+        for (journal, _, modified, size, backup) in candidates.into_iter().rev() {
+            if total <= max_bytes && modified.elapsed().unwrap_or_default() <= max_age {
+                continue;
+            }
+            match fs::symlink_metadata(&backup) {
+                Ok(meta) if meta.is_file() && !is_reparse(&meta) => fs::remove_file(&backup)?,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+                // Never follow or remove unexpected entries.
+                Ok(_) => continue,
+            }
+            match fs::remove_file(journal) {
+                Ok(()) => total = total.saturating_sub(size),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+    fn cleanup_history_if_due(&self) {
+        static LAST_CLEANUP: std::sync::Mutex<Option<std::time::Instant>> =
+            std::sync::Mutex::new(None);
+        let Ok(mut last) = LAST_CLEANUP.lock() else {
+            return;
+        };
+        if last.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(60)) {
+            return;
+        }
+        *last = Some(std::time::Instant::now());
+        drop(last);
+        // Maintenance failure must never turn a successful note save into an error.
+        let _ = self.cleanup_history();
+    }
+
     pub fn rename_note(&self, old: &Path, new: &Path, baseline: &str) -> Result<(), VaultError> {
         let source = self.path(old)?;
         let dest = self.path(new)?;
@@ -618,7 +720,10 @@ impl Vault {
                 // Atomic no-clobber creation; an intervening creation is never overwritten.
                 fs::hard_link(&temp, &path)?;
             } else {
-                let backup = parent.join(format!(".inkstone-{}.external-backup", unique_id()));
+                let backup = parent.join(format!(
+                    ".inkstone-{}.external-backup",
+                    recovery.file_stem().unwrap().to_string_lossy()
+                ));
                 replace_with_backup(&path, &temp, &backup)?;
                 #[cfg(any(windows, unix))]
                 if !guard
@@ -641,6 +746,8 @@ impl Vault {
                 // The baseline and draft are already in the synced application journal.
                 #[cfg(windows)]
                 fs::remove_file(backup)?;
+                #[cfg(unix)]
+                move_no_replace(&backup, &backup.with_extension("saved-backup"))?;
             }
             #[cfg(not(windows))]
             {
@@ -660,6 +767,9 @@ impl Vault {
         })();
         // Best-effort removal only of our unique temporary file. Never touch a note on failure.
         let _ = fs::remove_file(&temp);
+        if result.is_ok() {
+            self.cleanup_history_if_due();
+        }
         result
     }
 }
@@ -1131,6 +1241,56 @@ mod tests {
         assert_eq!(fs::read_to_string(trash).unwrap(), "A");
         assert_eq!(s.1.scan().unwrap(), vec![PathBuf::from("b.md")]);
     }
+    #[test]
+    fn history_cleanup_preserves_latest_failed_and_other_vault_records() {
+        let s = Sandbox::new();
+        let note = Path::new("note.md");
+        s.1.save(note, None, "one").unwrap();
+        let old = s.1.save(note, Some("one"), "two").unwrap().recovery;
+        fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new().set_modified(UNIX_EPOCH + std::time::Duration::from_secs(1)),
+            )
+            .unwrap();
+        let latest = s.1.save(note, Some("two"), "three").unwrap().recovery;
+        // Same recovery directory may contain another vault's records.
+        fs::create_dir(s.0.join("other")).unwrap();
+        let other = Vault::open(s.0.join("other"), &s.1.recovery_dir).unwrap();
+        let other_record = other.save(note, None, "other").unwrap().recovery;
+        let failure = s.1.journal(note, Some("three"), "unsaved").unwrap();
+        let conflict_backup = s.1.root.join(".inkstone-unresolved.external-backup");
+        fs::write(&conflict_backup, "external").unwrap();
+        let corrupt = s.1.recovery_dir.join("partial.json");
+        fs::write(&corrupt, "{").unwrap();
+        s.1.cleanup_history_with_policy(std::time::Duration::ZERO, 0)
+            .unwrap();
+        assert!(
+            old.exists(),
+            "unresolved drafts protect this note's successful history"
+        );
+        fs::remove_file(failure).unwrap();
+        s.1.cleanup_history_with_policy(std::time::Duration::ZERO, 0)
+            .unwrap();
+        assert!(!old.exists());
+        assert!(latest.exists());
+        assert!(other_record.exists());
+        assert!(conflict_backup.exists());
+        assert!(corrupt.exists());
+        #[cfg(unix)]
+        assert!(
+            !s.1.root
+                .join(format!(
+                    ".inkstone-{}.saved-backup",
+                    old.file_stem().unwrap().to_string_lossy()
+                ))
+                .exists()
+        );
+        assert_eq!(s.1.read(note).unwrap().as_deref(), Some("three"));
+    }
+
     #[test]
     fn recovery_list_excludes_success_and_keeps_failed_draft() {
         let s = Sandbox::new();
