@@ -13,6 +13,7 @@ pub(super) struct Widget {
     numbers: std::collections::BTreeMap<String, usize>,
     targets: Vec<(usize, PathBuf, usize)>,
     graphic: Option<crate::native_graphics::GraphicResult>,
+    graphic_source: Option<SharedString>,
     pub width: f32,
     pub height: f32,
     view: Entity<TextViewState>,
@@ -84,6 +85,7 @@ impl EditorPane {
                         role: candidate.role,
                         numbers,
                         targets,
+                        graphic_source: graphic.as_ref().map(|_| self.parse_source.clone()),
                         graphic,
                         width,
                         height,
@@ -94,6 +96,56 @@ impl EditorPane {
                 },
             )
             .collect();
+    }
+
+    // Keep source-independent graphics visible while the full reading document
+    // is rebuilt. Revalidate syntax as well as bytes: edits outside a formula
+    // can turn it into code or otherwise change its Markdown context.
+    pub(super) fn retain_live_graphics(&mut self, snapshot: &inkstone::syntax::Snapshot) {
+        let old = self.parse_source.as_ref();
+        let new = snapshot.source.as_ref();
+        let prefix = old
+            .bytes()
+            .zip(new.bytes())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let suffix = old.as_bytes()[prefix..]
+            .iter()
+            .rev()
+            .zip(new.as_bytes()[prefix..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let candidates = inkstone::preview::candidates(snapshot);
+        let current_source = SharedString::from(new.to_owned());
+        for widget in &mut self.live_objects {
+            if widget
+                .graphic_source
+                .as_ref()
+                .is_none_or(|s| s.as_ref() != old)
+            {
+                continue;
+            }
+            let range = if widget.source.end <= prefix {
+                Some(widget.source.clone())
+            } else if widget.source.start >= old.len() - suffix {
+                Some(
+                    new.len() - (old.len() - widget.source.start)
+                        ..new.len() - (old.len() - widget.source.end),
+                )
+            } else {
+                None
+            };
+            if let Some(range) = range.filter(|range| {
+                candidates
+                    .iter()
+                    .any(|c| c.source == *range && c.block == widget.block && c.role == widget.role)
+            }) {
+                widget.source = range;
+                widget.graphic_source = Some(current_source.clone());
+            } else {
+                widget.graphic_source = None;
+            }
+        }
     }
 
     pub(super) fn active_live_objects(
@@ -109,7 +161,13 @@ impl EditorPane {
             .iter()
             .filter(|w| {
                 w.role != Role::Hidden
-                    && w.document.source_matches(&self.current_path, source)
+                    && (if w.graphic.is_some() {
+                        w.graphic_source
+                            .as_ref()
+                            .is_some_and(|s| s.as_ref() == source)
+                    } else {
+                        w.document.source_matches(&self.current_path, source)
+                    })
                     && !selections.iter().chain(matches).any(|s| {
                         if s.is_empty() {
                             w.source.start <= s.start && s.start <= w.source.end
@@ -596,6 +654,79 @@ mod tests {
                 .unwrap();
         }
     }
+    #[gpui::test]
+    fn unchanged_math_stays_rendered_before_background_parse(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "top\n\n行内 $x^2$ 和 $x^2$\n\n$$\n\\frac{1}{2}\n$$\n\ntail";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..10 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, window, cx| {
+                assert_eq!(pane.editor.read(cx).display_objects().len(), 3);
+                let original = pane.live_objects.clone();
+                // Deliberately do not yield to the background executor between edits.
+                for (offset, inserted) in [(0, "中文😀"), (0, "more ")] {
+                    pane.editor.update(cx, |state, cx| {
+                        state.set_selected_range(offset..offset, cx);
+                        state.replace_text_in_range(None, inserted, window, cx);
+                    });
+                    pane.update_presentation(cx);
+                    let current = pane.editor.read(cx).value();
+                    let shift = current.len() - source.len();
+                    let objects = pane.editor.read(cx).display_objects();
+                    assert_eq!(objects.len(), 3);
+                    for (before, after) in original.iter().zip(objects) {
+                        assert_eq!(
+                            after.source,
+                            before.source.start + shift..before.source.end + shift
+                        );
+                        assert_eq!(after.size, size(px(before.width), px(before.height)));
+                    }
+                }
+                let end = pane.editor.read(cx).value().len();
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(end..end, cx);
+                    state.replace_text_in_range(None, " after", window, cx);
+                });
+                pane.update_presentation(cx);
+                assert_eq!(pane.editor.read(cx).display_objects().len(), 3);
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(0.."more 中文😀".len(), cx);
+                    state.replace_text_in_range(None, "", window, cx);
+                });
+                pane.update_presentation(cx);
+                let objects = pane.editor.read(cx).display_objects();
+                assert_eq!(objects.len(), 3);
+                for (before, after) in original.iter().zip(objects) {
+                    assert_eq!(after.source, before.source);
+                }
+                let formula = pane.live_objects[0].source.clone();
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(formula.start + 1..formula.start + 1, cx);
+                });
+                pane.update_presentation(cx);
+                assert_eq!(pane.editor.read(cx).display_objects().len(), 2);
+                pane.editor.update(cx, |state, cx| {
+                    state.replace_text_in_range(None, "y", window, cx);
+                    state.set_selected_range(0..0, cx);
+                });
+                pane.update_presentation(cx);
+                // The changed formula must not reuse its old graphic.
+                assert_eq!(pane.editor.read(cx).display_objects().len(), 2);
+                pane.editor.update(cx, |state, cx| {
+                    state.replace_text_in_range(None, "```\n", window, cx);
+                });
+                pane.update_presentation(cx);
+                // Unchanged bytes now inside a code fence are no longer formulas.
+                assert!(pane.editor.read(cx).display_objects().is_empty());
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn live_math_reserves_baseline_and_retains_measured_geometry_on_reparse(
         cx: &mut TestAppContext,

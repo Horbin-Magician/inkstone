@@ -771,6 +771,7 @@ impl EditorPane {
                         .and_then(|snapshot| snapshot.update_plain_paragraph(&text))
                         .unwrap_or_else(|| inkstone::syntax::Snapshot::new(&text)),
                 );
+                self.retain_live_graphics(&snapshot);
                 self.spans = markdown::spans_snapshot(&snapshot);
                 self.parsed = index::parse_snapshot(&snapshot);
                 self.syntax_snapshot = Some(snapshot);
