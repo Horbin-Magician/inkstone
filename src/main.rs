@@ -1,6 +1,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 #[cfg(target_os = "macos")]
+mod app_icon;
+#[cfg(target_os = "macos")]
 mod app_menu;
 mod editor;
 mod editor_links;
@@ -18,6 +20,8 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
+            #[cfg(target_os = "macos")]
+            app_icon::init();
             gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
             gpui_component::set_locale("zh-CN");
             cx.bind_keys([
