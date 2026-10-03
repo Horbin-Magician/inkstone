@@ -392,7 +392,7 @@ impl UiState {
                     this.ui.selected = 0;
                     cx.notify();
                 }
-                InputEvent::PressEnter { .. } => {
+                InputEvent::PressEnter { .. } if this.command_open => {
                     if let Some((id, _, _)) =
                         this.filtered_commands(cx).get(this.ui.selected).copied()
                     {
