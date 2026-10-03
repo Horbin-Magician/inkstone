@@ -111,6 +111,10 @@ impl Builder<'_> {
                 if self.format == Format::Markdown {
                     url.push('#');
                     url.push_str(&encoded(&fragment));
+                } else if let Some(id) = fragment.strip_prefix('^')
+                    && let Some(i) = note.parsed.blocks.iter().position(|b| b.id == id)
+                {
+                    url.push_str(&format!("#block-{i}"));
                 } else if let Some(range) = index::anchor_range(&note.text, &note.parsed, &fragment)
                     && let Some(i) = note
                         .parsed
@@ -218,13 +222,110 @@ impl Builder<'_> {
         out
     }
 }
-fn html(title: &str, markdown: &str) -> io::Result<String> {
+fn html_extensions(
+    source: &str,
+    warnings: &mut BTreeSet<String>,
+) -> (String, Vec<(String, String)>) {
+    use crate::graphics::{self, Kind};
+    use markdown_parser::mdast::Node;
+    fn visit(node: &Node, out: &mut Vec<(std::ops::Range<usize>, Kind, String)>) {
+        let graphic = match node {
+            Node::InlineMath(n) => Some((Kind::InlineMath, n.value.clone())),
+            Node::Math(n) => Some((Kind::BlockMath, n.value.clone())),
+            Node::Code(n)
+                if n.lang
+                    .as_deref()
+                    .is_some_and(|s| s.eq_ignore_ascii_case("mermaid")) =>
+            {
+                Some((Kind::Mermaid, n.value.clone()))
+            }
+            _ => None,
+        };
+        if let Some((kind, text)) = graphic
+            && let Some(p) = node.position()
+        {
+            out.push((p.start.offset..p.end.offset, kind, text));
+        } else if let Some(children) = node.children() {
+            for child in children {
+                visit(child, out);
+            }
+        }
+    }
+    let snapshot = crate::syntax::Snapshot::new(source);
+    let mut graphics = vec![];
+    if let Some(ast) = &snapshot.ast {
+        visit(ast, &mut graphics);
+    }
+    let mut edits = vec![];
+    if graphics.len() > 200 {
+        warnings.insert("单篇公式/图表超过 200 个，超出部分保留源码。".into());
+    }
+    for (range, kind, text) in graphics.into_iter().take(200) {
+        match graphics::prepare(kind, &text, true) {
+            Ok(graphic) => {
+                let svg = String::from_utf8_lossy(&graphic.svg);
+                let data =
+                    percent_encoding::utf8_percent_encode(&svg, percent_encoding::NON_ALPHANUMERIC);
+                let class = if kind == Kind::InlineMath {
+                    "inline-math"
+                } else {
+                    "block-graphic"
+                };
+                edits.push((range, format!("<img class=\"{class}\" alt=\"{}\" width=\"{}\" height=\"{}\" src=\"data:image/svg+xml,{data}\">", html_escape(&text), graphic.width.ceil(), graphic.height.ceil())));
+            }
+            Err(error) => {
+                warnings.insert(format!("公式或图表保留源码：{error}"));
+            }
+        }
+    }
+    for span in crate::markdown::spans_snapshot(&snapshot)
+        .into_iter()
+        .filter(|s| s.kind == crate::markdown::Kind::Highlight)
+    {
+        edits.push((span.markers[0].clone(), "<mark>".into()));
+        edits.push((span.markers[1].clone(), "</mark>".into()));
+    }
+    for (i, block) in index::parse_snapshot(&snapshot)
+        .blocks
+        .into_iter()
+        .enumerate()
+    {
+        edits.push((block.marker, format!("<span id=\"block-{i}\"></span>")));
+    }
+    edits.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.end)));
+    let prefix = loop {
+        let prefix = format!("INKSTONEEXPORT{}TOKEN", unique_id().replace('-', ""));
+        if !source.contains(&prefix) {
+            break prefix;
+        }
+    };
+    let mut out = String::new();
+    let mut tokens = vec![];
+    let mut cursor = 0;
+    for (range, markup) in edits {
+        if range.start < cursor {
+            continue;
+        }
+        out.push_str(&snapshot.structural[cursor..range.start]);
+        let token = format!("{prefix}{}END", tokens.len());
+        out.push_str(&token);
+        tokens.push((token, markup));
+        cursor = range.end;
+    }
+    out.push_str(&snapshot.structural[cursor..]);
+    (out, tokens)
+}
+fn html(title: &str, markdown: &str, warnings: &mut BTreeSet<String>) -> io::Result<String> {
+    let (markdown, tokens) = html_extensions(markdown, warnings);
     let options = markdown_parser::Options {
         parse: crate::syntax::options(),
         compile: Default::default(),
     };
-    let body = markdown_parser::to_html_with_options(markdown, &options)
+    let mut body = markdown_parser::to_html_with_options(&markdown, &options)
         .map_err(|e| io::Error::other(e.to_string()))?;
+    for (token, markup) in tokens {
+        body = body.replace(&token, &markup);
+    }
     let heading = regex::Regex::new(r"<h([1-6])>").unwrap();
     let mut i = 0;
     let body = heading.replace_all(&body, |c: &regex::Captures<'_>| {
@@ -238,6 +339,7 @@ fn html(title: &str, markdown: &str) -> io::Result<String> {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <title>{}</title><style>
 body{{max-width:820px;margin:40px auto;padding:0 24px;font:17px/1.75 system-ui,sans-serif;color:#242424;background:white;overflow-wrap:anywhere}}
+.inline-math{{vertical-align:middle;display:inline}}.block-graphic{{display:block;margin:1em auto}}mark{{background:#fff0a0;color:inherit}}
 img{{max-width:100%;height:auto}} pre{{white-space:pre-wrap;padding:16px;background:#f4f4f4}}code{{font-family:monospace}} table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ccc;padding:6px 10px}}blockquote{{margin-left:0;padding-left:18px;border-left:3px solid #aaa;color:#555}}a{{color:#1664a2}}h1,h2,h3{{line-height:1.3}}.export-help{{font-size:13px;color:#666;border-bottom:1px solid #ddd;padding-bottom:12px}}
 @media print{{body{{margin:0;max-width:none;font-size:11pt}}.export-help{{display:none}}h1,h2,h3{{break-after:avoid}}img,tr,pre{{break-inside:avoid}}@page{{margin:18mm}}}}
 </style></head><body><aside class="export-help">墨砚 HTML 导出 · 使用浏览器“打印 → 另存为 PDF”。分享时请携带整个导出文件夹。远程图片不会自动加载。</aside><main>{body}</main></body></html>"#,
@@ -282,6 +384,7 @@ pub fn create(
             html(
                 &path.file_stem().unwrap_or_default().to_string_lossy(),
                 &markdown,
+                &mut builder.warnings,
             )?
         } else {
             markdown
@@ -296,7 +399,7 @@ pub fn create(
         backup::transfer(&backup::safe_path(&vault.root, path)?, Some(&out))?;
     }
     if format == Format::Html {
-        builder.warnings.insert("HTML 不执行原始 HTML 或脚本；公式、Mermaid、高亮等扩展暂以基本 Markdown 形式显示。块锚点不导出；远程图片不下载、不自动加载。".into());
+        builder.warnings.insert("HTML 不执行原始 HTML 或脚本；公式与 Mermaid 使用本地 SVG 渲染，失败时保留源码并列出提示。远程图片不下载、不自动加载。".into());
     }
     let warnings: Vec<_> = builder.warnings.into_iter().collect();
     let report = format!(
@@ -319,6 +422,30 @@ pub fn create(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn html_exports_native_graphics_highlights_and_block_anchors() {
+        let root = std::env::temp_dir().join(format!("inkstone-export-rich-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        fs::write(vault.root.join("a.md"), "# Rich\n\n$\\frac{1}{2}$ and ==重点== `==code==`\n\n```mermaid\nflowchart LR\nA --> B\n```\n\n正文 ^ref\n\n[[a#^ref]]\n\n%%private comment%%\n").unwrap();
+        let report = create(
+            &vault,
+            Path::new("a.md"),
+            BTreeMap::new(),
+            &root.join("out"),
+            Format::Html,
+        )
+        .unwrap();
+        let html = fs::read_to_string(report.entry).unwrap();
+        assert_eq!(html.matches("src=\"data:image/svg+xml,").count(), 2);
+        assert!(html.contains("<mark>重点</mark>"));
+        assert!(html.contains("<code>==code==</code>"));
+        assert!(html.contains("id=\"block-0\""));
+        assert!(html.contains("#block-0\""));
+        assert!(!html.contains("private comment"));
+        assert!(!html.contains("INKSTONEEXPORT"));
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn portable_export_preserves_drafts_copies_assets_and_resolves_cycles() {
         let root = std::env::temp_dir().join(format!("inkstone-export-{}", unique_id()));
