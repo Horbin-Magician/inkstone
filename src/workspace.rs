@@ -1385,7 +1385,6 @@ impl Workspace {
                                 this.files.push(tab.path.clone());
                                 this.files.sort();
                             }
-                            this.status = format!("已保存 {}", tab.path.display());
                         }
                         Err(error) => {
                             tab.save.conflict.set(matches!(
