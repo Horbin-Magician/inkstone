@@ -27,7 +27,12 @@ fn main() {
     }
     let vault = Vault::open(&notes, root.join("recovery")).unwrap();
     println!(
-        "profile=release backend_only=true root={} notes={} each_bytes={} setup_ms={}",
+        "profile={} backend_only=true root={} notes={} each_bytes={} setup_ms={}",
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
         notes.display(),
         count,
         sample.len(),
@@ -36,6 +41,35 @@ fn main() {
     let start = Instant::now();
     let index = Index::build(&vault).unwrap();
     println!("index_build_ms={}", start.elapsed().as_millis());
+    // Compare the previous owned-note representation with shared snapshots on
+    // identical data, in the same process. Drop work is outside the timed region.
+    let owned_notes: std::collections::BTreeMap<_, _> = index
+        .notes
+        .iter()
+        .map(|(path, note)| (path.clone(), note.as_ref().clone()))
+        .collect();
+    let mut owned_samples = Vec::new();
+    let mut shared_samples = Vec::new();
+    for _ in 0..7 {
+        let start = Instant::now();
+        let copy = std::hint::black_box((
+            owned_notes.clone(),
+            index.files.clone(),
+            index.errors.clone(),
+        ));
+        owned_samples.push(start.elapsed().as_secs_f64() * 1000.);
+        drop(copy);
+        let start = Instant::now();
+        let copy = std::hint::black_box(index.clone());
+        shared_samples.push(start.elapsed().as_secs_f64() * 1000.);
+        drop(copy);
+    }
+    owned_samples.sort_by(f64::total_cmp);
+    shared_samples.sort_by(f64::total_cmp);
+    println!(
+        "snapshot_clone_rounds=7 owned_p50_ms={:.3} shared_p50_ms={:.3}",
+        owned_samples[3], shared_samples[3]
+    );
     let start = Instant::now();
     let hits = index
         .search_limited("搜索测试", false, Default::default(), false, 200)
