@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
     button::*,
     menu::{DropdownMenu, PopupMenuItem},
@@ -207,7 +208,7 @@ impl Workspace {
                                 })
                                 .child(
                                     div()
-                                        .text_size(px(12.))
+                                        .text_size(px(MIN_UI_FONT_SIZE))
                                         .text_color(
                                             crate::theme::palette(self.ui.prefs.light).muted,
                                         )
@@ -245,7 +246,7 @@ impl Workspace {
                 .when(settings.directory(None, attachment).is_err(), |s| {
                     s.child(
                         div()
-                            .text_size(px(12.))
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .text_color(rgb(0xe4a66a))
                             .child(settings.directory(None, attachment).unwrap_err()),
                     )
@@ -277,7 +278,7 @@ impl Workspace {
                             .child(
                                 div().flex_1().child("内部链接类型").child(
                                     div()
-                                        .text_size(px(12.))
+                                        .text_size(px(MIN_UI_FONT_SIZE))
                                         .text_color(
                                             crate::theme::palette(self.ui.prefs.light).muted,
                                         )
@@ -313,7 +314,7 @@ impl Workspace {
                             .child(
                                 div().flex_1().child("自动更新内部链接").child(
                                     div()
-                                        .text_size(px(12.))
+                                        .text_size(px(MIN_UI_FONT_SIZE))
                                         .child("关闭时，重命名或移动后会询问是否更新链接。"),
                                 ),
                             )
@@ -328,7 +329,7 @@ impl Workspace {
                                     })),
                             ),
                     )
-                    .child(div().text_size(px(12.)).child(
+                    .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(
                         "文件夹路径相对于当前笔记库。位置设置只影响之后创建的笔记和导入的附件。",
                     )),
             )

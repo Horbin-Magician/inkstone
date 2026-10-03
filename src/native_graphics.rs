@@ -1,5 +1,6 @@
 //! Native Markdown plugins. Parsing prepares images on TextView's worker;
 //! painting only reads cached resources and inherits line typography.
+use crate::theme::MIN_UI_FONT_SIZE;
 use gpui::{prelude::*, *};
 use gpui_base::text::{
     InlineElement, InlineRenderContext, MarkdownExtensions, MarkdownNode, MarkdownParseContext,
@@ -249,7 +250,7 @@ impl MarkdownPlugin for Plugin {
             Some(Err(error)) => {
                 view = view
                     .child(div().child(node.as_markdown().to_string()))
-                    .child(div().text_size(px(12.)).child(error.clone()))
+                    .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(error.clone()))
             }
             None => view = view.child(node.as_markdown().to_string()),
         }
@@ -271,7 +272,7 @@ impl MarkdownPlugin for Plugin {
                 return Some(InlineElement::new(
                     div()
                         .child(node.as_markdown().to_string())
-                        .child(div().text_size(px(12.)).child(error.clone())),
+                        .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(error.clone())),
                 ));
             }
             None => return None,

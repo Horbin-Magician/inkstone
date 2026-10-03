@@ -1,5 +1,6 @@
 use super::commands::command;
 use super::*;
+use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::date_picker::{DatePicker, DatePickerEvent, DatePickerState};
 use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_component::select::{SearchableVec, SelectEvent, SelectState};
@@ -585,13 +586,13 @@ impl Workspace {
             )
             .child(
                 div()
-                    .text_sm()
+                    .text_size(px(MIN_UI_FONT_SIZE))
                     .font_weight(FontWeight::MEDIUM)
                     .child(title.to_string()),
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(px(MIN_UI_FONT_SIZE))
                     .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                     .child(description.to_string()),
             )
@@ -633,14 +634,14 @@ impl Workspace {
                     .gap(px(4.))
                     .child(
                         div()
-                            .text_size(px(13.))
-                            .line_height(px(16.9))
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .line_height(relative(1.3))
                             .child(name.to_string()),
                     )
                     .child(
                         div()
-                            .text_size(px(12.))
-                            .line_height(px(15.6))
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .line_height(relative(1.3))
                             .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                             .child(description.to_string()),
                     ),
@@ -1552,21 +1553,28 @@ impl Workspace {
                                     .border_b_0()
                                     .border_color(self.border())
                             })
-                            .child(div().truncate().flex_1().text_size(px(13.)).child(format!(
-                                "{}{}",
-                                if t.path.as_os_str().is_empty() {
-                                    "新标签页".into()
-                                } else {
-                                    t.path.file_stem().unwrap_or_default().to_string_lossy()
-                                },
-                                if t.save.conflict.get() || t.save.error.borrow().is_some() {
-                                    " ⚠"
-                                } else if t.save.dirty.get() {
-                                    " •"
-                                } else {
-                                    ""
-                                }
-                            )))
+                            .child(
+                                div()
+                                    .truncate()
+                                    .flex_1()
+                                    .text_size(px(MIN_UI_FONT_SIZE))
+                                    .child(format!(
+                                        "{}{}",
+                                        if t.path.as_os_str().is_empty() {
+                                            "新标签页".into()
+                                        } else {
+                                            t.path.file_stem().unwrap_or_default().to_string_lossy()
+                                        },
+                                        if t.save.conflict.get() || t.save.error.borrow().is_some()
+                                        {
+                                            " ⚠"
+                                        } else if t.save.dirty.get() {
+                                            " •"
+                                        } else {
+                                            ""
+                                        }
+                                    )),
+                            )
                             .child(
                                 Button::new(("close-tab", t.id))
                                     .accessibility_id(format!("close-tab-{}", t.id))
@@ -1732,7 +1740,7 @@ impl Workspace {
                 .px_1()
                 .py_0()
                 .rounded(px(4.))
-                .text_size(px(13.))
+                .text_size(px(MIN_UI_FONT_SIZE))
                 .text_color(tree_foreground)
                 .when(!folder && active_path.as_ref() == Some(&path), |s| {
                     s.bg(tree_active)
@@ -1940,7 +1948,7 @@ impl Workspace {
                 .child(
                     div()
                         .px_3()
-                        .text_xs()
+                        .text_size(px(MIN_UI_FONT_SIZE))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                         .flex()
                         .items_center()
@@ -1975,7 +1983,7 @@ impl Workspace {
                         div()
                             .px_3()
                             .py_2()
-                            .text_sm()
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .line_height(relative(1.4))
                             .whitespace_normal()
                             .text_color(rgb(if self.ui.prefs.light {
@@ -1995,7 +2003,7 @@ impl Workspace {
                         .flex_1()
                         .overflow_y_scroll()
                         .p_2()
-                        .child(div().p_2().text_sm().child("书签"))
+                        .child(div().p_2().text_size(px(MIN_UI_FONT_SIZE)).child("书签"))
                         .when(self.ui.prefs.bookmarks.is_empty(), |s| {
                             s.child(
                                 div()
@@ -2162,7 +2170,7 @@ impl Workspace {
                     .when(!modal, |s| {
                         s.child(
                             div()
-                                .text_xs()
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                 .truncate()
                                 .child(if hit.excerpt.is_empty() {
@@ -2251,7 +2259,7 @@ impl Workspace {
                     s.child(
                         div()
                             .p_2()
-                            .text_sm()
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                             .child("未找到匹配结果"),
                     )
@@ -2292,7 +2300,7 @@ impl Workspace {
                                     .ghost()
                                     .compact()
                                     .flex_1()
-                                    .text_size(px(13.))
+                                    .text_size(px(MIN_UI_FONT_SIZE))
                                     .min_w_0()
                                     .justify_start()
                                     .overflow_hidden()
@@ -2324,7 +2332,7 @@ impl Workspace {
                             )
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(px(MIN_UI_FONT_SIZE))
                                     .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child(hits.len().to_string()),
                             ),
@@ -2346,7 +2354,7 @@ impl Workspace {
                                 })
                                 .child(
                                     div()
-                                        .text_size(px(12.))
+                                        .text_size(px(MIN_UI_FONT_SIZE))
                                         .line_height(relative(1.3))
                                         .whitespace_normal()
                                         .child(
@@ -2394,7 +2402,14 @@ impl Workspace {
             }))
             .when(
                 self.ui.search_loading && self.search_results.is_empty(),
-                |s| s.child(div().p_2().text_sm().child("正在搜索…")),
+                |s| {
+                    s.child(
+                        div()
+                            .p_2()
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .child("正在搜索…"),
+                    )
+                },
             )
             .when(self.ui.search_has_more, |s| {
                 s.child(
@@ -2514,7 +2529,7 @@ impl Workspace {
                                     .w_full()
                                     .pt(px(28.))
                                     .text_center()
-                                    .text_size(px(12.))
+                                    .text_size(px(MIN_UI_FONT_SIZE))
                                     .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child(if outline_query.is_empty() {
                                         "笔记中的标题会显示在这里"
@@ -2531,7 +2546,7 @@ impl Workspace {
                                 div()
                                     .id(("outline", i))
                                     .h(px(27.))
-                                    .text_size(px(13.))
+                                    .text_size(px(MIN_UI_FONT_SIZE))
                                     .rounded(px(4.))
                                     .hover(|s| s.bg(rgba(0x88888818)))
                                     .flex()
@@ -2590,7 +2605,7 @@ impl Workspace {
                                 .justify_between()
                                 .px_2()
                                 .h(px(32.))
-                                .text_size(px(12.))
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                 .child("链接当前文件")
                                 .child(self.backlinks.len().to_string()),
@@ -2600,7 +2615,7 @@ impl Workspace {
                                 div()
                                     .px_2()
                                     .py_1()
-                                    .text_size(px(13.))
+                                    .text_size(px(MIN_UI_FONT_SIZE))
                                     .text_color(rgb(0x777777))
                                     .child("没有笔记链接当前文件"),
                             )
@@ -2616,7 +2631,7 @@ impl Workspace {
                                                 ListItem::new(("backlink", i))
                                                     .h(px(27.))
                                                     .px_2()
-                                                    .text_size(px(13.))
+                                                    .text_size(px(MIN_UI_FONT_SIZE))
                                                     .rounded(px(4.))
                                                     .child(
                                                         div().truncate().child(
@@ -2644,7 +2659,7 @@ impl Workspace {
                                 .justify_between()
                                 .px_2()
                                 .h(px(32.))
-                                .text_size(px(12.))
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                 .child("当前笔记中的链接")
                                 .child(links.len().to_string()),
@@ -2655,7 +2670,7 @@ impl Workspace {
                                 .id(("outlink", i))
                                 .h(px(27.))
                                 .px_2()
-                                .text_size(px(13.))
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .rounded(px(4.))
                                 .hover(|s| s.bg(rgba(0x88888818)))
                                 .py_1()
@@ -2721,7 +2736,7 @@ impl Workspace {
                                 .px_2()
                                 .py_1()
                                 .rounded(px(4.))
-                                .text_size(px(13.))
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgba(0x88888818)))
                                 .child(
@@ -2757,7 +2772,7 @@ impl Workspace {
                                         .flex()
                                         .items_center()
                                         .gap_2()
-                                        .text_size(px(13.))
+                                        .text_size(px(MIN_UI_FONT_SIZE))
                                         .text_color(
                                             crate::theme::palette(self.ui.prefs.light).muted,
                                         )
@@ -2964,14 +2979,21 @@ impl Workspace {
                 } else {
                     None
                 },
-                |s, error| s.child(div().text_sm().text_color(rgb(0xe87979)).child(error)),
+                |s, error| {
+                    s.child(
+                        div()
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .text_color(rgb(0xe87979))
+                            .child(error),
+                    )
+                },
             )
             .when(
                 items.is_empty() && options.show_filter && !options.query.is_empty(),
                 |s| {
                     s.child(
                         div()
-                            .text_sm()
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                             .child(if options.show_filter && !options.query.is_empty() {
                                 "未找到匹配标签"
@@ -3005,7 +3027,7 @@ impl Workspace {
                             .items_center()
                             .gap_1()
                             .h(px(27.))
-                            .text_size(px(13.))
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .rounded(px(4.))
                             .py_1()
                             .pl(px(row.depth as f32 * 17.))
@@ -3039,7 +3061,7 @@ impl Workspace {
                             .child(div().flex_1().min_w_0().truncate().child(label))
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(px(MIN_UI_FONT_SIZE))
                                     .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child(row.count.to_string()),
                             )
@@ -3100,7 +3122,7 @@ impl Workspace {
                                 .min_w_0()
                                 .truncate()
                                 .text_center()
-                                .text_size(px(13.))
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .text_color(colors.muted)
                                 .child(breadcrumb),
                         )
@@ -3168,7 +3190,7 @@ impl Workspace {
                                                     .flex()
                                                     .items_center()
                                                     .gap_3()
-                                                    .text_size(px(13.))
+                                                    .text_size(px(MIN_UI_FONT_SIZE))
                                                     .when(id == 10, |s| s.text_color(rgb(0xe76575)))
                                                     .child(
                                                         div()
@@ -3179,7 +3201,7 @@ impl Workspace {
                                                     )
                                                     .child(
                                                         div()
-                                                            .text_size(px(11.))
+                                                            .text_size(px(MIN_UI_FONT_SIZE))
                                                             .text_color(colors.muted)
                                                             .child(shortcut.clone()),
                                                     )
@@ -3534,7 +3556,7 @@ impl Render for Workspace {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_size(px(13.))
+                                    .text_size(px(MIN_UI_FONT_SIZE))
                                     .font_weight(FontWeight::MEDIUM)
                                     .child(
                                         self.vault
@@ -3547,7 +3569,7 @@ impl Render for Workspace {
                             .when(self.vault.is_some(), |bar| {
                                 bar.child(
                                     div()
-                                        .text_xs()
+                                        .text_size(px(MIN_UI_FONT_SIZE))
                                         .text_color(
                                             crate::theme::palette(self.ui.prefs.light).muted,
                                         )
@@ -3645,7 +3667,7 @@ impl Render for Workspace {
                         .px_2()
                         .gap_2()
                         .bg(self.bg())
-                        .text_size(px(12.))
+                        .text_size(px(MIN_UI_FONT_SIZE))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                         .when(!self.status.is_empty(), |bar| {
                             bar.child(
@@ -3666,7 +3688,7 @@ impl Render for Workspace {
                                     .accessibility_label("显示反向链接")
                                     .child(
                                         div()
-                                            .text_size(px(12.))
+                                            .text_size(px(MIN_UI_FONT_SIZE))
                                             .text_color(
                                                 crate::theme::palette(self.ui.prefs.light).muted,
                                             )
@@ -3912,7 +3934,7 @@ impl Workspace {
                                             .text_color(
                                                 crate::theme::palette(self.ui.prefs.light).muted,
                                             )
-                                            .text_size(px(12.))
+                                            .text_size(px(MIN_UI_FONT_SIZE))
                                             .flex_shrink_0()
                                             .child(self.hotkey_label(id)),
                                     )
@@ -3944,7 +3966,7 @@ impl Workspace {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(11.))
+                        .text_size(px(MIN_UI_FONT_SIZE))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                         .child(if self.command_open {
                             "↑↓ 导航　↵ 使用　esc 退出"
@@ -3957,7 +3979,7 @@ impl Workspace {
                 s.child(Input::new(&self.name))
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                             .child("使用 / 指定文件夹路径，Enter 确认"),
                     )
@@ -4002,7 +4024,7 @@ impl Workspace {
                     .when(!self.ui.property_error.is_empty(), |s| {
                         s.child(
                             div()
-                                .text_sm()
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .text_color(rgb(0xe87979))
                                 .whitespace_normal()
                                 .child(self.ui.property_error.clone()),
@@ -4122,7 +4144,7 @@ impl Workspace {
             Err(error) => {
                 return div()
                     .child(Input::new(&self.ui.property_value))
-                    .child(div().text_sm().child(error))
+                    .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(error))
                     .into_any_element();
             }
         };

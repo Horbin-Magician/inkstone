@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::Selectable;
 use gpui_component::button::*;
 
@@ -250,7 +251,7 @@ impl Workspace {
                     .px_2()
                     .pt_3()
                     .pb_2()
-                    .text_size(px(12.))
+                    .text_size(px(MIN_UI_FONT_SIZE))
                     .text_color(rgb(0x777777))
                     .child("选项"),
             )
@@ -280,7 +281,7 @@ impl Workspace {
                                 .flex()
                                 .items_center()
                                 .gap_2()
-                                .text_size(px(13.))
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .child(ui::icon(symbol).size(px(16.)))
                                 .child(title),
                         )
@@ -309,15 +310,13 @@ impl Workspace {
                 self.settings_content()
                     .gap_2()
                     .child(Input::new(&self.ui.hotkey_filter))
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .child(if self.ui.hotkey_recording.is_some() {
-                                "请按组合键，Esc 取消。".to_string()
-                            } else {
-                                self.ui.hotkey_message.clone()
-                            }),
-                    )
+                    .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(
+                        if self.ui.hotkey_recording.is_some() {
+                            "请按组合键，Esc 取消。".to_string()
+                        } else {
+                            self.ui.hotkey_message.clone()
+                        },
+                    ))
                     .child(
                         div()
                             .id("hotkey-list")
@@ -344,7 +343,7 @@ impl Workspace {
                                                     .child(
                                                         div()
                                                             .flex_1()
-                                                            .text_size(px(12.))
+                                                            .text_size(px(MIN_UI_FONT_SIZE))
                                                             .child(self.hotkey_label(id)),
                                                     )
                                                     .child(
