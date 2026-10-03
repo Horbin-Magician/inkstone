@@ -18,9 +18,11 @@ use gpui_component::Root;
 const TITLE_BAR_HEIGHT: Pixels = px(40.);
 
 fn main() {
+    inkstone::startup_trace::mark("main");
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {
+            inkstone::startup_trace::mark("application_ready");
             gpui_kit::init(cx);
             #[cfg(target_os = "macos")]
             app_icon::init();
@@ -75,6 +77,7 @@ fn main() {
                     Some("Input"),
                 ),
             ]);
+            inkstone::startup_trace::mark("ui_framework_ready");
             cx.spawn(async move |cx| {
                 cx.open_window(
                     WindowOptions {
@@ -102,7 +105,9 @@ fn main() {
                             }
                         })
                         .detach();
+                        inkstone::startup_trace::mark("window_created");
                         let view = cx.new(|cx| workspace::Workspace::new(window, cx));
+                        inkstone::startup_trace::mark("workspace_created");
                         #[cfg(target_os = "macos")]
                         app_menu::init(&view, window, cx);
                         cx.new(|cx| Root::new(view, window, cx))

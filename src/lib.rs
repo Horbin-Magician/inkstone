@@ -20,3 +20,5 @@ pub mod text_changes;
 pub mod vault;
 pub mod word_count;
 mod yaml_source;
+
+pub mod startup_trace;

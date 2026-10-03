@@ -37,22 +37,27 @@ impl Index {
     }
 
     pub fn build_cached(vault: &Vault, path: &Path) -> Result<Self, VaultError> {
+        crate::startup_trace::mark("cache_read_started");
         let mut cached = std::fs::read(path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Cache>(&bytes).ok())
             .filter(|cache| cache.version == VERSION && cache.root == vault.root)
             .map(|cache| cache.notes)
             .unwrap_or_default();
+        crate::startup_trace::mark("cache_read_done");
         let mut index = Self {
             files: vault.scan_files()?,
             ..Default::default()
         };
+        crate::startup_trace::mark("file_scan_done");
         let paths: Vec<_> = index
             .files
             .iter()
             .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")))
             .cloned()
             .collect();
+        let mut hits = 0usize;
+        let mut misses = 0usize;
         for path in paths {
             match vault.read(&path) {
                 Ok(Some(text)) => {
@@ -60,8 +65,14 @@ impl Index {
                     let parsed = cached
                         .remove(&path)
                         .filter(|note| note.digest == digest(&text))
-                        .map(|note| note.parsed)
-                        .unwrap_or_else(|| super::parse(&text));
+                        .map(|note| {
+                            hits += 1;
+                            note.parsed
+                        })
+                        .unwrap_or_else(|| {
+                            misses += 1;
+                            super::parse(&text)
+                        });
                     index.notes.insert(
                         path.clone(),
                         Arc::new(IndexedNote {
@@ -77,6 +88,9 @@ impl Index {
                     index.errors.insert(path, error.to_string());
                 }
             }
+        }
+        if crate::startup_trace::enabled() {
+            crate::startup_trace::mark(&format!("notes_ready hits={hits} misses={misses}"));
         }
         Ok(index)
     }
