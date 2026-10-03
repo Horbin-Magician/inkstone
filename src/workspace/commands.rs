@@ -105,6 +105,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (107, "全库文本替换（先预览）", ""),
     (108, "批量重命名或合并标签（先预览）", ""),
     (109, "切换专注模式", ""),
+    (110, "快速记录（时间命名的新笔记）", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -387,6 +388,7 @@ impl Workspace {
                 self.ui.focus_mode = false;
             }
             109 => self.ui.focus_mode = !self.ui.focus_mode,
+            110 => self.quick_capture(window, cx),
             14 => {
                 self.prepare_file_settings(window, cx);
                 self.ui.settings = true;

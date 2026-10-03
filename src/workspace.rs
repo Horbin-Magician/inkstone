@@ -1500,6 +1500,51 @@ impl Workspace {
         self.name.update(cx, |s, cx| s.set_value(path, window, cx));
         self.create_note(window, cx);
     }
+    fn quick_capture(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(vault) = &self.vault else {
+            self.status = "请先打开笔记库，再开始快速记录。".into();
+            return;
+        };
+        let current = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map(|t| t.path.as_path());
+        let folder = match self.ui.prefs.locations.directory(current, false) {
+            Ok(folder) => folder,
+            Err(error) => {
+                self.status = error.into();
+                return;
+            }
+        };
+        let stem = chrono::Local::now()
+            .format("速记 %Y-%m-%d %H%M%S")
+            .to_string();
+        let mut suffix = 0;
+        let path = loop {
+            let name = if suffix == 0 {
+                format!("{stem}.md")
+            } else {
+                format!("{stem}-{suffix}.md")
+            };
+            let path = folder.join(name);
+            if !vault.root.join(&path).exists() && !self.tabs.iter().any(|t| t.path == path) {
+                break path;
+            }
+            suffix += 1;
+        };
+        self.name.update(cx, |input, cx| {
+            input.set_value(path.to_string_lossy().to_string(), window, cx)
+        });
+        self.create_note(window, cx);
+        if let Some(pane) = self.current_pane() {
+            pane.update(cx, |pane, cx| {
+                pane.reading = false;
+                pane.editor
+                    .update(cx, |editor, cx| editor.focus(window, cx));
+                cx.notify();
+            });
+        }
+    }
     fn activate_tab(&mut self, mut index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.active != Some(index) {
             self.navigation_generation += 1;
@@ -5572,6 +5617,50 @@ mod tests {
             })
             .unwrap();
         cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn quick_capture_respects_location_and_opens_distinct_editable_notes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let root = std::env::temp_dir().join(format!("inkstone-capture-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("收集")).unwrap();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.ui.prefs.locations.notes = inkstone::locations::Location::Folder;
+                w.ui.prefs.locations.note_folder = "收集".into();
+                w.ui.prefs.default_reading = true;
+                w.quick_capture(window, cx);
+                w.quick_capture(window, cx);
+                assert_eq!(w.tabs.len(), 2);
+                assert_ne!(w.tabs[0].path, w.tabs[1].path);
+                assert!(
+                    w.tabs
+                        .iter()
+                        .all(|t| t.path.starts_with("收集") && !t.pane.read(cx).reading)
+                );
+                w.tabs[1]
+                    .save
+                    .editor
+                    .update(cx, |s, cx| s.set_value("中文 👩‍💻 速记", window, cx));
+                w.save_all(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.save_all(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(
+                    std::fs::read_to_string(root.join(&w.tabs[1].path)).unwrap(),
+                    "中文 👩‍💻 速记"
+                );
+            })
+            .unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
