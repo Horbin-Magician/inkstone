@@ -1,7 +1,7 @@
 //! Obsidian comments, with byte-preserving input for structural Markdown parsing.
 use std::{borrow::Cow, ops::Range};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Comment {
     pub range: Range<usize>,
     pub block: bool,
