@@ -1,0 +1,11 @@
+Inkstone / 墨砚 icon
+Generated with the built-in image_gen tool.
+Design asset only; application packaging integration is not included.
+
+Use case: logo-brand
+Asset type: final standalone desktop application icon for 墨砚 (Inkstone), a local Markdown note-taking app.
+Primary request: Design a modern minimalist app icon inspired by an inkstone and the act of writing. One bold dark charcoal rounded-square inkstone tile with a single sculptural ivory-white abstract written stroke inset at its center. The stroke should subtly suggest a folded sheet and a flowing ink mark through one cohesive simple geometric silhouette, not multiple separate objects. Calm, precise, timeless, understated.
+Style: exceptionally clean premium desktop icon, mostly flat geometric design with only very restrained soft depth at the tile edge, crisp smooth curves, strong silhouette, generous negative space, legible at 32px.
+Composition: single icon centered, front-on, square 1024x1024 canvas; rounded tile occupies about 84 percent of canvas width, transparent space outside tile. Central ivory mark occupies approximately half the tile width. Balanced optical alignment.
+Palette: near-black warm charcoal and warm ivory only.
+Constraints: actual transparent background outside the rounded tile; no text, no letters, no watermark, no presentation board, no mockup, no extra icon variations, no pen nib cliché, no fine lines, no ornamental details, no glossy plastic or dramatic shadows.
