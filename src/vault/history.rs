@@ -1,5 +1,21 @@
 use super::*;
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Retention {
+    /// Zero disables this limit. Failed drafts and the latest version are retained.
+    pub days: u64,
+    pub max_mib: u64,
+}
+impl Default for Retention {
+    fn default() -> Self {
+        Self {
+            days: 30,
+            max_mib: 128,
+        }
+    }
+}
+
 /// Metadata only: selecting an entry loads its body on a background thread.
 #[derive(Clone, Debug)]
 pub struct HistoryEntry {
@@ -101,6 +117,32 @@ impl Vault {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn configured_retention_preserves_unlimited_history_and_latest_version() {
+        let root = std::env::temp_dir().join(format!("inkstone-retention-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let prefs = vault.root.join(".inkstone-workspace.json");
+        fs::write(&prefs, r#"{"history":{"days":0,"max_mib":0}}"#).unwrap();
+        let note = Path::new("note.md");
+        let first = "a".repeat(600_000);
+        let second = "b".repeat(600_000);
+        let third = "c".repeat(600_000);
+        vault.save(note, None, &first).unwrap();
+        vault.save(note, Some(&first), &second).unwrap();
+        vault.save(note, Some(&second), &third).unwrap();
+        vault.cleanup_history().unwrap();
+        assert_eq!(vault.history(note).unwrap().len(), 3);
+        fs::write(&prefs, r#"{"history":{"days":0,"max_mib":1}}"#).unwrap();
+        vault.cleanup_history().unwrap();
+        let entries = vault.history(note).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            vault.read_history(note, &entries[0].journal).unwrap().draft,
+            third
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn conflict_resolution_preserves_local_and_rechecks_reviewed_disk() {
         let root = std::env::temp_dir().join(format!("inkstone-conflict-review-{}", unique_id()));

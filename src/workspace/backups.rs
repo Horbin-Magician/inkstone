@@ -345,6 +345,18 @@ impl Workspace {
                 .when_some(self.ui.backup.output.clone(), |s, path| s.child(Button::new("backup-reveal").label("在文件管理器中显示结果")
                     .on_click(move |_, _, cx| cx.reveal_path(&path))))
                 .child("备份使用普通目录与校验清单。保留数量由你管理；符号链接或复制期间检测到文件变化时会拒绝完成备份。")
+                .child("笔记版本历史保留策略（与整库备份独立）")
+                .child("仅清理成功保存的旧历史，始终保留每篇最新记录；未完成草稿与受保护的冲突记录不清理。设置保存后，在后续笔记保存维护时生效。")
+                .child(div().flex().flex_wrap().gap_2().children([(30, "30 天"), (90, "90 天"), (365, "一年"), (0, "不限时间")].into_iter().map(|(days, label)| {
+                    Button::new(("history-retention-days", days as usize)).label(label)
+                        .when(self.ui.prefs.history.days == days, |b| b.primary())
+                        .on_click(cx.listener(move |this, _, _, cx| { this.ui.prefs.history.days = days; this.persist_workspace(cx); cx.notify(); }))
+                })))
+                .child(div().flex().flex_wrap().gap_2().children([(128, "128 MiB"), (512, "512 MiB"), (2048, "2 GiB"), (0, "不限容量")].into_iter().map(|(max_mib, label)| {
+                    Button::new(("history-retention-size", max_mib as usize)).label(label)
+                        .when(self.ui.prefs.history.max_mib == max_mib, |b| b.primary())
+                        .on_click(cx.listener(move |this, _, _, cx| { this.ui.prefs.history.max_mib = max_mib; this.persist_workspace(cx); cx.notify(); }))
+                })))
         ).into_any_element()
     }
 }
