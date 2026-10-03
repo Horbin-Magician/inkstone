@@ -458,10 +458,29 @@ impl Vault {
                 ".inkstone-{}.saved-backup",
                 path.file_stem().unwrap().to_string_lossy()
             ));
-            let backup_size = fs::symlink_metadata(&backup)
-                .ok()
-                .filter(|m| m.is_file() && !is_reparse(m))
+            let backup_meta = fs::symlink_metadata(&backup).ok();
+            let regular_backup = backup_meta
+                .as_ref()
+                .is_some_and(|m| m.is_file() && !is_reparse(m));
+            let backup_size = backup_meta
+                .as_ref()
+                .filter(|_| regular_backup)
                 .map_or(0, |m| m.len());
+            if backup_meta.is_some() && !regular_backup {
+                protected.insert(record.relative.clone());
+            }
+            if regular_backup {
+                // A Unix writer can keep an old inode open after the swap. Its
+                // later changes are external data, even though our save succeeded.
+                // Preserve this note's history if the displaced bytes changed.
+                let unchanged = record.baseline.as_ref().is_some_and(|baseline| {
+                    backup_size == baseline.len() as u64
+                        && fs::read(&backup).is_ok_and(|bytes| bytes == baseline.as_bytes())
+                });
+                if !unchanged {
+                    protected.insert(record.relative.clone());
+                }
+            }
             saved.push((
                 path,
                 record.relative,
@@ -1241,6 +1260,30 @@ mod tests {
         assert_eq!(fs::read_to_string(trash).unwrap(), "A");
         assert_eq!(s.1.scan().unwrap(), vec![PathBuf::from("b.md")]);
     }
+    #[cfg(unix)]
+    #[test]
+    fn history_cleanup_keeps_late_external_writes_to_successful_backups() {
+        let s = Sandbox::new();
+        let note = Path::new("late.md");
+        s.1.save(note, None, "one").unwrap();
+        let writer_path = s.1.root.join(note);
+        let mut writer = OpenOptions::new().write(true).open(writer_path).unwrap();
+        let old = s.1.save(note, Some("one"), "two").unwrap().recovery;
+        s.1.save(note, Some("two"), "three").unwrap();
+        writer.write_all(b"external late edit").unwrap();
+        writer.sync_all().unwrap();
+        drop(writer);
+        let backup = s.1.root.join(format!(
+            ".inkstone-{}.saved-backup",
+            old.file_stem().unwrap().to_string_lossy()
+        ));
+        s.1.cleanup_history_with_policy(std::time::Duration::ZERO, 0)
+            .unwrap();
+        assert!(old.exists());
+        assert_eq!(fs::read_to_string(backup).unwrap(), "external late edit");
+        assert_eq!(s.1.read(note).unwrap().as_deref(), Some("three"));
+    }
+
     #[test]
     fn history_cleanup_preserves_latest_failed_and_other_vault_records() {
         let s = Sandbox::new();
