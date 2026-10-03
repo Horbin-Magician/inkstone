@@ -7,6 +7,9 @@ mod theme;
 mod workspace;
 use gpui::{prelude::*, *};
 use gpui_component::Root;
+
+const TITLE_BAR_HEIGHT: Pixels = px(40.);
+
 fn main() {
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
@@ -55,6 +58,15 @@ fn main() {
                             size(px(1200.), px(820.)),
                         ))),
                         window_min_size: Some(size(px(800.), px(500.))),
+                        titlebar: Some(TitlebarOptions {
+                            // Center AppKit's 14-point buttons in our custom title bar.
+                            #[cfg(target_os = "macos")]
+                            traffic_light_position: Some(point(
+                                px(12.),
+                                (TITLE_BAR_HEIGHT - px(14.)) / 2.,
+                            )),
+                            ..gpui_component::TitleBar::title_bar_options()
+                        }),
                         ..gpui_component::TitleBar::window_options()
                     },
                     |window, cx| {
