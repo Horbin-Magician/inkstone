@@ -4104,6 +4104,67 @@ mod tests {
         }
     }
     #[gpui::test]
+    fn ime_candidate_stays_on_composing_line_before_redraw(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for source in [
+            "paragraph\n\n# Heading\nbody",
+            "- item\n- \n# Heading\nbody",
+        ] {
+            let offset = source.find("\n# Heading").unwrap();
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            handle
+                .update(cx, |p, _, cx| {
+                    p.editor
+                        .update(cx, |s, cx| s.set_selected_range(offset..offset, cx));
+                    p.update_presentation(cx);
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.simulate_resize(size(px(1000.), px(650.)));
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |p, w, cx| {
+                    p.editor.update(cx, |s, cx| {
+                        let anchor = s.range_to_bounds(&(offset..offset)).unwrap();
+                        // macOS can request geometry synchronously after setMarkedText,
+                        // before another frame has shaped the new preedit text.
+                        for text in ["n", "ni h", "ni hao", "你"] {
+                            let end = offset + text.encode_utf16().count();
+                            s.replace_and_mark_text_in_range(None, text, None, w, cx);
+                            for index in offset..=end {
+                                let candidate = s
+                                    .bounds_for_range(index..index, s.input_bounds(), w, cx)
+                                    .unwrap();
+                                assert_eq!(
+                                    candidate.top(),
+                                    anchor.top(),
+                                    "preedit={text}, index={index}"
+                                );
+                                assert_eq!(candidate.size.height, anchor.size.height);
+                            }
+                        }
+                    });
+                })
+                .unwrap();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |p, w, cx| {
+                    p.editor.update(cx, |s, cx| {
+                        let caret = offset + "你".len();
+                        let expected = s.range_to_bounds(&(caret..caret)).unwrap();
+                        let candidate = s
+                            .bounds_for_range(offset + 1..offset + 1, s.input_bounds(), w, cx)
+                            .unwrap();
+                        assert_eq!(candidate, expected);
+                    });
+                })
+                .unwrap();
+        }
+    }
+
+    #[gpui::test]
     fn live_heading_font_height_hit_testing_and_ime_agree(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "# Heading\nbody\n## Sub\nlast";
