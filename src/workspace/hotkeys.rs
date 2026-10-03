@@ -263,6 +263,7 @@ impl Workspace {
             .flex()
             .flex_col()
             .gap_1()
+            .child(Input::new(&self.ui.settings_filter).w_full())
             .child(
                 div()
                     .px_2()
@@ -304,6 +305,9 @@ impl Workspace {
                                 .child(title),
                         )
                         .on_click(cx.listener(move |this, _, w, cx| {
+                            this.ui
+                                .settings_filter
+                                .update(cx, |input, cx| input.set_value("", w, cx));
                             this.ui.settings_tab = i;
                             this.ui.settings_scroll.set_offset(Point::default());
                             if i == 2 {

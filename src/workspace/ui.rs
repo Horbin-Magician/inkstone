@@ -91,6 +91,8 @@ pub(super) struct UiState {
     pub folder_target: Option<PathBuf>,
     pub settings: bool,
     pub settings_tab: usize,
+    pub settings_filter: Entity<InputState>,
+    _settings_filter_subscription: Subscription,
     pub hotkey_recording: Option<usize>,
     pub hotkey_message: String,
     pub hotkey_filter: Entity<InputState>,
@@ -373,6 +375,8 @@ impl UiState {
         })
         .collect();
         let hotkey_filter = cx.new(|cx| InputState::new(window, cx).placeholder("搜索快捷键命令…"));
+        let settings_filter = cx.new(|cx| InputState::new(window, cx).placeholder("搜索设置…"));
+        let settings_filter_subscription = cx.observe(&settings_filter, |_, _, cx| cx.notify());
         let hotkey_filter_subscription = cx.observe(&hotkey_filter, |_, _, cx| cx.notify());
         let weak = cx.entity().downgrade();
         let window_id = window.window_handle().window_id();
@@ -424,6 +428,8 @@ impl UiState {
             hotkey_recording: None,
             hotkey_message: String::new(),
             hotkey_filter,
+            settings_filter,
+            _settings_filter_subscription: settings_filter_subscription,
             _hotkey_subscription: hotkey_subscription,
             _hotkey_filter_subscription: hotkey_filter_subscription,
             note_folder_input,
@@ -4372,6 +4378,116 @@ impl Workspace {
             .into_any_element()
     }
     fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let query = self
+            .ui
+            .settings_filter
+            .read(cx)
+            .value()
+            .trim()
+            .to_lowercase();
+        if !query.is_empty() {
+            let entries = [
+                (5, "外观 · 基础颜色", "主题 深色 浅色 跟随系统 配色 theme"),
+                (5, "外观 · 字体", "界面字体 正文字体 等宽字体 代码 font"),
+                (5, "外观 · 字体大小", "字号 缩放 快速调整 Ctrl 滚轮 zoom"),
+                (6, "界面 · 显示标签页标题栏", "文件标题 导航控件 header"),
+                (
+                    0,
+                    "编辑器 · 默认视图与编辑模式",
+                    "编辑 阅读 实时预览 源码 Markdown",
+                ),
+                (
+                    0,
+                    "编辑器 · 显示",
+                    "可读行宽 严格换行 折叠标题 折叠缩进 行号 缩进参考线",
+                ),
+                (
+                    0,
+                    "编辑器 · 自动补全",
+                    "英文标点符号 括号 引号 Markdown 语法 强调 代码 自动配对",
+                ),
+                (
+                    0,
+                    "编辑器 · 智能列表与缩进",
+                    "换行 编号 制表符宽度 空格 tab",
+                ),
+                (2, "文件与链接 · 存放位置", "新笔记 附件 目录 路径 文件夹"),
+                (
+                    2,
+                    "文件与链接 · 链接格式",
+                    "双链 Markdown 最短路径 相对路径 绝对路径 自动更新",
+                ),
+                (
+                    7,
+                    "备份与恢复 · 整库备份",
+                    "存放位置 手动 每天 每周 自动 校验 SHA-256 backup",
+                ),
+                (7, "备份与恢复 · 恢复笔记库", "还原 新目录 数据恢复 restore"),
+                (
+                    1,
+                    "快捷键 · 命令绑定",
+                    "键盘 组合键 冲突 修改 重置 恢复默认 hotkey shortcut",
+                ),
+            ];
+            let rows: Vec<_> = entries
+                .into_iter()
+                .enumerate()
+                .filter(|(_, (_, label, terms))| {
+                    let haystack = format!("{label} {terms}").to_lowercase();
+                    query.split_whitespace().all(|word| haystack.contains(word))
+                })
+                .map(|(id, (tab, label, terms))| {
+                    Button::new(("settings-search-result", id))
+                        .ghost()
+                        .w_full()
+                        .h_auto()
+                        .accessibility_label(label)
+                        .child(
+                            div()
+                                .w_full()
+                                .py_2()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(label)
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(
+                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        )
+                                        .child(terms),
+                                ),
+                        )
+                        .on_click(cx.listener(move |this, _, w, cx| {
+                            this.ui
+                                .settings_filter
+                                .update(cx, |input, cx| input.set_value("", w, cx));
+                            this.ui.settings_tab = tab;
+                            this.ui.settings_scroll.set_offset(Point::default());
+                            this.ui.hotkey_recording = None;
+                            if tab == 2 {
+                                this.prepare_file_settings(w, cx);
+                            }
+                            cx.notify();
+                        }))
+                })
+                .collect();
+            let empty = rows.is_empty();
+            return div()
+                .flex()
+                .flex_1()
+                .min_h_0()
+                .child(self.settings_nav(cx))
+                .child(
+                    self.settings_content()
+                        .gap_2()
+                        .child("设置搜索 · 选择结果打开对应分类")
+                        .when(empty, |s| s.child("未找到设置，请尝试名称或功能关键词。"))
+                        .children(rows),
+                )
+                .into_any_element();
+        }
         if self.ui.settings_tab == 7 {
             return self.backup_settings_panel(cx);
         }
