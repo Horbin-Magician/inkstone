@@ -214,13 +214,13 @@ impl Workspace {
                 index.refresh_paths(&vault, changed)?;
                 Arc::new(index)
             };
-            let files = index.notes.keys().cloned().collect();
+            let files = index.note_paths();
             let mut documents = vec![];
             for (id, path, baseline) in requests {
                 if Arc::ptr_eq(&previous, &index) {
                     break;
                 }
-                let disk = vault.read(&path)?;
+                let disk = vault.read(&path);
                 documents.push((id, path, baseline, disk));
             }
             let folders = vault.folders()?;
@@ -254,6 +254,15 @@ impl Workspace {
                             let split_pending=this.has_pending_input(id,window,cx);
                             let Some(tab) = this.tabs.iter_mut().find(|t|t.id == id) else { continue; };
                             if tab.save.saving.get() || tab.path!=path || *tab.save.baseline.borrow() != baseline { this.refresh_requested = true; continue; }
+                            let disk = match disk {
+                                Ok(disk) => disk,
+                                Err(error) => {
+                                    tab.save.conflict.set(true);
+                                    tab.save.dirty.set(true);
+                                    this.status = format!("无法读取 {}：{error}。编辑内容已保留。", path.display());
+                                    continue;
+                                }
+                            };
                             if disk == *tab.save.baseline.borrow() { continue; }
                             if tab.save.dirty.get() || split_pending || disk.is_none() {
                                 tab.save.conflict.set(true); tab.save.dirty.set(true);
@@ -640,7 +649,7 @@ impl Workspace {
                 .watch(&vault.root, RecursiveMode::Recursive)
                 .map_err(|e| VaultError::Io(std::io::Error::other(e)))?;
             let index = Index::build(&vault)?;
-            let files = index.notes.keys().cloned().collect();
+            let files = index.note_paths();
             let recoveries = vault.recoveries()?;
             let _ = std::fs::write(
                 app_dir().join("recent.txt"),
@@ -1738,7 +1747,7 @@ impl Workspace {
                 self.views.secondary_focused = false;
             }
         }
-        let files: Vec<_> = self.index.notes.keys().cloned().collect();
+        let files: Vec<_> = self.index.note_paths();
         if self.tree_files != files
             || self.ui.tree_folders != self.ui.folders
             || self.ui.prefs.sort_by != inkstone::file_order::SortBy::Name
@@ -2029,12 +2038,17 @@ fn refresh_created_index(
             .filter(|p| !previous.notes.contains_key(*p))
             .cloned(),
     );
-    let removed = previous.notes.keys().any(|p| !notes.contains(p));
+    let removed = previous
+        .notes
+        .keys()
+        .chain(previous.errors.keys())
+        .any(|p| !notes.contains(p));
     if changed.is_empty() && !removed && files == previous.files {
         return Ok(previous);
     }
     let mut index = (*previous).clone();
     index.notes.retain(|p, _| notes.contains(p));
+    index.errors.retain(|p, _| notes.contains(p));
     index.refresh_paths(vault, changed)?;
     index.files = files;
     Ok(Arc::new(index))
@@ -6192,7 +6206,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 w.vault = Some(vault.clone());
                 w.index = index.clone();
-                w.files = index.notes.keys().cloned().collect();
+                w.files = index.note_paths();
                 w.sync_index_ui(cx);
                 w.watch_events = Some(receiver);
                 w.ui.name_mode = Some(ui::NameMode::Folder);
