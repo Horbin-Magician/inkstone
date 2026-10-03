@@ -3523,7 +3523,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &InsertLink, w, cx| this.execute_command(59, w, cx)))
             .child(
                 TitleBar::new()
-                    .h(px(40.))
+                    .h(crate::TITLE_BAR_HEIGHT)
                     .bg(self.side())
                     .child(
                         div()
