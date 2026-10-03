@@ -3452,6 +3452,31 @@ impl Render for Workspace {
             })
             .unwrap_or_default();
         let error = active.and_then(|t| t.save.error.borrow().clone());
+        let save_status = active.filter(|t| !t.path.as_os_str().is_empty()).map(|t| {
+            let label = if t.save.conflict.get() {
+                "外部修改冲突"
+            } else if t.save.error.borrow().is_some() {
+                "保存失败"
+            } else if t.save.saving.get() {
+                "正在保存…"
+            } else if t.save.dirty.get() {
+                "尚未保存"
+            } else {
+                "已保存"
+            };
+            let detail = t.save.error.borrow().clone().unwrap_or_else(|| {
+                format!(
+                    "{}：{label}。{}",
+                    t.path.display(),
+                    if t.save.conflict.get() {
+                        "点击比较并处理外部修改。"
+                    } else {
+                        "点击保存当前更改。"
+                    }
+                )
+            });
+            (label, detail, t.save.conflict.get())
+        });
         _window.set_window_title(crate::product::name());
         let main_index = self.main_tab();
         let main_pane = main_index
@@ -3811,6 +3836,23 @@ impl Render for Workspace {
                                             menu
                                         },
                                     ),
+                            )
+                        })
+                        .when_some(save_status, |bar, (label, detail, conflict)| {
+                            bar.child(
+                                Button::new("current-save-status")
+                                    .ghost()
+                                    .compact()
+                                    .label(label)
+                                    .accessibility_label(format!("当前笔记：{label}"))
+                                    .tooltip(detail)
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        if conflict {
+                                            this.execute_command(100, w, cx);
+                                        } else {
+                                            this.save_all(w, cx);
+                                        }
+                                    })),
                             )
                         })
                         .child(div().px_1().child(count)),
