@@ -3406,6 +3406,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "granit-parser",
+ "libc",
  "lsp-types",
  "markdown",
  "mermaid-rs-renderer",

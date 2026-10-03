@@ -591,7 +591,7 @@ impl Vault {
         if read_optional(&path)?.as_deref() != baseline {
             return Err(VaultError::Conflict { recovery });
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, unix))]
         let guard = if baseline.is_some() {
             Some(SaveGuard::open(&path)?)
         } else {
@@ -601,6 +601,12 @@ impl Vault {
         let temp = parent.join(format!(".inkstone-{}.tmp", unique_id()));
         write_new_synced(&temp, draft.as_bytes())?;
         let result = (|| {
+            // Preserve Unix access permissions when replacing the inode.
+            #[cfg(unix)]
+            if let Some(guard) = &guard {
+                fs::set_permissions(&temp, guard.0.metadata()?.permissions())?;
+                fs::File::open(&temp)?.sync_all()?;
+            }
             // Check again after writing the temporary file.
             if read_optional(&path)?.as_deref() != baseline {
                 return Err(VaultError::Conflict {
@@ -614,7 +620,7 @@ impl Vault {
             } else {
                 let backup = parent.join(format!(".inkstone-{}.external-backup", unique_id()));
                 replace_with_backup(&path, &temp, &backup)?;
-                #[cfg(windows)]
+                #[cfg(any(windows, unix))]
                 if !guard
                     .as_ref()
                     .expect("existing target guard")
@@ -658,8 +664,20 @@ impl Vault {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 struct SaveGuard(fs::File);
+#[cfg(unix)]
+impl SaveGuard {
+    fn open(path: &Path) -> io::Result<Self> {
+        fs::File::open(path).map(Self)
+    }
+    fn matches(&self, path: &Path) -> io::Result<bool> {
+        use std::os::unix::fs::MetadataExt;
+        let before = self.0.metadata()?;
+        let displaced = fs::symlink_metadata(path)?;
+        Ok(before.dev() == displaced.dev() && before.ino() == displaced.ino())
+    }
+}
 #[cfg(windows)]
 impl SaveGuard {
     fn open(path: &Path) -> io::Result<Self> {
@@ -705,9 +723,7 @@ fn move_no_replace(source: &Path, dest: &Path) -> io::Result<()> {
 }
 #[cfg(not(windows))]
 fn move_no_replace(source: &Path, dest: &Path) -> io::Result<()> {
-    // Pending platform validation; refuse an already existing target.
-    fs::hard_link(source, dest)?;
-    fs::remove_file(source)
+    rename_atomic(source, dest, false)
 }
 
 #[cfg(windows)]
@@ -738,10 +754,71 @@ fn replace_with_backup(path: &Path, temp: &Path, backup: &Path) -> io::Result<()
 }
 #[cfg(not(windows))]
 fn replace_with_backup(path: &Path, temp: &Path, backup: &Path) -> io::Result<()> {
-    // Unix fallback preserves the old inode before atomic rename. External in-place writers
-    // still need platform stress testing; macOS/Linux are not yet accepted platforms.
-    fs::hard_link(path, backup)?;
-    fs::rename(temp, path)
+    replace_with_backup_hook(path, temp, backup, || {})
+}
+
+#[cfg(not(windows))]
+fn replace_with_backup_hook(
+    path: &Path,
+    temp: &Path,
+    backup: &Path,
+    before_exchange: impl FnOnce(),
+) -> io::Result<()> {
+    // Stage the draft at the backup name, then atomically exchange both inodes.
+    // The backup captures exactly the file displaced by this operation, even if
+    // another editor replaces the target after the last baseline check.
+    move_no_replace(temp, backup)?;
+    before_exchange();
+    rename_atomic(backup, path, true)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn rename_atomic(source: &Path, dest: &Path, exchange: bool) -> io::Result<()> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let source = CString::new(source.as_os_str().as_bytes())?;
+    let dest = CString::new(dest.as_os_str().as_bytes())?;
+    // SAFETY: Both C strings are NUL-terminated and live through the call.
+    #[cfg(target_os = "macos")]
+    let result = unsafe {
+        libc::renameatx_np(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            dest.as_ptr(),
+            if exchange {
+                libc::RENAME_SWAP
+            } else {
+                libc::RENAME_EXCL
+            },
+        )
+    };
+    #[cfg(target_os = "linux")]
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            dest.as_ptr(),
+            if exchange {
+                libc::RENAME_EXCHANGE
+            } else {
+                libc::RENAME_NOREPLACE
+            },
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+fn rename_atomic(_: &Path, _: &Path, _: bool) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "此平台尚不支持安全文件替换",
+    ))
 }
 
 #[cfg(test)]
@@ -922,6 +999,61 @@ mod tests {
             b"first"
         );
     }
+    #[cfg(unix)]
+    #[test]
+    fn atomic_exchange_captures_a_replacement_after_draft_staging() {
+        let s = Sandbox::new();
+        let path = s.1.root.join("note.md");
+        let temp = s.1.root.join("draft.tmp");
+        let backup = s.1.root.join("backup");
+        fs::write(&path, "old").unwrap();
+        fs::write(&temp, "draft").unwrap();
+        replace_with_backup_hook(&path, &temp, &backup, || {
+            let external = s.1.root.join("external.tmp");
+            fs::write(&external, "latest external").unwrap();
+            fs::rename(external, &path).unwrap();
+        })
+        .unwrap();
+        assert_eq!(fs::read_to_string(path).unwrap(), "draft");
+        assert_eq!(fs::read_to_string(backup).unwrap(), "latest external");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_preserves_private_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let s = Sandbox::new();
+        let note = Path::new("private.md");
+        s.1.create(note, "old").unwrap();
+        fs::set_permissions(s.1.root.join(note), fs::Permissions::from_mode(0o600)).unwrap();
+        s.1.save(note, Some("old"), "new").unwrap();
+        assert_eq!(
+            fs::metadata(s.1.root.join(note))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn folder_move_never_replaces_an_existing_empty_directory() {
+        let s = Sandbox::new();
+        s.1.create_folder(Path::new("source")).unwrap();
+        s.1.create_folder(Path::new("destination")).unwrap();
+        s.1.create(Path::new("source/note.md"), "keep").unwrap();
+        assert!(
+            s.1.rename_folder(Path::new("source"), Path::new("destination"))
+                .is_err()
+        );
+        assert_eq!(
+            s.1.read(Path::new("source/note.md")).unwrap().as_deref(),
+            Some("keep")
+        );
+        assert!(s.1.root.join("destination").is_dir());
+    }
+
     #[test]
     fn external_change_never_silently_overwrites() {
         let s = Sandbox::new();
@@ -1010,9 +1142,10 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].record.draft, "recover draft");
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, unix))]
     #[test]
     fn same_content_inode_swap_preserves_late_external_write() {
+        #[cfg(windows)]
         use std::os::windows::fs::OpenOptionsExt;
         let s = Sandbox::new();
         let note = Path::new("swapped.md");
@@ -1022,13 +1155,11 @@ mod tests {
             s.1.save_with_hook(note, Some("old"), "draft", || {
                 let path = s.1.root.join("new-inode.tmp");
                 fs::write(&path, "old").unwrap();
-                writer = Some(
-                    OpenOptions::new()
-                        .write(true)
-                        .share_mode(7)
-                        .open(&path)
-                        .unwrap(),
-                );
+                let mut options = OpenOptions::new();
+                options.write(true);
+                #[cfg(windows)]
+                options.share_mode(7);
+                writer = Some(options.open(&path).unwrap());
                 fs::rename(path, s.1.path(note).unwrap()).unwrap();
             })
             .unwrap_err();

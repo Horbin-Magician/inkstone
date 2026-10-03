@@ -65,7 +65,9 @@ Markdown 文件是已保存正文事实来源。索引只在内存，可从文�
 
 [Microsoft ReplaceFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew) 说明部分错误可能改变文件名称，且 WRITE_THROUGH 标志不受支持。实现保留备份和恢复日志，不宣称所有设备下绝对断电原子性。普通写错误会保留内存、显示标签错误并停止自动重试。冲突需要另存副本，不自动决定使用哪个版本。
 
-删除使用同卷回收区；Windows 重命名用 MoveFileW，不覆盖已有目标。Unix 路线保留备份但尚未经过平台验收。
+删除使用同卷回收区；Windows 重命名用 MoveFileW，不覆盖已有目标。macOS 使用 `renameatx_np(RENAME_EXCL)`，Linux 使用 `renameat2(RENAME_NOREPLACE)`，文件和目录均拒绝覆盖已有目标。
+
+macOS/Linux 保存先将草稿移到唯一备份名称，再通过 `RENAME_SWAP` / `RENAME_EXCHANGE` 原子交换目标与草稿；备份因此捕获实际被替换的文件，不存在先硬链接旧文件再覆盖新文件的窗口。交换后核对原文件身份和基线，冲突保留两者。Unix 保留原文件权限。文件系统不支持原子交换时明确报错，不退回不安全替换。Unix 外部程序持有旧文件句柄进行延迟原地写入仍不能由本应用禁止，备份保留用于恢复；Linux 与真实断电行为尚未在本轮验收。
 
 ## 当前 GPUI 判断
 
