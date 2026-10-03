@@ -62,6 +62,15 @@ impl Workspace {
         cx.notify();
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn request_app_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.request_window_close(window, cx) {
+            cx.quit();
+        } else {
+            self.quit_requested = self.ui.window_close_requested;
+        }
+    }
+
     pub(super) fn request_window_close(
         &mut self,
         window: &mut Window,
@@ -116,6 +125,10 @@ impl Workspace {
     }
     pub(super) fn finish_window_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.ui.window_close_requested {
+            #[cfg(target_os = "macos")]
+            {
+                self.quit_requested = false;
+            }
             return;
         }
         if self
@@ -128,6 +141,11 @@ impl Workspace {
         }
         if self.request_window_close(window, cx) {
             self.ui.window_close_requested = false;
+            #[cfg(target_os = "macos")]
+            if self.quit_requested {
+                cx.quit();
+                return;
+            }
             window.remove_window();
         }
     }

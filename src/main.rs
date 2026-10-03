@@ -1,5 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+#[cfg(target_os = "macos")]
+mod app_menu;
 mod editor;
 mod editor_links;
 mod native_graphics;
@@ -71,6 +73,8 @@ fn main() {
                     },
                     |window, cx| {
                         let view = cx.new(|cx| workspace::Workspace::new(window, cx));
+                        #[cfg(target_os = "macos")]
+                        app_menu::init(&view, window, cx);
                         cx.new(|cx| Root::new(view, window, cx))
                     },
                 )
