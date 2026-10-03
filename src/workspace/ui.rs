@@ -3378,16 +3378,6 @@ impl Render for Workspace {
         let has_workspace =
             self.vault.is_some() || self.tabs.iter().any(|tab| !tab.path.as_os_str().is_empty());
         let active = self.active.and_then(|i| self.tabs.get(i));
-        let title = active
-            .filter(|tab| !tab.path.as_os_str().is_empty())
-            .map(|t| {
-                t.path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .unwrap_or("新标签页".into());
         let pane = self.current_pane();
         let status_mode = pane
             .as_ref()
@@ -3411,7 +3401,7 @@ impl Render for Workspace {
             })
             .unwrap_or_default();
         let error = active.and_then(|t| t.save.error.borrow().clone());
-        _window.set_window_title(&format!("{} - {}", title, crate::product::name()));
+        _window.set_window_title(crate::product::name());
         let main_index = self.main_tab();
         let main_pane = main_index
             .and_then(|i| self.tabs.get(i))
@@ -3558,24 +3548,8 @@ impl Render for Workspace {
                                 div()
                                     .text_size(px(MIN_UI_FONT_SIZE))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .child(
-                                        self.vault
-                                            .as_ref()
-                                            .and_then(|v| v.root.file_name())
-                                            .map(|name| name.to_string_lossy().to_string())
-                                            .unwrap_or_else(|| crate::product::name().into()),
-                                    ),
-                            )
-                            .when(self.vault.is_some(), |bar| {
-                                bar.child(
-                                    div()
-                                        .text_size(px(MIN_UI_FONT_SIZE))
-                                        .text_color(
-                                            crate::theme::palette(self.ui.prefs.light).muted,
-                                        )
-                                        .child(format!("/  {}", crate::product::name())),
-                                )
-                            }),
+                                    .child(crate::product::name()),
+                            ),
                     )
                     .child(
                         div()
