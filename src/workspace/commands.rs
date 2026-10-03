@@ -101,6 +101,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (103, "导出 Markdown 与关联笔记、附件", ""),
     (104, "导出 HTML（浏览器打印 / PDF）", ""),
     (105, "附件管理：引用、预览与清理", ""),
+    (106, "检查本地链接健康", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -395,6 +396,7 @@ impl Workspace {
                 }
             }
             16 => {
+                self.ui.link_health = None;
                 self.ui.attachment_manager = None;
                 self.ui.history = None;
                 self.ui.conflict_review = None;
@@ -407,6 +409,7 @@ impl Workspace {
             101 => self.request_backup(window, cx),
             102 => self.choose_backup_restore(window, cx),
             105 => self.open_attachment_manager(window, cx),
+            106 => self.open_link_health(window, cx),
             103 => self.choose_export(inkstone::vault::export::Format::Markdown, window, cx),
             104 => self.choose_export(inkstone::vault::export::Format::Html, window, cx),
             17 => {
