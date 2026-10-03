@@ -110,6 +110,7 @@ pub(super) fn overlay(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
 
     #[gpui::test]
@@ -362,7 +363,7 @@ mod tests {
         });
         visual.update(|w, cx| w.draw(cx).clear(cx));
         editor.read_with(&visual, |s, _| assert!(s.scroll_offset().y < px(0.)));
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         visual.run_until_parked();
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value().as_ref(), source);
@@ -407,7 +408,7 @@ mod tests {
             assert_eq!(state.value().as_ref(), source.replacen("[ ]", "[x]", 1));
             assert_eq!(state.selected_range(), source.len()..source.len());
         });
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         visual.run_until_parked();
         editor.read_with(&visual, |state, _| {
             assert_eq!(state.value().as_ref(), source)

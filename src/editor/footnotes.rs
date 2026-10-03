@@ -285,6 +285,7 @@ fn footnote_body(source: &str, cursor: usize) -> Option<(Range<usize>, String, S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::PlatformKeys;
     #[gpui::test]
     fn inline_footnote_popup_writes_only_body_and_undo_restores_source(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -449,14 +450,14 @@ mod tests {
                 assert_eq!(source.read(cx).selected_range(), 7..7);
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         handle
             .update(&mut visual, |p, w, cx| {
                 p.sync_footnote(w, cx);
                 assert_eq!(source.read(cx).value().as_ref(), "文[^1]\r\n\r\n[^1]: \r\n");
             })
             .unwrap();
-        visual.simulate_keystrokes("escape");
+        visual.simulate_platform_keystrokes("escape");
         handle
             .update(&mut visual, |p, w, cx| {
                 assert!(!p.has_footnote_editor());

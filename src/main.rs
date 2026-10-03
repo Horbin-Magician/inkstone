@@ -8,6 +8,8 @@ mod editor;
 mod editor_links;
 mod native_graphics;
 mod product;
+#[cfg(test)]
+mod test_support;
 mod theme;
 mod workspace;
 use gpui::{prelude::*, *};
@@ -47,8 +49,24 @@ fn main() {
                 KeyBinding::new("ctrl-b", workspace::Bold, None),
                 KeyBinding::new("ctrl-i", workspace::Italic, None),
                 KeyBinding::new("ctrl-k", workspace::InsertLink, None),
-                KeyBinding::new("ctrl-z", gpui_component::input::Undo, None),
-                KeyBinding::new("ctrl-y", gpui_component::input::Redo, None),
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-z"
+                    } else {
+                        "ctrl-z"
+                    },
+                    gpui_component::input::Undo,
+                    None,
+                ),
+                KeyBinding::new(
+                    if cfg!(target_os = "macos") {
+                        "cmd-shift-z"
+                    } else {
+                        "ctrl-y"
+                    },
+                    gpui_component::input::Redo,
+                    None,
+                ),
                 KeyBinding::new("ctrl-l", workspace::ToggleTaskLine, None),
                 KeyBinding::new("escape", workspace::ClosePalette, None),
                 KeyBinding::new(
