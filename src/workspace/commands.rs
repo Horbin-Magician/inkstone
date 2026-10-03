@@ -104,6 +104,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (106, "检查本地链接健康", ""),
     (107, "全库文本替换（先预览）", ""),
     (108, "批量重命名或合并标签（先预览）", ""),
+    (109, "切换专注模式", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -377,8 +378,15 @@ impl Workspace {
             9 => self.prompt_name(NameMode::Folder, window, cx),
             10 => self.manage_note(true, window, cx),
             11 => self.save_copy(window, cx),
-            12 => self.ui.prefs.left_open = !self.ui.prefs.left_open,
-            13 => self.ui.prefs.right_open = !self.ui.prefs.right_open,
+            12 => {
+                self.ui.prefs.left_open = self.ui.focus_mode || !self.ui.prefs.left_open;
+                self.ui.focus_mode = false;
+            }
+            13 => {
+                self.ui.prefs.right_open = self.ui.focus_mode || !self.ui.prefs.right_open;
+                self.ui.focus_mode = false;
+            }
+            109 => self.ui.focus_mode = !self.ui.focus_mode,
             14 => {
                 self.prepare_file_settings(window, cx);
                 self.ui.settings = true;

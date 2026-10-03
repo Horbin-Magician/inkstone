@@ -91,6 +91,7 @@ pub(super) struct UiState {
     pub folder_target: Option<PathBuf>,
     pub settings: bool,
     pub settings_tab: usize,
+    pub focus_mode: bool,
     pub settings_filter: Entity<InputState>,
     _settings_filter_subscription: Subscription,
     pub hotkey_recording: Option<usize>,
@@ -425,6 +426,7 @@ impl UiState {
             folder_target: None,
             settings: false,
             settings_tab: 0,
+            focus_mode: false,
             hotkey_recording: None,
             hotkey_message: String::new(),
             hotkey_filter,
@@ -3157,129 +3159,136 @@ impl Workspace {
             .size_full()
             .min_h_0()
             .bg(self.bg())
-            .when(active.is_some() && self.ui.prefs.show_view_header, |s| {
-                s.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(40.))
-                        .px_3()
-                        .gap_1()
-                        .child(self.navigation_button(pane.clone(), false, secondary, cx))
-                        .child(self.navigation_button(pane.clone(), true, secondary, cx))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_center()
-                                .text_size(px(MIN_UI_FONT_SIZE))
-                                .text_color(colors.muted)
-                                .child(breadcrumb),
-                        )
-                        .child(
-                            tool(
-                                "read-mode",
-                                if reading { "pencil" } else { "book-open" },
-                                "切换阅读视图 Ctrl+E",
+            .when(
+                active.is_some() && self.ui.prefs.show_view_header && !self.ui.focus_mode,
+                |s| {
+                    s.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .h(px(40.))
+                            .px_3()
+                            .gap_1()
+                            .child(self.navigation_button(pane.clone(), false, secondary, cx))
+                            .child(self.navigation_button(pane.clone(), true, secondary, cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_center()
+                                    .text_size(px(MIN_UI_FONT_SIZE))
+                                    .text_color(colors.muted)
+                                    .child(breadcrumb),
                             )
-                            .when(active.is_none(), |s| s.hidden())
-                            .on_click(cx.listener(|this, _, w, cx| this.execute_command(6, w, cx))),
-                        )
-                        .child(
-                            tool(
-                                if secondary {
-                                    "secondary-file-menu"
-                                } else {
-                                    "file-menu"
-                                },
-                                "ellipsis-vertical",
-                                "更多选项",
+                            .child(
+                                tool(
+                                    "read-mode",
+                                    if reading { "pencil" } else { "book-open" },
+                                    "切换阅读视图 Ctrl+E",
+                                )
+                                .when(active.is_none(), |s| s.hidden())
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.execute_command(6, w, cx)),
+                                ),
                             )
-                            .dropdown_menu_with_anchor(
-                                gpui::Anchor::TopRight,
-                                move |mut menu, _, _| {
-                                    for (entry, shortcut) in &menu_items {
-                                        let &(id, title, _) = *entry;
-                                        if matches!(id, 31 | 8 | 23 | 10) {
-                                            menu = menu.separator();
-                                        }
-                                        let label = if id == 6 {
-                                            if reading {
-                                                "编辑视图"
-                                            } else {
-                                                "阅读视图"
+                            .child(
+                                tool(
+                                    if secondary {
+                                        "secondary-file-menu"
+                                    } else {
+                                        "file-menu"
+                                    },
+                                    "ellipsis-vertical",
+                                    "更多选项",
+                                )
+                                .dropdown_menu_with_anchor(
+                                    gpui::Anchor::TopRight,
+                                    move |mut menu, _, _| {
+                                        for (entry, shortcut) in &menu_items {
+                                            let &(id, title, _) = *entry;
+                                            if matches!(id, 31 | 8 | 23 | 10) {
+                                                menu = menu.separator();
                                             }
-                                        } else {
-                                            title
-                                        };
-                                        let symbol = match id {
-                                            6 => {
+                                            let label = if id == 6 {
                                                 if reading {
-                                                    "pencil"
+                                                    "编辑视图"
                                                 } else {
-                                                    "book-open"
+                                                    "阅读视图"
                                                 }
-                                            }
-                                            7 => "code",
-                                            31 => "split-horizontal",
-                                            32 => "split-vertical",
-                                            8 => "pencil",
-                                            15 => "bookmark",
-                                            11 | 19 => "copy",
-                                            23 => "search",
-                                            18 => "folder",
-                                            10 => "trash",
-                                            _ => "history",
-                                        };
-                                        let shortcut = shortcut.clone();
-                                        let weak = menu_weak.clone();
-                                        menu = menu.item(
-                                            PopupMenuItem::element(move |_, _| {
-                                                div()
-                                                    .w(px(220.))
-                                                    .flex()
-                                                    .items_center()
-                                                    .gap_3()
-                                                    .text_size(px(MIN_UI_FONT_SIZE))
-                                                    .when(id == 10, |s| s.text_color(rgb(0xe76575)))
-                                                    .child(
-                                                        div()
-                                                            .flex_1()
-                                                            .min_w_0()
-                                                            .truncate()
-                                                            .child(label),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .text_size(px(MIN_UI_FONT_SIZE))
-                                                            .text_color(colors.muted)
-                                                            .child(shortcut.clone()),
-                                                    )
-                                            })
-                                            .icon(icon(symbol).size(px(16.)))
-                                            .on_click(move |_, window, cx| {
-                                                let _ = weak.update(cx, |this, cx| {
-                                                    if secondary {
-                                                        this.focus_secondary(cx);
-                                                    } else if let Some(i) = this
-                                                        .tabs
-                                                        .iter()
-                                                        .position(|tab| Some(tab.id) == menu_tab_id)
-                                                    {
-                                                        this.focus_primary(i, window, cx);
+                                            } else {
+                                                title
+                                            };
+                                            let symbol = match id {
+                                                6 => {
+                                                    if reading {
+                                                        "pencil"
+                                                    } else {
+                                                        "book-open"
                                                     }
-                                                    this.execute_command(id, window, cx);
-                                                });
-                                            }),
-                                        );
-                                    }
-                                    menu
-                                },
+                                                }
+                                                7 => "code",
+                                                31 => "split-horizontal",
+                                                32 => "split-vertical",
+                                                8 => "pencil",
+                                                15 => "bookmark",
+                                                11 | 19 => "copy",
+                                                23 => "search",
+                                                18 => "folder",
+                                                10 => "trash",
+                                                _ => "history",
+                                            };
+                                            let shortcut = shortcut.clone();
+                                            let weak = menu_weak.clone();
+                                            menu = menu.item(
+                                                PopupMenuItem::element(move |_, _| {
+                                                    div()
+                                                        .w(px(220.))
+                                                        .flex()
+                                                        .items_center()
+                                                        .gap_3()
+                                                        .text_size(px(MIN_UI_FONT_SIZE))
+                                                        .when(id == 10, |s| {
+                                                            s.text_color(rgb(0xe76575))
+                                                        })
+                                                        .child(
+                                                            div()
+                                                                .flex_1()
+                                                                .min_w_0()
+                                                                .truncate()
+                                                                .child(label),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .text_size(px(MIN_UI_FONT_SIZE))
+                                                                .text_color(colors.muted)
+                                                                .child(shortcut.clone()),
+                                                        )
+                                                })
+                                                .icon(icon(symbol).size(px(16.)))
+                                                .on_click(move |_, window, cx| {
+                                                    let _ = weak.update(cx, |this, cx| {
+                                                        if secondary {
+                                                            this.focus_secondary(cx);
+                                                        } else if let Some(i) =
+                                                            this.tabs.iter().position(|tab| {
+                                                                Some(tab.id) == menu_tab_id
+                                                            })
+                                                        {
+                                                            this.focus_primary(i, window, cx);
+                                                        }
+                                                        this.execute_command(id, window, cx);
+                                                    });
+                                                }),
+                                            );
+                                        }
+                                        menu
+                                    },
+                                ),
                             ),
-                        ),
-                )
-            })
+                    )
+                },
+            )
             .when(active.is_some(), |s| {
                 s.child(div().flex_1().min_h_0().children(pane))
             })
@@ -3519,11 +3528,11 @@ impl Render for Workspace {
             .size_full()
             .min_w_0()
             .min_h_0()
-            .child(self.tab_header(cx))
+            .when(!self.ui.focus_mode, |s| s.child(self.tab_header(cx)))
             .child(div().flex_1().min_h_0().child(center));
         let weak = cx.entity().downgrade();
-        let left_open = self.ui.prefs.left_open;
-        let right_open = self.ui.prefs.right_open;
+        let left_open = self.ui.prefs.left_open && !self.ui.focus_mode;
+        let right_open = self.ui.prefs.right_open && !self.ui.focus_mode;
         let panels = h_resizable((
             SharedString::from(format!(
                 "workspace-panels-{}-{}-{}-{}",
@@ -3640,6 +3649,24 @@ impl Render for Workspace {
                             })
                             .when(has_workspace, |bar| {
                                 bar.child(
+                                    Button::new("toggle-focus-mode")
+                                        .ghost()
+                                        .compact()
+                                        .label(if self.ui.focus_mode {
+                                            "退出专注"
+                                        } else {
+                                            "专注"
+                                        })
+                                        .accessibility_label(if self.ui.focus_mode {
+                                            "退出专注模式"
+                                        } else {
+                                            "进入专注模式"
+                                        })
+                                        .on_click(cx.listener(|this, _, w, cx| {
+                                            this.execute_command(109, w, cx)
+                                        })),
+                                )
+                                .child(
                                     tool(
                                         "title-toggle-left",
                                         if self.ui.prefs.left_open {
@@ -3795,6 +3822,7 @@ impl Render for Workspace {
                                             .child(format!("{} 条反向链接", self.backlinks.len())),
                                     )
                                     .on_click(cx.listener(|this, _, _, cx| {
+                                        this.ui.focus_mode = false;
                                         this.ui.prefs.right_open = true;
                                         this.ui.right_mode = 1;
                                         this.persist_workspace(cx);
