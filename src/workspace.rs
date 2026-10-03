@@ -651,10 +651,12 @@ impl Workspace {
             cx.notify();
             return;
         }
+        inkstone::startup_trace::mark("load_requested");
         self.loading = true;
         self.generation += 1;
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {
+            inkstone::startup_trace::mark("background_started");
             let vault = Vault::open(root, app_dir().join("recovery"))?;
             let (sender, receiver) = std::sync::mpsc::channel();
             let mut watcher = notify::recommended_watcher(move |event| {
@@ -664,18 +666,23 @@ impl Workspace {
             watcher
                 .watch(&vault.root, RecursiveMode::Recursive)
                 .map_err(|e| VaultError::Io(std::io::Error::other(e)))?;
+            inkstone::startup_trace::mark("watcher_ready");
             let cache_path = Index::cache_path(&vault, &app_dir().join("index-cache"));
             let index = Index::build_cached(&vault, &cache_path)?;
+            inkstone::startup_trace::mark("index_ready");
             let files = index.note_paths();
             let recoveries = vault.recoveries()?;
             let _ = std::fs::write(
                 app_dir().join("recent.txt"),
                 vault.root.to_string_lossy().as_bytes(),
             );
+            inkstone::startup_trace::mark("recovery_ready");
             let folders = vault.folders()?;
+            inkstone::startup_trace::mark("folders_ready");
             let (prefs, preference_warning) = inkstone::preferences::Preferences::load_with_warning(
                 &vault.root.join(".inkstone-workspace.json"),
             );
+            inkstone::startup_trace::mark("preferences_read");
             let restored: Vec<_> = prefs
                 .open_paths
                 .iter()
@@ -691,6 +698,7 @@ impl Workspace {
                         .map(|text| (saved_index, path.clone(), text))
                 })
                 .collect();
+            inkstone::startup_trace::mark("restored_texts_read");
             Ok::<_, VaultError>((
                 vault,
                 files,
@@ -720,6 +728,7 @@ impl Workspace {
                     cx.notify();
                     return;
                 }
+                inkstone::startup_trace::mark("ui_apply_started");
                 match result {
                     Ok((
                         vault,
@@ -791,11 +800,16 @@ impl Workspace {
                                     &maintenance_vault,
                                     &app_dir().join("index-cache"),
                                 );
+                                inkstone::startup_trace::mark("maintenance_started");
                                 let _ = cached_index.save_cache(&maintenance_vault, &path);
+                                inkstone::startup_trace::mark("cache_written");
                                 let _ = maintenance_vault.cleanup_history();
+                                inkstone::startup_trace::mark("history_cleaned");
                             })
                             .detach();
+                        inkstone::startup_trace::mark("ui_preferences_ready");
                         this.sync_index_ui(cx);
+                        inkstone::startup_trace::mark("tree_ready");
                         this.run_search(cx);
                         this.refreshing = false;
                         this.refresh_requested = false;
@@ -813,6 +827,7 @@ impl Workspace {
                         let mut used_views = std::collections::HashSet::new();
                         let mut view_restores = Vec::new();
                         let mut restored_slots = vec![None; this.ui.prefs.open_paths.len()];
+                        inkstone::startup_trace::mark("tabs_restore_started");
                         for (saved_index, path, text) in restored {
                             let view_index = saved_views
                                 .get(saved_index)
@@ -843,6 +858,7 @@ impl Workspace {
                                 restored_active = this.active;
                             }
                         }
+                        inkstone::startup_trace::mark("tabs_created");
                         for (id, pane, view_index) in view_restores {
                             if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.id == id) {
                                 tab.pinned = saved_views[view_index].pinned.unwrap_or(tab.pinned);
@@ -870,6 +886,15 @@ impl Workspace {
                             this.open_note(path, window, cx);
                         }
                         this.restore_split(window, cx);
+                        inkstone::startup_trace::mark("ui_loaded");
+                        if inkstone::startup_trace::enabled() {
+                            cx.on_next_frame(window, |_, window, cx| {
+                                cx.on_next_frame(window, |_, _, _| {
+                                    inkstone::startup_trace::mark("loaded_frame_boundary");
+                                });
+                                cx.notify();
+                            });
+                        }
                     }
                     Err(error) => this.status = error.to_string(),
                 }
