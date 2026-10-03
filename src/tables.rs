@@ -18,6 +18,95 @@ pub enum Navigation {
     Select(Range<usize>),
     Edit(Edit),
 }
+/// Small table snapshot for the visual editor. Cell strings retain inline Markdown.
+#[derive(Clone)]
+pub struct Grid {
+    pub range: Range<usize>,
+    pub rows: Vec<Vec<String>>,
+    pub alignment: Vec<usize>,
+}
+impl Grid {
+    pub fn at(text: &str, offset: usize) -> Option<Self> {
+        let (table, _, _) = Table::at(text, offset)?;
+        if table.rows.len() * table.alignment.len() > 500 {
+            return None;
+        }
+        Some(Self {
+            range: table.range,
+            rows: table
+                .rows
+                .into_iter()
+                .map(|r| r.into_iter().map(|c| c.text).collect())
+                .collect(),
+            alignment: table
+                .alignment
+                .into_iter()
+                .map(|a| match a {
+                    ":---" => 1,
+                    ":---:" => 2,
+                    "---:" => 3,
+                    _ => 0,
+                })
+                .collect(),
+        })
+    }
+    pub fn edit(&self, original: &str) -> Option<Edit> {
+        let columns = self.alignment.len();
+        if columns == 0
+            || self.rows.is_empty()
+            || self.rows.len().checked_mul(columns)? > 500
+            || self.range.start > self.range.end
+            || !original.is_char_boundary(self.range.start)
+            || !original.is_char_boundary(self.range.end)
+            || self
+                .rows
+                .iter()
+                .any(|r| r.len() != columns || r.iter().any(|s| s.contains(['\r', '\n'])))
+        {
+            return None;
+        }
+        let rows = self
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|value| {
+                        let mut text = String::new();
+                        let mut escaped = false;
+                        for ch in value.chars() {
+                            if ch == '|' && !escaped {
+                                text.push('\\');
+                            }
+                            text.push(ch);
+                            escaped = ch == '\\' && !escaped;
+                        }
+                        Cell {
+                            text,
+                            range: 0..0,
+                            present: true,
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        let table = Table {
+            range: self.range.clone(),
+            rows,
+            row_ranges: vec![],
+            alignment: self
+                .alignment
+                .iter()
+                .map(|a| match a {
+                    1 => ":---",
+                    2 => ":---:",
+                    3 => "---:",
+                    _ => "---",
+                })
+                .collect(),
+        };
+        Some(table.finish(original, 0, 0))
+    }
+}
 struct Cell {
     text: String,
     range: Range<usize>,
@@ -299,6 +388,33 @@ pub fn navigate(text: &str, selection: Range<usize>, backwards: bool) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn visual_grid_preserves_markdown_crlf_and_escapes_pipes() {
+        let text = "before\r\n\r\n| 姓名 | 说明 |\r\n| --- | :---: |\r\n| 中文 | **bold** a\\|b |\r\n\r\nafter";
+        let mut grid = Grid::at(text, text.find("中文").unwrap()).unwrap();
+        grid.rows[1][0] = "👩‍💻 a|b".into();
+        grid.alignment[0] = 3;
+        let edit = grid.edit(text).unwrap();
+        let result = format!(
+            "{}{}{}",
+            &text[..edit.range.start],
+            edit.replacement,
+            &text[edit.range.end..]
+        );
+        assert!(result.contains("👩‍💻 a\\|b | **bold** a\\|b"));
+        assert!(result.contains("| ---: | :---: |\r\n"));
+        assert!(result.starts_with("before\r\n\r\n"));
+        assert!(result.ends_with("\r\n\r\nafter"));
+        assert_eq!(
+            Grid::at(&result, result.find("👩").unwrap())
+                .unwrap()
+                .rows
+                .len(),
+            2
+        );
+        grid.rows[0][0] = "a\nb".into();
+        assert!(grid.edit(text).is_none());
+    }
     #[test]
     fn oversized_ragged_table_does_not_expand_into_a_huge_grid() {
         let header = format!(

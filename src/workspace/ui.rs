@@ -141,6 +141,7 @@ pub(super) struct UiState {
     pub attachment_manager: Option<super::attachments::Manager>,
     pub link_health: Option<super::link_health::Review>,
     pub bulk_edit: Option<super::bulk_edit::Review>,
+    pub table_editor: Option<super::table_editor::Review>,
     pub bulk_preview_revision: u64,
     pub recovery_refresh: u64,
     pub trash: Vec<inkstone::vault::TrashEntry>,
@@ -476,6 +477,7 @@ impl UiState {
             attachment_manager: None,
             link_health: None,
             bulk_edit: None,
+            table_editor: None,
             bulk_preview_revision: 0,
             recovery_refresh: 0,
             trash: vec![],
@@ -1379,6 +1381,7 @@ impl Workspace {
         self.ui.attachment_manager = None;
         self.ui.link_health = None;
         self.ui.bulk_edit = None;
+        self.ui.table_editor = None;
         self.ui.conflict_review = None;
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         if let Some(pane) = self.current_pane() {
@@ -3147,7 +3150,7 @@ impl Workspace {
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
         let menu_weak = cx.entity().downgrade();
         let menu_items: Vec<_> = [
-            6, 7, 31, 32, 8, 15, 11, 23, 99, 100, 103, 104, 19, 18, 10, 16,
+            6, 7, 31, 32, 8, 15, 11, 23, 111, 99, 100, 103, 104, 19, 18, 10, 16,
         ]
         .into_iter()
         .filter_map(|id| command(id).map(|entry| (entry, self.hotkey_label(id))))
@@ -4034,6 +4037,8 @@ impl Workspace {
                         "链接健康检查"
                     } else if self.ui.bulk_edit.is_some() {
                         "批量修改预览"
+                    } else if self.ui.table_editor.is_some() {
+                        "可视化表格编辑"
                     } else if self.ui.history.is_some() {
                         "笔记版本历史"
                     } else if self.ui.trash_open {
@@ -4205,6 +4210,9 @@ impl Workspace {
             .when(self.ui.bulk_edit.is_some(), |s| {
                 s.child(self.bulk_edit_panel(cx))
             })
+            .when(self.ui.table_editor.is_some(), |s| {
+                s.child(self.table_editor_panel(cx))
+            })
             .when(self.ui.link_health.is_some(), |s| {
                 s.child(self.link_health_panel(cx))
             })
@@ -4220,6 +4228,7 @@ impl Workspace {
             .when(
                 self.ui.trash_open
                     && self.ui.bulk_edit.is_none()
+                    && self.ui.table_editor.is_none()
                     && self.ui.link_health.is_none()
                     && self.ui.attachment_manager.is_none()
                     && self.ui.history.is_none()

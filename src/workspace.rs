@@ -15,6 +15,7 @@ mod link_updates;
 mod navigation;
 mod recovery;
 mod search_tools;
+mod table_editor;
 mod ui;
 mod views;
 mod welcome;
@@ -762,6 +763,7 @@ impl Workspace {
                         this.ui.attachment_manager = None;
                         this.ui.link_health = None;
                         this.ui.bulk_edit = None;
+                        this.ui.table_editor = None;
                         this.ui.trash_open = false;
                         this.ui.last_persisted.clear();
                         this.ui.persist_error = None;
