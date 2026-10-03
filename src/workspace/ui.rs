@@ -3643,6 +3643,23 @@ impl Render for Workspace {
                         .bg(self.bg())
                         .text_size(px(MIN_UI_FONT_SIZE))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                        .when(!self.index.errors.is_empty(), |bar| {
+                            let detail = self
+                                .index
+                                .errors
+                                .iter()
+                                .take(20)
+                                .map(|(path, error)| format!("{}：{error}", path.display()))
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            bar.child(
+                                Button::new("index-read-errors")
+                                    .ghost()
+                                    .compact()
+                                    .label(format!("{} 个文件无法索引", self.index.errors.len()))
+                                    .tooltip(detail),
+                            )
+                        })
                         .when(!self.status.is_empty(), |bar| {
                             bar.child(
                                 div()

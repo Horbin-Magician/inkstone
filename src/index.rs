@@ -411,6 +411,8 @@ pub struct IndexedNote {
 pub struct Index {
     pub notes: BTreeMap<PathBuf, IndexedNote>,
     pub files: Vec<PathBuf>,
+    /// Files excluded from searchable content, with actionable read diagnostics.
+    pub errors: BTreeMap<PathBuf, String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Resolution {
@@ -579,20 +581,26 @@ impl Index {
             files: vault.scan_files()?,
             ..Default::default()
         };
-        for path in index
+        let paths: Vec<_> = index
             .files
-            .clone()
-            .into_iter()
+            .iter()
             .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")))
-        {
-            if let Some(text) = vault.read(&path)? {
-                index.update(path.clone(), text);
-                index.refresh_file_times(vault, &path);
-            }
-        }
+            .cloned()
+            .collect();
+        index.refresh_paths(vault, paths)?;
         Ok(index)
     }
+    pub fn note_paths(&self) -> Vec<PathBuf> {
+        self.notes
+            .keys()
+            .chain(self.errors.keys())
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
     pub fn update(&mut self, path: PathBuf, text: String) {
+        self.errors.remove(&path);
         let parsed = parse(&text);
         let times = self.notes.get(&path).map(|n| n.times).unwrap_or_default();
         self.notes.insert(
@@ -624,15 +632,21 @@ impl Index {
         paths: impl IntoIterator<Item = PathBuf>,
     ) -> Result<(), VaultError> {
         for path in paths {
-            match vault.read(&path)? {
-                Some(text) => {
+            match vault.read(&path) {
+                Ok(Some(text)) => {
+                    self.errors.remove(&path);
                     if self.notes.get(&path).is_none_or(|n| n.text != text) {
                         self.update(path.clone(), text);
                     }
                     self.refresh_file_times(vault, &path);
                 }
-                None => {
+                Ok(None) => {
                     self.notes.remove(&path);
+                    self.errors.remove(&path);
+                }
+                Err(error) => {
+                    self.notes.remove(&path);
+                    self.errors.insert(path, error.to_string());
                 }
             }
         }
@@ -993,6 +1007,41 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unreadable_notes_are_isolated_and_rejoin_after_repair() {
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-index-errors-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        std::fs::write(vault.root.join("good.md"), "good").unwrap();
+        std::fs::write(vault.root.join("bad.md"), [0xff]).unwrap();
+        let mut index = Index::build(&vault).unwrap();
+        assert_eq!(index.notes.len(), 1);
+        assert!(index.errors.contains_key(Path::new("bad.md")));
+        assert_eq!(index.note_paths().len(), 2);
+        std::fs::write(vault.root.join("good.md"), "updated").unwrap();
+        std::fs::write(vault.root.join("bad.md"), "repaired").unwrap();
+        index
+            .refresh_paths(&vault, ["good.md".into(), "bad.md".into()])
+            .unwrap();
+        assert!(index.errors.is_empty());
+        assert_eq!(index.notes[Path::new("good.md")].text, "updated");
+        assert_eq!(index.notes[Path::new("bad.md")].text, "repaired");
+        std::fs::write(vault.root.join("bad.md"), [0xff]).unwrap();
+        index.refresh_paths(&vault, ["bad.md".into()]).unwrap();
+        assert!(!index.notes.contains_key(Path::new("bad.md")));
+        std::fs::remove_file(vault.root.join("bad.md")).unwrap();
+        index.refresh_paths(&vault, ["bad.md".into()]).unwrap();
+        assert!(index.errors.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn custom_task_markers_share_index_and_search_semantics() {
         let source = "- [-] cancelled\n> - [!] important\n1. [✓] complete\n- [ ] open\n\n```\n- [!] code\n```\n\n- [link](url)\n";
