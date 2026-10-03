@@ -6,8 +6,8 @@ pub fn name() -> &'static str {
 fn name_for_locale(locale: &str) -> &'static str {
     let language = locale.split(['-', '_']).next().unwrap_or_default();
     if language.eq_ignore_ascii_case("zh") {
-        "InkStone"
-    } else {
         "墨砚"
+    } else {
+        "InkStone"
     }
 }
