@@ -1557,3 +1557,9 @@ GPUI TestAppContext 测试：
 
 - HTML 导出新增本地 SVG 行内/块公式及 Mermaid、语义高亮和块锚点；源码代码片段不误转换，注释不显示。扩展和安全相关 5 项回归通过。macOS 原生导出并在 Chrome 视觉核验分数、勾股公式、流程图、高亮和块链接跳转，均通过。
 - `cargo test --release --locked --bin inkstone markdown_frame_performance -- --ignored --nocapture`：普通 585B 键入/滚动 P95 0.542/0.442 ms；310008B 长段落 10.631/3.102 ms；富内容 908B 0.399/0.645 ms。长段落 edit/presentation/draw P95 为 3.556/1.228/0.178 ms。一次同机优化构建无头 CPU 样本，不代表原生键入到屏幕延迟，也不与先前 debug 数值直接计算提升比例。
+
+## 本轮最终回归（2026-10-03）
+
+- `cargo test --locked --quiet`：412 项通过，1 项手动基准默认忽略（已单独执行 release 基准并通过）。
+- `cargo clippy --locked --all-targets -- -D warnings`、`cargo fmt --check`、`git diff --check` 全部通过。上游 `block 0.1.6` 的 future-incompat 提示仍存在，不是本次新增错误。
+- macOS 应用包构建通过；全部原生实验使用 `target/product-validation` 下独立笔记库与独立应用数据，未修改用户笔记。当前路线的实现与未完成项以 PROGRESS.md 顶部为准。
