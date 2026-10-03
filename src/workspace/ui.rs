@@ -3411,7 +3411,7 @@ impl Render for Workspace {
             })
             .unwrap_or_default();
         let error = active.and_then(|t| t.save.error.borrow().clone());
-        _window.set_window_title(&format!("{} - 砚台Inkstone", title));
+        _window.set_window_title(&format!("{} - {}", title, crate::product::name()));
         let main_index = self.main_tab();
         let main_pane = main_index
             .and_then(|i| self.tabs.get(i))
@@ -3563,7 +3563,7 @@ impl Render for Workspace {
                                             .as_ref()
                                             .and_then(|v| v.root.file_name())
                                             .map(|name| name.to_string_lossy().to_string())
-                                            .unwrap_or_else(|| "砚台 Inkstone".into()),
+                                            .unwrap_or_else(|| crate::product::name().into()),
                                     ),
                             )
                             .when(self.vault.is_some(), |bar| {
@@ -3573,7 +3573,7 @@ impl Render for Workspace {
                                         .text_color(
                                             crate::theme::palette(self.ui.prefs.light).muted,
                                         )
-                                        .child("/  砚台"),
+                                        .child(format!("/  {}", crate::product::name())),
                                 )
                             }),
                     )
