@@ -656,7 +656,7 @@ impl Workspace {
                 vault.root.to_string_lossy().as_bytes(),
             );
             let folders = vault.folders()?;
-            let prefs = inkstone::preferences::Preferences::load(
+            let (prefs, preference_warning) = inkstone::preferences::Preferences::load_with_warning(
                 &vault.root.join(".inkstone-workspace.json"),
             );
             let restored: Vec<_> = prefs
@@ -675,7 +675,15 @@ impl Workspace {
                 })
                 .collect();
             Ok::<_, VaultError>((
-                vault, files, watcher, receiver, recoveries, index, folders, prefs, restored,
+                vault,
+                files,
+                watcher,
+                receiver,
+                recoveries,
+                index,
+                folders,
+                (prefs, preference_warning),
+                restored,
             ))
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -707,6 +715,7 @@ impl Workspace {
                         prefs,
                         restored,
                     )) => {
+                        let (prefs, preference_warning) = prefs;
                         this.ui.folders = folders;
                         let restore_active = prefs.active_path.clone();
                         let restore_active_index = prefs.active_tab_index;
@@ -757,7 +766,7 @@ impl Workspace {
                         this.views = Default::default();
                         this.tabs.clear();
                         this.active = None;
-                        this.status.clear();
+                        this.status = preference_warning.unwrap_or_default();
                         this.loading = true;
                         let mut restored_active = None;
                         let saved_views = this.ui.prefs.views.clone();
