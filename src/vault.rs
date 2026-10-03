@@ -3,7 +3,7 @@ pub mod attachments;
 pub mod backup;
 pub mod export;
 mod history;
-pub use history::HistoryEntry;
+pub use history::{HistoryEntry, Retention};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -424,9 +424,23 @@ impl Vault {
 
     /// Bound successful history only. Failed journals and conflict backups are never pruned.
     pub fn cleanup_history(&self) -> io::Result<()> {
+        let policy = fs::read(self.root.join(".inkstone-workspace.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+            .and_then(|value| value.get("history").cloned())
+            .and_then(|value| serde_json::from_value::<history::Retention>(value).ok())
+            .unwrap_or_default();
         self.cleanup_history_with_policy(
-            std::time::Duration::from_secs(30 * 24 * 3600),
-            128 * 1024 * 1024,
+            if policy.days == 0 {
+                std::time::Duration::MAX
+            } else {
+                std::time::Duration::from_secs(policy.days.saturating_mul(24 * 3600))
+            },
+            if policy.max_mib == 0 {
+                u64::MAX
+            } else {
+                policy.max_mib.saturating_mul(1024 * 1024)
+            },
         )
     }
     fn cleanup_history_with_policy(
