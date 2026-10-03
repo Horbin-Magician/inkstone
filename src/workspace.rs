@@ -648,6 +648,7 @@ impl Workspace {
             watcher
                 .watch(&vault.root, RecursiveMode::Recursive)
                 .map_err(|e| VaultError::Io(std::io::Error::other(e)))?;
+            let _ = vault.cleanup_history();
             let index = Index::build(&vault)?;
             let files = index.note_paths();
             let recoveries = vault.recoveries()?;
