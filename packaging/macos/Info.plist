@@ -8,6 +8,8 @@
     <string>墨砚</string>
     <key>CFBundleExecutable</key>
     <string>inkstone</string>
+    <key>CFBundleIconFile</key>
+    <string>Inkstone.icns</string>
     <key>CFBundleIdentifier</key>
     <string>app.inkstone.desktop</string>
     <key>CFBundlePackageType</key>

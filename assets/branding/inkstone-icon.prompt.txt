@@ -1,6 +1,6 @@
 Inkstone / 墨砚 icon
 Generated with the built-in image_gen tool.
-Design asset only; application packaging integration is not included.
+Selected application icon. The macOS bundle script generates Inkstone.icns from inkstone-icon.png.
 
 Use case: logo-brand
 Asset type: final standalone desktop application icon for 墨砚 (Inkstone), a local Markdown note-taking app.
