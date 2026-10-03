@@ -74,7 +74,7 @@ open target/debug/墨砚.app
 # 发布构建：bash scripts/bundle-macos.sh --release
 ```
 
-打包脚本使用本机临时签名，尚未配置发行签名和公证。当前界面固定为中文；将来切换界面语言时，需同步更新 `packaging/macos/Info.plist` 中的系统显示名称。Linux 尚未构建或验收。
+打包脚本从 `assets/branding/inkstone-icon.png` 生成多尺寸 macOS 图标，并使用本机临时签名，尚未配置发行签名和公证。当前界面固定为中文；将来切换界面语言时，需同步更新 `packaging/macos/Info.plist` 中的系统显示名称。Linux 尚未构建或验收。
 
 ## 已实现
 
