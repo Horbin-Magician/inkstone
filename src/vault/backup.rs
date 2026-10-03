@@ -37,7 +37,7 @@ fn relative(path: &Path) -> io::Result<()> {
     }
     Ok(())
 }
-fn safe_path(root: &Path, path: &Path) -> io::Result<PathBuf> {
+pub(super) fn safe_path(root: &Path, path: &Path) -> io::Result<PathBuf> {
     relative(path)?;
     let mut full = root.to_owned();
     for component in path.components() {
@@ -85,7 +85,7 @@ fn inventory(root: &Path) -> io::Result<(Vec<PathBuf>, Vec<PathBuf>)> {
     files.sort();
     Ok((dirs, files))
 }
-fn transfer(source: &Path, destination: Option<&Path>) -> io::Result<(u64, String)> {
+pub(super) fn transfer(source: &Path, destination: Option<&Path>) -> io::Result<(u64, String)> {
     let before = fs::symlink_metadata(source)?;
     if !before.is_file() || is_reparse(&before) {
         return Err(invalid("备份源不是普通文件"));
@@ -127,13 +127,13 @@ fn transfer(source: &Path, destination: Option<&Path>) -> io::Result<(u64, Strin
     }
     Ok((bytes, format!("{:x}", hash.finalize())))
 }
-struct Staging(PathBuf);
+pub(super) struct Staging(pub(super) PathBuf);
 impl Drop for Staging {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
-fn staging(destination: &Path, excluded: &Path) -> io::Result<(Staging, PathBuf)> {
+pub(super) fn staging(destination: &Path, excluded: &Path) -> io::Result<(Staging, PathBuf)> {
     let parent = fs::canonicalize(
         destination
             .parent()
