@@ -102,6 +102,8 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (104, "导出 HTML（浏览器打印 / PDF）", ""),
     (105, "附件管理：引用、预览与清理", ""),
     (106, "检查本地链接健康", ""),
+    (107, "全库文本替换（先预览）", ""),
+    (108, "批量重命名或合并标签（先预览）", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -396,6 +398,7 @@ impl Workspace {
                 }
             }
             16 => {
+                self.ui.bulk_edit = None;
                 self.ui.link_health = None;
                 self.ui.attachment_manager = None;
                 self.ui.history = None;
@@ -410,6 +413,8 @@ impl Workspace {
             102 => self.choose_backup_restore(window, cx),
             105 => self.open_attachment_manager(window, cx),
             106 => self.open_link_health(window, cx),
+            107 => self.open_bulk_edit(false, window, cx),
+            108 => self.open_bulk_edit(true, window, cx),
             103 => self.choose_export(inkstone::vault::export::Format::Markdown, window, cx),
             104 => self.choose_export(inkstone::vault::export::Format::Html, window, cx),
             17 => {

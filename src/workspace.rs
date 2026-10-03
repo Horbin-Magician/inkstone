@@ -1,6 +1,7 @@
 mod appearance;
 mod attachments;
 mod backups;
+mod bulk_edit;
 mod commands;
 mod conflicts;
 mod document;
@@ -760,6 +761,7 @@ impl Workspace {
                         this.ui.exporting = false;
                         this.ui.attachment_manager = None;
                         this.ui.link_health = None;
+                        this.ui.bulk_edit = None;
                         this.ui.trash_open = false;
                         this.ui.last_persisted.clear();
                         this.ui.persist_error = None;

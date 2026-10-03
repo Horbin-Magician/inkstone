@@ -47,6 +47,7 @@ pub struct ParsedNote {
     pub headings: Vec<Heading>,
     pub tags: Vec<String>,
     pub tag_counts: BTreeMap<String, usize>,
+    pub inline_tags: Vec<(Range<usize>, String)>,
     pub aliases: Vec<String>,
     pub standard_links: Vec<(String, usize)>,
     pub destinations: Vec<(Range<usize>, String)>,
@@ -212,6 +213,10 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
                         .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '/'))
                         .collect();
                     if !tag.is_empty() && tag.chars().any(|c| !c.is_numeric()) {
+                        result.inline_tags.push((
+                            range.start + i + 1..range.start + i + 1 + tag.len(),
+                            tag.clone(),
+                        ));
                         result.tags.push(tag);
                     }
                 }

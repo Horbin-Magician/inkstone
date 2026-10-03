@@ -1,3 +1,4 @@
+pub mod batch;
 pub mod comments;
 pub mod file_order;
 pub mod graphics;
