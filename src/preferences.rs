@@ -179,9 +179,29 @@ impl Default for Preferences {
 }
 impl Preferences {
     pub fn load(path: &Path) -> Self {
-        let saved: Option<serde_json::Value> = std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        Self::load_with_warning(path).0
+    }
+    pub fn load_with_warning(path: &Path) -> (Self, Option<String>) {
+        let valid_json = |path: &Path| -> Option<serde_json::Value> {
+            let json: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+            serde_json::from_value::<Self>(json.clone()).ok()?;
+            Some(json)
+        };
+        let main = valid_json(path);
+        let backup = if main.is_none() {
+            valid_json(&path.with_extension("backup"))
+        } else {
+            None
+        };
+        let warning = if backup.is_some() {
+            Some("工作区配置无法读取，已从备份恢复；原配置会保留供检查。".into())
+        } else if main.is_none() && (path.exists() || path.with_extension("backup").exists()) {
+            Some("工作区配置和备份无法读取，已使用默认设置；原文件会保留供检查。".into())
+        } else {
+            None
+        };
+        let saved = main.or(backup);
         let mut value: Self = saved
             .as_ref()
             .and_then(|json| serde_json::from_value(json.clone()).ok())
@@ -206,7 +226,7 @@ impl Preferences {
         if value.right_panel > 4 {
             value.right_panel = 0;
         }
-        value
+        (value, warning)
     }
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(parent) = path.parent() {
@@ -220,9 +240,35 @@ impl Preferences {
             .open(&pending)?
             .sync_all()?;
         if path.exists() {
-            std::fs::copy(path, path.with_extension("backup"))?;
+            let bytes = std::fs::read(path)?;
+            if serde_json::from_slice::<Self>(&bytes).is_ok() {
+                std::fs::copy(path, path.with_extension("backup"))?;
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(path.with_extension("backup"))?
+                    .sync_all()?;
+            } else {
+                // Never replace the last valid backup with a corrupt main file.
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos();
+                let corrupt =
+                    path.with_extension(format!("corrupt-{}-{stamp}", std::process::id()));
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(corrupt)?;
+                std::io::Write::write_all(&mut file, &bytes)?;
+                file.sync_all()?;
+            }
         }
-        std::fs::rename(pending, path)
+        std::fs::rename(pending, path)?;
+        #[cfg(unix)]
+        if let Some(parent) = path.parent() {
+            std::fs::File::open(parent)?.sync_all()?;
+        }
+        Ok(())
     }
 }
 
@@ -286,6 +332,43 @@ impl Navigation {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn corrupt_config_recovers_backup_and_preserves_damaged_bytes() {
+        let root =
+            std::env::temp_dir().join(format!("inkstone-config-recovery-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("workspace.json");
+        let prefs = Preferences {
+            font_size: 23.,
+            bookmarks: vec!["important.md".into()],
+            ..Default::default()
+        };
+        prefs.save(&path).unwrap();
+        prefs.save(&path).unwrap();
+        std::fs::write(&path, b"broken-json").unwrap();
+        let (recovered, warning) = Preferences::load_with_warning(&path);
+        assert_eq!(recovered.font_size, 23.);
+        assert_eq!(recovered.bookmarks, prefs.bookmarks);
+        assert!(warning.is_some());
+        recovered.save(&path).unwrap();
+        assert_eq!(
+            Preferences::load(&path.with_extension("backup")).font_size,
+            23.
+        );
+        assert!(std::fs::read_dir(&root).unwrap().any(|e| {
+            let path = e.unwrap().path();
+            path.extension()
+                .is_some_and(|e| e.to_string_lossy().starts_with("corrupt-"))
+                && std::fs::read(path).unwrap() == b"broken-json"
+        }));
+        assert!(Preferences::load_with_warning(&path).1.is_none());
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(Preferences::load(&path).font_size, 23.);
+        std::fs::write(&path, r#"{"font_size":"wrong type"}"#).unwrap();
+        assert_eq!(Preferences::load(&path).font_size, 23.);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn removed_feature_settings_do_not_reset_existing_workspace() {
         let path = std::env::temp_dir().join(format!(
