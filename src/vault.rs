@@ -1,4 +1,5 @@
 //! Files remain authoritative. Every save keeps an application-owned recovery journal.
+pub mod attachments;
 pub mod backup;
 pub mod export;
 mod history;
@@ -342,7 +343,12 @@ impl Vault {
             let Ok(original) = serde_json::from_slice::<PathBuf>(&bytes) else {
                 continue;
             };
-            let stored = dir.join(original.file_name().ok_or(VaultError::InvalidPath)?);
+            let stored =
+                if fs::read(dir.join("payload-name.json")).is_ok_and(|b| b == b"\"content\"") {
+                    dir.join("content")
+                } else {
+                    dir.join(original.file_name().ok_or(VaultError::InvalidPath)?)
+                };
             if stored.exists() && !is_reparse(&fs::symlink_metadata(&stored)?) {
                 let directory = stored.is_dir();
                 if directory {
@@ -355,7 +361,7 @@ impl Vault {
                         return Err(VaultError::InvalidPath);
                     }
                 } else {
-                    self.path(&original)?;
+                    self.regular_file_path(&original)?;
                 }
                 entries.push(TrashEntry {
                     stored,
@@ -379,7 +385,7 @@ impl Vault {
         let dest = if entry.directory {
             self.folder_path(&entry.original)?
         } else {
-            self.path(&entry.original)?
+            self.regular_file_path(&entry.original)?
         };
         fs::create_dir_all(dest.parent().ok_or(VaultError::InvalidPath)?)?;
         move_no_replace(&entry.stored, &dest)?;
@@ -614,6 +620,17 @@ impl Vault {
     }
     pub fn path(&self, relative: &Path) -> Result<PathBuf, VaultError> {
         Self::validate_relative(relative)?;
+        self.regular_file_path(relative)
+    }
+    fn regular_file_path(&self, relative: &Path) -> Result<PathBuf, VaultError> {
+        if relative.as_os_str().is_empty()
+            || relative.components().any(|c| {
+                !matches!(c, Component::Normal(_))
+                    || (cfg!(windows) && c.as_os_str().to_string_lossy().contains(':'))
+            })
+        {
+            return Err(VaultError::InvalidPath);
+        }
         let mut path = self.root.clone();
         for component in relative.components() {
             path.push(component);

@@ -134,6 +134,7 @@ pub(super) struct UiState {
     pub conflict_review: Option<super::conflicts::Review>,
     pub backup: super::backups::State,
     pub exporting: bool,
+    pub attachment_manager: Option<super::attachments::Manager>,
     pub recovery_refresh: u64,
     pub trash: Vec<inkstone::vault::TrashEntry>,
     pub command: Entity<InputState>,
@@ -459,6 +460,7 @@ impl UiState {
             conflict_review: None,
             backup: Default::default(),
             exporting: false,
+            attachment_manager: None,
             recovery_refresh: 0,
             trash: vec![],
             command,
@@ -1358,6 +1360,7 @@ impl Workspace {
         self.ui.property_original = None;
         self.ui.trash_open = false;
         self.ui.history = None;
+        self.ui.attachment_manager = None;
         self.ui.conflict_review = None;
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         if let Some(pane) = self.current_pane() {
@@ -3931,6 +3934,8 @@ impl Workspace {
                         "设置"
                     } else if self.ui.conflict_review.is_some() {
                         "比较并处理外部修改"
+                    } else if self.ui.attachment_manager.is_some() {
+                        "附件管理"
                     } else if self.ui.history.is_some() {
                         "笔记版本历史"
                     } else if self.ui.trash_open {
@@ -4099,6 +4104,9 @@ impl Workspace {
                     })
             })
             .when(self.ui.settings, |s| s.child(self.settings_panel(cx)))
+            .when(self.ui.attachment_manager.is_some(), |s| {
+                s.child(self.attachments_panel(cx))
+            })
             .when(self.ui.history.is_some(), |s| {
                 s.child(self.history_panel(cx))
             })
@@ -4107,6 +4115,7 @@ impl Workspace {
             })
             .when(
                 self.ui.trash_open
+                    && self.ui.attachment_manager.is_none()
                     && self.ui.history.is_none()
                     && self.ui.conflict_review.is_none(),
                 |s| {

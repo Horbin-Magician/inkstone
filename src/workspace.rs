@@ -1,4 +1,5 @@
 mod appearance;
+mod attachments;
 mod backups;
 mod commands;
 mod conflicts;
@@ -752,6 +753,7 @@ impl Workspace {
                         this.ui.conflict_review = None;
                         this.ui.backup = Default::default();
                         this.ui.exporting = false;
+                        this.ui.attachment_manager = None;
                         this.ui.trash_open = false;
                         this.ui.last_persisted.clear();
                         this.ui.persist_error = None;
