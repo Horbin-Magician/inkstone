@@ -108,7 +108,14 @@ impl Workspace {
                     || t.save.saving.get()
                     || self.has_pending_input(t.id, window, cx)
             });
-        let preferences_pending = self.vault.is_some()
+        if self.ui.persist_error.is_some() && !self.ui.discard_workspace_on_close {
+            self.ui.window_close_requested = false;
+            self.status = "工作区设置保存失败，请重试或选择“不保存布局并关闭”。".into();
+            cx.notify();
+            return false;
+        }
+        let preferences_pending = !self.ui.discard_workspace_on_close
+            && self.vault.is_some()
             && (self.ui.persisting
                 || serde_json::to_string(&self.ui.prefs)
                     .ok()

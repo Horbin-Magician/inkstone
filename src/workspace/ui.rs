@@ -146,6 +146,8 @@ pub(super) struct UiState {
     pub pending_command: Option<(PathBuf, usize)>,
     pub last_persisted: String,
     pub persisting: bool,
+    pub persist_error: Option<String>,
+    pub discard_workspace_on_close: bool,
     pub folders: Vec<PathBuf>,
     pub tree_folders: Vec<PathBuf>,
     _command_subscription: Subscription,
@@ -465,6 +467,8 @@ impl UiState {
             pending_command: None,
             last_persisted: String::new(),
             persisting: false,
+            persist_error: None,
+            discard_workspace_on_close: false,
             folders: vec![],
             tree_folders: vec![],
             _command_subscription: subscription,
@@ -863,7 +867,11 @@ impl Workspace {
         let Some(vault) = &self.vault else {
             return;
         };
-        if self.loading || self.ui.persisting {
+        if self.loading
+            || self.ui.persisting
+            || self.ui.persist_error.is_some()
+            || self.ui.discard_workspace_on_close
+        {
             return;
         }
         self.ui.prefs.open_paths = self.tabs.iter().map(|t| t.path.clone()).collect();
@@ -900,7 +908,10 @@ impl Workspace {
                         this.persist_workspace(cx);
                     }
                     Err(e) => {
-                        this.status = format!("无法保存工作区设置：{e}");
+                        this.ui.persist_error = Some(e.to_string());
+                        this.ui.window_close_requested = false;
+                        this.status =
+                            format!("无法保存工作区设置：{e}。可重试或不保存布局并关闭。");
                         cx.notify();
                     }
                 }
@@ -3643,6 +3654,31 @@ impl Render for Workspace {
                         .bg(self.bg())
                         .text_size(px(MIN_UI_FONT_SIZE))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                        .when(self.ui.persist_error.is_some(), |bar| {
+                            bar.child(
+                                Button::new("retry-workspace-save")
+                                    .ghost()
+                                    .compact()
+                                    .label("重试保存设置")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.ui.persist_error = None;
+                                        this.ui.discard_workspace_on_close = false;
+                                        this.persist_workspace(cx);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("close-without-workspace")
+                                    .ghost()
+                                    .compact()
+                                    .label("不保存布局并关闭")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.ui.discard_workspace_on_close = true;
+                                        this.ui.window_close_requested = true;
+                                        this.finish_window_close(window, cx);
+                                    })),
+                            )
+                        })
                         .when(!self.index.errors.is_empty(), |bar| {
                             let detail = self
                                 .index

@@ -740,6 +740,8 @@ impl Workspace {
                         });
                         this.ui.link_update = None;
                         this.ui.last_persisted.clear();
+                        this.ui.persist_error = None;
+                        this.ui.discard_workspace_on_close = false;
                         this.ui.prefs.light =
                             this.ui.prefs.theme.is_light(Self::system_light(window));
                         ui::apply_theme(this.ui.prefs.light, cx);
@@ -5137,6 +5139,55 @@ mod tests {
         let prefs =
             inkstone::preferences::Preferences::load(&root.join(".inkstone-workspace.json"));
         assert_eq!(prefs.active_path, Some("退出保存.md".into()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn failed_workspace_save_can_retry_or_close_without_bypassing_note_safety(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-settings-failure-{}", std::process::id()));
+        std::fs::create_dir_all(root.join(".inkstone-workspace.json")).unwrap();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("safe.md".into(), Some("original".into()), false, window, cx);
+                assert!(!w.request_window_close(window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.ui.persist_error.is_some());
+                assert!(!w.ui.window_close_requested);
+                w.tick(window, cx);
+                assert!(!w.ui.persisting, "failed saves do not retry forever");
+                assert!(!w.request_window_close(window, cx));
+                w.ui.discard_workspace_on_close = true;
+                assert!(w.request_window_close(window, cx));
+                w.tabs[0].save.conflict.set(true);
+                assert!(
+                    !w.request_window_close(window, cx),
+                    "discarding layout never discards notes"
+                );
+                w.tabs[0].save.conflict.set(false);
+                w.ui.discard_workspace_on_close = false;
+                w.ui.persist_error = None;
+                std::fs::remove_dir(root.join(".inkstone-workspace.json")).unwrap();
+                w.persist_workspace(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.ui.persist_error.is_none());
+                assert!(w.request_window_close(window, cx));
+            })
+            .unwrap();
+        assert!(root.join(".inkstone-workspace.json").is_file());
         std::fs::remove_dir_all(root).unwrap();
     }
 
