@@ -66,7 +66,15 @@ cargo fmt --check
 cargo run --release --locked --example benchmark -- 10000
 ```
 
-macOS / Linux 保留条件编译代码，尚未构建或验收。
+macOS 开发启动使用 `cargo run --locked --bin inkstone`，可执行文件内嵌应用名称配置，系统菜单显示“墨砚”。打包为可双击启动的应用：
+
+```sh
+bash scripts/bundle-macos.sh
+open target/debug/墨砚.app
+# 发布构建：bash scripts/bundle-macos.sh --release
+```
+
+打包脚本使用本机临时签名，尚未配置发行签名和公证。当前界面固定为中文；将来切换界面语言时，需同步更新 `packaging/macos/Info.plist` 中的系统显示名称。Linux 尚未构建或验收。
 
 ## 已实现
 
