@@ -4705,18 +4705,22 @@ mod tests {
                 index.update("note10.md".into(), "ten".into());
                 index.update("note2.md".into(), "two".into());
                 let old = std::time::SystemTime::UNIX_EPOCH;
-                index
-                    .notes
-                    .get_mut(std::path::Path::new("note10.md"))
-                    .unwrap()
-                    .times
-                    .modified = Some(old);
-                index
-                    .notes
-                    .get_mut(std::path::Path::new("note2.md"))
-                    .unwrap()
-                    .times
-                    .modified = Some(old + Duration::from_secs(10));
+                Arc::make_mut(
+                    index
+                        .notes
+                        .get_mut(std::path::Path::new("note10.md"))
+                        .unwrap(),
+                )
+                .times
+                .modified = Some(old);
+                Arc::make_mut(
+                    index
+                        .notes
+                        .get_mut(std::path::Path::new("note2.md"))
+                        .unwrap(),
+                )
+                .times
+                .modified = Some(old + Duration::from_secs(10));
                 w.index = Arc::new(index);
                 w.ui.folders = vec!["Folder".into()];
                 w.sync_index_ui(cx);
@@ -4744,12 +4748,14 @@ mod tests {
                     w.tree.read(cx).entry(1).unwrap().item().label.as_ref(),
                     "note2.md"
                 );
-                Arc::make_mut(&mut w.index)
-                    .notes
-                    .get_mut(std::path::Path::new("note10.md"))
-                    .unwrap()
-                    .times
-                    .modified = Some(old + Duration::from_secs(20));
+                Arc::make_mut(
+                    Arc::make_mut(&mut w.index)
+                        .notes
+                        .get_mut(std::path::Path::new("note10.md"))
+                        .unwrap(),
+                )
+                .times
+                .modified = Some(old + Duration::from_secs(20));
                 w.sync_index_ui(cx);
                 assert_eq!(
                     w.tree.read(cx).entry(1).unwrap().item().label.as_ref(),
@@ -6192,6 +6198,62 @@ mod tests {
                 assert_eq!(workspace.ui.closed, vec![PathBuf::from("中文.md")]);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn bad_note_does_not_block_vault_loading_or_external_refresh(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-partial-index-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("good.md"), "original").unwrap();
+        std::fs::write(root.join("z-bad.md"), [0xff]).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.vault.is_some());
+                w.watcher = None;
+                w.watch_events = None;
+                assert!(
+                    w.index
+                        .errors
+                        .contains_key(std::path::Path::new("z-bad.md"))
+                );
+                assert!(w.tree_files.contains(&PathBuf::from("z-bad.md")));
+                assert_eq!(w.tabs[0].path, PathBuf::from("good.md"));
+                std::fs::write(root.join("good.md"), "external update").unwrap();
+                w.rescan = true;
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(
+                    w.tabs[0].save.baseline.borrow().as_deref(),
+                    Some("external update")
+                );
+                assert_eq!(w.index.errors.len(), 1);
+                std::fs::write(root.join("z-bad.md"), "repaired").unwrap();
+                w.changed_paths.insert("z-bad.md".into());
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(w.index.errors.is_empty());
+                assert_eq!(
+                    w.index.notes[std::path::Path::new("z-bad.md")].text,
+                    "repaired"
+                );
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

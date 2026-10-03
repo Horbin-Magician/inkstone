@@ -409,7 +409,7 @@ pub struct IndexedNote {
 }
 #[derive(Clone, Debug, Default)]
 pub struct Index {
-    pub notes: BTreeMap<PathBuf, IndexedNote>,
+    pub notes: BTreeMap<PathBuf, std::sync::Arc<IndexedNote>>,
     pub files: Vec<PathBuf>,
     /// Files excluded from searchable content, with actionable read diagnostics.
     pub errors: BTreeMap<PathBuf, String>,
@@ -605,11 +605,11 @@ impl Index {
         let times = self.notes.get(&path).map(|n| n.times).unwrap_or_default();
         self.notes.insert(
             path,
-            IndexedNote {
+            std::sync::Arc::new(IndexedNote {
                 text,
                 parsed,
                 times,
-            },
+            }),
         );
     }
     fn refresh_file_times(&mut self, vault: &Vault, path: &Path) {
@@ -622,8 +622,10 @@ impl Index {
                 created: m.created().ok(),
             })
             .unwrap_or_default();
-        if let Some(note) = self.notes.get_mut(path) {
-            note.times = times;
+        if let Some(note) = self.notes.get_mut(path)
+            && note.times != times
+        {
+            std::sync::Arc::make_mut(note).times = times;
         }
     }
     pub fn refresh_paths(
@@ -1008,6 +1010,25 @@ pub fn set_task(source: &str, marker: Range<usize>, checked: bool) -> Option<Str
 mod tests {
     use super::*;
     #[test]
+    fn index_snapshots_share_unchanged_notes_and_isolate_updates() {
+        let mut old = Index::default();
+        old.update("first.md".into(), "before".into());
+        old.update("second.md".into(), "unchanged".into());
+        let mut next = old.clone();
+        assert!(std::sync::Arc::ptr_eq(
+            &old.notes[Path::new("first.md")],
+            &next.notes[Path::new("first.md")]
+        ));
+        next.update("first.md".into(), "after".into());
+        assert_eq!(old.notes[Path::new("first.md")].text, "before");
+        assert_eq!(next.notes[Path::new("first.md")].text, "after");
+        assert!(std::sync::Arc::ptr_eq(
+            &old.notes[Path::new("second.md")],
+            &next.notes[Path::new("second.md")]
+        ));
+    }
+
+    #[test]
     fn unreadable_notes_are_isolated_and_rejoin_after_repair() {
         let root = std::env::temp_dir().join(format!(
             "inkstone-index-errors-{}-{}",
@@ -1286,10 +1307,7 @@ mod tests {
         for i in 0..210 {
             index.update(format!("note{i}.md").into(), "match".into());
         }
-        index
-            .notes
-            .get_mut(Path::new("note209.md"))
-            .unwrap()
+        std::sync::Arc::make_mut(index.notes.get_mut(Path::new("note209.md")).unwrap())
             .times
             .modified = Some(std::time::SystemTime::UNIX_EPOCH);
         let newest = index
