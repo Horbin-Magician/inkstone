@@ -3205,6 +3205,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
                     layout.cursor_bounds != last_layout.cursor_bounds
                         || layout.line_height != last_layout.line_height
                 });
+            state.pending_ime_bounds = None;
             state.last_layout = Some(last_layout.clone());
             state.last_bounds = Some(bounds);
             state.last_cursor = Some(state.cursor());

@@ -408,6 +408,8 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) selected_word_range: Option<CursorSelection>,
     /// The marked range is the temporary insert text on IME typing.
     pub(super) ime_marked_range: Option<CursorSelection>,
+    /// Geometry of the composition anchor until the next frame shapes preedit.
+    pub(super) pending_ime_bounds: Option<Bounds<Pixels>>,
     pub(super) last_layout: Option<LastLayout>,
     pub(super) last_cursor: Option<usize>,
     /// The input container bounds
@@ -775,6 +777,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             number_min: None,
             number_max: None,
             mode: LayoutMode::default(),
+            pending_ime_bounds: None,
             last_layout: None,
             last_bounds: None,
             last_selected_range: None,
@@ -5369,6 +5372,15 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
             .unwrap_or(self.selected_range());
         let range = self.normalize_token_range(range);
 
+        // AppKit may ask for candidate geometry synchronously after this edit,
+        // while last_layout still describes the old bytes. Keep the rendered
+        // insertion anchor rather than interpreting new offsets in old lines.
+        // Multiple preedit updates can arrive before a single redraw.
+        let pending_ime_bounds = self
+            .pending_ime_bounds
+            .filter(|_| self.ime_marked_range.is_some())
+            .or_else(|| self.range_to_bounds(&(range.start..range.start)));
+
         let auto_closed_pairs_before = self.mode.auto_closed_pairs().clone();
         let old_text = self.text.clone();
         self.mode.adjust_auto_closed_pair(&range, new_text.len());
@@ -5389,6 +5401,8 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
                 return;
             }
         }
+
+        self.pending_ime_bounds = pending_ime_bounds;
 
         M::adjust_annotations(self, &range, new_text.len());
         if let Some(diagnostics) = self.mode.diagnostics_mut() {
@@ -5480,64 +5494,25 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
     fn bounds_for_range(
         &mut self,
         range_utf16: Range<usize>,
-        bounds: Bounds<Pixels>,
+        _bounds: Bounds<Pixels>,
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let last_layout = self.last_layout.as_ref()?;
-        let line_height = last_layout.line_height;
-        let line_number_width = last_layout.line_number_width;
         let range = self.range_from_utf16(&range_utf16);
-
-        let mut start_origin = None;
-        let mut candidate_height = line_height;
-        let mut end_origin = None;
-        let line_number_origin = point(line_number_width, px(0.));
-        let mut y_offset = last_layout.visible_top;
-
-        for (vi, line) in last_layout.lines.iter().enumerate() {
-            if start_origin.is_some() && end_origin.is_some() {
-                break;
+        if let (Some(marked), Some(anchor)) = (self.ime_marked_range, self.pending_ime_bounds) {
+            if range.start >= marked.start && range.end <= marked.end {
+                return Some(anchor);
             }
-
-            let index_offset = last_layout.visible_line_byte_offsets[vi];
-
-            if start_origin.is_none() {
-                if let Some(p) = line.position_for_index(
-                    range.start.saturating_sub(index_offset),
-                    last_layout,
-                    false,
-                ) {
-                    start_origin = Some(p + point(px(0.), y_offset));
-                    candidate_height = line.row_height(line_height);
-                }
-            }
-
-            if end_origin.is_none() {
-                if let Some(p) = line.position_for_index(
-                    range.end.saturating_sub(index_offset),
-                    last_layout,
-                    false,
-                ) {
-                    end_origin = Some(p + point(px(0.), y_offset));
-                }
-            }
-
-            y_offset += line.size(line_height).height;
         }
 
-        let start_origin = start_origin.unwrap_or_default();
-        let mut end_origin = end_origin.unwrap_or_default();
-        // Ensure at same line.
-        end_origin.y = start_origin.y;
-
-        Some(Bounds::from_corners(
-            bounds.origin + line_number_origin + start_origin,
-            // + line_height for show IME panel under the cursor line.
-            bounds.origin
-                + line_number_origin
-                + point(end_origin.x, end_origin.y + candidate_height),
-        ))
+        // Use the same coordinates as caret/hit testing, including scrolling and
+        // per-line typography. This also rejects offsets before a visible line
+        // instead of saturating them to that line's start.
+        let mut result = self.range_to_bounds(&range)?;
+        let (line, _, _) = self.line_and_position_for_offset(range.start);
+        let layout = self.last_layout.as_ref()?;
+        result.size.height = layout.lines[line].row_height(layout.line_height);
+        Some(result)
     }
 
     fn character_index_for_point(
