@@ -101,6 +101,7 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::Workspace;
+    use crate::test_support::PlatformKeys;
     use gpui::{TestAppContext, VisualTestContext};
 
     #[gpui::test]
@@ -112,7 +113,7 @@ mod tests {
         assert!(visual.debug_bounds("welcome").is_some());
         assert!(visual.debug_bounds("workspace-right-panel").is_none());
         assert!(visual.debug_bounds("workspace-status-bar").is_none());
-        visual.simulate_keystrokes("ctrl-,");
+        visual.simulate_platform_keystrokes("ctrl-,");
         handle
             .update(&mut visual, |workspace, window, cx| {
                 assert!(workspace.ui.settings);

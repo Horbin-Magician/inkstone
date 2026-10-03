@@ -302,6 +302,7 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
 
     #[gpui::test]
@@ -400,7 +401,7 @@ mod tests {
                 assert_eq!(w.current_pane().unwrap().read(cx).navigation.cursor, 1);
             })
             .unwrap();
-        visual.simulate_keystrokes("escape");
+        visual.simulate_platform_keystrokes("escape");
         visual.update(|w, cx| w.draw(cx).clear(cx));
         visual.simulate_click(back, Modifiers::default());
         visual.run_until_parked();
@@ -485,7 +486,8 @@ mod tests {
         visual.update(|w, cx| w.draw(cx).clear(cx));
         let position = visual.debug_bounds("main-history-back").unwrap().center();
         let modifiers = Modifiers {
-            control: true,
+            control: !cfg!(target_os = "macos"),
+            platform: cfg!(target_os = "macos"),
             ..Default::default()
         };
         visual.simulate_click(position, modifiers);
@@ -561,7 +563,7 @@ mod tests {
         visual.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
         visual.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("down down enter");
+        visual.simulate_platform_keystrokes("down down enter");
         visual.run_until_parked();
         handle
             .update(&mut visual, |w, _, cx| {
@@ -580,7 +582,7 @@ mod tests {
         visual.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
         visual.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("down enter");
+        visual.simulate_platform_keystrokes("down enter");
         visual.run_until_parked();
         let main = handle
             .update(&mut visual, |w, window, cx| {
@@ -606,7 +608,7 @@ mod tests {
         visual.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
         visual.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("down enter");
+        visual.simulate_platform_keystrokes("down enter");
         visual.run_until_parked();
         handle
             .update(&mut visual, |w, _, cx| {

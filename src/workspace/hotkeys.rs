@@ -113,8 +113,25 @@ impl Workspace {
         ]
         .iter()
         .any(|s| Self::key_matches(s, key))
+            || (cfg!(target_os = "macos")
+                && [
+                    "cmd-a",
+                    "cmd-c",
+                    "cmd-x",
+                    "cmd-v",
+                    "cmd-z",
+                    "cmd-shift-z",
+                    "cmd-f",
+                    "cmd-q",
+                    "cmd-h",
+                    "cmd-alt-h",
+                    "cmd-m",
+                    "ctrl-cmd-f",
+                ]
+                .iter()
+                .any(|s| Self::key_matches(s, key)))
         {
-            return Err("该组合用于编辑器的选择、剪贴板、撤销、查找或链接跳转。".into());
+            return Err("该组合用于系统菜单或编辑器的选择、剪贴板、撤销、查找及链接跳转。".into());
         }
         if let Some((_, title, _)) = commands::COMMANDS
             .iter()
@@ -412,7 +429,30 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
+    #[cfg(target_os = "macos")]
+    #[gpui::test]
+    fn native_editing_and_application_keys_cannot_be_shadowed(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, _, _| {
+                for key in ["cmd-v", "cmd-z", "cmd-shift-z", "cmd-q", "cmd-h", "cmd-m"] {
+                    assert!(
+                        w.assign_hotkey(12, &Keystroke::parse(key).unwrap())
+                            .is_err(),
+                        "{key}"
+                    );
+                }
+                assert!(
+                    w.assign_hotkey(12, &Keystroke::parse("cmd-alt-b").unwrap())
+                        .is_ok()
+                );
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn comment_hotkey_toggles_all_selections_and_can_be_reassigned(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
@@ -442,12 +482,12 @@ mod tests {
         } else {
             "ctrl-/"
         };
-        visual.simulate_keystrokes(key);
+        visual.simulate_platform_keystrokes(key);
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value().as_ref(), "%%word%% %%word%%");
             assert!(s.has_multiple_selections());
         });
-        visual.simulate_keystrokes(if cfg!(target_os = "macos") {
+        visual.simulate_platform_keystrokes(if cfg!(target_os = "macos") {
             "cmd-z"
         } else {
             "ctrl-z"
@@ -460,9 +500,9 @@ mod tests {
                     .unwrap();
             })
             .unwrap();
-        visual.simulate_keystrokes(key);
+        visual.simulate_platform_keystrokes(key);
         editor.read_with(&visual, |s, _| assert_eq!(s.value().as_ref(), "word word"));
-        visual.simulate_keystrokes("ctrl-alt-/");
+        visual.simulate_platform_keystrokes("ctrl-alt-/");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value().as_ref(), "%%word%% %%word%%")
         });
@@ -472,7 +512,7 @@ mod tests {
                 window.focus(&w.ui.modal_focus, cx);
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-alt-/");
+        visual.simulate_platform_keystrokes("ctrl-alt-/");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value().as_ref(), "%%word%% %%word%%")
         });
@@ -498,7 +538,7 @@ mod tests {
                 .unwrap();
             let mut visual = VisualTestContext::from_window(handle.into(), cx);
             visual.update(|w, cx| w.draw(cx).clear(cx));
-            visual.simulate_keystrokes("alt-l");
+            visual.simulate_platform_keystrokes("alt-l");
             editor.read_with(&visual, |s, _| {
                 assert_eq!(s.value(), source);
                 assert_eq!(s.selected_range(), expected);
@@ -521,7 +561,7 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-shift-l alt-l");
+        visual.simulate_platform_keystrokes("ctrl-shift-l alt-l");
         handle
             .update(&mut visual, |_, window, cx| {
                 editor.update(cx, |s, cx| {
@@ -532,12 +572,12 @@ mod tests {
                 });
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), source);
             assert!(s.has_multiple_selections());
         });
-        visual.simulate_keystrokes("ctrl-shift-k");
+        visual.simulate_platform_keystrokes("ctrl-shift-k");
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), "a\nc\ne"));
     }
 
@@ -563,14 +603,14 @@ mod tests {
                 .unwrap();
             let mut visual = VisualTestContext::from_window(handle.into(), cx);
             visual.update(|w, cx| w.draw(cx).clear(cx));
-            visual.simulate_keystrokes("ctrl-shift-k");
+            visual.simulate_platform_keystrokes("ctrl-shift-k");
             editor.read_with(&visual, |s, _| {
                 assert_eq!(s.value(), expected);
                 if let Some(caret) = &caret {
                     assert_eq!(s.selected_range(), *caret);
                 }
             });
-            visual.simulate_keystrokes("ctrl-z");
+            visual.simulate_platform_keystrokes("ctrl-z");
             editor.read_with(&visual, |s, _| {
                 assert_eq!(s.value(), source);
                 assert_eq!(s.selected_range(), selected);
@@ -593,9 +633,9 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-shift-l ctrl-shift-k");
+        visual.simulate_platform_keystrokes("ctrl-shift-l ctrl-shift-k");
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), "a\nc\ne"));
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         handle
             .update(&mut visual, |_, window, cx| {
                 editor.update(cx, |s, cx| {
@@ -610,7 +650,7 @@ mod tests {
             .unwrap();
         visual.simulate_resize(size(px(500.), px(500.)));
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-shift-k");
+        visual.simulate_platform_keystrokes("ctrl-shift-k");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "next\nlast");
             assert!(s.selected_range().start <= 4);
@@ -623,7 +663,7 @@ mod tests {
         let handle = cx.add_window(Workspace::new);
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-1 ctrl-9");
+        visual.simulate_platform_keystrokes("ctrl-1 ctrl-9");
         handle
             .update(&mut visual, |w, window, cx| {
                 assert!(w.active.is_none());
@@ -639,7 +679,7 @@ mod tests {
             })
             .unwrap();
         for (key, index) in [("ctrl-1", 0), ("ctrl-8", 7), ("ctrl-9", 9)] {
-            visual.simulate_keystrokes(key);
+            visual.simulate_platform_keystrokes(key);
             handle
                 .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(index)))
                 .unwrap();
@@ -650,7 +690,7 @@ mod tests {
                 w.focus_primary(0, window, cx);
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-9");
+        visual.simulate_platform_keystrokes("ctrl-9");
         handle
             .update(&mut visual, |w, window, cx| {
                 assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("note0.md"));
@@ -658,22 +698,22 @@ mod tests {
                 w.focus_primary(0, window, cx);
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-8");
+        visual.simulate_platform_keystrokes("ctrl-8");
         handle
             .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(0)))
             .unwrap();
-        visual.simulate_keystrokes("ctrl-9");
+        visual.simulate_platform_keystrokes("ctrl-9");
         handle
             .update(&mut visual, |w, _, _| {
                 assert_eq!(w.active, Some(2));
                 w.ui.prefs.hotkeys.insert(86, vec!["ctrl-alt-1".into()]);
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-1");
+        visual.simulate_platform_keystrokes("ctrl-1");
         handle
             .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(2)))
             .unwrap();
-        visual.simulate_keystrokes("ctrl-alt-1");
+        visual.simulate_platform_keystrokes("ctrl-alt-1");
         handle
             .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(0)))
             .unwrap();
@@ -683,7 +723,7 @@ mod tests {
                 window.focus(&w.ui.modal_focus, cx);
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-9");
+        visual.simulate_platform_keystrokes("ctrl-9");
         handle
             .update(&mut visual, |w, _, _| assert_eq!(w.active, Some(0)))
             .unwrap();
@@ -704,22 +744,22 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("shift-left alt-shift-down");
+        visual.simulate_platform_keystrokes("shift-left alt-shift-down");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "甲\r\n乙\r\n乙");
             assert_eq!(s.selected_range(), 10..13);
         });
-        visual.simulate_keystrokes("shift-right");
+        visual.simulate_platform_keystrokes("shift-right");
         editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 13..13));
-        visual.simulate_keystrokes("ctrl-z alt-shift-up");
+        visual.simulate_platform_keystrokes("ctrl-z alt-shift-up");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "甲\r\n乙\r\n乙");
             assert_eq!(s.selected_range(), 5..8);
         });
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         editor.update(&mut visual, |s, cx| s.set_selected_range(0..0, cx));
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-alt-down alt-shift-down");
+        visual.simulate_platform_keystrokes("ctrl-alt-down alt-shift-down");
         handle
             .update(&mut visual, |_, window, cx| {
                 editor.update(cx, |s, cx| {
@@ -730,7 +770,7 @@ mod tests {
                 });
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-z ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z ctrl-z");
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), source));
     }
 
@@ -749,24 +789,24 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("shift-left alt-up");
+        visual.simulate_platform_keystrokes("shift-left alt-up");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "乙\r\n甲\r\n丙");
             assert_eq!(s.selected_range(), 0..3);
         });
-        visual.simulate_keystrokes("shift-right");
+        visual.simulate_platform_keystrokes("shift-right");
         editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 3..3));
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), source);
             assert_eq!(s.selected_range(), 5..8);
         });
-        visual.simulate_keystrokes("alt-down");
+        visual.simulate_platform_keystrokes("alt-down");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "甲\r\n丙\r\n乙");
             assert_eq!(s.selected_range(), 10..13);
         });
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), source));
         handle
             .update(&mut visual, |_, window, cx| {
@@ -776,7 +816,7 @@ mod tests {
                 });
             })
             .unwrap();
-        visual.simulate_keystrokes("alt-down");
+        visual.simulate_platform_keystrokes("alt-down");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "同\n同");
             assert_eq!(s.selected_range(), 4..4);
@@ -798,16 +838,18 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-shift-l");
+        visual.simulate_platform_keystrokes("ctrl-shift-l");
         editor.read_with(&visual, |s, _| assert!(s.has_multiple_selections()));
         handle
             .update(&mut visual, |w, _, _| {
                 assert!(w.ui.prefs.left_open);
-                w.ui.prefs.hotkeys.insert(12, vec!["ctrl-shift-l".into()]);
+                w.ui.prefs
+                    .hotkeys
+                    .insert(12, vec![crate::test_support::keys("ctrl-shift-l")]);
                 assert!(w.hotkeys(80).is_empty());
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-shift-l");
+        visual.simulate_platform_keystrokes("ctrl-shift-l");
         handle
             .update(&mut visual, |w, _, _| assert!(!w.ui.prefs.left_open))
             .unwrap();
@@ -829,7 +871,7 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-d");
+        visual.simulate_platform_keystrokes("ctrl-d");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.selected_range(), 0..3);
             assert!(
@@ -845,9 +887,9 @@ mod tests {
                 editor.update(cx, |s, cx| s.set_selected_range(0..0, cx));
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-d");
+        visual.simulate_platform_keystrokes("ctrl-d");
         editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 0..0));
-        visual.simulate_keystrokes("ctrl-alt-d ctrl-alt-d");
+        visual.simulate_platform_keystrokes("ctrl-alt-d ctrl-alt-d");
         editor.read_with(&visual, |s, _| assert!(s.has_multiple_selections()));
         handle
             .update(&mut visual, |w, window, cx| {
@@ -858,7 +900,7 @@ mod tests {
             })
             .unwrap();
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-alt-d");
+        visual.simulate_platform_keystrokes("ctrl-alt-d");
         editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 0..0));
         handle
             .update(&mut visual, |w, window, cx| {
@@ -867,7 +909,7 @@ mod tests {
                 editor.update(cx, |s, cx| s.focus(window, cx));
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-d ctrl-alt-d");
+        visual.simulate_platform_keystrokes("ctrl-d ctrl-alt-d");
         editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 0..0));
     }
 
@@ -911,12 +953,12 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-k");
+        visual.simulate_platform_keystrokes("ctrl-k");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "[中文😀]()");
             assert_eq!(s.selected_range(), 13..13);
         });
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         handle
             .update(&mut visual, |w, _, cx| {
                 w.ui.prefs.hotkeys.insert(26, vec!["ctrl-k".into()]);
@@ -926,15 +968,15 @@ mod tests {
                 assert!(w.hotkeys(59).is_empty());
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-k");
+        visual.simulate_platform_keystrokes("ctrl-k");
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "[[中文😀]]");
             assert_eq!(s.selected_range(), 12..12);
             assert!(s.completion_menu_state().open);
         });
-        visual.simulate_keystrokes("down");
+        visual.simulate_platform_keystrokes("down");
         editor.read_with(&visual, |s, _| assert_eq!(s.selected_range(), 12..12));
-        visual.simulate_keystrokes("enter");
+        visual.simulate_platform_keystrokes("enter");
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), "[[/中文😀]]"));
     }
     #[gpui::test]
@@ -943,18 +985,18 @@ mod tests {
         let handle = cx.add_window(Workspace::new);
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-t");
+        visual.simulate_platform_keystrokes("ctrl-t");
         handle
             .update(&mut visual, |w, _, _| {
                 assert_eq!(w.tabs.len(), 1);
                 w.ui.prefs.hotkeys.insert(34, vec!["ctrl-alt-t".into()]);
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-t");
+        visual.simulate_platform_keystrokes("ctrl-t");
         handle
             .update(&mut visual, |w, _, _| assert_eq!(w.tabs.len(), 1))
             .unwrap();
-        visual.simulate_keystrokes("ctrl-alt-t");
+        visual.simulate_platform_keystrokes("ctrl-alt-t");
         handle
             .update(&mut visual, |w, window, cx| {
                 assert_eq!(w.tabs.len(), 2);
@@ -964,7 +1006,7 @@ mod tests {
                 window.focus(&w.ui.modal_focus, cx);
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-alt-t");
+        visual.simulate_platform_keystrokes("ctrl-alt-t");
         handle
             .update(&mut visual, |w, _, _| {
                 assert_eq!(w.tabs.len(), 2);
@@ -972,7 +1014,7 @@ mod tests {
                 assert_eq!(w.ui.hotkey_recording, Some(4));
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-alt-s");
+        visual.simulate_platform_keystrokes("ctrl-alt-s");
         handle
             .update(&mut visual, |w, _, _| {
                 assert_eq!(w.ui.hotkey_recording, None);
@@ -997,7 +1039,7 @@ mod tests {
                 w.ui.hotkey_recording = Some(34);
             })
             .unwrap();
-        visual.simulate_keystrokes("escape");
+        visual.simulate_platform_keystrokes("escape");
         handle
             .update(&mut visual, |w, _, _| {
                 assert!(w.ui.settings);

@@ -2103,6 +2103,7 @@ fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
     #[gpui::test]
     fn single_line_inputs_keep_text_and_caret_inside_the_frame(cx: &mut TestAppContext) {
@@ -2276,7 +2277,7 @@ mod tests {
                 );
             })
             .unwrap();
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         visual.run_until_parked();
         handle
             .update(&mut visual, |w, _, cx| {
@@ -3030,7 +3031,7 @@ mod tests {
             let mut visual = VisualTestContext::from_window(handle.into(), cx);
             visual.run_until_parked();
             visual.update(|w, cx| w.draw(cx).clear(cx));
-            visual.simulate_keystrokes("x");
+            visual.simulate_platform_keystrokes("x");
             visual.run_until_parked();
             editor.read_with(&visual, |s, _| assert_eq!(s.value(), "原x文"));
             handle
@@ -3038,7 +3039,7 @@ mod tests {
                     assert_eq!(w.tabs[0].save.editor.read(cx).value(), "原x文")
                 })
                 .unwrap();
-            visual.simulate_keystrokes("ctrl-z");
+            visual.simulate_platform_keystrokes("ctrl-z");
             visual.run_until_parked();
             editor.read_with(&visual, |s, _| assert_eq!(s.value(), "原文"));
         }
@@ -3233,16 +3234,16 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         visual.run_until_parked();
         mirror.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "abc");
             assert_eq!(s.selected_range(), 3..3);
         });
-        visual.simulate_keystrokes("ctrl-y");
+        visual.simulate_platform_keystrokes("ctrl-y");
         visual.run_until_parked();
         mirror.read_with(&visual, |s, _| assert_eq!(s.value(), "abcX"));
-        visual.simulate_keystrokes("y");
+        visual.simulate_platform_keystrokes("y");
         visual.run_until_parked();
         owner.read_with(&visual, |s, _| assert_eq!(s.value(), "abcXy"));
         mirror.read_with(&visual, |s, _| assert_eq!(s.value(), "abcXy"));
@@ -3495,20 +3496,20 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("a b c");
+        visual.simulate_platform_keystrokes("a b c");
         visual.run_until_parked();
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), "abc"));
         visual.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string("X".into())));
-        visual.simulate_keystrokes("ctrl-v");
+        visual.simulate_platform_keystrokes("ctrl-v");
         visual.run_until_parked();
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), "abcX"));
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         visual.run_until_parked();
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), "abc"));
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         visual.run_until_parked();
         editor.read_with(&visual, |s, _| assert_eq!(s.value(), ""));
-        visual.simulate_keystrokes("ctrl-y ctrl-y");
+        visual.simulate_platform_keystrokes("ctrl-y ctrl-y");
         visual.run_until_parked();
         handle
             .update(&mut visual, |w, _, cx| {
@@ -3535,16 +3536,16 @@ mod tests {
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-alt-down");
+        visual.simulate_platform_keystrokes("ctrl-alt-down");
         visual.simulate_input("😀");
         visual.run_until_parked();
-        visual.simulate_keystrokes("ctrl-z");
+        visual.simulate_platform_keystrokes("ctrl-z");
         visual.run_until_parked();
         editor.read_with(&visual, |s, _| {
             assert_eq!(s.value(), "中\n文");
             assert!(s.has_multiple_selections());
         });
-        visual.simulate_keystrokes("ctrl-y");
+        visual.simulate_platform_keystrokes("ctrl-y");
         visual.run_until_parked();
         visual.simulate_input("Y");
         visual.run_until_parked();
@@ -3714,7 +3715,7 @@ mod tests {
         visual.simulate_input(&name);
         visual.run_until_parked();
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("enter");
+        visual.simulate_platform_keystrokes("enter");
         handle
             .update(&mut visual, |w, window, cx| {
                 assert_eq!(w.ui.prefs.text_font, name);
@@ -3723,12 +3724,12 @@ mod tests {
                 window.focus(&w.ui.font_selects[0].read(cx).focus_handle(cx), cx);
             })
             .unwrap();
-        visual.simulate_keystrokes("down");
+        visual.simulate_platform_keystrokes("down");
         visual.update(|w, cx| w.draw(cx).clear(cx));
         visual.simulate_input("默认");
         visual.run_until_parked();
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        visual.simulate_keystrokes("enter");
+        visual.simulate_platform_keystrokes("enter");
         handle
             .update(&mut visual, |w, _, _| {
                 assert!(w.ui.prefs.interface_font.is_empty());
@@ -3863,7 +3864,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        visual.simulate_keystrokes("escape");
+        visual.simulate_platform_keystrokes("escape");
         handle
             .update(&mut visual, |w, _, _| assert!(!w.ui.settings))
             .unwrap();
@@ -5326,7 +5327,7 @@ mod tests {
                 assert!(bounds.bottom() <= px(484.), "{bounds:?}");
             })
             .unwrap();
-        visual.simulate_keystrokes("down down down down down down down down down down down down down down down down down down down down");
+        visual.simulate_platform_keystrokes("down down down down down down down down down down down down down down down down down down down down");
         for _ in 0..3 {
             visual.run_until_parked();
             visual.update(|w, cx| w.draw(cx).clear(cx));
@@ -6478,7 +6479,7 @@ mod tests {
         visual.simulate_resize(size(px(1200.), px(820.)));
         visual.run_until_parked();
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        visual.simulate_keystrokes("ctrl-end shift-left");
+        visual.simulate_platform_keystrokes("ctrl-end shift-left");
         visual.update(|window, cx| window.draw(cx).clear(cx));
         let before = editor.read_with(&visual, |state, _| (state.selected_range(), state.cursor()));
         handle
