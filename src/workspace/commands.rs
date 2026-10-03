@@ -98,6 +98,8 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (100, "比较并处理外部修改", ""),
     (101, "备份当前笔记库", ""),
     (102, "从备份恢复为新笔记库", ""),
+    (103, "导出 Markdown 与关联笔记、附件", ""),
+    (104, "导出 HTML（浏览器打印 / PDF）", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -402,6 +404,8 @@ impl Workspace {
             100 => self.open_conflict_review(window, cx),
             101 => self.request_backup(window, cx),
             102 => self.choose_backup_restore(window, cx),
+            103 => self.choose_export(inkstone::vault::export::Format::Markdown, window, cx),
+            104 => self.choose_export(inkstone::vault::export::Format::Html, window, cx),
             17 => {
                 if let Some(closed) = self.ui.closed.pop() {
                     self.open_note_with_view(closed.view.path.clone(), Some(closed), window, cx);

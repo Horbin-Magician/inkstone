@@ -3,6 +3,7 @@ mod backups;
 mod commands;
 mod conflicts;
 mod document;
+mod exports;
 mod extras;
 mod file_settings;
 mod hotkeys;
@@ -750,6 +751,7 @@ impl Workspace {
                         this.ui.history = None;
                         this.ui.conflict_review = None;
                         this.ui.backup = Default::default();
+                        this.ui.exporting = false;
                         this.ui.trash_open = false;
                         this.ui.last_persisted.clear();
                         this.ui.persist_error = None;

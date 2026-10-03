@@ -133,6 +133,7 @@ pub(super) struct UiState {
     pub history: Option<super::recovery::Browser>,
     pub conflict_review: Option<super::conflicts::Review>,
     pub backup: super::backups::State,
+    pub exporting: bool,
     pub recovery_refresh: u64,
     pub trash: Vec<inkstone::vault::TrashEntry>,
     pub command: Entity<InputState>,
@@ -457,6 +458,7 @@ impl UiState {
             history: None,
             conflict_review: None,
             backup: Default::default(),
+            exporting: false,
             recovery_refresh: 0,
             trash: vec![],
             command,
@@ -3115,10 +3117,12 @@ impl Workspace {
             .unwrap_or_default();
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
         let menu_weak = cx.entity().downgrade();
-        let menu_items: Vec<_> = [6, 7, 31, 32, 8, 15, 11, 23, 99, 100, 19, 18, 10, 16]
-            .into_iter()
-            .filter_map(|id| command(id).map(|entry| (entry, self.hotkey_label(id))))
-            .collect();
+        let menu_items: Vec<_> = [
+            6, 7, 31, 32, 8, 15, 11, 23, 99, 100, 103, 104, 19, 18, 10, 16,
+        ]
+        .into_iter()
+        .filter_map(|id| command(id).map(|entry| (entry, self.hotkey_label(id))))
+        .collect();
         let menu_tab_id = index.and_then(|i| self.tabs.get(i)).map(|tab| tab.id);
         div()
             .flex()

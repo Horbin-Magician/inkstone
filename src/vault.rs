@@ -1,5 +1,6 @@
 //! Files remain authoritative. Every save keeps an application-owned recovery journal.
 pub mod backup;
+pub mod export;
 mod history;
 pub use history::HistoryEntry;
 use serde::{Deserialize, Serialize};
