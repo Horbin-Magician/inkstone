@@ -248,6 +248,7 @@ impl Workspace {
                             "快速调整字体大小",
                             "按住 Ctrl 并滚动鼠标滚轮，调整编辑和阅读视图的正文字号。",
                             ui::setting_switch("quick-font-size")
+                                .accessibility_label("快速调整字体大小")
                                 .checked(self.ui.prefs.quick_font_size)
                                 .on_click(cx.listener(|this, checked, window, cx| {
                                     this.ui.prefs.quick_font_size = *checked;

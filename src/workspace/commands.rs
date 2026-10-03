@@ -634,6 +634,24 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn command_buttons_render_with_keyboard_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.open_commands(window, cx))
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1000.), px(600.)));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.command
+                    .update(cx, |s, cx| s.set_value("专注", window, cx));
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+    }
 
     #[test]
     fn menu_labels_follow_stable_ids_across_removed_commands() {
