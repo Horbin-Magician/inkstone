@@ -67,6 +67,8 @@ struct Tab {
     _focus: Subscription,
 }
 pub struct Workspace {
+    #[cfg(target_os = "macos")]
+    quit_requested: bool,
     vault: Option<Vault>,
     files: Vec<PathBuf>,
     tabs: Vec<Tab>,
@@ -546,6 +548,8 @@ impl Workspace {
         let ui = ui::UiState::new(window, cx);
         Self {
             ui,
+            #[cfg(target_os = "macos")]
+            quit_requested: false,
             views: Default::default(),
             vault: None,
             files: vec![],
@@ -5070,6 +5074,46 @@ mod tests {
             std::fs::read_to_string(root.join("source.md")).unwrap(),
             "外部已更新"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[gpui::test]
+    fn menu_quit_waits_for_saves_and_blocks_conflicts(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let root = std::env::temp_dir().join(format!("inkstone-menu-quit-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.add_tab("退出保存.md".into(), None, true, window, cx);
+                w.tabs[0].pane.read(cx).editor.clone().update(cx, |s, cx| {
+                    s.replace("菜单退出前保存", window, cx);
+                });
+                w.tabs[0].save.conflict.set(true);
+                w.request_app_quit(window, cx);
+                assert!(!w.quit_requested);
+                assert!(!w.ui.window_close_requested);
+                w.tabs[0].save.conflict.set(false);
+                w.request_app_quit(window, cx);
+                assert!(w.quit_requested);
+                assert!(w.ui.window_close_requested);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.request_window_close(window, cx));
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("退出保存.md")).unwrap(),
+            "菜单退出前保存"
+        );
+        let prefs =
+            inkstone::preferences::Preferences::load(&root.join(".inkstone-workspace.json"));
+        assert_eq!(prefs.active_path, Some("退出保存.md".into()));
         std::fs::remove_dir_all(root).unwrap();
     }
 
