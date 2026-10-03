@@ -43,16 +43,16 @@ pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
         KeyBinding::new("ctrl-cmd-f", Fullscreen, None),
     ]);
     cx.set_menus([
-        Menu::new("Inkstone").items([
+        Menu::new(crate::product::name()).items([
             MenuItem::action("设置…", workspace::Settings),
             MenuItem::separator(),
             MenuItem::os_submenu("服务", SystemMenuType::Services),
             MenuItem::separator(),
-            MenuItem::action("隐藏 Inkstone", Hide),
+            MenuItem::action(format!("隐藏 {}", crate::product::name()), Hide),
             MenuItem::action("隐藏其他应用", HideOthers),
             MenuItem::action("显示全部", ShowAll),
             MenuItem::separator(),
-            MenuItem::action("退出 Inkstone", Quit),
+            MenuItem::action(format!("退出 {}", crate::product::name()), Quit),
         ]),
         Menu::new("文件").items([
             MenuItem::action("打开笔记库…", workspace::OpenVault),

@@ -5,6 +5,7 @@ mod app_menu;
 mod editor;
 mod editor_links;
 mod native_graphics;
+mod product;
 mod theme;
 mod workspace;
 use gpui::{prelude::*, *};
