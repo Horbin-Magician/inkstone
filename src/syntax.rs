@@ -214,6 +214,113 @@ fn inline_footnotes(source: &str, ast: Option<&Node>) -> Vec<InlineFootnote> {
 }
 
 impl Snapshot {
+    /// Reuse the tree for a plain, single-line paragraph edit. Markdown syntax,
+    /// escaped text, comments and reference-like input always use the parser.
+    /// This keeps synchronous live styles exact without reparsing long prose.
+    pub fn update_plain_paragraph(&self, source: &str) -> Option<Self> {
+        if !self.comments.is_empty() || !self.inline_footnotes.is_empty() {
+            return None;
+        }
+        let before = self.source.as_ref();
+        let start = before
+            .chars()
+            .zip(source.chars())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum::<usize>();
+        if start == before.len() && start == source.len() {
+            return Some(self.clone());
+        }
+        let suffix = before[start..]
+            .chars()
+            .rev()
+            .zip(source[start..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum::<usize>();
+        let old_end = before.len() - suffix;
+        let new_end = source.len() - suffix;
+        let Node::Root(root) = self.ast.as_deref()? else {
+            return None;
+        };
+        let (index, paragraph, text) = root.children.iter().enumerate().find_map(|(i, node)| {
+            let Node::Paragraph(p) = node else {
+                return None;
+            };
+            let [Node::Text(t)] = p.children.as_slice() else {
+                return None;
+            };
+            let pos = p.position.as_ref()?;
+            (pos.start.line == pos.end.line
+                && pos.start.offset < start
+                && old_end <= pos.end.offset
+                && t.position.as_ref() == Some(pos)
+                && before.get(pos.start.offset..pos.end.offset) == Some(t.value.as_str()))
+            .then_some((i, p, t))
+        })?;
+        let position = paragraph.position.as_ref()?;
+        let delta = new_end as isize - old_end as isize;
+        let end = position.end.offset.checked_add_signed(delta)?;
+        let value = source.get(position.start.offset..end)?;
+        // These characters cannot introduce inline markup. GFM's bare www.
+        // autolinks are the sole punctuation-based construct left in this set.
+        if value.is_empty()
+            || value.ends_with(' ')
+            || value.to_ascii_lowercase().contains("www.")
+            || !value.chars().all(|c| {
+                c.is_alphanumeric()
+                    || matches!(c, ' ' | '.' | ',')
+                    || (!c.is_ascii() && !c.is_whitespace() && !c.is_control())
+            })
+        {
+            return None;
+        }
+        // Changing a line prefix could turn prose into an ordered list.
+        if !value.chars().next()?.is_alphabetic() {
+            return None;
+        }
+        // markdown-rs columns, like offsets, count UTF-8 bytes (not scalars).
+        let columns = delta;
+        fn shift(node: &mut Node, at: usize, line: usize, bytes: isize, columns: isize) {
+            if let Some(p) = node.position_mut() {
+                for point in [&mut p.start, &mut p.end] {
+                    if point.offset >= at {
+                        point.offset = point.offset.checked_add_signed(bytes).unwrap();
+                        if point.line == line {
+                            point.column = point.column.checked_add_signed(columns).unwrap();
+                        }
+                    }
+                }
+            }
+            if let Some(children) = node.children_mut() {
+                for child in children {
+                    shift(child, at, line, bytes, columns);
+                }
+            }
+        }
+        let mut ast = self.ast.as_deref()?.clone();
+        shift(&mut ast, old_end, position.end.line, delta, columns);
+        let Node::Paragraph(p) = &mut ast.children_mut()?[index] else {
+            return None;
+        };
+        let Node::Text(t) = &mut p.children[0] else {
+            return None;
+        };
+        debug_assert_eq!(
+            text.value,
+            before[position.start.offset..position.end.offset]
+        );
+        t.value = value.into();
+        let source: Arc<str> = source.into();
+        Some(Self {
+            structural: source.clone(),
+            source,
+            ast: Some(Arc::new(ast)),
+            comments: vec![],
+            inline_footnotes: vec![],
+        })
+    }
+
     pub fn new(source: &str) -> Self {
         let comments = crate::comments::ranges(source);
         let structural: Arc<str> = crate::comments::masked(source, &comments).as_ref().into();
@@ -347,6 +454,72 @@ pub fn html_destinations(ast: &Node, source: &str) -> Vec<(std::ops::Range<usize
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn plain_paragraph_updates_match_full_parser_positions_and_content() {
+        use super::Snapshot;
+        for newline in ["\n", "\r\n"] {
+            for paragraph in ["中文 English 😀 paragraph. x", "Alpha 中文 e\u{301} end"] {
+                let source = format!(
+                    "# Before{newline}{newline}{paragraph}{newline}{newline}# After{newline}\n**bold** [link](note.md)"
+                );
+                let snapshot = Snapshot::new(&source);
+                let origin = source.find(paragraph).unwrap();
+                for (at, ch) in paragraph.char_indices().skip(1) {
+                    for replacement in ["", "中", "xyz", "👩‍💻", " e\u{301} "] {
+                        let mut after = source.clone();
+                        after.replace_range(origin + at..origin + at + ch.len_utf8(), replacement);
+                        if let Some(updated) = snapshot.update_plain_paragraph(&after) {
+                            let full = Snapshot::new(&after);
+                            assert_eq!(updated.ast, full.ast, "{after:?}");
+                            assert_eq!(
+                                crate::markdown::spans_snapshot(&updated),
+                                crate::markdown::spans_snapshot(&full)
+                            );
+                            assert_eq!(updated.structural, full.structural);
+                        }
+                    }
+                }
+                let after = source.replacen("English", "English中文😀", 1);
+                assert!(snapshot.update_plain_paragraph(&after).is_some());
+            }
+        }
+        let source = "# Heading\n\n中文 paragraph. x";
+        let mut snapshot = Snapshot::new(source);
+        let mut text = source.to_string();
+        for suffix in ["y", "中", "😀", "a", " e\u{301}"] {
+            text.push_str(suffix);
+            snapshot = snapshot.update_plain_paragraph(&text).unwrap();
+            assert_eq!(snapshot.ast, Snapshot::new(&text).ast);
+        }
+    }
+
+    #[test]
+    fn plain_paragraph_fast_path_rejects_structural_changes() {
+        use super::Snapshot;
+        for (before, after) in [
+            ("Text end", "Text **end**"),
+            ("Text end", "Text [[end]]"),
+            ("Text end", "Text #end"),
+            ("Text end", "Text www.example.com"),
+            ("Text end", "Text WWW.example.com"),
+            ("Text end", "Text\nend"),
+            ("Text end", "Text end "),
+            ("Text end", "1. Text end"),
+            ("Text &amp; end", "Text &amp; ending"),
+            ("Text %%comment%% end", "Text %%comment%% ending"),
+            ("Text ^[note] end", "Text ^[note] ending"),
+            ("> Text end", "> Text ending"),
+            ("# Text end", "# Text ending"),
+        ] {
+            assert!(
+                Snapshot::new(before)
+                    .update_plain_paragraph(after)
+                    .is_none(),
+                "{after}"
+            );
+        }
+    }
+
     use super::*;
     #[test]
     fn currency_remains_prose_with_real_links_comments_and_footnotes() {
