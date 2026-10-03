@@ -125,6 +125,7 @@ pub(super) struct UiState {
     pub search_limit: usize,
     pub search_has_more: bool,
     pub search_loading: bool,
+    pub search_drafts_changed: bool,
     pub search_error: String,
     pub search_signature: Option<(String, bool, SortBy, bool)>,
     _tags_filter_subscription: Subscription,
@@ -450,6 +451,7 @@ impl UiState {
             search_group_query: String::new(),
             search_limit: 200,
             search_loading: false,
+            search_drafts_changed: false,
             search_has_more: false,
             search_error: String::new(),
             search_signature: None,
@@ -1942,84 +1944,85 @@ impl Workspace {
                 .child(div().flex_1().min_h_0().px_3().child(file_tree))
             })
             .when(self.ui.left_mode == 1, |s| {
-                s.when(!self.ui.quick_open, |s| {
-                    s.child(
-                        div().p_3().flex().gap_1().items_center().child(
-                            div().flex_1().min_w_0().child(
-                                Input::new(&self.search)
-                                    .prefix(icon("search").size(px(14.)))
-                                    .cleanable(true)
-                                    .suffix(
-                                        Button::new("search-case-sensitive")
-                                            .ghost()
-                                            .compact()
-                                            .label("Aa")
-                                            .accessibility_label("区分大小写")
-                                            .tooltip("区分大小写")
-                                            .toggled(self.ui.prefs.search_case_sensitive)
-                                            .selected(self.ui.prefs.search_case_sensitive)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.ui.prefs.search_case_sensitive =
-                                                    !this.ui.prefs.search_case_sensitive;
-                                                this.run_search(cx);
-                                                this.persist_workspace(cx);
-                                                cx.notify();
-                                            })),
-                                    ),
+                s.child(self.saved_search_controls(cx))
+                    .when(!self.ui.quick_open, |s| {
+                        s.child(
+                            div().p_3().flex().gap_1().items_center().child(
+                                div().flex_1().min_w_0().child(
+                                    Input::new(&self.search)
+                                        .prefix(icon("search").size(px(14.)))
+                                        .cleanable(true)
+                                        .suffix(
+                                            Button::new("search-case-sensitive")
+                                                .ghost()
+                                                .compact()
+                                                .label("Aa")
+                                                .accessibility_label("区分大小写")
+                                                .tooltip("区分大小写")
+                                                .toggled(self.ui.prefs.search_case_sensitive)
+                                                .selected(self.ui.prefs.search_case_sensitive)
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.ui.prefs.search_case_sensitive =
+                                                        !this.ui.prefs.search_case_sensitive;
+                                                    this.run_search(cx);
+                                                    this.persist_workspace(cx);
+                                                    cx.notify();
+                                                })),
+                                        ),
+                                ),
                             ),
-                        ),
-                    )
-                })
-                .child(
-                    div()
-                        .px_3()
-                        .text_size(px(MIN_UI_FONT_SIZE))
-                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .child(format!("{} 项结果", self.search_results.len())),
                         )
-                        .child(self.search_sort_button(cx))
-                        .child(
-                            tool("search-collapse", "fold-vertical", "展开或折叠全部搜索结果")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    let paths: std::collections::BTreeSet<_> = this
-                                        .search_results
-                                        .iter()
-                                        .map(|hit| hit.path.clone())
-                                        .collect();
-                                    if paths.is_subset(&this.ui.search_collapsed) {
-                                        this.ui.search_collapsed.clear();
-                                    } else {
-                                        this.ui.search_collapsed = paths;
-                                    }
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .when(!self.ui.search_error.is_empty(), |s| {
-                    s.child(
+                    })
+                    .child(
                         div()
                             .px_3()
-                            .py_2()
                             .text_size(px(MIN_UI_FONT_SIZE))
-                            .line_height(relative(1.4))
-                            .whitespace_normal()
-                            .text_color(rgb(if self.ui.prefs.light {
-                                0xb42318
-                            } else {
-                                0xfda29b
-                            }))
-                            .child(self.ui.search_error.clone()),
+                            .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(format!("{} 项结果", self.search_results.len())),
+                            )
+                            .child(self.search_sort_button(cx))
+                            .child(
+                                tool("search-collapse", "fold-vertical", "展开或折叠全部搜索结果")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let paths: std::collections::BTreeSet<_> = this
+                                            .search_results
+                                            .iter()
+                                            .map(|hit| hit.path.clone())
+                                            .collect();
+                                        if paths.is_subset(&this.ui.search_collapsed) {
+                                            this.ui.search_collapsed.clear();
+                                        } else {
+                                            this.ui.search_collapsed = paths;
+                                        }
+                                        cx.notify();
+                                    })),
+                            ),
                     )
-                })
-                .child(self.search_list(false, cx))
+                    .when(!self.ui.search_error.is_empty(), |s| {
+                        s.child(
+                            div()
+                                .px_3()
+                                .py_2()
+                                .text_size(px(MIN_UI_FONT_SIZE))
+                                .line_height(relative(1.4))
+                                .whitespace_normal()
+                                .text_color(rgb(if self.ui.prefs.light {
+                                    0xb42318
+                                } else {
+                                    0xfda29b
+                                }))
+                                .child(self.ui.search_error.clone()),
+                        )
+                    })
+                    .child(self.search_list(false, cx))
             })
             .when(self.ui.left_mode == 2, |s| {
                 s.child(
@@ -2295,7 +2298,14 @@ impl Workspace {
                 let fold_path = path.clone();
                 let open_path = path.clone();
                 let offset = hits[0].offset;
-                let title = path.to_string_lossy().replace('\\', "/");
+                let mut title = path.to_string_lossy().replace('\\', "/");
+                if self
+                    .tabs
+                    .iter()
+                    .any(|t| t.path == path && t.save.dirty.get())
+                {
+                    title.push_str(" · 未保存");
+                }
                 let title_highlights = hits[0].title_highlights.clone();
                 div()
                     .id(("search-group", i))

@@ -131,6 +131,7 @@ impl Workspace {
         for source in sources {
             self.sync_to_split(source, window, cx);
         }
+        self.ui.search_drafts_changed = true;
         cx.notify();
     }
 

@@ -12,6 +12,7 @@ mod inline_title;
 mod link_updates;
 mod navigation;
 mod recovery;
+mod search_tools;
 mod ui;
 mod views;
 mod welcome;
@@ -184,6 +185,9 @@ impl Workspace {
             self.refresh(window, cx);
         }
         self.save_pending(window, cx);
+        if self.ui.search_drafts_changed {
+            self.run_search(cx);
+        }
         self.finish_pending_navigation(window, cx);
         self.finish_pending_closes(window, cx);
         self.persist_workspace(cx);
@@ -1786,6 +1790,7 @@ impl Workspace {
         self.sync_reference_contexts(cx);
     }
     fn run_search(&mut self, cx: &mut Context<Self>) {
+        self.ui.search_drafts_changed = false;
         let previous_error = std::mem::take(&mut self.ui.search_error);
         if !previous_error.is_empty() && self.status == previous_error {
             self.status.clear();
@@ -1803,6 +1808,19 @@ impl Workspace {
             self.ui.prefs.search_query = query.clone();
         }
         let index = self.index.clone();
+        let drafts: std::collections::BTreeMap<_, _> = self
+            .tabs
+            .iter()
+            .filter(|t| !t.save.editor.read(cx).is_composing())
+            .filter_map(|t| {
+                let text = t.save.editor.read(cx).value();
+                (index
+                    .notes
+                    .get(&t.path)
+                    .is_none_or(|n| n.text.as_str() != text.as_ref()))
+                .then(|| (t.path.clone(), text))
+            })
+            .collect();
         let fulltext = self.fulltext;
         let case_sensitive = self.ui.prefs.search_case_sensitive;
         let sort_by = self.ui.prefs.search_sort_by;
@@ -1833,6 +1851,13 @@ impl Workspace {
             .and_then(|i| self.tabs.get(i))
             .map(|t| t.path.clone());
         let task = cx.background_executor().spawn(async move {
+            let mut index = index;
+            if !drafts.is_empty() {
+                let index = Arc::make_mut(&mut index);
+                for (path, text) in drafts {
+                    index.update(path, text.to_string());
+                }
+            }
             let backlinks = active.map(|p| index.backlinks(&p)).unwrap_or_default();
             let mut hits = if query.trim().is_empty() {
                 vec![]
