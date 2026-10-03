@@ -1418,6 +1418,7 @@ impl Workspace {
         self.search
             .update(cx, |s, cx| s.set_value(value, window, cx));
         if fulltext {
+            self.ui.focus_mode = false;
             self.ui.left_mode = 1;
             self.ui.prefs.left_open = true;
         }
