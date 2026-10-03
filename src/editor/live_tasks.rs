@@ -113,6 +113,144 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn overlay_geometry_is_current_during_prepaint(cx: &mut TestAppContext) {
+        struct Harness(Entity<EditorState>);
+        impl Render for Harness {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let before = self.0.clone();
+                let after = self.0.clone();
+                div()
+                    .relative()
+                    .size_full()
+                    .child(Editor::new(&self.0).h_full())
+                    .child(
+                        canvas(
+                            move |_, _, cx| {
+                                let state = before.read(cx);
+                                (state.input_bounds(), state.range_to_bounds(&(35..35)))
+                            },
+                            move |_, geometry, _, cx| {
+                                let state = after.read(cx);
+                                assert_eq!(
+                                    geometry,
+                                    (state.input_bounds(), state.range_to_bounds(&(35..35))),
+                                    "overlay prepaint must see the geometry used to paint text"
+                                );
+                            },
+                        )
+                        .absolute()
+                        .inset_0(),
+                    )
+            }
+        }
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| {
+            Harness(cx.new(|cx| EditorState::new(w, cx).default_value("prefix\n".repeat(100))))
+        });
+        let editor = handle.update(cx, |h, _, _| h.0.clone()).unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for offset in [0., -13.5, -30.75, -21., 0., -600., 0.] {
+            visual.update(|w, cx| {
+                editor.update(cx, |s, cx| {
+                    s.set_scroll_offset(point(px(0.), px(offset)), cx)
+                });
+                w.draw(cx).clear(cx);
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn live_overlays_follow_text_when_scrolling(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = format!(
+            "{}* [ ] task\n\n> quote\n\n---\n\n| a | b |\n| --- | --- |\n| c | d |\n\n{}",
+            "prefix\n".repeat(5),
+            "tail\n".repeat(100),
+        );
+        let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..8 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let editor = handle
+            .update(&mut visual, |p, _, _| p.editor.clone())
+            .unwrap();
+        // Both wheel directions, fractional deltas, and a jump that changes
+        // the visible line set; the phase-level test above also guards the first frame.
+        for delta in [-13.5, -17.25, 9.75, 21., -600., 600.] {
+            let before = editor.read_with(&visual, |s, _| s.scroll_offset().y);
+            let position = editor.read_with(&visual, |s, _| s.input_bounds().center());
+            visual.update(|w, cx| {
+                w.dispatch_event(
+                    gpui::PlatformInput::ScrollWheel(ScrollWheelEvent {
+                        position,
+                        delta: ScrollDelta::Pixels(point(px(0.), px(delta))),
+                        modifiers: Default::default(),
+                        touch_phase: TouchPhase::Moved,
+                    }),
+                    cx,
+                );
+                w.draw(cx).clear(cx);
+            });
+            let after = editor.read_with(&visual, |s, _| s.scroll_offset().y);
+            assert_ne!(before, after, "wheel must move the editor");
+            let expected = handle
+                .update(&mut visual, |p, _, cx| {
+                    let state = p.editor.read(cx);
+                    let viewport = state.input_bounds();
+                    let mut expected = Vec::new();
+                    assert_eq!(p.live_tasks.len(), 1);
+                    assert_eq!(p.live_rules.len(), 1);
+                    assert!(!p.live_quotes.is_empty());
+                    assert_eq!(p.live_objects.len(), 1);
+                    for task in &p.live_tasks {
+                        let bounds = state
+                            .range_to_bounds(&task.range)
+                            .filter(|b| viewport.intersects(b))
+                            .map(|b| {
+                                point(
+                                    b.left() + px(task.inset),
+                                    b.center().y - px(p.font_size / 2.),
+                                )
+                            });
+                        expected.push((format!("live-task-{}", task.target.marker.start), bounds));
+                    }
+                    for (kind, ranges) in [("rule", &p.live_rules), ("quote", &p.live_quotes)] {
+                        for range in ranges {
+                            let origin = state
+                                .range_to_bounds(range)
+                                .filter(|b| viewport.intersects(b))
+                                .map(|b| b.origin);
+                            expected.push((format!("live-{kind}-{}", range.start), origin));
+                        }
+                    }
+                    for widget in &p.live_objects {
+                        let origin = state
+                            .display_object_bounds(widget.source.start as u64)
+                            .filter(|b| viewport.intersects(b))
+                            .map(|b| b.origin);
+                        expected.push((format!("live-object-{}", widget.source.start), origin));
+                    }
+                    expected
+                })
+                .unwrap();
+            for (selector, origin) in expected {
+                let selector = Box::leak(selector.into_boxed_str());
+                let actual = visual.debug_bounds(selector).map(|b| b.origin);
+                match (actual, origin) {
+                    (Some(actual), Some(expected)) => assert!(
+                        (actual.x - expected.x).abs() <= px(0.5)
+                            && (actual.y - expected.y).abs() <= px(0.5),
+                        "{selector} after wheel delta {delta}: {actual:?} != {expected:?}"
+                    ),
+                    _ => assert_eq!(actual, origin, "{selector} after wheel delta {delta}"),
+                }
+            }
+        }
+    }
+
+    #[gpui::test]
     fn folded_and_scrolled_tasks_do_not_leave_controls_on_other_lines(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = format!(

@@ -3194,6 +3194,33 @@ impl<M: InputModeKind> Element for TextElement<M> {
         let hitbox = window.insert_hitbox(input_bounds, HitboxBehavior::Normal);
 
         let token_elements = self.prepaint_tokens(&last_layout, bounds, token_elements, window, cx);
+        // Publish this frame's geometry before sibling overlays prepaint.
+        // Waiting until paint leaves range/object bounds and their hitboxes
+        // one frame behind the text during scrolling, folding, and reflow.
+        self.state.update(cx, |state, cx| {
+            let geometry_changed = state.last_bounds != Some(bounds)
+                || state.input_bounds != input_bounds
+                || state.scroll_size != scroll_size
+                || state.last_layout.as_ref().is_none_or(|layout| {
+                    layout.cursor_bounds != last_layout.cursor_bounds
+                        || layout.line_height != last_layout.line_height
+                });
+            state.last_layout = Some(last_layout.clone());
+            state.last_bounds = Some(bounds);
+            state.last_cursor = Some(state.cursor());
+            state.set_input_bounds(input_bounds, cx);
+            state.last_selected_range = Some(*state.active_selection());
+            state.scroll_size = scroll_size;
+            state.update_scroll_offset(Some(cursor_scroll_offset), cx);
+            state.deferred_scroll_offset = None;
+
+            // Layout consumers need changed geometry, not another notification
+            // for every paint of an unchanged input.
+            if geometry_changed {
+                cx.notify();
+            }
+        });
+
         PrepaintState {
             token_elements,
             hitbox,
@@ -3229,13 +3256,12 @@ impl<M: InputModeKind> Element for TextElement<M> {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let (focus_handle, show_cursor, disabled, selected_range, editor_style, editor_paddings) = {
+        let (focus_handle, show_cursor, disabled, editor_style, editor_paddings) = {
             let state = self.state.read(cx);
             (
                 state.focus_handle.clone(),
                 state.show_cursor(window, cx),
                 state.disabled,
-                *state.active_selection(),
                 state.editor_style.clone(),
                 state.editor_paddings,
             )
@@ -3521,30 +3547,6 @@ impl<M: InputModeKind> Element for TextElement<M> {
             window,
             cx,
         );
-
-        self.state.update(cx, |state, cx| {
-            let geometry_changed = state.last_bounds != Some(bounds)
-                || state.input_bounds != input_bounds
-                || state.scroll_size != prepaint.scroll_size
-                || state.last_layout.as_ref().is_none_or(|layout| {
-                    layout.cursor_bounds != prepaint.last_layout.cursor_bounds
-                        || layout.line_height != prepaint.last_layout.line_height
-                });
-            state.last_layout = Some(prepaint.last_layout.clone());
-            state.last_bounds = Some(bounds);
-            state.last_cursor = Some(state.cursor());
-            state.set_input_bounds(input_bounds, cx);
-            state.last_selected_range = Some(selected_range);
-            state.scroll_size = prepaint.scroll_size;
-            state.update_scroll_offset(Some(prepaint.cursor_scroll_offset), cx);
-            state.deferred_scroll_offset = None;
-
-            // Layout consumers need changed geometry, not another notification
-            // for every paint of an unchanged input.
-            if geometry_changed {
-                cx.notify();
-            }
-        });
 
         if let Some(hitbox) = prepaint.hover_definition_hitbox.as_ref()
             && !window.modifiers().alt
