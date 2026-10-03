@@ -66,7 +66,7 @@ cargo fmt --check
 cargo run --release --locked --example benchmark -- 10000
 ```
 
-macOS 开发启动使用 `cargo run --locked --bin inkstone`，可执行文件内嵌应用名称配置，系统菜单显示“墨砚”。打包为可双击启动的应用：
+macOS 开发启动使用 `cargo run --locked --bin inkstone`，可执行文件内嵌应用名称配置与图标，系统菜单显示“墨砚”，启动时主动设置 Dock 图标。打包为可双击启动的应用：
 
 ```sh
 bash scripts/bundle-macos.sh

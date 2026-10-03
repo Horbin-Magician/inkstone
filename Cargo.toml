@@ -28,6 +28,11 @@ ratex-types = "=0.1.14"
 ratex-svg = { version = "=0.1.14", features = ["embed-fonts"] }
 mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.4"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSImage"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSData"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 
@@ -41,4 +46,3 @@ ropey = "=2.0.0-beta.1"
 [patch.crates-io]
 gpui-base = { path = "vendor/gpui-base" }
 gpui-component = { path = "vendor/gpui-component" }
-
