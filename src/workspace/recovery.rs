@@ -19,7 +19,7 @@ pub(super) struct Browser {
     preview: Entity<TextareaState>,
 }
 
-fn preview_text(text: &str) -> String {
+pub(super) fn preview_text(text: &str) -> String {
     const LIMIT: usize = 128 * 1024;
     if text.len() <= LIMIT {
         return text.into();

@@ -131,6 +131,7 @@ pub(super) struct UiState {
     _property_list_subscription: Subscription,
     pub trash_open: bool,
     pub history: Option<super::recovery::Browser>,
+    pub conflict_review: Option<super::conflicts::Review>,
     pub recovery_refresh: u64,
     pub trash: Vec<inkstone::vault::TrashEntry>,
     pub command: Entity<InputState>,
@@ -453,6 +454,7 @@ impl UiState {
             _property_list_subscription: property_list_subscription,
             trash_open: false,
             history: None,
+            conflict_review: None,
             recovery_refresh: 0,
             trash: vec![],
             command,
@@ -1352,6 +1354,7 @@ impl Workspace {
         self.ui.property_original = None;
         self.ui.trash_open = false;
         self.ui.history = None;
+        self.ui.conflict_review = None;
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         if let Some(pane) = self.current_pane() {
             pane.update(cx, |p, cx| p.focus_view(window, cx));
@@ -3110,7 +3113,7 @@ impl Workspace {
             .unwrap_or_default();
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
         let menu_weak = cx.entity().downgrade();
-        let menu_items: Vec<_> = [6, 7, 31, 32, 8, 15, 11, 23, 99, 19, 18, 10, 16]
+        let menu_items: Vec<_> = [6, 7, 31, 32, 8, 15, 11, 23, 99, 100, 19, 18, 10, 16]
             .into_iter()
             .filter_map(|id| command(id).map(|entry| (entry, self.hotkey_label(id))))
             .collect();
@@ -3636,7 +3639,15 @@ impl Render for Workspace {
                         .px_3()
                         .py_1()
                         .text_color(rgb(0xe4a66a))
-                        .children(error),
+                        .children(error)
+                        .child(
+                            Button::new("review-save-conflict")
+                                .compact()
+                                .label("比较并处理")
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.open_conflict_review(w, cx)),
+                                ),
+                        ),
                 )
             })
             .when(has_workspace, |s| {
@@ -3840,6 +3851,7 @@ impl Workspace {
             .flex_col()
             .w(px(if self.ui.settings { 900. } else { 580. }))
             .when(self.ui.history.is_some(), |s| s.w(px(900.)))
+            .when(self.ui.conflict_review.is_some(), |s| s.w(px(900.)))
             .when(picker, |s| s.w(px(700.)))
             .max_w((window.viewport_size().width - px(32.)).max(px(280.)))
             .max_h(px(if self.ui.settings { 700. } else { 650. }).min(available_height))
@@ -3911,6 +3923,8 @@ impl Workspace {
                         "编辑属性"
                     } else if self.ui.settings {
                         "设置"
+                    } else if self.ui.conflict_review.is_some() {
+                        "比较并处理外部修改"
                     } else if self.ui.history.is_some() {
                         "笔记版本历史"
                     } else if self.ui.trash_open {
@@ -4082,59 +4096,67 @@ impl Workspace {
             .when(self.ui.history.is_some(), |s| {
                 s.child(self.history_panel(cx))
             })
-            .when(self.ui.trash_open && self.ui.history.is_none(), |s| {
-                s.child(
-                    div()
-                        .id("trash-items")
-                        .max_h(px(450.))
-                        .overflow_y_scroll()
-                        .child(
-                            div()
-                                .p_2()
-                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                .child("回收站 · 恢复到原目录"),
-                        )
-                        .when(self.ui.trash.is_empty(), |s| {
-                            s.child(div().p_2().child("回收站为空"))
-                        })
-                        .children(self.ui.trash.iter().enumerate().map(|(i, e)| {
-                            div()
-                                .flex()
-                                .items_center()
-                                .p_2()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .truncate()
-                                        .child(e.original.to_string_lossy().to_string()),
-                                )
-                                .child(
-                                    Button::new(("restore-trash", i))
-                                        .compact()
-                                        .label("恢复")
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.restore_deleted(i, cx)
-                                        })),
-                                )
-                        }))
-                        .child(
-                            div()
-                                .p_2()
-                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                .child("未保存草稿 · 恢复为新笔记"),
-                        )
-                        .children(self.recoveries.iter().enumerate().map(|(i, e)| {
-                            Button::new(("restore-draft", i))
-                                .ghost()
-                                .label(e.record.relative.to_string_lossy().to_string())
-                                .on_click(cx.listener(move |this, _, w, cx| {
-                                    this.ui.trash_open = false;
-                                    this.restore_draft(i, w, cx);
-                                }))
-                        })),
-                )
-            });
+            .when(self.ui.conflict_review.is_some(), |s| {
+                s.child(self.conflict_panel(cx))
+            })
+            .when(
+                self.ui.trash_open
+                    && self.ui.history.is_none()
+                    && self.ui.conflict_review.is_none(),
+                |s| {
+                    s.child(
+                        div()
+                            .id("trash-items")
+                            .max_h(px(450.))
+                            .overflow_y_scroll()
+                            .child(
+                                div()
+                                    .p_2()
+                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                                    .child("回收站 · 恢复到原目录"),
+                            )
+                            .when(self.ui.trash.is_empty(), |s| {
+                                s.child(div().p_2().child("回收站为空"))
+                            })
+                            .children(self.ui.trash.iter().enumerate().map(|(i, e)| {
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .p_2()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .truncate()
+                                            .child(e.original.to_string_lossy().to_string()),
+                                    )
+                                    .child(
+                                        Button::new(("restore-trash", i))
+                                            .compact()
+                                            .label("恢复")
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.restore_deleted(i, cx)
+                                            })),
+                                    )
+                            }))
+                            .child(
+                                div()
+                                    .p_2()
+                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                                    .child("未保存草稿 · 恢复为新笔记"),
+                            )
+                            .children(self.recoveries.iter().enumerate().map(|(i, e)| {
+                                Button::new(("restore-draft", i))
+                                    .ghost()
+                                    .label(e.record.relative.to_string_lossy().to_string())
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.ui.trash_open = false;
+                                        this.restore_draft(i, w, cx);
+                                    }))
+                            })),
+                    )
+                },
+            );
         div()
             .absolute()
             .inset_0()

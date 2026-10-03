@@ -10,6 +10,28 @@ pub struct HistoryEntry {
 }
 
 impl Vault {
+    /// Archive local edits and reject disk changes made since the review opened.
+    pub fn resolve_conflict(
+        &self,
+        relative: &Path,
+        baseline: Option<&str>,
+        draft: &str,
+        expected_disk: Option<&str>,
+        replacement: Option<&str>,
+    ) -> Result<String, VaultError> {
+        let recovery = self.journal(relative, baseline, draft)?;
+        if self.read(relative)?.as_deref() != expected_disk {
+            return Err(VaultError::Conflict { recovery });
+        }
+        if let Some(text) = replacement {
+            Ok(self.save(relative, expected_disk, text)?.text)
+        } else {
+            expected_disk
+                .map(str::to_string)
+                .ok_or(VaultError::InvalidPath)
+        }
+    }
+
     pub fn history(&self, relative: &Path) -> Result<Vec<HistoryEntry>, VaultError> {
         Self::validate_relative(relative)?;
         let mut entries = Vec::new();
@@ -79,6 +101,52 @@ impl Vault {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn conflict_resolution_preserves_local_and_rechecks_reviewed_disk() {
+        let root = std::env::temp_dir().join(format!("inkstone-conflict-review-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let note = Path::new("note.md");
+        vault.save(note, None, "baseline").unwrap();
+        fs::write(vault.root.join(note), "external").unwrap();
+        assert!(
+            vault
+                .resolve_conflict(
+                    note,
+                    Some("baseline"),
+                    "local😀",
+                    Some("stale"),
+                    Some("merged")
+                )
+                .is_err()
+        );
+        assert_eq!(vault.read(note).unwrap().as_deref(), Some("external"));
+        let text = vault
+            .resolve_conflict(note, Some("baseline"), "local😀", Some("external"), None)
+            .unwrap();
+        assert_eq!(text, "external");
+        assert!(
+            vault
+                .recoveries()
+                .unwrap()
+                .iter()
+                .any(|e| e.record.draft == "local😀")
+        );
+        assert_eq!(
+            vault
+                .resolve_conflict(
+                    note,
+                    Some("external"),
+                    "local😀",
+                    Some("external"),
+                    Some("merged\r\n中😀")
+                )
+                .unwrap(),
+            "merged\r\n中😀"
+        );
+        assert_eq!(vault.read(note).unwrap().as_deref(), Some("merged\r\n中😀"));
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn history_lists_all_versions_and_isolates_notes_vaults_and_invalid_records() {
         let root = std::env::temp_dir().join(format!("inkstone-history-{}", unique_id()));
