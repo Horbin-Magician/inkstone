@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::button::*;
 
 impl Workspace {
@@ -15,14 +16,14 @@ impl Workspace {
                         .flex().items_center().justify_center()
                         .child(ui::icon("square-pen").size(px(22.)).text_color(colors.accent)))
                     .child(div().text_size(px(26.)).font_weight(FontWeight::SEMIBOLD).child("砚台")
-                        .child(div().text_size(px(12.)).font_weight(FontWeight::NORMAL).text_color(colors.muted).child("INKSTONE"))))
+                        .child(div().text_size(px(MIN_UI_FONT_SIZE)).font_weight(FontWeight::NORMAL).text_color(colors.muted).child("INKSTONE"))))
                 .child(div().text_size(px(18.)).font_weight(FontWeight::MEDIUM).child("你的笔记，从这里开始"))
-                .child(div().text_sm().line_height(relative(1.7)).text_color(colors.muted)
+                .child(div().text_size(px(MIN_UI_FONT_SIZE)).line_height(relative(1.7)).text_color(colors.muted)
                     .child("选择一个文件夹作为笔记库。笔记以 Markdown 文件保存在本地，随时可以打开和整理。"))
                 .child(Button::new("welcome-open-vault").primary().mt_4().h(px(42.)).w_full()
                     .label("打开笔记库").icon(ui::icon("folder-open"))
                     .on_click(cx.listener(|this, _, window, cx| this.choose_vault(window, cx))))
-                .child(div().text_xs().text_center().text_color(colors.muted)
+                .child(div().text_size(px(MIN_UI_FONT_SIZE)).text_center().text_color(colors.muted)
                     .child("可以选择已有笔记文件夹，也可以选择一个空文件夹")))
             .into_any_element()
     }
@@ -54,7 +55,7 @@ impl Workspace {
                     )
                     .child(
                         div()
-                            .text_sm()
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .text_color(colors.muted)
                             .mb_4()
                             .child("创建笔记，或继续之前的记录。"),
@@ -83,7 +84,7 @@ impl Workspace {
                                         .child(div().flex_1().child(label))
                                         .child(
                                             div()
-                                                .text_xs()
+                                                .text_size(px(MIN_UI_FONT_SIZE))
                                                 .text_color(colors.muted)
                                                 .child(self.hotkey_label(command)),
                                         ),

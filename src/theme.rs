@@ -1,5 +1,8 @@
-//! Shared semantic colors for the workspace, editor, and auxiliary views.
+//! Shared visual styles for the workspace, editor, and auxiliary views.
 use gpui::{Rgba, rgb};
+
+/// Minimum size for auxiliary interface text, independent of the document font.
+pub(crate) const MIN_UI_FONT_SIZE: f32 = 14.;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Palette {
