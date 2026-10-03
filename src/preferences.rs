@@ -2,6 +2,14 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedSearch {
+    pub query: String,
+    pub case_sensitive: bool,
+    pub sort_by: crate::file_order::SortBy,
+    pub descending: bool,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
@@ -60,6 +68,7 @@ impl Default for ViewState {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
+    pub saved_searches: Vec<SavedSearch>,
     pub backup: crate::vault::backup::Preferences,
     pub tags: crate::tags::Options,
     pub property_types: std::collections::BTreeMap<String, crate::properties::Kind>,
@@ -120,6 +129,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            saved_searches: vec![],
             tags: Default::default(),
             backup: Default::default(),
             property_types: Default::default(),
