@@ -55,9 +55,15 @@ struct CountSnapshot {
     counts: inkstone_core::word_count::Counts,
 }
 
+struct PropertySnapshot {
+    source: SharedString,
+    properties: Vec<inkstone_core::properties::Property>,
+}
+
 pub struct EditorPane {
     pub navigation: inkstone_core::preferences::Navigation,
     count_cache: Option<CountSnapshot>,
+    property_cache: Option<PropertySnapshot>,
     count_task: Option<Task<()>>,
     count_revision: u64,
     footnote_edit: Option<footnotes::FootnoteEdit>,
@@ -253,6 +259,7 @@ impl EditorPane {
             editor,
             footnote_edit: None,
             count_cache: None,
+            property_cache: None,
             count_task: None,
             count_revision: 0,
             decorations,

@@ -12,7 +12,7 @@ impl EditorPane {
             editor.selected_range()
         };
         if let Some(cache) = &self.count_cache
-            && cache.source == source
+            && (std::ptr::eq(cache.source.as_ref(), source.as_ref()) || cache.source == source)
             && cache.selection == selection
         {
             return cache.counts;
@@ -67,5 +67,18 @@ impl EditorPane {
             });
         }));
         previous
+    }
+
+    pub fn properties(&mut self, cx: &App) -> &[inkstone_core::properties::Property] {
+        let source = self.editor.read(cx).value();
+        if self.property_cache.as_ref().is_none_or(|cache| {
+            !std::ptr::eq(cache.source.as_ref(), source.as_ref()) && cache.source != source
+        }) {
+            self.property_cache = Some(PropertySnapshot {
+                properties: inkstone_core::properties::parse(&source),
+                source,
+            });
+        }
+        &self.property_cache.as_ref().unwrap().properties
     }
 }

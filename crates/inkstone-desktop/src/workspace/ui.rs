@@ -2571,7 +2571,7 @@ impl Workspace {
             .unwrap_or_default();
         let properties = pane
             .as_ref()
-            .map(|p| inkstone_core::properties::parse(&p.read(cx).editor.read(cx).value()))
+            .map(|p| p.update(cx, |pane, cx| pane.properties(cx).to_vec()))
             .unwrap_or_default();
         let tab_path = self
             .active
