@@ -8,6 +8,22 @@ use std::{
     path::PathBuf,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
+
+fn measure<T>(name: &str, mut run: impl FnMut() -> T) {
+    let mut samples = Vec::new();
+    for _ in 0..7 {
+        let start = Instant::now();
+        let result = std::hint::black_box(run());
+        samples.push(start.elapsed().as_secs_f64() * 1000.);
+        drop(result);
+    }
+    samples.sort_by(f64::total_cmp);
+    println!(
+        "{name} rounds=7 p50_ms={:.3} max_ms={:.3}",
+        samples[3], samples[6]
+    );
+}
+
 fn main() {
     let count = std::env::args()
         .nth(1)
@@ -105,6 +121,37 @@ fn main() {
         "single_file_refresh_including_index_clone_ms={:.3}",
         start.elapsed().as_secs_f64() * 1000.
     );
+    for (name, query) in [
+        ("search_common", "搜索测试"),
+        ("search_absent", "不存在的查询xyz"),
+        ("search_property", "-[status]"),
+    ] {
+        measure(name, || {
+            index
+                .search_limited(query, false, Default::default(), false, 200)
+                .unwrap()
+        });
+    }
+    measure("quick_open_common", || index.filenames("0"));
+    measure("snapshot_clone", || index.clone());
+    let mut revision = 0;
+    measure("body_update", || {
+        revision += 1;
+        incremental.update("00001.md".into(), format!("{sample}\nrevision {revision}"));
+    });
+    measure("link_update", || {
+        revision += 1;
+        incremental.update(
+            "00001.md".into(),
+            format!("[[{:05}]]", revision % count.max(1)),
+        );
+    });
+    let cache = root.join("index.json");
+    measure("cache_save", || index.save_cache(&vault, &cache).unwrap());
+    println!("cache_bytes={}", fs::metadata(&cache).unwrap().len());
+    measure("cache_load", || {
+        Index::build_cached(&vault, &cache).unwrap()
+    });
     let large = format!(
         "# 长单段\n\n{}",
         "中文 English 😀 超长段落。".repeat(100_000)
