@@ -188,7 +188,9 @@ impl Workspace {
                                     self.rescan = true;
                                 }
                             } else if !matches!(event.kind, notify::EventKind::Create(_)) {
-                                self.rescan = true;
+                                // A renamed or removed directory is not a content change.
+                                // Reconcile the tree from a file listing; do not reread every note.
+                                self.structure_changed = true;
                             }
                         }
                     }

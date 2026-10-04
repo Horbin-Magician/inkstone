@@ -292,9 +292,10 @@ impl Workspace {
                         } else {
                             "文件夹已移入可恢复回收站。".into()
                         };
+                        // The move is a rename. Reuse parsed notes instead of rebuilding the vault index.
+                        this.apply_relocated_index(&old, new.as_deref(), true, cx);
                         this.offer_link_updates(edits, w, cx);
-                        this.sync_reference_contexts(cx);
-                        this.rescan = true;
+                        this.structure_changed = true;
                         this.refresh_requested = true;
                         this.persist_workspace(cx);
                         this.tick(w, cx);
