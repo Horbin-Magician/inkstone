@@ -1788,7 +1788,7 @@ impl Workspace {
             .and_then(|i| self.tabs.get(i))
             .map(|tab| tab.path.clone());
         let tree_foreground = crate::theme::palette(self.ui.prefs.light).muted;
-        let tree_active = crate::theme::palette(self.ui.prefs.light).selected;
+        let tree_active = crate::theme::palette(self.ui.prefs.light).accent;
         let tree_guide = self.border();
         let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
             let path = PathBuf::from(entry.item().id.as_ref());
@@ -1801,9 +1801,6 @@ impl Workspace {
                 .rounded(px(4.))
                 .text_size(px(MIN_UI_FONT_SIZE))
                 .text_color(tree_foreground)
-                .when(!folder && active_path.as_ref() == Some(&path), |s| {
-                    s.bg(tree_active)
-                })
                 .accessibility_label(entry.item().label.clone())
                 .children((0..entry.depth()).map(|depth| {
                     div()
@@ -1832,11 +1829,18 @@ impl Workspace {
                         } else {
                             Icon::default().size(px(16.))
                         })
-                        .child(div().truncate().child(if folder {
-                            entry.item().label.to_string()
-                        } else {
-                            entry.item().label.trim_end_matches(".md").to_owned()
-                        })),
+                        .child(
+                            div()
+                                .truncate()
+                                .when(!folder && active_path.as_ref() == Some(&path), |s| {
+                                    s.text_color(tree_active)
+                                })
+                                .child(if folder {
+                                    entry.item().label.to_string()
+                                } else {
+                                    entry.item().label.trim_end_matches(".md").to_owned()
+                                }),
+                        ),
                 )
                 .on_click(move |_, window, cx| {
                     if !folder {
@@ -1845,6 +1849,7 @@ impl Workspace {
                     }
                 })
         })
+        .selection_highlight(false)
         .context_menu(move |_, entry, mut menu, _, _| {
             use gpui_component::menu::PopupMenuItem;
             if entry.is_folder() {
