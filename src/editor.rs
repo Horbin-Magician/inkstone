@@ -1035,11 +1035,14 @@ impl EditorPane {
                 if text.get(bracket.clone()).is_none() {
                     continue;
                 }
-                let unordered = text
-                    .get(task.start..bracket.start)
-                    .is_some_and(|prefix| prefix.starts_with(['-', '*', '+']));
+                // List-item positions can include a leading tab. Keep that
+                // indentation visible while replacing the bullet and checkbox.
+                let prefix = text.get(task.start..bracket.start).unwrap_or_default();
+                let marker_prefix = prefix.trim_start_matches([' ', '\t']);
+                let marker_start = task.start + prefix.len() - marker_prefix.len();
+                let unordered = marker_prefix.starts_with(['-', '*', '+']);
                 let range = if unordered {
-                    task.start..bracket.end
+                    marker_start..bracket.end
                 } else {
                     bracket
                 };
