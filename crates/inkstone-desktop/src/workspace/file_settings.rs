@@ -7,6 +7,30 @@ use gpui_component::{
 use inkstone_core::locations::Location;
 
 impl Workspace {
+    pub(super) fn prepare_link_paths(&mut self) {
+        let key = (
+            Arc::as_ptr(&self.index) as usize,
+            self.ui.prefs.link_format,
+            self.ui.prefs.use_markdown_links,
+        );
+        if self.link_paths_key == Some(key) {
+            return;
+        }
+        self.link_paths.clear();
+        self.link_paths_key = Some(key);
+    }
+    pub(super) fn cached_link_paths(
+        &mut self,
+        from: &std::path::Path,
+    ) -> Arc<Vec<crate::editor_links::CompletionPath>> {
+        self.prepare_link_paths();
+        if let Some(paths) = self.link_paths.get(from) {
+            return paths.clone();
+        }
+        let paths = self.link_paths_for(from);
+        self.link_paths.insert(from.to_path_buf(), paths.clone());
+        paths
+    }
     pub(super) fn link_paths_for(
         &self,
         from: &std::path::Path,

@@ -55,7 +55,8 @@ impl Workspace {
             pane.reading = self.ui.prefs.default_reading && !new && !path.as_os_str().is_empty();
             pane
         });
-        pane.update(cx, |pane, _| pane.set_paths(self.link_paths_for(&path)));
+        let paths = self.cached_link_paths(&path);
+        pane.update(cx, |pane, _| pane.set_paths(paths));
         if let Some(vault) = &self.vault {
             pane.update(cx, |pane, _| {
                 pane.image_dir = vault

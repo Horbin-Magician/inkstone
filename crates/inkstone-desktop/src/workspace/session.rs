@@ -99,6 +99,8 @@ impl Workspace {
             refreshing: false,
             recoveries: vec![],
             index: Arc::new(Index::default()),
+            link_paths: Default::default(),
+            link_paths_key: None,
             search,
             search_results: vec![],
             search_revision: 0,

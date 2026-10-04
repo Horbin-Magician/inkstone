@@ -441,6 +441,7 @@ impl Workspace {
             return;
         };
         let id = tab.id;
+        let tab_path = tab.path.clone();
         let canonical = tab.save.editor.clone();
         let text = canonical.read(cx).value();
         let selection = tab.pane.read(cx).editor.read(cx).selected_range();
@@ -448,15 +449,17 @@ impl Workspace {
         let (reading, live, image_dir) =
             (original.reading, original.live, original.image_dir.clone());
         let prefs = self.ui.prefs.clone();
-        let paths = self.link_paths_for(&tab.path);
+        let path = tab_path.clone();
+        let original_navigation = original.navigation.clone();
+        let paths = self.cached_link_paths(&path);
         let text_font = self.resolved_font(&prefs.text_font, "Microsoft YaHei UI");
         let mut navigation = self
             .views
             .split
             .as_ref()
             .map(|split| split.pane.read(cx).navigation.clone())
-            .unwrap_or_else(|| original.navigation.clone());
-        navigation.visit(tab.path.clone());
+            .unwrap_or(original_navigation);
+        navigation.visit(path);
         let pane = cx.new(|cx| {
             let mut p = EditorPane::new(&text, window, cx);
             p.navigation = navigation;
@@ -488,7 +491,7 @@ impl Workspace {
         });
         pane.update(cx, |p, cx| {
             p.set_reference_context(
-                tab.path.clone(),
+                tab_path,
                 self.vault
                     .as_ref()
                     .map(|v| v.root.clone())
