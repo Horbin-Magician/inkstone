@@ -9,6 +9,7 @@ pub enum Kind {
     Comment,
     Rule,
     QuoteMarker,
+    ListMarker,
     QuoteContinuation,
     Heading,
     Strong,
@@ -195,6 +196,16 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                 markers: std::iter::once(range).collect(),
             });
             return;
+        }
+        // Use syntax nodes so code, escaped markers and thematic breaks remain literal.
+        if matches!(node, Node::ListItem(_)) && text[range.start..].starts_with(['*', '-', '+']) {
+            let marker = range.start..range.start + 1;
+            out.push(Span {
+                kind: Kind::ListMarker,
+                source: marker.clone(),
+                content: marker,
+                markers: vec![],
+            });
         }
         let quote_depth = quote_depth + usize::from(matches!(node, Node::Blockquote(_)));
         if matches!(node, Node::Blockquote(_)) {
@@ -479,6 +490,25 @@ mod tests {
             assert!(item.active(&(item.content.start..item.content.start)));
         }
     }
+    #[test]
+    fn list_markers_follow_syntax_and_preserve_nested_source_offsets() {
+        let source = "* 中文\n  - nested\n\n+ other\n\n> * quoted\n\n1. ordered\n\n***\n\n\\* escaped\n\n```md\n* code\n```\n\n    * indented code";
+        let markers: Vec<_> = spans(source)
+            .into_iter()
+            .filter(|span| span.kind == Kind::ListMarker)
+            .map(|span| span.content.start)
+            .collect();
+        assert_eq!(
+            markers,
+            [
+                0,
+                source.find("- nested").unwrap(),
+                source.find("+ other").unwrap(),
+                source.find("* quoted").unwrap()
+            ]
+        );
+    }
+
     #[test]
     fn code_fences_and_escaped_markers_stay_source() {
         let literal = spans("```md\n**不是粗体**\n```\n\\[[不是链接]]\n\n    **代码**");
