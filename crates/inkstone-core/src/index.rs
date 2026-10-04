@@ -32,13 +32,13 @@ pub struct Index {
     /// Files excluded from searchable content, with actionable read diagnostics.
     pub errors: BTreeMap<PathBuf, String>,
     /// Lowercased vault-relative path to the stored note path.
-    by_path: HashMap<String, PathBuf>,
+    by_path: Arc<HashMap<String, PathBuf>>,
     /// Lowercased filename stem to every note using it.
-    by_stem: HashMap<String, Vec<PathBuf>>,
+    by_stem: Arc<HashMap<String, Vec<PathBuf>>>,
     /// Lowercased alias to every note declaring it.
-    by_alias: HashMap<String, Vec<PathBuf>>,
+    by_alias: Arc<HashMap<String, Vec<PathBuf>>>,
     /// Resolved note to the notes that link to it.
-    backlinks: HashMap<PathBuf, Vec<PathBuf>>,
+    backlinks: Arc<HashMap<PathBuf, Vec<PathBuf>>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Resolution {
@@ -136,8 +136,12 @@ impl Index {
         relocated
     }
     pub fn update(&mut self, path: PathBuf, text: String) {
-        self.replace_note(path, text);
-        self.reindex_backlinks();
+        if self.notes.get(&path).is_some_and(|note| note.text == text) {
+            return;
+        }
+        if self.replace_note(path, text) {
+            self.reindex_backlinks();
+        }
     }
     /// Index bytes the caller just wrote. A missing file is removed; existing
     /// files are not reread, because those bytes are already known.
@@ -146,8 +150,8 @@ impl Index {
         vault: &Vault,
         known: impl IntoIterator<Item = (PathBuf, String)>,
     ) -> bool {
-        let mut links_changed = false;
-        let mut times_changed = false;
+        let mut rebuild_links = false;
+        let mut changed = false;
         for (path, text) in known {
             let exists = vault
                 .path(&path)
@@ -155,45 +159,99 @@ impl Index {
                 .and_then(|absolute| std::fs::metadata(absolute).ok())
                 .is_some_and(|meta| meta.is_file());
             if !exists {
-                links_changed |= self.notes.contains_key(&path);
+                rebuild_links |= self.notes.contains_key(&path);
+                changed |= self.notes.contains_key(&path);
                 self.remove_note(&path);
-                self.errors.remove(&path);
+                changed |= self.errors.remove(&path).is_some();
                 continue;
             }
-            self.errors.remove(&path);
+            changed |= self.errors.remove(&path).is_some();
             if self.notes.get(&path).is_none_or(|note| note.text != text) {
-                self.replace_note(path.clone(), text);
-                links_changed = true;
+                rebuild_links |= self.replace_note(path.clone(), text);
+                changed = true;
             }
-            times_changed |= self.refresh_file_times(vault, &path);
+            changed |= self.refresh_file_times(vault, &path);
         }
-        if links_changed {
+        if rebuild_links {
             self.reindex_backlinks();
         }
-        links_changed || times_changed
+        changed
     }
-    fn replace_note(&mut self, path: PathBuf, text: String) {
+    /// Returns whether changed names can affect resolution across the vault.
+    /// Ordinary edits preserve name maps; only changed outgoing edges need work.
+    fn replace_note(&mut self, path: PathBuf, text: String) -> bool {
         self.errors.remove(&path);
         let parsed = parse(&text);
-        let times = self.notes.get(&path).map(|n| n.times).unwrap_or_default();
-        self.remove_note(&path);
-        self.insert_note(
-            path,
-            Arc::new(IndexedNote {
-                text,
-                parsed,
-                times,
-            }),
-        );
+        let previous = self.notes.get(&path);
+        let times = previous.map(|n| n.times).unwrap_or_default();
+        let names_changed = previous.is_none_or(|n| n.parsed.aliases != parsed.aliases);
+        let links_changed = previous.is_none_or(|n| {
+            !n.parsed
+                .links
+                .iter()
+                .map(|l| &l.target)
+                .eq(parsed.links.iter().map(|l| &l.target))
+                || !n
+                    .parsed
+                    .standard_links
+                    .iter()
+                    .map(|(url, _)| url)
+                    .eq(parsed.standard_links.iter().map(|(url, _)| url))
+        });
+        let old_targets = if !names_changed && links_changed {
+            self.outgoing(&path)
+        } else {
+            Vec::new()
+        };
+        let note = Arc::new(IndexedNote {
+            text,
+            parsed,
+            times,
+        });
+        if names_changed {
+            self.remove_note(&path);
+            self.insert_note(path, note);
+        } else {
+            self.notes.insert(path.clone(), note);
+            if links_changed {
+                let new_targets = self.outgoing(&path);
+                if old_targets != new_targets {
+                    let backlinks = Arc::make_mut(&mut self.backlinks);
+                    for target in &old_targets {
+                        if new_targets.binary_search(target).is_ok() {
+                            continue;
+                        }
+                        if let Some(sources) = backlinks.get_mut(target) {
+                            if let Ok(position) = sources.binary_search(&path) {
+                                sources.remove(position);
+                            }
+                            if sources.is_empty() {
+                                backlinks.remove(target);
+                            }
+                        }
+                    }
+                    for target in new_targets {
+                        if old_targets.binary_search(&target).is_ok() {
+                            continue;
+                        }
+                        let sources = backlinks.entry(target).or_default();
+                        if let Err(position) = sources.binary_search(&path) {
+                            sources.insert(position, path.clone());
+                        }
+                    }
+                }
+            }
+        }
+        names_changed
     }
     fn insert_note(&mut self, path: PathBuf, note: Arc<IndexedNote>) {
-        self.by_path.insert(key(&path), path.clone());
-        self.by_stem
+        Arc::make_mut(&mut self.by_path).insert(key(&path), path.clone());
+        Arc::make_mut(&mut self.by_stem)
             .entry(stem_key(&path))
             .or_default()
             .push(path.clone());
         for alias in &note.parsed.aliases {
-            self.by_alias
+            Arc::make_mut(&mut self.by_alias)
                 .entry(alias.to_lowercase())
                 .or_default()
                 .push(path.clone());
@@ -204,14 +262,22 @@ impl Index {
         let Some(note) = self.notes.remove(path) else {
             return;
         };
-        self.by_path.remove(&key(path));
-        if let Some(paths) = self.by_stem.get_mut(&stem_key(path)) {
-            paths.retain(|candidate| candidate != path);
-        }
-        for alias in &note.parsed.aliases {
-            if let Some(paths) = self.by_alias.get_mut(&alias.to_lowercase()) {
+        Arc::make_mut(&mut self.by_path).remove(&key(path));
+        fn remove_entry(map: &mut HashMap<String, Vec<PathBuf>>, key: String, path: &Path) {
+            if let Some(paths) = map.get_mut(&key) {
                 paths.retain(|candidate| candidate != path);
+                if paths.is_empty() {
+                    map.remove(&key);
+                }
             }
+        }
+        remove_entry(Arc::make_mut(&mut self.by_stem), stem_key(path), path);
+        for alias in &note.parsed.aliases {
+            remove_entry(
+                Arc::make_mut(&mut self.by_alias),
+                alias.to_lowercase(),
+                path,
+            );
         }
     }
     /// A new or removed stem/alias can change every shortest link, so rebuild
@@ -228,7 +294,7 @@ impl Index {
             sources.sort();
             sources.dedup();
         }
-        self.backlinks = backlinks;
+        self.backlinks = Arc::new(backlinks);
     }
     fn outgoing(&self, from: &Path) -> Vec<PathBuf> {
         let Some(note) = self.notes.get(from) else {
@@ -250,9 +316,9 @@ impl Index {
         targets
     }
     fn rebuild_lookup(&mut self) {
-        self.by_path.clear();
-        self.by_stem.clear();
-        self.by_alias.clear();
+        self.by_path = Default::default();
+        self.by_stem = Default::default();
+        self.by_alias = Default::default();
         let notes = std::mem::take(&mut self.notes);
         for (path, note) in notes {
             self.insert_note(path, note);
@@ -282,33 +348,37 @@ impl Index {
         vault: &Vault,
         paths: impl IntoIterator<Item = PathBuf>,
     ) -> Result<bool, VaultError> {
-        let mut links_changed = false;
-        let mut times_changed = false;
+        let mut rebuild_links = false;
+        let mut changed = false;
         for path in paths {
             match vault.read(&path) {
                 Ok(Some(text)) => {
-                    self.errors.remove(&path);
+                    changed |= self.errors.remove(&path).is_some();
                     if self.notes.get(&path).is_none_or(|n| n.text != text) {
-                        self.replace_note(path.clone(), text);
-                        links_changed = true;
+                        rebuild_links |= self.replace_note(path.clone(), text);
+                        changed = true;
                     }
-                    times_changed |= self.refresh_file_times(vault, &path);
+                    changed |= self.refresh_file_times(vault, &path);
                 }
                 Ok(None) => {
-                    links_changed |= self.notes.contains_key(&path);
+                    rebuild_links |= self.notes.contains_key(&path);
+                    changed |= self.notes.contains_key(&path);
                     self.remove_note(&path);
-                    self.errors.remove(&path);
+                    changed |= self.errors.remove(&path).is_some();
                 }
                 Err(error) => {
-                    links_changed |= self.notes.contains_key(&path);
+                    rebuild_links |= self.notes.contains_key(&path);
+                    changed |= self.notes.contains_key(&path);
                     self.remove_note(&path);
-                    self.errors.insert(path, error.to_string());
+                    let error = error.to_string();
+                    changed |= self.errors.get(&path) != Some(&error);
+                    self.errors.insert(path, error);
                 }
             }
         }
-        if links_changed {
+        if rebuild_links {
             self.reindex_backlinks();
         }
-        Ok(links_changed || times_changed)
+        Ok(changed)
     }
 }

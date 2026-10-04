@@ -262,8 +262,16 @@ pub(super) fn refresh_created_index(
         return Ok((previous, tree.folders));
     }
     let mut index = (*previous).clone();
-    index.notes.retain(|p, _| notes.contains(p));
-    index.errors.retain(|p, _| notes.contains(p));
+    // Let the index remove missing notes through its normal update path so
+    // path/alias lookup and backlinks cannot retain deleted entries.
+    changed.extend(
+        previous
+            .notes
+            .keys()
+            .chain(previous.errors.keys())
+            .filter(|p| !notes.contains(*p))
+            .cloned(),
+    );
     index.refresh_paths(vault, changed)?;
     index.files = files;
     Ok((Arc::new(index), tree.folders))

@@ -6,7 +6,7 @@ impl Index {
     pub fn filenames(&self, query: &str) -> Vec<SearchHit> {
         let query = query.trim().replace('\\', "/").to_lowercase();
         let mut matches = Vec::new();
-        for (path_key, path) in &self.by_path {
+        for (path_key, path) in self.by_path.iter() {
             let file = path_key.rsplit('/').next().unwrap_or(path_key);
             let stem = file.strip_suffix(".md").unwrap_or(file);
             let mut best = if stem == query {

@@ -1,4 +1,105 @@
 use super::*;
+
+fn assert_lookup_matches_rebuild(index: &Index) {
+    let mut rebuilt = index.clone();
+    rebuilt.rebuild_lookup();
+    assert_eq!(index.by_path, rebuilt.by_path);
+    assert_eq!(index.by_alias, rebuilt.by_alias);
+    assert_eq!(index.backlinks, rebuilt.backlinks);
+    let sorted = |map: &HashMap<String, Vec<PathBuf>>| {
+        let mut map = map.clone();
+        for paths in map.values_mut() {
+            paths.sort();
+        }
+        map
+    };
+    assert_eq!(sorted(&index.by_stem), sorted(&rebuilt.by_stem));
+}
+
+#[test]
+fn incremental_links_match_rebuild_and_body_edits_share_lookup_maps() {
+    let mut index = Index::default();
+    for (path, text) in [
+        ("a.md", "---\naliases: [别名]\n---\n# A"),
+        ("folder/b.md", "# B"),
+        (
+            "entry.md",
+            "[[a]] [[a#heading]] [B](folder/b.md) [[missing]]",
+        ),
+        ("other.md", "[[别名]] [[b]]"),
+    ] {
+        index.update(path.into(), text.into());
+    }
+    let original = index.clone();
+    index.update(
+        "entry.md".into(),
+        format!("正文\n{}", original.notes[Path::new("entry.md")].text),
+    );
+    assert!(Arc::ptr_eq(&original.by_path, &index.by_path));
+    assert!(Arc::ptr_eq(&original.by_stem, &index.by_stem));
+    assert!(Arc::ptr_eq(&original.by_alias, &index.by_alias));
+    assert!(Arc::ptr_eq(&original.backlinks, &index.backlinks));
+    for (path, text) in [
+        ("entry.md", "[[b]] [[b]] [self](#heading) [[entry]]"),
+        ("entry.md", "[A][ref]\n\n[ref]: a.md\n"),
+        ("a.md", "---\naliases: [新别名]\n---\n# A"),
+        ("other/b.md", "# ambiguous"),
+        ("missing.md", "# newly resolved"),
+        ("entry.md", "no links"),
+    ] {
+        index.update(path.into(), text.into());
+        assert_lookup_matches_rebuild(&index);
+    }
+    assert_eq!(
+        original.backlinks(Path::new("a.md")),
+        vec![PathBuf::from("entry.md"), PathBuf::from("other.md")]
+    );
+    assert_lookup_matches_rebuild(&original);
+    let unchanged = index.clone();
+    index.update("entry.md".into(), "no links".into());
+    assert!(Arc::ptr_eq(
+        &unchanged.notes[Path::new("entry.md")],
+        &index.notes[Path::new("entry.md")]
+    ));
+}
+
+#[test]
+fn batched_name_link_and_error_changes_match_fresh_index() {
+    let root = std::env::temp_dir().join(format!("inkstone-index-batch-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("vault")).unwrap();
+    let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+    for (path, text) in [("a.md", ""), ("b.md", "[[a]]"), ("c.md", "[[别名]]")] {
+        std::fs::write(vault.root.join(path), text).unwrap();
+    }
+    let mut index = Index::build(&vault).unwrap();
+    let updates = [
+        (
+            PathBuf::from("a.md"),
+            "---\naliases: [别名]\n---\n".to_string(),
+        ),
+        ("b.md".into(), "[[c]]".into()),
+    ];
+    for (path, text) in &updates {
+        std::fs::write(vault.root.join(path), text).unwrap();
+    }
+    assert!(index.apply_known(&vault, updates));
+    assert_lookup_matches_rebuild(&index);
+    std::fs::remove_file(vault.root.join("a.md")).unwrap();
+    std::fs::write(vault.root.join("b.md"), "[[别名]]").unwrap();
+    assert!(
+        index
+            .refresh_paths(&vault, ["a.md".into(), "b.md".into()])
+            .unwrap()
+    );
+    assert_lookup_matches_rebuild(&index);
+    assert_eq!(index.backlinks, Index::build(&vault).unwrap().backlinks);
+    std::fs::write(vault.root.join("invalid.md"), [0xff]).unwrap();
+    assert!(index.refresh_paths(&vault, ["invalid.md".into()]).unwrap());
+    assert!(!index.refresh_paths(&vault, ["invalid.md".into()]).unwrap());
+    std::fs::remove_file(vault.root.join("invalid.md")).unwrap();
+    assert!(index.refresh_paths(&vault, ["invalid.md".into()]).unwrap());
+    std::fs::remove_dir_all(root).unwrap();
+}
 #[test]
 fn relocating_a_folder_reuses_note_arcs_and_drops_trashed_paths() {
     let mut index = Index::default();
