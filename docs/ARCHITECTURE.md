@@ -18,12 +18,36 @@
 | vault.rs | 文件扫描、路径验证、安全保存、恢复记录、重命名与回收区 |
 | workspace/document.rs | 打开文档的保存状态与共享正文；编辑、选区和撤销统一使用 GPUI 编辑器 |
 | markdown.rs | 限定实时样式扫描；输出 UTF-8 源码范围，不重写正文 |
-| index.rs | Markdown AST、大纲、双链、路径解析、全文与文件名搜索、反链 |
-| editor.rs | GPUI 编辑器、装饰、阅读视图、异步解析版本检查 |
+| index.rs | 索引快照、构建与增量刷新；对外保留解析类型和函数入口 |
+| index/parsing.rs | Markdown AST 元数据、大纲、折叠范围、锚点与任务源码修改 |
+| index/links.rs | 双链 / Markdown 路径解析、反链与移动引用更新计划 |
+| index/search.rs | 文件名与别名排名、全文搜索、排序及结果上限 |
+| editor.rs | 编辑器状态、事件、初始化与引用上下文 |
+| editor/editing.rs | Markdown 按键、配对、折叠、行编辑与任务修改 |
+| editor/presentation.rs | 解析版本检查、装饰和实时预览投影更新 |
+| editor/reading.rs | 阅读状态恢复、焦点与源码位置跳转 |
+| editor/view.rs | GPUI 视图组装与输入事件路由 |
+| editor/counts.rs | 正文 / 选区字数缓存与异步统计 |
 | editor_links.rs | 公开 DefinitionProvider / CompletionProvider 扩展、补全过期校验 |
-| workspace.rs | 窗口、标签、异步文件任务和原生监听事件调度 |
+| workspace.rs | 工作区共享状态、动作定义与轮询调度 |
+| workspace/session.rs | 工作区初始化、笔记库选择 / 加载与会话恢复 |
+| workspace/file_sync.rs | 外部文件刷新、索引与目录树同步 |
+| workspace/note_files.rs | 新建、快速记录、重命名、回收及恢复副本 |
+| workspace/note_open.rs | 打开笔记、选择目标视图与恢复视图状态 |
+| workspace/tabs.rs | 标签创建、激活、关闭与等待保存后关闭 |
+| workspace/saving.rs | 保存调度、恢复日志与冲突另存副本 |
+| workspace/search.rs | 搜索焦点、后台查询结果与分页 |
+| workspace/links.rs | 双链 / Markdown 链接导航与位置跳转 |
 | workspace/commands.rs | 稳定命令编号、命令搜索、编辑操作与执行分发；菜单按编号查询，不按数组位置访问 |
 | workspace/ui.rs | 工作区、侧栏、菜单和弹窗的界面组装 |
+
+### 模块边界约定
+
+桌面层使用 `Workspace` 和 `EditorPane` 作为 GPUI 实体及共享状态拥有者，子模块按职责实现其方法。子模块不复制文档状态，也不建立第二套保存、撤销或后台任务机制；跨子模块调用使用 `pub(super)`，不扩大应用外部接口。涉及多个功能的回归测试分别放在 `workspace/tests.rs`、`editor/tests.rs`，保留原来的测试名称和筛选路径；既有功能模块的局部测试继续就地维护。
+
+核心层 `index` 不依赖桌面工作区。解析、搜索和链接模块通过 `Index` 快照与解析结果协作；原有 `index::parse`、`index::ParsedNote` 等入口由父模块重新导出，调用方无需知道实现文件位置。索引回归放在 `index/tests.rs`。
+
+新增功能优先放入对应职责模块：保存及恢复日志改动进入 `saving`，外部磁盘变化进入 `file_sync`，实时样式进入 `presentation`，索引搜索算法进入 `index/search`。顶层文件负责状态与组装，避免重新堆积功能实现。底层 Vault 的平台原子写入实现和 vendor 编辑器补丁沿用原有边界。
 
 Markdown 文件是已保存正文事实来源。索引只在内存，可从文件完整重建。恢复记录是显式草稿副本，不混入正文。
 
