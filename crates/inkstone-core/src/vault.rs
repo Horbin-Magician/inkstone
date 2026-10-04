@@ -3,6 +3,7 @@ pub mod attachments;
 pub mod backup;
 pub mod export;
 mod history;
+pub mod sync;
 pub use history::{HistoryEntry, Retention};
 use serde::{Deserialize, Serialize};
 use std::{
