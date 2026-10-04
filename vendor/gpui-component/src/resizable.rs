@@ -1,9 +1,9 @@
 //! What this design system paints inside a resize handle.
 //!
 //! Base owns the band, the cursor and the drag; everything here is appearance.
-//! A divider rests as the same hairline it has always been, and answers the
-//! pointer with a pill that grows and solidifies as the pointer engages it:
-//! available, held, being dragged.
+//! A divider rests invisible, the way a VS Code sash does, and answers the
+//! pointer with a full-length bar that thickens and takes the accent: hovered,
+//! held, being dragged. There is no resting hairline and no short pill.
 
 use std::rc::Rc;
 
@@ -21,8 +21,12 @@ pub use gpui_base::{
 
 use crate::theme::ActiveTheme as _;
 
-/// How thick the indicator is across the divider it sits on.
-const INDICATOR_THICKNESS: Pixels = px(3.);
+/// How thick the highlight is across the divider while the pointer owns it.
+///
+/// VS Code's sash hover bar is 4px (`--vscode-sash-hover-size`), centered on
+/// the seam. That is the whole affordance: thicker than a hairline, and only
+/// present while the pointer is on the handle.
+const SASH_THICKNESS: Pixels = px(4.);
 
 /// Create a [`ResizablePanelGroup`] with horizontal resizing.
 pub fn h_resizable(id: impl Into<ElementId>) -> ResizablePanelGroup {
@@ -40,96 +44,89 @@ pub fn resize_handle_appearance() -> ResizeHandleRenderer {
     Rc::new(|handle, window, cx| Some(render_resize_handle(handle, window, cx)))
 }
 
-/// How long the indicator is at each level of engagement, and how solid.
+/// How thick the sash is, and how solid, at each level of engagement.
 ///
-/// Idle draws nothing. The hairline is the resting appearance of a divider, and
-/// a pill on every divider all the time would be noise in a dock that has a
-/// dozen of them.
-fn indicator(state: ResizeHandleState) -> (Pixels, f32) {
+/// Idle draws nothing. A line on every divider would be the resting chrome
+/// this appearance is replacing; the highlight is the pointer's answer.
+fn sash(state: ResizeHandleState) -> (Pixels, f32) {
     match state {
         ResizeHandleState::Idle => (px(0.), 0.),
-        ResizeHandleState::Hovered => (px(20.), 0.35),
-        ResizeHandleState::Pressed => (px(28.), 0.6),
-        ResizeHandleState::Dragging => (px(44.), 0.9),
+        ResizeHandleState::Hovered
+        | ResizeHandleState::Pressed
+        | ResizeHandleState::Dragging => (SASH_THICKNESS, 1.),
     }
 }
 
-/// The hairline, and the indicator riding on it.
+/// The hover highlight, centered on the seam the handle resizes.
 pub(crate) fn render_resize_handle(
     handle: &ResizeHandleContext,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     let axis = handle.axis();
-    let (target_length, target_opacity) = indicator(handle.state());
+    let (target_thickness, target_opacity) = sash(handle.state());
     let motion = cx.theme().motion_tokens();
     let policy = Transition::new(motion.duration_fast).easing(motion.easing_move.clone());
 
     // Both values are sampled on every frame the handle is rendered, whatever
     // it is showing. A transition asks for a frame only while it is moving, so
-    // a resting handle costs nothing; sampling it only while the pill is up
+    // a resting handle costs nothing; sampling it only while the bar is up
     // would instead leave the retained value frozen wherever it was when the
-    // pill went away, and the next hover would start from there.
-    let length = transition(
-        "resizable-handle-indicator-length",
-        target_length,
+    // bar went away, and the next hover would start from there.
+    let thickness = transition(
+        "resizable-sash-thickness",
+        target_thickness,
         policy.clone(),
         window,
         cx,
     );
-    let opacity = transition(
-        "resizable-handle-indicator-opacity",
-        target_opacity,
-        policy,
-        window,
-        cx,
-    );
+    let opacity = transition("resizable-sash-opacity", target_opacity, policy, window, cx);
 
     div()
-        // The hairline fills the handle's content area exactly, so it has
-        // nothing to give: shrinking it collapses the divider.
+        // The slot fills the handle's content area exactly, so it has nothing
+        // to give: shrinking it collapses the divider. The bar is thicker than
+        // this slot and overhangs it.
         .flex_none()
         .flex()
-        .bg(cx.theme().border)
-        // Along the hairline the pill is far shorter than the line, so centring
-        // it there is safe. Across the hairline it is thicker than the line and
-        // has to overhang, and neither flex alignment can be trusted to centre
-        // an item that overflows -- `justify_center` returns it to the start
+        // Along the seam the bar fills the handle, so centring it there is
+        // irrelevant. Across the seam it is thicker than the slot and has to
+        // overhang, and neither flex alignment can be trusted to centre an
+        // item that overflows -- `justify_center` returns it to the start
         // instead -- so that axis is offset by hand, below.
-        .map(|line| match axis {
-            Axis::Horizontal => line.w(px(1.)).h_full().items_center(),
-            _ => line.h(px(1.)).w_full().items_start().justify_center(),
+        .map(|slot| match axis {
+            Axis::Horizontal => slot.w(px(1.)).h_full().items_center(),
+            _ => slot.h(px(1.)).w_full().items_start().justify_center(),
         })
-        .when(length > px(0.5), |line| {
-            let pill = div()
-                // `flex_none` keeps the one-pixel line from squashing it.
+        .when(thickness > px(0.5), |slot| {
+            let bar = div()
+                // `flex_none` keeps the one-pixel slot from squashing it.
                 .flex_none()
-                .rounded(cx.theme().radius_full())
-                .bg(cx.theme().muted_foreground)
+                .bg(cx.theme().primary)
                 .opacity(opacity)
-                // Half the overhang, pulled back so the pill straddles the
-                // hairline evenly.
-                .map(|pill| match axis {
-                    Axis::Horizontal => pill
-                        .w(INDICATOR_THICKNESS)
-                        .h(length)
-                        .ml((INDICATOR_THICKNESS - px(1.)) * -0.5),
-                    _ => pill
-                        .h(INDICATOR_THICKNESS)
-                        .w(length)
-                        .mt((INDICATOR_THICKNESS - px(1.)) * -0.5),
+                // Half the overhang, pulled back so the bar straddles the
+                // seam evenly.
+                .map(|bar| match axis {
+                    Axis::Horizontal => bar
+                        .w(thickness)
+                        .h_full()
+                        .ml((thickness - px(1.)) * -0.5),
+                    _ => bar
+                        .h(thickness)
+                        .w_full()
+                        .mt((thickness - px(1.)) * -0.5),
                 });
-            // A hugging handle's hairline is its container's outermost pixel,
-            // so the pill's outer pixel lies past the boundary, where a dock's
-            // clip would take it off. Deferring the pill -- and only the pill,
-            // only while it is up -- paints it after the tree under the
-            // window's mask, so it keeps that pixel. The hairline stays in
-            // tree order: a deferred element paints over the application's own
-            // deferred content, and a divider that cut through a popover
-            // opened from the neighbouring panel is what that looked like.
-            line.child(match handle.edge() {
-                Some(_) => deferred(pill).into_any_element(),
-                None => pill.into_any_element(),
+            // A hugging handle's seam is its container's outermost pixel, so
+            // the bar's outer half lies past the boundary, where a dock's clip
+            // would take it off. Deferring the bar -- and only the bar, only
+            // while it is up -- paints it after the tree under the window's
+            // mask, so it keeps that half. A straddling handle has room for
+            // the overhang inside its own band, and stays in tree order: a
+            // deferred element paints over the application's own deferred
+            // content, and a divider that cut through a popover opened from
+            // the neighbouring panel is what that looked like.
+            slot.child(match handle.edge() {
+                Some(_) => deferred(bar).into_any_element(),
+                None => bar.into_any_element(),
             })
         })
         .into_any_element()
