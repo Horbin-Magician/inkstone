@@ -17,7 +17,7 @@
 
 `inkstone-core` 提供 `inkstone_core` 库，拥有原 `lib.rs` 的全部核心模块；运行、构建和测试依赖均不包含 GPUI。`notify` 在 core 中只用于文件监听测试，平台安全文件操作的 `libc` / `windows-sys` 由 core 持有。Markdown 测试夹具与后台 benchmark 随核心代码放置。
 
-`inkstone-desktop` 单向依赖 core，拥有原 `main.rs` 的桌面模块，二进制目标仍为 `inkstone`。GPUI、原生菜单和应用图标依赖只由 desktop 声明；字素补丁与展示对象集成测试也归入 desktop。macOS build script 在 desktop 内定位根目录 `packaging/macos/Info.plist`，打包脚本继续输出根 `target/` 下的应用。
+`inkstone-desktop` 单向依赖 core，拥有原 `main.rs` 的桌面模块，二进制目标仍为 `inkstone`。GPUI、原生菜单和应用图标依赖只由 desktop 声明；字素补丁与展示对象集成测试也归入 desktop。macOS build script 在 desktop 内定位根目录 `packaging/macos/Info.plist`，打包脚本 `packaging/macos/bundle.sh` 输出根 `target/` 下的应用；正式图标放在 `crates/inkstone-desktop/assets/`，候选设计归入 `docs/design/branding/`。
 
 核心层不得引用 desktop 或 GPUI 类型。共享类型和不依赖 UI 的算法放入 core，涉及 `Entity`、`Window`、焦点和原生图像的适配留在 desktop。包不独立发布，资源和受控依赖按整个仓库构建。
 
