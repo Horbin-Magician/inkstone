@@ -34,6 +34,7 @@ pub struct Tree {
     state: Entity<TreeState>,
     style: StyleRefinement,
     render_item: Rc<RenderItem>,
+    selection_highlight: bool,
     context_menu_builder: Option<Rc<ContextMenuBuilder>>,
 }
 
@@ -47,8 +48,15 @@ impl Tree {
             state: state.clone(),
             style: StyleRefinement::default(),
             render_item: Rc::new(render_item),
+            selection_highlight: true,
             context_menu_builder: None,
         }
+    }
+
+    /// Enable the default selected-row background without changing selection behavior.
+    pub fn selection_highlight(mut self, enabled: bool) -> Self {
+        self.selection_highlight = enabled;
+        self
     }
 
     /// Add a context menu to the tree.
@@ -72,6 +80,7 @@ impl RenderOnce for Tree {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let state = self.state.clone();
         let render_item = self.render_item;
+        let selection_highlight = self.selection_highlight;
         let context_menu_builder = self.context_menu_builder;
         let scroll_handle = self.state.read(cx).scroll_handle().clone();
 
@@ -88,7 +97,7 @@ impl RenderOnce for Tree {
                         let context_menu_state = state.clone();
                         let item = render_item(ix, entry, entry_state.is_selected(), window, cx)
                             .disabled(entry.is_disabled())
-                            .selected(entry_state.is_selected())
+                            .selected(selection_highlight && entry_state.is_selected())
                             .secondary_selected(entry_state.is_right_clicked());
 
                         div()
