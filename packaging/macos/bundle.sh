@@ -16,7 +16,7 @@ if [[ $# -gt 1 ]]; then
     echo "Usage: $0 [--release]" >&2
     exit 1
 fi
-root="$(cd "$(dirname "$0")/.." && pwd)"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 cargo build --locked -p inkstone-desktop --bin inkstone --target-dir "$root/target" ${build_args[@]+"${build_args[@]}"}
 bundle="$root/target/$profile/墨砚.app"
