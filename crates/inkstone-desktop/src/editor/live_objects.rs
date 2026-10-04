@@ -12,8 +12,12 @@ pub(super) struct Widget {
     role: Role,
     numbers: std::collections::BTreeMap<String, usize>,
     targets: Vec<(usize, PathBuf, usize)>,
+    formula: Option<(inkstone_core::graphics::Kind, String)>,
+    measured: Option<crate::native_graphics::MeasuredGraphic>,
     graphic: Option<crate::native_graphics::GraphicResult>,
     graphic_source: Option<SharedString>,
+    raster_font: f32,
+    raster_dpi: f32,
     pub width: f32,
     pub height: f32,
     view: Entity<TextViewState>,
@@ -24,9 +28,10 @@ pub(super) struct Widget {
 impl EditorPane {
     pub(super) fn install_live_objects(
         &mut self,
-        fragments: Vec<(Fragment, Option<crate::native_graphics::GraphicResult>)>,
+        fragments: Vec<(Fragment, Option<crate::native_graphics::MeasuredGraphic>)>,
         cx: &mut Context<Self>,
     ) {
+        let service = crate::native_graphics::Service::get(cx);
         let mut old = std::mem::take(&mut self.live_objects);
         self.live_objects = fragments
             .into_iter()
@@ -37,9 +42,9 @@ impl EditorPane {
                         document,
                         numbers,
                         targets,
-                        graphic: _,
+                        graphic,
                     },
-                    graphic,
+                    measured,
                 )| {
                     let previous = old
                         .iter()
@@ -49,44 +54,86 @@ impl EditorPane {
                                 && w.role == candidate.role
                         })
                         .map(|i| old.remove(i));
-                    let reuse_geometry =
-                        previous
+                    let reuse_geometry = previous.as_ref().is_some_and(|w| {
+                        let same_measure = match (&w.measured, &measured) {
+                            (Some(old), Some(new)) => Arc::ptr_eq(old, new),
+                            (None, None) => true,
+                            _ => false,
+                        };
+                        // Reparsing an unchanged formula can rebuild the measurement
+                        // pointer. Keep the laid-out width and baseline height.
+                        same_measure
+                            || (w.formula.is_some()
+                                && w.formula == graphic
+                                && measured.as_ref().is_some_and(|m| m.is_ok()))
+                    });
+                    let same_raster = previous.as_ref().is_some_and(|w| {
+                        w.raster_font.to_bits() == self.font_size.to_bits()
+                            && w.raster_dpi.to_bits() == self.graphic_dpi.to_bits()
+                    });
+                    let (view, observer, mut width, mut height, mut raster) =
+                        if let Some(previous) = previous {
+                            (
+                                previous.view.clone(),
+                                previous._observer.clone(),
+                                previous.width,
+                                previous.height,
+                                (reuse_geometry && same_raster)
+                                    .then_some(previous.graphic.clone())
+                                    .flatten(),
+                            )
+                        } else {
+                            let view = cx.new(|cx| TextViewState::markdown(&document.markdown, cx));
+                            let observer = Rc::new(cx.observe(&view, |pane, _, cx| {
+                                pane.last_presentation = None;
+                                cx.notify();
+                            }));
+                            (
+                                view,
+                                observer,
+                                self.font_size * 4.,
+                                self.font_size * 1.5,
+                                None,
+                            )
+                        };
+                    if let Some((kind, source)) = graphic.as_ref()
+                        && raster.is_none()
+                    {
+                        raster = service.cached(
+                            *kind,
+                            source,
+                            self.light,
+                            self.font_size,
+                            self.graphic_dpi,
+                        );
+                    }
+                    if !reuse_geometry
+                        && let Some(Ok(asset)) = measured.as_ref().map(|m| m.as_ref().as_ref())
+                    {
+                        let kind = graphic
                             .as_ref()
-                            .is_some_and(|w| match (&w.graphic, &graphic) {
-                                (Some(old), Some(new)) => Arc::ptr_eq(old, new),
-                                (None, None) => true,
-                                _ => false,
-                            });
-                    let (view, observer, width, height) = if let Some(previous) = previous {
-                        (
-                            previous.view.clone(),
-                            previous._observer.clone(),
-                            previous.width,
-                            previous.height,
-                        )
-                    } else {
-                        let view = cx.new(|cx| TextViewState::markdown(&document.markdown, cx));
-                        let observer = Rc::new(cx.observe(&view, |pane, _, cx| {
-                            pane.last_presentation = None;
-                            cx.notify();
-                        }));
-                        (view, observer, self.font_size * 4., self.font_size * 1.5)
-                    };
-                    let (width, height) = graphic
-                        .as_ref()
-                        .filter(|_| !reuse_geometry)
-                        .and_then(|g| g.as_ref().as_ref().ok())
-                        .map_or((width, height), |g| {
-                            (g.width, g.height.max(self.font_size * 1.5))
-                        });
+                            .map(|(kind, _)| *kind)
+                            .unwrap_or(inkstone_core::graphics::Kind::InlineMath);
+                        let scale = crate::native_graphics::scaled(kind, self.font_size);
+                        width = asset.width * scale;
+                        height = (asset.height * scale).max(self.font_size * 1.5);
+                    }
                     Widget {
                         source: candidate.source,
                         block: candidate.block,
                         role: candidate.role,
                         numbers,
                         targets,
-                        graphic_source: graphic.as_ref().map(|_| self.parse_source.clone()),
-                        graphic,
+                        formula: graphic
+                            .filter(|_| measured.as_ref().is_some_and(|measured| measured.is_ok())),
+                        graphic_source: measured
+                            .as_ref()
+                            .filter(|measured| measured.is_ok())
+                            .map(|_| self.parse_source.clone()),
+                        measured,
+                        graphic: raster,
+                        raster_font: self.font_size,
+                        raster_dpi: self.graphic_dpi,
                         width,
                         height,
                         view,
@@ -161,7 +208,7 @@ impl EditorPane {
             .iter()
             .filter(|w| {
                 w.role != Role::Hidden
-                    && (if w.graphic.is_some() {
+                    && (if w.formula.is_some() {
                         w.graphic_source
                             .as_ref()
                             .is_some_and(|s| s.as_ref() == source)
@@ -210,6 +257,131 @@ impl EditorPane {
             .map(|w| w.source.clone())
             .collect()
     }
+
+    pub(crate) fn enqueue_graphic(
+        &mut self,
+        kind: inkstone_core::graphics::Kind,
+        source: String,
+        light: bool,
+        font: f32,
+        dpi: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let service = crate::native_graphics::Service::get(cx);
+        if service.cached(kind, &source, light, font, dpi).is_some() {
+            self.attach_raster(kind, &source, cx);
+            return;
+        }
+        let Some(permit) = service.begin(kind, &source, light, font, dpi) else {
+            return;
+        };
+        let service = service.clone();
+        self.graphic_tasks.push(cx.spawn(async move |this, cx| {
+            let prepared = cx
+                .background_executor()
+                .spawn({
+                    let source = source.clone();
+                    async move { service.prepare(kind, &source, light, font, dpi) }
+                })
+                .await;
+            drop(permit);
+            let _ = this.update(cx, |this, cx| {
+                let _ = prepared;
+                this.attach_raster(kind, &source, cx);
+                // A full batch may have left more visible formulas waiting.
+                this.refresh_visible_graphics(cx);
+            });
+        }));
+    }
+
+    pub(super) fn refresh_visible_graphics(&mut self, cx: &mut Context<Self>) {
+        if self.reading || !self.live || self.editor.read(cx).is_composing() {
+            return;
+        }
+        let pending = {
+            let editor = self.editor.read(cx);
+            let viewport = editor.input_bounds();
+            let slack = viewport.size.height.max(px(self.font_size * 8.));
+            let laid_out = self.live_objects.iter().any(|widget| {
+                editor
+                    .display_object_bounds(widget.source.start as u64)
+                    .is_some()
+            });
+            let mut ordinal = 0usize;
+            self.live_objects
+                .iter()
+                .filter_map(|widget| {
+                    let formula = widget.formula.clone()?;
+                    if widget.graphic.is_some() {
+                        return None;
+                    }
+                    let near = if laid_out {
+                        editor
+                            .display_object_bounds(widget.source.start as u64)
+                            .is_some_and(|bounds| {
+                                bounds.bottom() > viewport.top() - slack
+                                    && bounds.top() < viewport.bottom() + slack
+                            })
+                    } else {
+                        let index = ordinal;
+                        ordinal += 1;
+                        index < 12
+                    };
+                    near.then_some(formula)
+                })
+                .collect::<Vec<_>>()
+        };
+        let (light, font, dpi) = (self.light, self.font_size, self.graphic_dpi);
+        for (kind, source) in pending {
+            self.enqueue_graphic(kind, source, light, font, dpi, cx);
+        }
+    }
+
+    fn attach_raster(
+        &mut self,
+        kind: inkstone_core::graphics::Kind,
+        source: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let service = crate::native_graphics::Service::get(cx);
+        let Some(prepared) =
+            service.cached(kind, source, self.light, self.font_size, self.graphic_dpi)
+        else {
+            return;
+        };
+        let current = self.parse_source.clone();
+        for widget in &mut self.live_objects {
+            if widget
+                .formula
+                .as_ref()
+                .is_some_and(|(widget_kind, text)| *widget_kind == kind && text == source)
+                && widget
+                    .graphic_source
+                    .as_ref()
+                    .is_some_and(|s| s.as_ref() == current.as_ref())
+            {
+                widget.graphic = Some(prepared.clone());
+                widget.raster_font = self.font_size;
+                widget.raster_dpi = self.graphic_dpi;
+            }
+        }
+        if self.reading {
+            self.preview
+                .update(cx, |state, cx| state.invalidate_inline_layout(cx));
+        }
+        // Tables and callouts paint formulas through the reading plugin, so a
+        // finished raster has to invalidate those views as well as the overlay.
+        let nested: Vec<_> = self
+            .live_objects
+            .iter()
+            .filter(|widget| widget.formula.is_none())
+            .map(|widget| widget.view.clone())
+            .collect();
+        for view in nested {
+            view.update(cx, |state, cx| state.invalidate_inline_layout(cx));
+        }
+        cx.notify();
+    }
 }
 
 struct Appearance {
@@ -243,7 +415,7 @@ fn element(
     let task_document = document.clone();
     let task_pane = pane.clone();
     let link_pane = pane.clone();
-    let source_pane = pane;
+    let source_pane = pane.clone();
     let start = widget.source.start;
     let footnote = widget.role == Role::Reference;
     let targets = widget.targets.clone();
@@ -343,6 +515,7 @@ fn element(
                             window.scale_factor(),
                             light,
                             appearance.strict,
+                            pane.clone(),
                             cx,
                         )
                         .footnote_numbers(widget.numbers.clone());
@@ -856,10 +1029,11 @@ mod tests {
                 )
                 .into_iter()
                 .map(|fragment| {
-                    let graphic = fragment.graphic.as_ref().map(|(kind, text)| {
-                        service.prepare(*kind, text, pane.light, pane.font_size, pane.graphic_dpi)
-                    });
-                    (fragment, graphic)
+                    let measured = fragment
+                        .graphic
+                        .as_ref()
+                        .map(|(kind, text)| service.measure_only(*kind, text, pane.light));
+                    (fragment, measured)
                 })
                 .collect();
                 pane.install_live_objects(fragments, cx);
@@ -869,6 +1043,48 @@ mod tests {
                         .iter()
                         .map(|w| (w.width, w.height))
                         .collect::<Vec<_>>()
+                );
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn opening_many_formulas_measures_all_and_rasters_only_the_viewport(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = (0..120)
+            .map(|i| format!("第{i}行 $x^{{{i}}}$\n\n"))
+            .collect::<String>();
+        let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(640.), px(220.)));
+        for _ in 0..16 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                let formulas: Vec<_> = pane
+                    .live_objects
+                    .iter()
+                    .filter(|w| w.formula.is_some())
+                    .collect();
+                assert!(formulas.len() >= 100, "{}", formulas.len());
+                assert!(
+                    formulas
+                        .iter()
+                        .all(|w| w.width > 1. && w.measured.is_some())
+                );
+                let painted = formulas.iter().filter(|w| w.graphic.is_some()).count();
+                assert!(painted >= 1, "the open viewport should still show formulas");
+                assert!(
+                    painted * 3 < formulas.len(),
+                    "painted {painted} of {}",
+                    formulas.len()
+                );
+                assert!(formulas.last().unwrap().graphic.is_none());
+                assert!(
+                    crate::native_graphics::Service::get(cx).raster_count() * 3 < formulas.len()
                 );
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
             })

@@ -51,7 +51,7 @@ impl EditorPane {
             let context_revision = self.context_revision;
             let cached_snapshot = self.syntax_snapshot.clone();
             let graphics = crate::native_graphics::Service::get(cx);
-            let (font, dpi, light) = (self.font_size, self.graphic_dpi, self.light);
+            let light = self.light;
             let task = cx.background_executor().spawn(async move {
                 let snapshot = cached_snapshot
                     .filter(|s| s.source.as_ref() == source.as_ref())
@@ -73,10 +73,11 @@ impl EditorPane {
                     inkstone_core::preview::fragments(&references, &path, snapshot, &reading)
                         .into_iter()
                         .map(|fragment| {
-                            let graphic = fragment.graphic.as_ref().map(|(kind, source)| {
-                                graphics.prepare(*kind, source, light, font, dpi)
-                            });
-                            (fragment, graphic)
+                            let measured = fragment
+                                .graphic
+                                .as_ref()
+                                .map(|(kind, source)| graphics.measure_only(*kind, source, light));
+                            (fragment, measured)
                         })
                         .collect();
                 (initial, reading, fragments)
