@@ -2972,7 +2972,7 @@ fn trashing_a_folder_updates_the_tree_without_rereading_other_notes(cx: &mut Tes
             assert!(
                 w.tabs
                     .iter()
-                    .all(|tab| tab.path != PathBuf::from("资料/note.md"))
+                    .all(|tab| tab.path != std::path::Path::new("资料/note.md"))
             );
             assert!(w.ui.prefs.bookmarks.is_empty());
             assert!(w.ui.prefs.expanded_folders.is_empty());
