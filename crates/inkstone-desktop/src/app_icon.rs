@@ -6,7 +6,7 @@ use objc2_foundation::NSData;
 pub fn init() {
     // GPUI invokes its application callback on the AppKit main thread.
     let mtm = MainThreadMarker::new().expect("application icon requires the main thread");
-    let data = NSData::with_bytes(include_bytes!("../../../assets/branding/inkstone-icon.png"));
+    let data = NSData::with_bytes(include_bytes!("../assets/inkstone-icon.png"));
     let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
         eprintln!("无法解码应用图标");
         return;

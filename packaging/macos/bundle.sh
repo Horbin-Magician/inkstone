@@ -24,10 +24,10 @@ mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 iconset="$root/target/$profile/Inkstone.iconset"
 mkdir -p "$iconset"
 for size in 16 32 128 256 512; do
-    sips -z "$size" "$size" assets/branding/inkstone-icon.png \
+    sips -z "$size" "$size" crates/inkstone-desktop/assets/inkstone-icon.png \
         --out "$iconset/icon_${size}x${size}.png" >/dev/null
     double_size=$((size * 2))
-    sips -z "$double_size" "$double_size" assets/branding/inkstone-icon.png \
+    sips -z "$double_size" "$double_size" crates/inkstone-desktop/assets/inkstone-icon.png \
         --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$iconset" -o "$bundle/Contents/Resources/Inkstone.icns"
