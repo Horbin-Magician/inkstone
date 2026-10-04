@@ -1,6 +1,6 @@
 use core::prelude::v1::test;
 use gpui::{prelude::*, *};
-use gpui_base::input::{DisplayObject, EditorState};
+use gpui_base::input::{DisplayObject, EditorState, LineTypography};
 use gpui_component::input::Editor;
 
 struct Root(Entity<EditorState>);
@@ -8,6 +8,74 @@ impl Render for Root {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div().size_full().child(Editor::new(&self.0).size_full())
     }
+}
+
+#[gpui::test]
+fn projection_merges_formula_heights_per_row_and_preserves_existing_styles(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let source = "# 标题 $a$ $b$\r\n正文 $c$ $d$\r\n$$\r\ne\r\n$$\r\nend";
+    let handle = cx.add_window(|window, cx| {
+        Root(cx.new(|cx| EditorState::new(window, cx).default_value(source)))
+    });
+    handle
+        .update(cx, |root, _, cx| {
+            root.0.update(cx, |state, cx| {
+                let objects = [
+                    ("$a$", 48.),
+                    ("$b$", 72.),
+                    ("$c$", 24.),
+                    ("$d$", 96.),
+                    ("$$\r\ne\r\n$$", 120.),
+                ]
+                .into_iter()
+                .enumerate()
+                .map(|(id, (text, height))| {
+                    let start = source.find(text).unwrap();
+                    DisplayObject {
+                        id: id as u64,
+                        source: start..start + text.len(),
+                        size: size(px(60.), px(height)),
+                        baseline: None,
+                    }
+                })
+                .collect();
+                state.set_display_objects(source, objects, cx);
+                let end = source.find("end").unwrap();
+                let styles = vec![
+                    LineTypography::new(end..end + 3, 1.2, 1.5),
+                    LineTypography::new(0..1, 1.8, 2.),
+                ];
+                let projection = state.display_projection(px(24.), styles);
+                assert_eq!(projection.typography.len(), 4);
+                assert_eq!(
+                    projection.typography[0],
+                    LineTypography::new(end..end + 3, 1.2, 1.5)
+                );
+                assert_eq!(projection.typography[1], LineTypography::new(0..1, 1.8, 3.));
+                let inline = source.find("$c$").unwrap();
+                assert_eq!(
+                    projection.typography[2],
+                    LineTypography::new(inline..inline + 3, 1., 4.)
+                );
+                let block = source.find("$$").unwrap();
+                assert_eq!(
+                    projection.typography[3],
+                    LineTypography::new(block..block + 2, 1., 5.)
+                );
+                assert_eq!(projection.replacements.len(), 5);
+                assert_eq!(
+                    projection.hidden_lines,
+                    vec![
+                        source.find("\r\ne\r\n").unwrap() + 2,
+                        source.rfind("$$").unwrap()
+                    ]
+                );
+                assert_eq!(state.value().as_ref(), source);
+            });
+        })
+        .unwrap();
 }
 
 #[gpui::test]
