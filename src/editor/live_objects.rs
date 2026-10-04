@@ -494,8 +494,30 @@ pub(super) fn overlay(
                     } else {
                         AvailableSpace::MaxContent
                     };
-                    let measured =
+                    let mut measured =
                         view.layout_as_root(size(width, AvailableSpace::MinContent), window, cx);
+                    // Inline images keep their natural size when it fits. Give
+                    // oversized content a definite width so percentage image
+                    // limits resolve before measuring the reserved height.
+                    if !widget.block && measured.width > available {
+                        view = element(
+                            widget,
+                            pane.clone(),
+                            &appearance,
+                            row_height,
+                            available,
+                            window,
+                            cx,
+                        );
+                        measured = view.layout_as_root(
+                            size(
+                                AvailableSpace::Definite(available),
+                                AvailableSpace::MinContent,
+                            ),
+                            window,
+                            cx,
+                        );
+                    }
                     let next_width = f32::from(if widget.block {
                         available
                     } else {
@@ -558,6 +580,53 @@ pub(super) fn overlay(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn large_images_fit_live_editor_and_preserve_aspect_ratio(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!("inkstone-live-image-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        std::fs::write(root.join("large.svg"), r#"<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1200"><rect width="2400" height="1200" fill="red"/></svg>"#).unwrap();
+        let source = "before\n\n![[large.svg]]\n\nafter";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |pane, _, cx| {
+                pane.vault_root = root.clone();
+                pane.set_paths(Arc::new(vec!["large.svg".into()]));
+                cx.notify();
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..12 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                let widget = &pane.live_objects[0];
+                let state = pane.editor.read(cx);
+                let bounds = widget.view.read(cx).bounds();
+                let viewport = state.input_bounds();
+                assert!(
+                    bounds.size.width > px(100.),
+                    "image did not load: {bounds:?}"
+                );
+                assert!(
+                    bounds.right() <= viewport.right(),
+                    "image extends beyond editor: {bounds:?} {viewport:?}"
+                );
+                assert!(
+                    ((bounds.size.width / bounds.size.height) - 2.).abs() < 0.05,
+                    "image aspect ratio changed: {bounds:?}"
+                );
+                assert!((widget.height - f32::from(bounds.size.height)).abs() < 1.);
+                assert_eq!(state.value().as_ref(), source);
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[gpui::test]
     fn ime_keeps_prepared_objects_and_hidden_rows_stable_until_commit_or_cancel(
         cx: &mut TestAppContext,
