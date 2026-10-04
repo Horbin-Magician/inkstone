@@ -1814,27 +1814,20 @@ impl Workspace {
         let tree_foreground = crate::theme::palette(self.ui.prefs.light).muted;
         let tree_active = crate::theme::palette(self.ui.prefs.light).accent;
         let tree_guide = self.border();
+        let guide_depths = self.tree.read(cx).depths();
+        let guide_scroll = self.tree.read(cx).scroll_handle().clone();
         let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
             let path = PathBuf::from(entry.item().id.as_ref());
             let folder = entry.is_folder();
             let weak = weak.clone();
             ListItem::new(i)
-                .h(px(27.))
+                .h(TREE_ROW_HEIGHT)
                 .px_1()
                 .py_0()
                 .rounded(px(4.))
                 .text_size(px(MIN_UI_FONT_SIZE))
                 .text_color(tree_foreground)
                 .accessibility_label(entry.item().label.clone())
-                .children((0..entry.depth()).map(|depth| {
-                    div()
-                        .absolute()
-                        .left(px(12. + depth as f32 * 17.))
-                        .top_0()
-                        .bottom_0()
-                        .w(px(1.))
-                        .bg(tree_guide)
-                }))
                 .child(
                     div()
                         .flex()
@@ -2002,7 +1995,18 @@ impl Workspace {
                             ),
                         ),
                 )
-                .child(div().flex_1().min_h_0().px_3().child(file_tree))
+                .child(
+                    div().flex_1().min_h_0().px_3().child(
+                        // Guides are positioned in this box, not the padded one.
+                        // An absolute child of the padded div aligns to the padding
+                        // edge, 12px left of the rows.
+                        div()
+                            .size_full()
+                            .relative()
+                            .child(file_tree)
+                            .child(file_tree_guides(guide_depths, guide_scroll, tree_guide)),
+                    ),
+                )
             })
             .when(self.ui.left_mode == 1, |s| {
                 s.child(self.saved_search_controls(cx))
@@ -3360,6 +3364,98 @@ impl Workspace {
             )
             .into_any_element()
     }
+}
+
+/// Row height of a file-tree entry. Guide lines use the same pitch so a column
+/// stays one stroke instead of a stack of row-sized segments.
+const TREE_ROW_HEIGHT: Pixels = px(27.);
+/// Horizontal step between nested guide columns, matching the row indent.
+const TREE_INDENT: Pixels = px(17.);
+/// Guide x within a row: `px_1` (4px) plus the center of the 16px chevron.
+const TREE_GUIDE_X: Pixels = px(12.);
+
+/// One continuous indent guide: `depth` is the ancestor column, and the line
+/// covers rows `start..end`.
+struct TreeGuide {
+    depth: usize,
+    start: usize,
+    end: usize,
+}
+
+/// Merge per-row indent marks into column runs.
+///
+/// A row used to paint its own segment, and that segment only covered the
+/// text line, so every row boundary left a gap. A run is every consecutive
+/// span where `depth` stays strictly above the column.
+fn tree_guides(depths: &[usize]) -> Vec<TreeGuide> {
+    let mut guides = Vec::new();
+    // Start row of the open run in each ancestor column, nearest last.
+    let mut open: Vec<Option<usize>> = Vec::new();
+    for (ix, &depth) in depths.iter().enumerate() {
+        while open.len() > depth {
+            if let Some(start) = open.pop().flatten() {
+                guides.push(TreeGuide {
+                    depth: open.len(),
+                    start,
+                    end: ix,
+                });
+            }
+        }
+        while open.len() < depth {
+            open.push(None);
+        }
+        for slot in &mut open {
+            if slot.is_none() {
+                *slot = Some(ix);
+            }
+        }
+    }
+    let len = depths.len();
+    while let Some(start) = open.pop().flatten() {
+        guides.push(TreeGuide {
+            depth: open.len(),
+            start,
+            end: len,
+        });
+    }
+    guides
+}
+
+/// Indent guides for the file tree, one stroke per column.
+///
+/// Painted after the rows so a line is not cut by the next row, and clipped
+/// to the viewport. Disclosure icons sit in a column the line does not cross.
+fn file_tree_guides(
+    depths: Vec<usize>,
+    scroll: gpui::UniformListScrollHandle,
+    color: Rgba,
+) -> AnyElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let guides = tree_guides(&depths);
+            if guides.is_empty() {
+                return;
+            }
+            // Read during paint, after the list has clamped this frame's offset.
+            // A value captured at render time is one frame behind the scroll.
+            let offset_y = scroll.0.borrow().base_handle.offset().y;
+            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                for guide in guides {
+                    let x = bounds.left() + TREE_GUIDE_X + TREE_INDENT * guide.depth as f32;
+                    let top = bounds.top() + offset_y + TREE_ROW_HEIGHT * guide.start as f32;
+                    let height = TREE_ROW_HEIGHT * (guide.end - guide.start) as f32;
+                    window.paint_quad(fill(
+                        Bounds::from_corners(point(x, top), point(x + px(1.), top + height)),
+                        color,
+                    ));
+                }
+            });
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
 }
 
 fn outline_rows(
@@ -4815,5 +4911,21 @@ mod outline_tests {
             vec![2]
         );
         assert!(!outline_rows(&headings, &Default::default(), "")[4].1);
+    }
+}
+
+#[cfg(test)]
+mod tree_guide_tests {
+    use super::tree_guides;
+
+    #[test]
+    fn tree_guides_join_a_column_and_stop_at_the_next_sibling() {
+        // Two expanded folders, the first with a nested child, then a file.
+        let depths = [0, 1, 2, 2, 1, 0, 1, 0];
+        let guides: Vec<_> = tree_guides(&depths)
+            .into_iter()
+            .map(|guide| (guide.depth, guide.start, guide.end))
+            .collect();
+        assert_eq!(guides, vec![(1, 2, 4), (0, 1, 5), (0, 6, 7)]);
     }
 }

@@ -268,6 +268,11 @@ impl TreeState {
         self.entries.get(ix)
     }
 
+    /// Depth of every visible row, in list order.
+    pub fn depths(&self) -> Vec<usize> {
+        self.entries.iter().map(TreeEntry::depth).collect()
+    }
+
     pub fn scroll_handle(&self) -> &UniformListScrollHandle {
         &self.scroll_handle
     }
