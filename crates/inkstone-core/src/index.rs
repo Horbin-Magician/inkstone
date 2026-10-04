@@ -153,24 +153,24 @@ impl Index {
         let mut rebuild_links = false;
         let mut changed = false;
         for (path, text) in known {
-            let exists = vault
+            let metadata = vault
                 .path(&path)
                 .ok()
                 .and_then(|absolute| std::fs::metadata(absolute).ok())
-                .is_some_and(|meta| meta.is_file());
-            if !exists {
+                .filter(|meta| meta.is_file());
+            let Some(metadata) = metadata else {
                 rebuild_links |= self.notes.contains_key(&path);
                 changed |= self.notes.contains_key(&path);
                 self.remove_note(&path);
                 changed |= self.errors.remove(&path).is_some();
                 continue;
-            }
+            };
             changed |= self.errors.remove(&path).is_some();
             if self.notes.get(&path).is_none_or(|note| note.text != text) {
                 rebuild_links |= self.replace_note(path.clone(), text);
                 changed = true;
             }
-            changed |= self.refresh_file_times(vault, &path);
+            changed |= self.set_file_times(&path, (&metadata).into());
         }
         if rebuild_links {
             self.reindex_backlinks();
@@ -325,16 +325,7 @@ impl Index {
         }
         self.reindex_backlinks();
     }
-    fn refresh_file_times(&mut self, vault: &Vault, path: &Path) -> bool {
-        let times = vault
-            .path(path)
-            .ok()
-            .and_then(|p| std::fs::metadata(p).ok())
-            .map(|m| crate::file_order::FileTimes {
-                modified: m.modified().ok(),
-                created: m.created().ok(),
-            })
-            .unwrap_or_default();
+    fn set_file_times(&mut self, path: &Path, times: crate::file_order::FileTimes) -> bool {
         if let Some(note) = self.notes.get_mut(path)
             && note.times != times
         {
@@ -351,14 +342,14 @@ impl Index {
         let mut rebuild_links = false;
         let mut changed = false;
         for path in paths {
-            match vault.read(&path) {
-                Ok(Some(text)) => {
+            match vault.read_indexed(&path) {
+                Ok(Some((text, times))) => {
                     changed |= self.errors.remove(&path).is_some();
                     if self.notes.get(&path).is_none_or(|n| n.text != text) {
                         rebuild_links |= self.replace_note(path.clone(), text);
                         changed = true;
                     }
-                    changed |= self.refresh_file_times(vault, &path);
+                    changed |= self.set_file_times(&path, times);
                 }
                 Ok(None) => {
                     rebuild_links |= self.notes.contains_key(&path);
