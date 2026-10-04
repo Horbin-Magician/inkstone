@@ -1,5 +1,15 @@
 # 测试记录
 
+## Core / Desktop workspace 拆分（2026-10-04）
+
+- 原 library 与 binary 分别迁入 `crates/inkstone-core` 和 `crates/inkstone-desktop`；可执行文件名保持 `inkstone`。103 个原源码、示例与测试文件均有唯一迁移目标，第三方依赖版本未变化。
+- 独立运行 `cargo test --locked -p inkstone-core`：170 项通过、1 项手动基准忽略；`cargo test --locked -p inkstone-desktop`：250 项桌面测试及 6 项集成测试通过、1 项手动基准忽略，总计 426 项通过。
+- `cargo tree --locked --offline -p inkstone-core --edges normal,build,dev` 确认核心的运行、构建和测试依赖均不含 GPUI；workspace 元数据确认两个默认成员，根目录普通测试命令仍覆盖两包。
+- 全 workspace 与独立 core 的 `cargo clippy --locked … --all-targets -- -D warnings` 均通过；`cargo fmt --all --check` 与差异检查通过。根目录 `cargo run --locked --example benchmark -- 100` 完成，作为迁移后入口验证，不用于声明性能提升。
+- `bash scripts/bundle-macos.sh` 构建成功；`codesign --verify --deep --strict` 与 Info.plist 校验通过，二进制保留 `__TEXT,__info_plist` 段。未启动原生窗口，未修改用户笔记。
+- CI 明确执行 workspace 检查，增加 Ubuntu 独立核心任务；YAML 与脚本语法已检查，远程 CI 和 Windows / Linux 实机结果尚未验证。
+
+
 ## 按职责拆分模块（2026-10-04）
 
 - 编辑器拆分为源码编辑、展示更新、阅读导航、视图组装与字数统计；工作区拆分为会话、磁盘同步、笔记文件操作、打开流程、标签、保存、搜索与链接导航；索引拆分为解析、链接与搜索。

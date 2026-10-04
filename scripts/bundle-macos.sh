@@ -18,7 +18,7 @@ if [[ $# -gt 1 ]]; then
 fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
-cargo build --locked --bin inkstone --target-dir "$root/target" ${build_args[@]+"${build_args[@]}"}
+cargo build --locked -p inkstone-desktop --bin inkstone --target-dir "$root/target" ${build_args[@]+"${build_args[@]}"}
 bundle="$root/target/$profile/墨砚.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 iconset="$root/target/$profile/Inkstone.iconset"
