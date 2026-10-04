@@ -914,14 +914,6 @@ impl EditorPane {
                                     )
                                     .is_some_and(|r| r.start < span.content.end);
                         if !revealed {
-                            // Retain the source glyph width and whitespace for stable indentation.
-                            decorations.push(TextDecoration::new(
-                                span.content.clone(),
-                                HighlightStyle {
-                                    color: Some(rgba(0x00000000).into()),
-                                    ..Default::default()
-                                },
-                            ));
                             self.live_lists.push(span.content.clone());
                         }
                         continue;
@@ -1020,6 +1012,14 @@ impl EditorPane {
         }
         self.live_tasks.clear();
         let mut replacements: Vec<_> = concealed.into_iter().map(|range| (range, px(0.))).collect();
+        // Transparent highlights blend with the foreground; they do not hide glyphs.
+        // Replace each bullet source glyph with a reserved slot for the overlay instead.
+        replacements.extend(
+            self.live_lists
+                .iter()
+                .cloned()
+                .map(|range| (range, px(self.font_size * 0.6))),
+        );
         if self.live && !self.parsed.tasks.is_empty() {
             let baseline: Arc<str> = self
                 .rendered
