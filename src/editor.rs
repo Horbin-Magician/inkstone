@@ -897,12 +897,10 @@ impl EditorPane {
                     }
                     Kind::ListMarker => {
                         // Task widgets own their entire prefix, including the bullet.
-                        if self
-                            .parsed
-                            .tasks
-                            .iter()
-                            .any(|task| task.start == span.content.start)
-                        {
+                        if self.parsed.tasks.iter().any(|task| {
+                            task.start <= span.content.start
+                                && span.content.end <= task.marker.start
+                        }) {
                             continue;
                         }
                         let revealed = selections.iter().any(|selection| span.active(selection))
