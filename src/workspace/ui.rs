@@ -1592,7 +1592,20 @@ impl Workspace {
                                 crate::theme::palette(self.ui.prefs.light).muted
                             })
                             .cursor_pointer()
-                            .when(!selected, |s| s.hover(|s| s.bg(rgba(0x88888818))))
+                            .when(!selected, |s| {
+                                s.child(
+                                    div()
+                                        .absolute()
+                                        .top(px(3.))
+                                        .bottom(px(3.))
+                                        .left(px(2.))
+                                        .right(px(2.))
+                                        .rounded(px(6.))
+                                        .group_hover(format!("note-tab-{}", t.id), |style| {
+                                            style.bg(rgba(0x88888818))
+                                        }),
+                                )
+                            })
                             .when(selected, |s| {
                                 s.bg(self.bg())
                                     .border_1()
