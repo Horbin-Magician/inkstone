@@ -4,6 +4,64 @@ use core::prelude::v1::test;
 use std::time::Instant;
 
 #[gpui::test]
+#[ignore = "manual same-host formula performance acceptance"]
+fn formula_frame_performance(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for count in [100, 1000] {
+        let source = (0..count)
+            .map(|i| format!("第{i}行 $\\frac{{x_{{{i}}}^2}}{{1+x_{{{i}}}}}$\n\n"))
+            .collect::<String>();
+        let start = Instant::now();
+        let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1200.), px(820.)));
+        for _ in 0..12 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let open_ms = start.elapsed().as_secs_f64() * 1000.;
+        let mut typing = vec![];
+        let mut scrolling = vec![];
+        for i in 0..25 {
+            let start = Instant::now();
+            handle
+                .update(&mut visual, |p, w, cx| {
+                    p.editor.update(cx, |s, cx| {
+                        let end = s.value().len();
+                        s.set_selected_range(end..end, cx);
+                        s.replace("x", w, cx);
+                    });
+                    p.update_presentation(cx);
+                })
+                .unwrap();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            if i >= 5 {
+                typing.push(start.elapsed().as_secs_f64() * 1000.);
+            }
+            visual.run_until_parked();
+            let start = Instant::now();
+            handle
+                .update(&mut visual, |p, _, cx| {
+                    p.editor.update(cx, |s, cx| {
+                        s.set_scroll_offset(point(px(0.), px(-((i % 15) as f32 * 40.))), cx);
+                    });
+                })
+                .unwrap();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            if i >= 5 {
+                scrolling.push(start.elapsed().as_secs_f64() * 1000.);
+            }
+        }
+        typing.sort_by(f64::total_cmp);
+        scrolling.sort_by(f64::total_cmp);
+        println!(
+            "formula_frame_cpu count={count} open_settle_ms={open_ms:.3} typing_p50_ms={:.3} typing_p95_ms={:.3} scroll_p50_ms={:.3} scroll_p95_ms={:.3}",
+            typing[9], typing[18], scrolling[9], scrolling[18]
+        );
+    }
+}
+
+#[gpui::test]
 #[ignore = "manual same-host frame performance acceptance"]
 fn markdown_frame_performance(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);

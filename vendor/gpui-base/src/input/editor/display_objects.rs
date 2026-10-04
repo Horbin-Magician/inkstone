@@ -1,7 +1,7 @@
 //! Transient source-backed presentation objects, separate from editable tokens.
 use crate::input::{EditorMode, InputBaseState, LineTypography, RopeExt};
 use gpui::{Bounds, Context, Pixels, Size, point, px};
-use std::{ops::Range, rc::Rc};
+use std::{collections::BTreeMap, ops::Range, rc::Rc};
 use sum_tree::Bias;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -166,6 +166,13 @@ impl InputBaseState<EditorMode> {
         mut typography: Vec<LineTypography>,
     ) -> DisplayProjection {
         let mut projection = DisplayProjection::default();
+        // Resolve each anchor's row once. Scanning all prior entries for every
+        // object makes formula-heavy documents quadratic, including rope lookups.
+        let mut rows = BTreeMap::new();
+        for (index, style) in typography.iter().enumerate() {
+            rows.entry(self.text.offset_to_point(style.anchor.start).row)
+                .or_insert(index);
+        }
         for object in self.display_objects.iter() {
             let raw = self.text.slice(object.source.clone()).to_string();
             let first_end = object.source.start + raw.find(['\r', '\n']).unwrap_or(raw.len());
@@ -185,12 +192,11 @@ impl InputBaseState<EditorMode> {
             let row = self.text.offset_to_point(anchor.start).row;
             let scale =
                 (f32::from(object.size.height) / f32::from(base_height).max(1.)).clamp(1., 512.);
-            if let Some(existing) = typography
-                .iter_mut()
-                .find(|s| self.text.offset_to_point(s.anchor.start).row == row)
-            {
+            if let Some(&index) = rows.get(&row) {
+                let existing = &mut typography[index];
                 existing.height_scale = existing.height_scale.max(scale);
             } else {
+                rows.insert(row, typography.len());
                 typography.push(LineTypography::new(anchor, 1., scale));
             }
         }
