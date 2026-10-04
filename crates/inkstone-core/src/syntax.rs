@@ -265,41 +265,71 @@ impl Snapshot {
         // These characters cannot introduce inline markup. GFM's bare www.
         // autolinks are the sole punctuation-based construct left in this set.
         if value.is_empty()
-            || value.ends_with(' ')
+            || value.ends_with([' ', '\t'])
             || value.to_ascii_lowercase().contains("www.")
             || !value.chars().all(|c| {
                 c.is_alphanumeric()
-                    || matches!(c, ' ' | '.' | ',')
+                    || matches!(
+                        c,
+                        ' ' | '\t' | '.' | ',' | ';' | ':' | '!' | '?' | '\'' | '"'
+                    )
                     || (!c.is_ascii() && !c.is_whitespace() && !c.is_control())
             })
         {
             return None;
         }
-        // Changing a line prefix could turn prose into an ordered list.
-        if !value.chars().next()?.is_alphabetic() {
+        // Changing a line prefix could turn prose into a list or heading.
+        let first = value.chars().next()?;
+        if !(first.is_alphabetic() || matches!(first, '\t' | '"' | '\'')) {
             return None;
         }
-        // markdown-rs columns, like offsets, count UTF-8 bytes (not scalars).
-        let columns = delta;
-        fn shift(node: &mut Node, at: usize, line: usize, bytes: isize, columns: isize) {
+        // markdown-rs columns count UTF-8 bytes, except tabs, which advance to
+        // the next four-column stop. Recompute the edited line instead of
+        // assuming every inserted byte moves the column by one.
+        fn shift(node: &mut Node, at: usize, bytes: isize) {
             if let Some(p) = node.position_mut() {
                 for point in [&mut p.start, &mut p.end] {
                     if point.offset >= at {
                         point.offset = point.offset.checked_add_signed(bytes).unwrap();
-                        if point.line == line {
-                            point.column = point.column.checked_add_signed(columns).unwrap();
-                        }
                     }
                 }
             }
             if let Some(children) = node.children_mut() {
                 for child in children {
-                    shift(child, at, line, bytes, columns);
+                    shift(child, at, bytes);
                 }
             }
         }
+        fn column_at(source: &str, offset: usize) -> usize {
+            let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
+            let mut column = 1usize;
+            for ch in source[line_start..offset].chars() {
+                if ch == '\t' {
+                    column += 4 - ((column - 1) % 4);
+                } else {
+                    column += ch.len_utf8();
+                }
+            }
+            column
+        }
+        fn recolumn(node: &mut Node, source: &str, line: usize) {
+            if let Some(p) = node.position_mut() {
+                for point in [&mut p.start, &mut p.end] {
+                    if point.line == line {
+                        point.column = column_at(source, point.offset);
+                    }
+                }
+            }
+            if let Some(children) = node.children_mut() {
+                for child in children {
+                    recolumn(child, source, line);
+                }
+            }
+        }
+        let line = position.end.line;
         let mut ast = self.ast.as_deref()?.clone();
-        shift(&mut ast, old_end, position.end.line, delta, columns);
+        shift(&mut ast, old_end, delta);
+        recolumn(&mut ast, source, line);
         let Node::Paragraph(p) = &mut ast.children_mut()?[index] else {
             return None;
         };
@@ -486,11 +516,16 @@ mod tests {
         let source = "# Heading\n\n中文 paragraph. x";
         let mut snapshot = Snapshot::new(source);
         let mut text = source.to_string();
-        for suffix in ["y", "中", "😀", "a", " e\u{301}"] {
+        for suffix in ["y", "中", "😀", "a", " e\u{301}", "!", "?", ";", ":"] {
             text.push_str(suffix);
             snapshot = snapshot.update_plain_paragraph(&text).unwrap();
             assert_eq!(snapshot.ast, Snapshot::new(&text).ast);
         }
+        let quoted = "\"Hello,\" she said.";
+        let edited = quoted.replacen("Hello", "Hello\tthere", 1);
+        let fast = Snapshot::new(quoted).update_plain_paragraph(&edited);
+        assert!(fast.is_some(), "{edited}");
+        assert_eq!(fast.unwrap().ast, Snapshot::new(&edited).ast);
     }
 
     #[test]
@@ -505,6 +540,12 @@ mod tests {
             ("Text end", "Text\nend"),
             ("Text end", "Text end "),
             ("Text end", "1. Text end"),
+            ("Text end", "- Text end"),
+            ("Text end", "> Text end"),
+            ("Text end", "# Text end"),
+            ("Text end", "Text [end"),
+            ("Text end", "Text `end"),
+            ("Text end", "Text *end"),
             ("Text &amp; end", "Text &amp; ending"),
             ("Text %%comment%% end", "Text %%comment%% ending"),
             ("Text ^[note] end", "Text ^[note] ending"),
