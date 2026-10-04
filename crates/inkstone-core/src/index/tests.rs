@@ -1,5 +1,52 @@
 use super::*;
 #[test]
+fn relocating_a_folder_reuses_note_arcs_and_drops_trashed_paths() {
+    let mut index = Index::default();
+    index.update("keep.md".into(), "keep".into());
+    index.update("old.md".into(), "sibling".into());
+    index.update("old/note.md".into(), "moved".into());
+    index.files = vec![
+        "keep.md".into(),
+        "old/image.png".into(),
+        "old/note.md".into(),
+    ];
+    index
+        .errors
+        .insert("old/bad.md".into(), "unreadable".into());
+    let moved = index.relocate(Path::new("old"), Some(Path::new("archive/new")), true);
+    assert!(std::sync::Arc::ptr_eq(
+        &index.notes[Path::new("keep.md")],
+        &moved.notes[Path::new("keep.md")]
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &index.notes[Path::new("old.md")],
+        &moved.notes[Path::new("old.md")]
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &index.notes[Path::new("old/note.md")],
+        &moved.notes[Path::new("archive/new/note.md")]
+    ));
+    assert_eq!(
+        moved.files,
+        vec![
+            PathBuf::from("archive/new/image.png"),
+            PathBuf::from("archive/new/note.md"),
+            PathBuf::from("keep.md"),
+        ]
+    );
+    assert_eq!(moved.errors[Path::new("archive/new/bad.md")], "unreadable");
+    let trashed = index.relocate(Path::new("old"), None, true);
+    assert!(std::sync::Arc::ptr_eq(
+        &index.notes[Path::new("keep.md")],
+        &trashed.notes[Path::new("keep.md")]
+    ));
+    assert!(!trashed.notes.contains_key(Path::new("old/note.md")));
+    assert_eq!(trashed.files, vec![PathBuf::from("keep.md")]);
+    assert!(trashed.notes.contains_key(Path::new("old.md")));
+    assert!(trashed.errors.is_empty());
+}
+
+#[test]
 fn index_snapshots_share_unchanged_notes_and_isolate_updates() {
     let mut old = Index::default();
     old.update("first.md".into(), "before".into());

@@ -140,6 +140,37 @@ impl Workspace {
         }
         self.sync_reference_contexts(cx);
     }
+    /// Reflect a completed rename or trash in the open index before the watcher reconciles.
+    pub(super) fn apply_relocated_index(
+        &mut self,
+        old: &std::path::Path,
+        new: Option<&std::path::Path>,
+        folder: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if folder {
+            self.ui.folders = self
+                .ui
+                .folders
+                .iter()
+                .filter_map(|path| {
+                    if path == old {
+                        new.map(std::path::Path::to_path_buf)
+                    } else if let Ok(suffix) = path.strip_prefix(old) {
+                        new.map(|parent| parent.join(suffix))
+                    } else {
+                        Some(path.clone())
+                    }
+                })
+                .collect();
+            self.ui.folders.sort();
+            self.ui.folders.dedup();
+            self.folder_revision += 1;
+        }
+        self.index = Arc::new(self.index.relocate(old, new, folder));
+        self.files = self.index.note_paths();
+        self.sync_index_ui(cx);
+    }
 }
 
 // Creation events (including Windows' CreateKind::Any) can describe an empty

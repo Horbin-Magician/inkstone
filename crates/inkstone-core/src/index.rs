@@ -79,6 +79,41 @@ impl Index {
             .into_iter()
             .collect()
     }
+    /// Move or drop indexed paths without rereading notes that stayed in place.
+    /// `new == None` removes the note or folder, as a trash operation does.
+    pub fn relocate(&self, old: &Path, new: Option<&Path>, folder: bool) -> Self {
+        let map_path = |path: &Path| -> Option<PathBuf> {
+            if folder && (path == old || path.starts_with(old)) {
+                let suffix = path.strip_prefix(old).ok()?;
+                Some(new?.join(suffix))
+            } else if !folder && path == old {
+                new.map(Path::to_path_buf)
+            } else {
+                Some(path.to_path_buf())
+            }
+        };
+        Self {
+            notes: self
+                .notes
+                .iter()
+                .filter_map(|(path, note)| map_path(path).map(|path| (path, note.clone())))
+                .collect(),
+            files: {
+                let mut files: Vec<_> = self
+                    .files
+                    .iter()
+                    .filter_map(|path| map_path(path))
+                    .collect();
+                files.sort();
+                files
+            },
+            errors: self
+                .errors
+                .iter()
+                .filter_map(|(path, error)| map_path(path).map(|path| (path, error.clone())))
+                .collect(),
+        }
+    }
     pub fn update(&mut self, path: PathBuf, text: String) {
         self.errors.remove(&path);
         let parsed = parse(&text);

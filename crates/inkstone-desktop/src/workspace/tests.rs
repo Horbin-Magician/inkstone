@@ -2926,6 +2926,79 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn trashing_a_folder_updates_the_tree_without_rereading_other_notes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!(
+        "inkstone-folder-trash-ui-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("资料")).unwrap();
+    std::fs::write(root.join("keep.md"), "# Keep").unwrap();
+    std::fs::write(root.join("资料/note.md"), "# Moved").unwrap();
+    std::fs::write(root.join("资料/image.png"), []).unwrap();
+    let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+    let index = Arc::new(Index::build(&vault).unwrap());
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.vault = Some(vault);
+            w.index = index.clone();
+            w.files = index.note_paths();
+            w.ui.folders = vec!["资料".into()];
+            w.sync_index_ui(cx);
+            w.add_tab(
+                "资料/note.md".into(),
+                Some("# Moved".into()),
+                false,
+                window,
+                cx,
+            );
+            w.ui.prefs.bookmarks.push("资料/note.md".into());
+            w.ui.prefs.expanded_folders.push("资料".into());
+            // A full rebuild would fail while decoding this unchanged note.
+            std::fs::write(root.join("keep.md"), [0xff]).unwrap();
+            w.manage_folder("资料".into(), None, window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |w, _, cx| {
+            assert_eq!(w.status, "文件夹已移入可恢复回收站。");
+            assert!(!w.ui.file_operation);
+            assert!(
+                w.tabs
+                    .iter()
+                    .all(|tab| tab.path != PathBuf::from("资料/note.md"))
+            );
+            assert!(w.ui.prefs.bookmarks.is_empty());
+            assert!(w.ui.prefs.expanded_folders.is_empty());
+            assert!(!w.ui.folders.iter().any(|path| path.starts_with("资料")));
+            assert!(
+                !w.index
+                    .notes
+                    .contains_key(std::path::Path::new("资料/note.md"))
+            );
+            assert!(std::sync::Arc::ptr_eq(
+                &index.notes[std::path::Path::new("keep.md")],
+                &w.index.notes[std::path::Path::new("keep.md")]
+            ));
+            assert!(!w.index.files.contains(&PathBuf::from("资料/image.png")));
+            let tree = w.tree.read(cx);
+            assert!(tree.index_of(&gpui::SharedString::from("资料")).is_none());
+            assert!(
+                tree.index_of(&gpui::SharedString::from("keep.md"))
+                    .is_some()
+            );
+        })
+        .unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
 fn embedded_task_write_checks_the_source_snapshot(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(Workspace::new);
@@ -4305,6 +4378,35 @@ fn folder_creation_updates_tree_before_tick_and_reuses_index(cx: &mut TestAppCon
     handle
         .update(cx, |w, _, _| assert!(Arc::ptr_eq(&index, &w.index)))
         .unwrap();
+
+    // Directory rename/remove used to force a full reread. Reconcile from the listing instead.
+    std::fs::write(root.join("old.md"), "# Original").unwrap();
+    for kind in [
+        notify::EventKind::Modify(notify::event::ModifyKind::Name(
+            notify::event::RenameMode::Any,
+        )),
+        notify::EventKind::Remove(notify::event::RemoveKind::Folder),
+    ] {
+        sender
+            .send(Ok(
+                notify::Event::new(kind).add_path(vault.root.join("parent"))
+            ))
+            .unwrap();
+        handle
+            .update(cx, |w, window, cx| w.tick(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(Arc::ptr_eq(&index, &w.index));
+                assert!(!w.refreshing);
+                assert_eq!(
+                    w.index.notes[std::path::Path::new("old.md")].text,
+                    "# Original"
+                );
+            })
+            .unwrap();
+    }
 
     // A note edit batched with directory creation must still be indexed.
     std::fs::write(root.join("old.md"), "# Changed").unwrap();

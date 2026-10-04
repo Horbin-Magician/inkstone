@@ -137,6 +137,7 @@ impl Workspace {
                 this.tabs[index].save.saving.set(false);
                 match result {
                     Ok((true, path, _)) => {
+                        let removed = this.tabs[index].path.clone();
                         this.status = format!("已移入可恢复回收区：{}", path.display());
                         if this.tabs[index].save.dirty.get() {
                             this.tabs[index].save.conflict.set(true);
@@ -152,6 +153,7 @@ impl Workspace {
                             };
                             this.remove_missing_views();
                         }
+                        this.apply_relocated_index(&removed, None, false, cx);
                     }
                     Ok((false, path, edits)) => {
                         let focus_after = this
@@ -180,12 +182,9 @@ impl Workspace {
                             }
                         }
                         this.relocate_document(&document, path);
-                        this.relocate_navigation(
-                            &old,
-                            Some(&this.tabs[index].path.clone()),
-                            false,
-                            cx,
-                        );
+                        let renamed = this.tabs[index].path.clone();
+                        this.relocate_navigation(&old, Some(&renamed), false, cx);
+                        this.apply_relocated_index(&old, Some(&renamed), false, cx);
                         this.persist_workspace(cx);
                         this.sync_reference_contexts(cx);
                         if focus_after && let Some(pane) = this.current_pane() {
@@ -199,6 +198,7 @@ impl Workspace {
                         this.ui.window_close_requested = false;
                     }
                 }
+                this.structure_changed = true;
                 this.refresh_requested = true;
                 this.tick(window, cx);
                 cx.notify();
