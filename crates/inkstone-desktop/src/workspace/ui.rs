@@ -137,6 +137,7 @@ pub(super) struct UiState {
     pub history: Option<super::recovery::Browser>,
     pub conflict_review: Option<super::conflicts::Review>,
     pub backup: super::backups::State,
+    pub cloud_sync: super::cloud_sync::State,
     pub exporting: bool,
     pub attachment_manager: Option<super::attachments::Manager>,
     pub link_health: Option<super::link_health::Review>,
@@ -473,6 +474,7 @@ impl UiState {
             history: None,
             conflict_review: None,
             backup: Default::default(),
+            cloud_sync: super::cloud_sync::State::new(window, cx),
             exporting: false,
             attachment_manager: None,
             link_health: None,
@@ -4559,6 +4561,11 @@ impl Workspace {
                     "备份与恢复 · 整库备份",
                     "存放位置 手动 每天 每周 自动 校验 SHA-256 backup",
                 ),
+                (
+                    8,
+                    "云同步 · WebDAV",
+                    "服务器 账号 密码 连接 同步 cloud sync",
+                ),
                 (7, "备份与恢复 · 恢复笔记库", "还原 新目录 数据恢复 restore"),
                 (
                     7,
@@ -4629,6 +4636,9 @@ impl Workspace {
                         .children(rows),
                 )
                 .into_any_element();
+        }
+        if self.ui.settings_tab == 8 {
+            return self.cloud_sync_settings_panel(cx);
         }
         if self.ui.settings_tab == 7 {
             return self.backup_settings_panel(cx);

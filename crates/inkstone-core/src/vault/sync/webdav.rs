@@ -6,6 +6,25 @@ use reqwest::{
 };
 use std::{io::Read, time::Duration};
 
+pub(super) fn parse_url(settings: &Settings) -> Result<Url> {
+    let mut root = Url::parse(settings.url.trim()).context("请输入完整的 WebDAV 目录地址")?;
+    ensure!(
+        matches!(root.scheme(), "http" | "https")
+            && root.host_str().is_some()
+            && root.username().is_empty()
+            && root.password().is_none()
+            && root.query().is_none()
+            && root.fragment().is_none(),
+        "WebDAV 地址必须为 HTTP(S) 目录，账号请填写在用户名栏"
+    );
+    if !root.path().ends_with('/') {
+        root.path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("无效目录地址"))?
+            .push("");
+    }
+    Ok(root)
+}
+
 pub struct WebDav {
     client: Client,
     root: Url,
@@ -14,21 +33,7 @@ pub struct WebDav {
 }
 impl WebDav {
     pub fn new(settings: &Settings, password: &str) -> Result<Self> {
-        let mut root = Url::parse(settings.url.trim()).context("请输入完整的 WebDAV 目录地址")?;
-        ensure!(
-            matches!(root.scheme(), "http" | "https")
-                && root.host_str().is_some()
-                && root.username().is_empty()
-                && root.password().is_none()
-                && root.query().is_none()
-                && root.fragment().is_none(),
-            "WebDAV 地址必须为 HTTP(S) 目录，账号请填写在用户名栏"
-        );
-        if !root.path().ends_with('/') {
-            root.path_segments_mut()
-                .map_err(|_| anyhow::anyhow!("无效目录地址"))?
-                .push("");
-        }
+        let root = parse_url(settings)?;
         let client = Client::builder()
             .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(15))

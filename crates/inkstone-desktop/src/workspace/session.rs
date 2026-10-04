@@ -137,6 +137,7 @@ impl Workspace {
 
     pub(super) fn choose_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.ui.pending_file_writes > 0
+            || self.ui.cloud_sync.pending
             || self
                 .tabs
                 .iter()
@@ -169,6 +170,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.ui.pending_file_writes > 0
+            || self.ui.cloud_sync.pending
             || self.ui.backup.pending.is_some()
             || self
                 .tabs
@@ -276,6 +278,7 @@ impl Workspace {
                         let restore_active = prefs.active_path.clone();
                         let restore_active_index = prefs.active_tab_index;
                         this.ui.prefs = prefs;
+                        this.reset_cloud_sync(window, cx);
                         this.ui.font_size_slider.update(cx, |slider, cx| {
                             slider.set_value(this.ui.prefs.font_size, window, cx);
                         });

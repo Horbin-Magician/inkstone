@@ -45,3 +45,10 @@ plutil -lint target/debug/墨砚.app/Contents/Info.plist
 打包脚本迁入 `packaging/macos/`；正式图标归入 `crates/inkstone-desktop/assets/`。脚本语法、workspace 格式检查、macOS debug 构建和打包、签名校验通过。文档整理检查覆盖 11 份文档的本地链接、四份历史记录正文完整性及示例笔记无改动。此次只调整路径和文档，没有启动原生窗口验收，也没有重新运行全量行为测试。
 
 逐步开发与原生验收证据保存在 [历史测试记录](history/TESTING.md)；待完成项统一维护在 [项目状态](STATUS.md)。
+
+## WebDAV 云同步（2026-10-04）
+
+- 核心新增 8 项测试：双设备笔记/二进制附件往返、中文及 URL 特殊字符文件名、修改/重命名/删除、冲突收敛、删除与修改冲突、上传失败重试、损坏内容、路径穿越/大小写/符号链接、端点隔离；本地 HTTP 服务检查认证、条件 PUT、并发拒绝、重定向与弱 ETag 拒绝。
+- 桌面新增本地 WebDAV 服务集成测试：等待未保存草稿、上传最新正文、下载后更新文件列表、配置保存但密码不落盘、清除会话密码、保存错误阻止同步。
+- `cargo test --locked --workspace`：435 项通过、2 项原有手动基准忽略；`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo fmt --all --check` 和 `git diff --check` 通过。
+- 使用临时笔记库，没有操作用户笔记。尚未使用真实服务商账号，也未完成新增面板的原生视觉验收或 Windows/Linux 实机验证。

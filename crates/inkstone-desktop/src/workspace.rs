@@ -16,6 +16,7 @@ mod appearance;
 mod attachments;
 mod backups;
 mod bulk_edit;
+mod cloud_sync;
 mod commands;
 mod conflicts;
 mod document;
@@ -209,6 +210,7 @@ impl Workspace {
         self.finish_pending_navigation(window, cx);
         self.finish_pending_closes(window, cx);
         self.persist_workspace(cx);
+        self.tick_cloud_sync(window, cx);
         self.tick_backups(window, cx);
         self.finish_window_close(window, cx);
     }
