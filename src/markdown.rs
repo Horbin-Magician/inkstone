@@ -198,8 +198,11 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
             return;
         }
         // Use syntax nodes so code, escaped markers and thematic breaks remain literal.
-        if matches!(node, Node::ListItem(_)) && text[range.start..].starts_with(['*', '-', '+']) {
-            let marker = range.start..range.start + 1;
+        let item = text[range.clone()].trim_start_matches([' ', '\t']);
+        if matches!(node, Node::ListItem(_)) && item.starts_with(['*', '-', '+']) {
+            // Tab-indented items may start before their marker in the syntax tree.
+            let start = range.end - item.len();
+            let marker = start..start + 1;
             out.push(Span {
                 kind: Kind::ListMarker,
                 source: marker.clone(),
@@ -507,6 +510,22 @@ mod tests {
                 source.find("* quoted").unwrap()
             ]
         );
+    }
+
+    #[test]
+    fn tab_indented_multilevel_bullets_keep_marker_offsets() {
+        for indent in ["\t", "  ", "    "] {
+            let source = format!(
+                "* 身份认证\n{indent}* 用户\n{indent}{indent}* 租户\n* 生命周期\n{indent}* 实例\n{indent}* Region"
+            );
+            let markers: Vec<_> = spans(&source)
+                .into_iter()
+                .filter(|span| span.kind == Kind::ListMarker)
+                .map(|span| span.content)
+                .collect();
+            let expected: Vec<_> = source.match_indices('*').map(|(i, _)| i..i + 1).collect();
+            assert_eq!(markers, expected, "indent: {indent:?}");
+        }
     }
 
     #[test]

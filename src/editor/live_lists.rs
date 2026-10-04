@@ -83,6 +83,50 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn tab_nested_bullets_render_without_overlapping_task_widgets(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "* 身份认证\n\t* 用户\n\t\t* 租户\n\t* [ ] task\n\nend";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, _, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(source.len()..source.len(), cx)
+                });
+                p.update_presentation(cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..4 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |p, _, cx| {
+                let expected: Vec<_> = source
+                    .match_indices('*')
+                    .take(3)
+                    .map(|(i, _)| i..i + 1)
+                    .collect();
+                assert_eq!(p.live_lists, expected);
+                assert_eq!(p.live_tasks.len(), 1);
+                for marker in &expected {
+                    assert!(p.editor.read(cx).concealed_ranges().contains(marker));
+                }
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+        let mut previous = None;
+        for selector in ["live-list-0", "live-list-16", "live-list-27"] {
+            let bounds = visual.debug_bounds(selector).unwrap();
+            if let Some(left) = previous {
+                assert!(bounds.left() > left);
+            }
+            previous = Some(bounds.left());
+        }
+        assert!(visual.debug_bounds("live-list-37").is_none());
+    }
+
+    #[gpui::test]
     fn bullets_render_reveal_and_leave_tasks_and_source_intact(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source =
