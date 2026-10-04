@@ -1,0 +1,438 @@
+use super::*;
+use gpui_component::{
+    Disableable,
+    button::{Button, ButtonVariants},
+};
+use inkstone_core::vault::sync::{self, Settings, WebDav};
+
+pub(super) struct State {
+    url: Entity<InputState>,
+    username: Entity<InputState>,
+    password: Entity<InputState>,
+    pub pending: bool,
+    busy: bool,
+    message: String,
+}
+impl State {
+    pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
+        Self {
+            url: cx.new(|cx| InputState::new(window, cx).placeholder("https://服务器/dav/笔记库/")),
+            username: cx.new(|cx| InputState::new(window, cx).placeholder("用户名")),
+            password: cx.new(|cx| {
+                let mut input =
+                    InputState::new(window, cx).placeholder("密码或应用专用密码（仅本次会话）");
+                input.set_masked(true, window, cx);
+                input
+            }),
+            pending: false,
+            busy: false,
+            message: String::new(),
+        }
+    }
+}
+impl Workspace {
+    pub(super) fn reset_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = &mut self.ui.cloud_sync;
+        state.pending = false;
+        state.busy = false;
+        state.message.clear();
+        state.url.update(cx, |input, cx| {
+            input.set_value(self.ui.prefs.webdav.url.clone(), window, cx)
+        });
+        state.username.update(cx, |input, cx| {
+            input.set_value(self.ui.prefs.webdav.username.clone(), window, cx)
+        });
+        state
+            .password
+            .update(cx, |input, cx| input.set_value("", window, cx));
+    }
+    fn cloud_message(&mut self, message: String, cx: &mut Context<Self>) {
+        self.status = message.clone();
+        self.ui.cloud_sync.message = message;
+        cx.notify();
+    }
+    fn cloud_settings(&self, cx: &App) -> Settings {
+        Settings {
+            url: self.ui.cloud_sync.url.read(cx).value().trim().to_owned(),
+            username: self.ui.cloud_sync.username.read(cx).value().to_string(),
+        }
+    }
+    fn save_cloud_settings(&mut self, cx: &mut Context<Self>) -> bool {
+        let settings = self.cloud_settings(cx);
+        // URL validation does not perform network access.
+        if let Err(error) = settings.validate() {
+            self.cloud_message(error.to_string(), cx);
+            return false;
+        }
+        self.ui.prefs.webdav = settings;
+        self.persist_workspace(cx);
+        true
+    }
+    fn test_cloud_connection(&mut self, cx: &mut Context<Self>) {
+        if self.ui.cloud_sync.busy || self.ui.cloud_sync.pending || self.vault.is_none() {
+            return;
+        }
+        if !self.save_cloud_settings(cx) {
+            return;
+        }
+        let settings = self.ui.prefs.webdav.clone();
+        let password = self.ui.cloud_sync.password.read(cx).value().to_string();
+        self.ui.cloud_sync.busy = true;
+        self.ui.pending_file_writes += 1;
+        self.cloud_message("正在测试 WebDAV 连接……".into(), cx);
+        let generation = self.generation;
+        let task = cx
+            .background_executor()
+            .spawn(async move { WebDav::new(&settings, &password)?.test_connection() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                if this.generation != generation {
+                    return;
+                }
+                this.ui.cloud_sync.busy = false;
+                this.cloud_message(
+                    match result {
+                        Ok(()) => "WebDAV 连接成功。读写权限与并发保护将在同步时检查。".into(),
+                        Err(error) => format!("连接失败：{error}"),
+                    },
+                    cx,
+                );
+            });
+        })
+        .detach();
+    }
+    fn request_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.vault.is_none()
+            || self.loading
+            || self.ui.cloud_sync.busy
+            || self.ui.cloud_sync.pending
+        {
+            return;
+        }
+        if !self.save_cloud_settings(cx) {
+            return;
+        }
+        self.ui.cloud_sync.pending = true;
+        self.save_all(window, cx);
+        self.cloud_message("等待笔记保存后开始同步……".into(), cx);
+        self.tick_cloud_sync(window, cx);
+    }
+    pub(super) fn tick_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.ui.cloud_sync.pending || self.ui.cloud_sync.busy || self.loading {
+            return;
+        }
+        if self
+            .tabs
+            .iter()
+            .any(|t| t.save.conflict.get() || t.save.error.borrow().is_some())
+            || self.ui.persist_error.is_some()
+        {
+            self.ui.cloud_sync.pending = false;
+            self.cloud_message("同步未开始：请先处理笔记冲突或保存错误。".into(), cx);
+            return;
+        }
+        if self.ui.file_operation
+            || self.ui.pending_file_writes > 0
+            || self.ui.persisting
+            || self.refreshing
+            || self
+                .tabs
+                .iter()
+                .any(|t| t.save.saving.get() || self.has_pending_input(t.id, window, cx))
+        {
+            return;
+        }
+        self.flush_document_views(window, cx);
+        if self.tabs.iter().any(|t| t.save.dirty.get()) {
+            self.save_all(window, cx);
+            return;
+        }
+        let Some(vault) = self.vault.clone() else {
+            self.ui.cloud_sync.pending = false;
+            return;
+        };
+        let settings = self.ui.prefs.webdav.clone();
+        let password = self.ui.cloud_sync.password.read(cx).value().to_string();
+        self.ui.cloud_sync.pending = false;
+        self.ui.cloud_sync.busy = true;
+        self.ui.file_operation = true;
+        self.ui.pending_file_writes += 1;
+        self.cloud_message("正在同步笔记与附件……".into(), cx);
+        let generation = self.generation;
+        let task = cx.background_executor().spawn(async move {
+            let remote = WebDav::new(&settings, &password)?;
+            remote.prepare()?;
+            sync::synchronize(&vault, &remote, &remote.identity())
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                if this.generation != generation { return; }
+                this.ui.file_operation = false;
+                this.ui.cloud_sync.busy = false;
+                let message = match result {
+                    Ok(report) => {
+                        let conflicts = if report.conflicts.is_empty() { String::new() } else {
+                            format!("；{} 项冲突已保留修改版本：{}", report.conflicts.len(), report.conflicts.join("、"))
+                        };
+                        format!("同步完成：上传 {} 个内容对象，下载 {} 个文件，删除 {} 个文件{conflicts}", report.uploaded, report.downloaded, report.deleted)
+                    }
+                    Err(error) => format!("同步未完成：{error}。已完成的传输会保留，可重试。"),
+                };
+                this.cloud_message(message, cx);
+                // Even a partially completed sync can have changed files. Refresh open
+                // documents through the existing external-change/conflict mechanism.
+                this.rescan = true;
+                this.refresh_requested = true;
+                this.refresh(window, cx);
+            });
+        }).detach();
+    }
+    pub(super) fn cloud_sync_settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let state = &self.ui.cloud_sync;
+        let disabled = self.vault.is_none() || self.loading || state.busy || state.pending;
+        div().flex().flex_1().min_h_0().child(self.settings_nav(cx)).child(
+            self.settings_content().gap_3()
+                .child("云同步 · WebDAV")
+                .child("在各设备填写同一个已存在的 WebDAV 目录；不同笔记库请使用不同目录。")
+                .child("服务器目录地址")
+                .child(Input::new(&state.url).disabled(disabled))
+                .child("用户名")
+                .child(Input::new(&state.username).disabled(disabled))
+                .child("密码 / 应用专用密码")
+                .child(Input::new(&state.password).disabled(disabled))
+                .child("密码仅在本次会话中保留，切换笔记库或重启后需重新输入。建议使用 HTTPS。")
+                .child(div().flex().gap_2()
+                    .child(Button::new("webdav-save").label("保存配置").disabled(disabled).on_click(cx.listener(|this, _, _, cx| {
+                        if this.save_cloud_settings(cx) { this.cloud_message("同步配置已更新；密码不会写入配置。".into(), cx); }
+                    })))
+                    .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
+                    .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
+                .child("手动双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
+                .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB，一次下载上限 512 MiB。")
+                .when(!state.message.is_empty(), |s| s.child(state.message.clone()))
+        ).into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use std::{
+        collections::BTreeMap,
+        io::{BufRead, BufReader, Read, Write},
+        net::TcpListener,
+        sync::{
+            Mutex,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+
+    struct Server {
+        url: String,
+        files: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
+        stop: Arc<AtomicBool>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+    impl Server {
+        fn new() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let url = format!("http://{}/", listener.local_addr().unwrap());
+            let files = Arc::new(Mutex::new(BTreeMap::<String, Vec<u8>>::new()));
+            let storage = files.clone();
+            let stop = Arc::new(AtomicBool::new(false));
+            let done = stop.clone();
+            let thread = std::thread::spawn(move || {
+                let mut revision = 0;
+                while !done.load(Ordering::Relaxed) {
+                    let Ok((mut socket, _)) = listener.accept() else {
+                        std::thread::sleep(Duration::from_millis(2));
+                        continue;
+                    };
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut reader = BufReader::new(&mut socket);
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    let parts: Vec<_> = line.split_whitespace().collect();
+                    let (method, path) = (parts[0].to_string(), parts[1].to_string());
+                    let mut headers = BTreeMap::new();
+                    loop {
+                        line.clear();
+                        reader.read_line(&mut line).unwrap();
+                        if line == "\r\n" {
+                            break;
+                        }
+                        let (key, value) = line.split_once(':').unwrap();
+                        headers.insert(key.to_lowercase(), value.trim().to_string());
+                    }
+                    let size = headers
+                        .get("content-length")
+                        .map(|n| n.parse().unwrap())
+                        .unwrap_or(0);
+                    let mut body = vec![0; size];
+                    reader.read_exact(&mut body).unwrap();
+                    let mut files = storage.lock().unwrap();
+                    let mut output = vec![];
+                    let status = match method.as_str() {
+                        "PROPFIND" => "207 Multi-Status",
+                        "MKCOL" => "201 Created",
+                        "GET" => match files.get(&path) {
+                            Some(b) => {
+                                output = b.clone();
+                                "200 OK"
+                            }
+                            None => "404 Not Found",
+                        },
+                        "PUT" => {
+                            if headers.get("if-none-match").is_some_and(|v| v == "*")
+                                && files.contains_key(&path)
+                                || headers
+                                    .get("if-match")
+                                    .is_some_and(|v| *v != format!("\"{revision}\""))
+                            {
+                                "412 Precondition Failed"
+                            } else {
+                                files.insert(path.clone(), body);
+                                if path.ends_with("manifest.json") {
+                                    revision += 1;
+                                }
+                                "201 Created"
+                            }
+                        }
+                        _ => "405 Method Not Allowed",
+                    };
+                    write!(socket, "HTTP/1.1 {status}\r\nETag: \"{revision}\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", output.len()).unwrap();
+                    socket.write_all(&output).unwrap();
+                }
+            });
+            Self {
+                url,
+                files,
+                stop,
+                thread: Some(thread),
+            }
+        }
+    }
+    impl Drop for Server {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            self.thread.take().unwrap().join().unwrap();
+        }
+    }
+
+    #[gpui::test]
+    fn sync_saves_drafts_downloads_refreshes_and_never_persists_password(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-cloud-ui-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("local")).unwrap();
+        std::fs::create_dir_all(root.join("source")).unwrap();
+        std::fs::write(root.join("local/note.md"), "old").unwrap();
+        std::fs::write(root.join("source/remote.md"), "downloaded").unwrap();
+        let source = Vault::open(root.join("source"), root.join("recovery")).unwrap();
+        let settings = Settings {
+            url: server.url.clone(),
+            username: "user".into(),
+        };
+        let remote = WebDav::new(&settings, "secret").unwrap();
+        remote.prepare().unwrap();
+        sync::synchronize(&source, &remote, &remote.identity()).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("local"), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.open_note("note.md".into(), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.cloud_sync
+                    .url
+                    .update(cx, |s, cx| s.set_value(server.url.clone(), window, cx));
+                w.ui.cloud_sync
+                    .username
+                    .update(cx, |s, cx| s.set_value("user", window, cx));
+                w.ui.cloud_sync.password.update(cx, |s, cx| {
+                    s.set_value("never-persist-this-secret", window, cx)
+                });
+                w.tabs[w.active.unwrap()]
+                    .save
+                    .editor
+                    .update(cx, |s, cx| s.replace_all("latest draft", window, cx));
+                w.request_cloud_sync(window, cx);
+            })
+            .unwrap();
+        for _ in 0..8 {
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, window, cx| w.tick(window, cx))
+                .unwrap();
+        }
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(
+                    !w.ui.cloud_sync.busy && !w.ui.cloud_sync.pending,
+                    "{}",
+                    w.ui.cloud_sync.message
+                );
+                assert!(
+                    w.ui.cloud_sync.message.starts_with("同步完成"),
+                    "{}",
+                    w.ui.cloud_sync.message
+                );
+                assert_eq!(w.ui.pending_file_writes, 0);
+                assert!(!w.ui.file_operation);
+                assert!(w.files.contains(&PathBuf::from("remote.md")));
+                assert_eq!(
+                    std::fs::read_to_string(root.join("local/note.md")).unwrap(),
+                    "latest draft"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(root.join("local/remote.md")).unwrap(),
+                    "downloaded"
+                );
+                let saved =
+                    std::fs::read_to_string(root.join("local/.inkstone-workspace.json")).unwrap();
+                assert!(saved.contains(&server.url));
+                assert!(!saved.contains("never-persist-this-secret"));
+                w.reset_cloud_sync(window, cx);
+                assert!(w.ui.cloud_sync.password.read(cx).value().is_empty());
+                w.ui.persist_error = Some("disk full".into());
+                w.ui.cloud_sync.pending = true;
+                w.tick_cloud_sync(window, cx);
+                assert!(!w.ui.cloud_sync.pending);
+                assert!(w.ui.cloud_sync.message.starts_with("同步未开始"));
+                w.watcher = None;
+            })
+            .unwrap();
+        assert!(
+            server
+                .files
+                .lock()
+                .unwrap()
+                .values()
+                .any(|v| v == b"latest draft")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

@@ -280,6 +280,7 @@ impl Workspace {
                     (0, "编辑器", "pencil"),
                     (2, "文件与链接", "folder"),
                     (7, "备份与恢复", "history"),
+                    (8, "云同步", "folder"),
                     (1, "快捷键", "command"),
                 ]
                 .into_iter()

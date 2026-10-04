@@ -102,7 +102,8 @@ impl Workspace {
             return false;
         }
         self.snapshot_views(cx);
-        let pending = self.ui.backup.pending.is_some()
+        let pending = self.ui.cloud_sync.pending
+            || self.ui.backup.pending.is_some()
             || self.ui.pending_file_writes > 0
             || self.tabs.iter().any(|t| {
                 t.save.dirty.get()

@@ -12,11 +12,17 @@ const MAX_TOTAL_BYTES: usize = 512 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 type Files = BTreeMap<String, String>;
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub url: String,
     pub username: String,
+}
+
+impl Settings {
+    pub fn validate(&self) -> Result<()> {
+        webdav::parse_url(self).map(|_| ())
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

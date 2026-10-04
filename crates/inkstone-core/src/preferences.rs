@@ -70,6 +70,7 @@ impl Default for ViewState {
 pub struct Preferences {
     pub saved_searches: Vec<SavedSearch>,
     pub backup: crate::vault::backup::Preferences,
+    pub webdav: crate::vault::sync::Settings,
     pub history: crate::vault::Retention,
     pub tags: crate::tags::Options,
     pub property_types: std::collections::BTreeMap<String, crate::properties::Kind>,
@@ -133,6 +134,7 @@ impl Default for Preferences {
             saved_searches: vec![],
             tags: Default::default(),
             backup: Default::default(),
+            webdav: Default::default(),
             history: Default::default(),
             property_types: Default::default(),
             hotkeys: Default::default(),
