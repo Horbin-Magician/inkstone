@@ -69,6 +69,7 @@ fn validate_path(path: &str) -> Result<()> {
     for part in path.split('/') {
         ensure!(
             !part.is_empty()
+                && part.len() <= 255
                 && !part.starts_with('.')
                 && !part.ends_with([' ', '.'])
                 && !part
@@ -255,7 +256,10 @@ pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Resul
             "云端文件校验失败：{path}"
         );
         total += bytes.len();
-        ensure!(total <= MAX_TOTAL_BYTES, "本次下载超过 512 MiB，请分批同步");
+        ensure!(
+            total <= MAX_TOTAL_BYTES,
+            "本次下载超过 512 MiB，当前版本暂不支持"
+        );
         // Reject symlinks, aliases and file/directory collisions before remote publication.
         let target = vault.regular_file_path(Path::new(path))?;
         ensure!(
@@ -314,10 +318,24 @@ fn apply(
     // Every displaced byte is retained in a hidden sibling. This also captures writes
     // in the compare/rename race; unlike remove_file, deletion never destroys content.
     let backup = parent.join(format!(".inkstone-sync-{}.backup", unique_id()));
+    if baseline.is_some() {
+        // Keep recovery files self-describing even if the process stops mid-apply.
+        write_new_synced(
+            &backup.with_extension("backup.json"),
+            &serde_json::to_vec(
+                &serde_json::json!({"original": relative, "backup": backup.file_name().and_then(|n| n.to_str()), "sha256": baseline}),
+            )?,
+        )?;
+    }
     if let Some(bytes) = bytes {
         let temp = parent.join(format!(".inkstone-sync-{}.tmp", unique_id()));
         write_new_synced(&temp, bytes)?;
         let result = (|| -> Result<()> {
+            #[cfg(unix)]
+            if baseline.is_some() {
+                fs::set_permissions(&temp, fs::metadata(&path)?.permissions())?;
+                fs::File::open(&temp)?.sync_all()?;
+            }
             if baseline.is_some() {
                 replace_with_backup(&path, &temp, &backup)?;
             } else {
