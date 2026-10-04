@@ -16,6 +16,15 @@ pub struct FileTimes {
     pub created: Option<SystemTime>,
 }
 
+impl From<&std::fs::Metadata> for FileTimes {
+    fn from(metadata: &std::fs::Metadata) -> Self {
+        Self {
+            modified: metadata.modified().ok(),
+            created: metadata.created().ok(),
+        }
+    }
+}
+
 pub fn natural_name(a: &str, b: &str) -> Ordering {
     let left = a.to_lowercase();
     let right = b.to_lowercase();

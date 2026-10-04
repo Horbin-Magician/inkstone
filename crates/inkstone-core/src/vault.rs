@@ -8,7 +8,7 @@ pub use history::{HistoryEntry, Retention};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
@@ -648,6 +648,22 @@ impl Vault {
     }
     pub fn read(&self, relative: &Path) -> Result<Option<String>, VaultError> {
         read_optional(&self.path(relative)?)
+    }
+    /// Read index content and timestamps from one validated, opened file.
+    pub(crate) fn read_indexed(
+        &self,
+        relative: &Path,
+    ) -> Result<Option<(String, crate::file_order::FileTimes)>, VaultError> {
+        let mut file = match fs::File::open(self.path(relative)?) {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        let metadata = file.metadata()?;
+        let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
+        file.read_to_end(&mut bytes)?;
+        let text = String::from_utf8(bytes).map_err(|_| VaultError::InvalidUtf8)?;
+        Ok(Some((text, (&metadata).into())))
     }
     pub fn scan(&self) -> Result<Vec<PathBuf>, VaultError> {
         Ok(self

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -13,16 +14,16 @@ use std::{
 const VERSION: u32 = 1;
 
 #[derive(Serialize, Deserialize)]
-struct Cache {
+struct Cache<T = ParsedNote> {
     version: u32,
     root: PathBuf,
-    notes: BTreeMap<PathBuf, CachedNote>,
+    notes: BTreeMap<PathBuf, CachedNote<T>>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct CachedNote {
+struct CachedNote<T = ParsedNote> {
     digest: [u8; 32],
-    parsed: ParsedNote,
+    parsed: T,
 }
 
 fn digest(text: &str) -> [u8; 32] {
@@ -74,8 +75,8 @@ impl Index {
         let mut hits = 0usize;
         let mut misses = 0usize;
         for path in paths {
-            match vault.read(&path) {
-                Ok(Some(text)) => {
+            match vault.read_indexed(&path) {
+                Ok(Some((text, times))) => {
                     // Check content, not just size/mtime: sync tools can preserve timestamps.
                     let parsed = cached
                         .remove(&path)
@@ -93,10 +94,9 @@ impl Index {
                         Arc::new(IndexedNote {
                             text,
                             parsed,
-                            times: Default::default(),
+                            times,
                         }),
                     );
-                    index.refresh_file_times(vault, &path);
                 }
                 Ok(None) => (),
                 Err(error) => {
@@ -124,18 +124,19 @@ impl Index {
                         path.clone(),
                         CachedNote {
                             digest: digest(&note.text),
-                            parsed: note.parsed.clone(),
+                            parsed: &note.parsed,
                         },
                     )
                 })
                 .collect(),
         };
-        let bytes = serde_json::to_vec(&cache)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         // A partial write is harmless: the next load falls back to a fresh build.
-        std::fs::write(path, bytes)
+        let mut writer = BufWriter::with_capacity(64 * 1024, std::fs::File::create(path)?);
+        serde_json::to_writer(&mut writer, &cache)?;
+        writer.flush()
     }
 }
 
