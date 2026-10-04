@@ -67,6 +67,11 @@ fn stem_key(path: &Path) -> String {
         .to_lowercase()
 }
 impl Index {
+    pub(crate) fn has_unique_stem(&self, path: &Path) -> bool {
+        self.by_stem
+            .get(&stem_key(path))
+            .is_some_and(|paths| paths.len() == 1)
+    }
     pub fn anchor_range(&self, path: &Path, fragment: &str) -> Option<Range<usize>> {
         let note = self.notes.get(path)?;
         anchor_range(&note.text, &note.parsed, fragment)

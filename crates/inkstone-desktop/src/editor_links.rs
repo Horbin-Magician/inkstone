@@ -5,7 +5,7 @@ use inkstone_core::index::ParsedNote;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 pub type ParsedCache = Rc<RefCell<(SharedString, ParsedNote)>>;
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CompletionPath {
     pub label: String,
     pub target: String,
