@@ -65,12 +65,12 @@ pub fn compare(
     if folders != Ordering::Equal {
         return folders;
     }
-    let names = natural_name(a.0, b.0);
     if by == SortBy::Name {
+        let names = natural_name(a.0, b.0);
         return if descending { names.reverse() } else { names };
     }
     if a.1 {
-        return names;
+        return natural_name(a.0, b.0);
     }
     let (a_time, b_time) = match by {
         SortBy::Modified => (a.2.modified, b.2.modified),
@@ -88,7 +88,7 @@ pub fn compare(
         (None, Some(_)) => Ordering::Greater,
         _ => Ordering::Equal,
     };
-    times.then(names)
+    times.then_with(|| natural_name(a.0, b.0))
 }
 
 #[cfg(test)]

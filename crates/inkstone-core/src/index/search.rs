@@ -1,6 +1,6 @@
 //! Filename ranking and bounded, ordered full-text search.
 
-use super::{Index, SearchHit, key};
+use super::{Index, SearchHit};
 
 impl Index {
     pub fn filenames(&self, query: &str) -> Vec<SearchHit> {
@@ -33,30 +33,35 @@ impl Index {
                     continue;
                 };
                 if best.as_ref().is_none_or(|(old, _)| rank < *old) {
-                    best = Some((rank, Some(alias.clone())));
+                    best = Some((rank, Some(alias)));
                 }
             }
             if let Some((rank, display_name)) = best {
-                matches.push((
-                    rank,
-                    key(path),
-                    SearchHit {
-                        path: path.clone(),
-                        display_name,
-                        offset: 0,
-                        line: 1,
-                        excerpt: String::new(),
-                        highlights: vec![],
-                        title_highlights: vec![],
-                    },
-                ));
+                matches.push((rank, path_key, path, display_name));
             }
         }
-        matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        let compare =
+            |a: &(u8, &String, &std::path::PathBuf, Option<&String>),
+             b: &(u8, &String, &std::path::PathBuf, Option<&String>)| {
+                a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1))
+            };
+        // Rank only the visible prefix and allocate owned hits for that prefix.
+        if matches.len() > 200 {
+            matches.select_nth_unstable_by(200, compare);
+            matches.truncate(200);
+        }
+        matches.sort_unstable_by(compare);
         matches
             .into_iter()
-            .take(200)
-            .map(|(_, _, hit)| hit)
+            .map(|(_, _, path, display_name)| SearchHit {
+                path: path.clone(),
+                display_name: display_name.cloned(),
+                offset: 0,
+                line: 1,
+                excerpt: String::new(),
+                highlights: vec![],
+                title_highlights: vec![],
+            })
             .collect()
     }
     #[cfg(test)]
@@ -107,12 +112,26 @@ impl Index {
         }
         let query = crate::search::Query::parse_with_case(query, case_sensitive)?;
         let mut hits = vec![];
+        // Before reaching the cap, discard nonmatches without sorting them.
+        // Once enough documents match, defer the rest of the matching until
+        // after sorting so common queries can stop early. Every matching note
+        // produces at least one hit, including metadata-only matches.
+        let mut confirmed = 0;
         let mut notes: Vec<_> = self
             .notes
             .iter()
-            .filter(|(path, note)| query.matches(path, &note.text, &note.parsed.tags))
+            .filter_map(|(path, note)| {
+                if confirmed == limit {
+                    Some((path, note, false))
+                } else if query.matches(path, &note.text, &note.parsed.tags) {
+                    confirmed += 1;
+                    Some((path, note, true))
+                } else {
+                    None
+                }
+            })
             .collect();
-        notes.sort_by(|(a, an), (b, bn)| {
+        notes.sort_by(|(a, an, _), (b, bn, _)| {
             crate::file_order::compare(
                 (&a.to_string_lossy(), false, an.times),
                 (&b.to_string_lossy(), false, bn.times),
@@ -120,7 +139,10 @@ impl Index {
                 descending,
             )
         });
-        for (path, note) in notes {
+        for (path, note, matched) in notes {
+            if !matched && !query.matches(path, &note.text, &note.parsed.tags) {
+                continue;
+            }
             let title_highlights = query.title_highlights(path, &note.text, &note.parsed.tags);
             let before = hits.len();
             for found in

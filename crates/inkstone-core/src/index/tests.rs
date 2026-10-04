@@ -17,6 +17,59 @@ fn assert_lookup_matches_rebuild(index: &Index) {
 }
 
 #[test]
+fn limited_search_is_a_prefix_for_every_sort_and_query_shape() {
+    use crate::file_order::SortBy;
+    let mut index = Index::default();
+    for i in 0..75 {
+        let path = PathBuf::from(format!("资料/Note{i}.md"));
+        index.update(
+            path.clone(),
+            format!("---\nstatus: done\n---\n# 标题\n目标 {i}\n目标 again\n"),
+        );
+        let note = Arc::make_mut(index.notes.get_mut(&path).unwrap());
+        note.times.modified =
+            (i % 4 != 0).then(|| std::time::UNIX_EPOCH + std::time::Duration::from_secs(i % 9));
+        note.times.created =
+            (i % 3 != 0).then(|| std::time::UNIX_EPOCH + std::time::Duration::from_secs(i % 7));
+    }
+    for by in [SortBy::Name, SortBy::Modified, SortBy::Created] {
+        for descending in [false, true] {
+            for query in [
+                "目标",
+                "file:Note",
+                "-[missing]",
+                "[status:done]",
+                "line:(目标 again)",
+                "目标 -content:74",
+                "不存在",
+            ] {
+                let all = index
+                    .search_limited(query, false, by, descending, usize::MAX)
+                    .unwrap();
+                for limit in [0, 1, 17, 74, 100, 200] {
+                    let limited = index
+                        .search_limited(query, false, by, descending, limit)
+                        .unwrap();
+                    let signature = |hit: &SearchHit| {
+                        (
+                            hit.path.clone(),
+                            hit.offset,
+                            hit.line,
+                            hit.excerpt.clone(),
+                            hit.highlights.clone(),
+                        )
+                    };
+                    assert_eq!(
+                        limited.iter().map(signature).collect::<Vec<_>>(),
+                        all.iter().take(limit).map(signature).collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn incremental_links_match_rebuild_and_body_edits_share_lookup_maps() {
     let mut index = Index::default();
     for (path, text) in [
