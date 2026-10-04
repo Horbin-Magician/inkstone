@@ -6,20 +6,20 @@ impl Index {
     pub fn filenames(&self, query: &str) -> Vec<SearchHit> {
         let query = query.trim().replace('\\', "/").to_lowercase();
         let mut matches = Vec::new();
-        for (path, note) in &self.notes {
-            let stem = path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_lowercase();
+        for (path_key, path) in &self.by_path {
+            let file = path_key.rsplit('/').next().unwrap_or(path_key);
+            let stem = file.strip_suffix(".md").unwrap_or(file);
             let mut best = if stem == query {
                 Some((0, None))
             } else if stem.starts_with(&query) {
                 Some((2, None))
-            } else if key(path).contains(&query) {
+            } else if path_key.contains(&query) {
                 Some((4, None))
             } else {
                 None
+            };
+            let Some(note) = self.notes.get(path) else {
+                continue;
             };
             for alias in &note.parsed.aliases {
                 let name = alias.to_lowercase();
