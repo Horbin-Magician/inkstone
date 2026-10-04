@@ -285,7 +285,8 @@ impl Workspace {
             for editor in changed{this.document_changed(editor,w,cx);}
             let message=format!("已修改 {} 篇笔记；失败 {} 篇；{} 篇处理中产生的新编辑已保留为冲突。可在各笔记版本历史查看修改前内容。{}",result.written.len(),result.errors.len(),conflicts,result.errors.join("；"));
             this.status=message.clone();if let Some(r)=&mut this.ui.bulk_edit{r.loading=false;r.message=message;}
-            this.refresh_requested=true;this.rescan=true;cx.notify();
+            for edit in &result.written { this.changed_paths.insert(edit.path.clone()); }
+            this.refresh_requested=true;cx.notify();
         });}).detach();
         cx.notify();
     }

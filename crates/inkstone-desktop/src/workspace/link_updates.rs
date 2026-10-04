@@ -69,8 +69,8 @@ impl Workspace {
                 }
                 this.status = format!("已更新 {} 篇笔记的内部链接。", written.len());
                 let mut changed = vec![];
-                for (path, before, after) in written {
-                    let Some(id) = this.tabs.iter().find(|t| t.path == path).map(|t| t.id) else {
+                for (path, before, after) in &written {
+                    let Some(id) = this.tabs.iter().find(|t| t.path == *path).map(|t| t.id) else {
                         continue;
                     };
                     let composing = this.has_pending_input(id, w, cx);
@@ -78,8 +78,8 @@ impl Workspace {
                     let editor = tab.save.editor.clone();
                     if tab.save.dirty.get()
                         || composing
-                        || tab.save.baseline.borrow().as_deref() != Some(&before)
-                        || editor.read(cx).value().as_ref() != before
+                        || tab.save.baseline.borrow().as_deref() != Some(before.as_str())
+                        || editor.read(cx).value().as_ref() != before.as_str()
                     {
                         tab.save.conflict.set(true);
                         tab.save.dirty.set(true);
@@ -90,7 +90,7 @@ impl Workspace {
                         editor.update(cx, |s, cx| {
                             let selected = s.selected_range();
                             let scroll = s.scroll_offset();
-                            s.set_value(after, w, cx);
+                            s.set_value(after.clone(), w, cx);
                             s.set_selected_range(selected, cx);
                             s.set_scroll_offset(scroll, cx);
                         });
@@ -109,7 +109,9 @@ impl Workspace {
                         .push_str(&format!(" 部分链接未更新：{}", errors.join("；")));
                 }
                 this.sync_reference_contexts(cx);
-                this.rescan = true;
+                for (path, _, _) in &written {
+                    this.changed_paths.insert(path.clone());
+                }
                 this.refresh_requested = true;
                 this.tick(w, cx);
                 cx.notify();

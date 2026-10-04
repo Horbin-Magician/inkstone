@@ -171,6 +171,11 @@ impl Workspace {
         self.files = self.index.note_paths();
         self.sync_index_ui(cx);
     }
+    /// Record one known write. Callers already have the bytes, so refresh must not reread the vault.
+    pub(super) fn note_indexed_change(&mut self, path: PathBuf, _cx: &mut Context<Self>) {
+        self.changed_paths.insert(path);
+        self.refresh_requested = true;
+    }
 }
 
 // Creation events (including Windows' CreateKind::Any) can describe an empty

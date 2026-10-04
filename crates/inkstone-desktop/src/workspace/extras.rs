@@ -38,9 +38,8 @@ impl Workspace {
                 match result {
                     Ok((path, receipt)) => {
                         this.status = format!("已创建副本：{}", path.display());
-                        this.add_tab(path, Some(receipt.text), false, window, cx);
-                        this.rescan = true;
-                        this.refresh_requested = true;
+                        this.add_tab(path.clone(), Some(receipt.text), false, window, cx);
+                        this.note_indexed_change(path, cx);
                     }
                     Err(error) => this.status = error.to_string(),
                 }
@@ -780,8 +779,8 @@ impl Workspace {
                 } else {
                     errors.join("；")
                 };
+                this.structure_changed = true;
                 this.refresh_requested = true;
-                this.rescan = true;
                 this.sync_reference_contexts(cx);
                 cx.notify();
             });
