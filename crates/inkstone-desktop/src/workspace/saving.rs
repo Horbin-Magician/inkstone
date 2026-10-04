@@ -87,35 +87,44 @@ impl Workspace {
                     if this.generation != generation {
                         return;
                     }
-                    let Some(tab) = this
-                        .tabs
-                        .iter_mut()
-                        .find(|t| std::rc::Rc::ptr_eq(&t.save, &save))
-                    else {
-                        return;
-                    };
-                    tab.save.saving.set(false);
-                    match result {
-                        Ok(receipt) => {
-                            tab.save.error.replace(None);
-                            tab.save.baseline.replace(Some(receipt.text));
-                            tab.save.dirty.set(
-                                tab.save.baseline.borrow().as_deref()
-                                    != Some(tab.save.editor.read(cx).value().as_ref()),
-                            );
-                            if !this.files.contains(&tab.path) {
-                                this.files.push(tab.path.clone());
-                                this.files.sort();
+                    let saved = {
+                        let Some(tab) = this
+                            .tabs
+                            .iter_mut()
+                            .find(|t| std::rc::Rc::ptr_eq(&t.save, &save))
+                        else {
+                            return;
+                        };
+                        tab.save.saving.set(false);
+                        match result {
+                            Ok(receipt) => {
+                                tab.save.error.replace(None);
+                                let saved_path = tab.path.clone();
+                                let saved_text = receipt.text.clone();
+                                tab.save.baseline.replace(Some(receipt.text));
+                                tab.save.dirty.set(
+                                    tab.save.baseline.borrow().as_deref()
+                                        != Some(tab.save.editor.read(cx).value().as_ref()),
+                                );
+                                if !this.files.contains(&tab.path) {
+                                    this.files.push(tab.path.clone());
+                                    this.files.sort();
+                                }
+                                Some((saved_path, saved_text))
+                            }
+                            Err(error) => {
+                                tab.save.conflict.set(matches!(
+                                    error,
+                                    VaultError::Conflict { .. } | VaultError::RaceConflict { .. }
+                                ));
+                                this.status = error.to_string();
+                                tab.save.error.replace(Some(this.status.clone()));
+                                None
                             }
                         }
-                        Err(error) => {
-                            tab.save.conflict.set(matches!(
-                                error,
-                                VaultError::Conflict { .. } | VaultError::RaceConflict { .. }
-                            ));
-                            this.status = error.to_string();
-                            tab.save.error.replace(Some(this.status.clone()));
-                        }
+                    };
+                    if let Some((path, text)) = saved {
+                        this.note_indexed_change(path, text, cx);
                     }
                     this.finish_pending_closes(window, cx);
                     this.finish_pending_navigation(window, cx);

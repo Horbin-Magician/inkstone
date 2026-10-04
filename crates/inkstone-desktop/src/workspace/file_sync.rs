@@ -14,10 +14,21 @@ impl Workspace {
         self.refreshing = true;
         let generation = self.generation;
         let folder_revision = self.folder_revision;
-        let changed = std::mem::take(&mut self.changed_paths);
+        let mut changed = std::mem::take(&mut self.changed_paths);
+        let known = std::mem::take(&mut self.known_writes);
         let structure_changed = std::mem::take(&mut self.structure_changed);
-        let rescan = std::mem::take(&mut self.rescan) || (changed.is_empty() && !structure_changed);
+        let rescan = std::mem::take(&mut self.rescan)
+            || (changed.is_empty() && known.is_empty() && !structure_changed);
+        // Structural refresh reads the vault. Keep known paths in that read so a
+        // delete or import cannot be hidden by bytes we wrote earlier.
+        let known = if structure_changed || rescan {
+            changed.extend(known.into_keys());
+            std::collections::BTreeMap::new()
+        } else {
+            known
+        };
         let previous = self.index.clone();
+        let folders = self.ui.folders.clone();
         let requests: Vec<_> = self
             .tabs
             .iter()
@@ -33,9 +44,29 @@ impl Workspace {
             } else if structure_changed {
                 refresh_created_index(&vault, previous.clone(), changed)?
             } else {
+                // Reuse the folder listing unless a changed note introduces a parent
+                // that is not already visible. Index bytes we already wrote first;
+                // a watcher event for the same path still reads the file, so an
+                // external edit in the same burst replaces those bytes.
                 let mut index = (*previous).clone();
-                index.refresh_paths(&vault, changed)?;
-                (Arc::new(index), vault.folders()?)
+                let folders = if changed.iter().chain(known.keys()).any(|path| {
+                    path.parent().is_some_and(|parent| {
+                        !parent.as_os_str().is_empty()
+                            && !folders.iter().any(|folder| folder == parent)
+                    })
+                }) {
+                    vault.folders()?
+                } else {
+                    folders
+                };
+                let known_changed = index.apply_known(&vault, known);
+                let disk_changed = index.refresh_paths(&vault, changed)?;
+                let index = if known_changed || disk_changed {
+                    Arc::new(index)
+                } else {
+                    previous.clone()
+                };
+                (index, folders)
             };
             let files = index.note_paths();
             let mut documents = vec![];
@@ -188,9 +219,14 @@ impl Workspace {
         self.files = self.index.note_paths();
         self.sync_index_ui(cx);
     }
-    /// Record one known write. Callers already have the bytes, so refresh must not reread the vault.
-    pub(super) fn note_indexed_change(&mut self, path: PathBuf, _cx: &mut Context<Self>) {
-        self.changed_paths.insert(path);
+    /// Record bytes already written. Content refresh indexes them without a vault walk.
+    pub(super) fn note_indexed_change(
+        &mut self,
+        path: PathBuf,
+        text: String,
+        _cx: &mut Context<Self>,
+    ) {
+        self.known_writes.insert(path, text);
         self.refresh_requested = true;
     }
 }

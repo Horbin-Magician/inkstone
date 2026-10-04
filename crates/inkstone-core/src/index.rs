@@ -139,6 +139,39 @@ impl Index {
         self.replace_note(path, text);
         self.reindex_backlinks();
     }
+    /// Index bytes the caller just wrote. A missing file is removed; existing
+    /// files are not reread, because those bytes are already known.
+    pub fn apply_known(
+        &mut self,
+        vault: &Vault,
+        known: impl IntoIterator<Item = (PathBuf, String)>,
+    ) -> bool {
+        let mut links_changed = false;
+        let mut times_changed = false;
+        for (path, text) in known {
+            let exists = vault
+                .path(&path)
+                .ok()
+                .and_then(|absolute| std::fs::metadata(absolute).ok())
+                .is_some_and(|meta| meta.is_file());
+            if !exists {
+                links_changed |= self.notes.contains_key(&path);
+                self.remove_note(&path);
+                self.errors.remove(&path);
+                continue;
+            }
+            self.errors.remove(&path);
+            if self.notes.get(&path).is_none_or(|note| note.text != text) {
+                self.replace_note(path.clone(), text);
+                links_changed = true;
+            }
+            times_changed |= self.refresh_file_times(vault, &path);
+        }
+        if links_changed {
+            self.reindex_backlinks();
+        }
+        links_changed || times_changed
+    }
     fn replace_note(&mut self, path: PathBuf, text: String) {
         self.errors.remove(&path);
         let parsed = parse(&text);
@@ -226,7 +259,7 @@ impl Index {
         }
         self.reindex_backlinks();
     }
-    fn refresh_file_times(&mut self, vault: &Vault, path: &Path) {
+    fn refresh_file_times(&mut self, vault: &Vault, path: &Path) -> bool {
         let times = vault
             .path(path)
             .ok()
@@ -240,14 +273,17 @@ impl Index {
             && note.times != times
         {
             std::sync::Arc::make_mut(note).times = times;
+            return true;
         }
+        false
     }
     pub fn refresh_paths(
         &mut self,
         vault: &Vault,
         paths: impl IntoIterator<Item = PathBuf>,
-    ) -> Result<(), VaultError> {
+    ) -> Result<bool, VaultError> {
         let mut links_changed = false;
+        let mut times_changed = false;
         for path in paths {
             match vault.read(&path) {
                 Ok(Some(text)) => {
@@ -256,7 +292,7 @@ impl Index {
                         self.replace_note(path.clone(), text);
                         links_changed = true;
                     }
-                    self.refresh_file_times(vault, &path);
+                    times_changed |= self.refresh_file_times(vault, &path);
                 }
                 Ok(None) => {
                     links_changed |= self.notes.contains_key(&path);
@@ -273,6 +309,6 @@ impl Index {
         if links_changed {
             self.reindex_backlinks();
         }
-        Ok(())
+        Ok(links_changed || times_changed)
     }
 }

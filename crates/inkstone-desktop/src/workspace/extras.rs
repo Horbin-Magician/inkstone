@@ -38,8 +38,8 @@ impl Workspace {
                 match result {
                     Ok((path, receipt)) => {
                         this.status = format!("已创建副本：{}", path.display());
-                        this.add_tab(path.clone(), Some(receipt.text), false, window, cx);
-                        this.note_indexed_change(path, cx);
+                        this.note_indexed_change(path.clone(), receipt.text.clone(), cx);
+                        this.add_tab(path, Some(receipt.text), false, window, cx);
                     }
                     Err(error) => this.status = error.to_string(),
                 }

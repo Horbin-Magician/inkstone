@@ -187,6 +187,7 @@ impl Workspace {
                 match result {
                     Ok(text) => {
                         document.baseline.replace(Some(text.clone()));
+                        this.note_indexed_change(changed.clone(), text.clone(), cx);
                         if still_current {
                             document.conflict.set(false);
                             document.error.replace(None);
@@ -222,7 +223,6 @@ impl Workspace {
                         }
                     }
                 }
-                this.note_indexed_change(changed, cx);
                 cx.notify();
             });
         })

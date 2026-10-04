@@ -116,6 +116,7 @@ impl Workspace {
             tree_files: vec![],
             command_open: false,
             changed_paths: Default::default(),
+            known_writes: Default::default(),
             rescan: false,
             structure_changed: false,
             folder_revision: 0,
@@ -348,6 +349,7 @@ impl Workspace {
                         this.refreshing = false;
                         this.refresh_requested = false;
                         this.changed_paths.clear();
+                        this.known_writes.clear();
                         this.rescan = false;
                         this.structure_changed = false;
                         this.files = files;
