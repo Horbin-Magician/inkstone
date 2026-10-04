@@ -105,11 +105,21 @@ mod tests {
             .update(&mut visual, |p, _, cx| {
                 assert_eq!(p.live_lists.len(), 4);
                 assert_eq!(p.live_tasks.len(), 1);
+                let concealed = p.editor.read(cx).concealed_ranges();
+                for marker in &p.live_lists {
+                    assert!(
+                        concealed.contains(marker),
+                        "the source glyph must be omitted, not just styled transparent"
+                    );
+                }
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
         let bullet = visual.debug_bounds("live-list-0").unwrap();
-        assert!(bullet.size.width > px(0.));
+        assert!(
+            (f32::from(bullet.size.width) - 16. * 0.6).abs() <= 0.5,
+            "bullet bounds: {bullet:?}"
+        );
         let nested = visual.debug_bounds("live-list-11").unwrap();
         assert!(nested.left() > bullet.left());
         visual.simulate_click(bullet.center(), Modifiers::default());
@@ -118,12 +128,14 @@ mod tests {
         handle
             .update(&mut visual, |p, _, cx| {
                 assert_eq!(p.editor.read(cx).selected_range(), 0..1);
+                assert!(!p.editor.read(cx).concealed_ranges().contains(&(0..1)));
                 p.editor.update(cx, |s, cx| {
                     s.set_selected_range(source.len()..source.len(), cx);
                     s.set_search_query("*", false, cx);
                 });
                 p.update_presentation(cx);
                 assert_eq!(p.live_lists.len(), 2);
+                assert!(!p.editor.read(cx).concealed_ranges().contains(&(0..1)));
                 p.editor.update(cx, |s, cx| s.close_search(cx));
                 p.update_presentation(cx);
                 assert_eq!(p.live_lists.len(), 4);
