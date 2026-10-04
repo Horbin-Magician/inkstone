@@ -23,6 +23,23 @@ struct Term {
     pattern: Pattern,
     exclude: bool,
 }
+fn lowercase_is_identity(text: &str) -> bool {
+    !text.chars().any(|ch| {
+        let mut lower = ch.to_lowercase();
+        lower.next() != Some(ch) || lower.next().is_some()
+    })
+}
+
+fn ascii_find_ignore_case(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    let rest = haystack.get(from..)?;
+    if needle.is_empty() || needle.len() > rest.len() {
+        return None;
+    }
+    rest.windows(needle.len())
+        .position(|window| window.eq_ignore_ascii_case(needle))
+        .map(|offset| from + offset)
+}
+
 impl Pattern {
     fn visit_ranges(&self, text: &str, mut visit: impl FnMut(std::ops::Range<usize>) -> bool) {
         match self {
@@ -36,6 +53,23 @@ impl Pattern {
             Self::Regex(regex) => {
                 for found in regex.find_iter(text) {
                     if !found.is_empty() && !visit(found.range()) {
+                        break;
+                    }
+                }
+            }
+            Self::Text(needle) if needle.is_ascii() && text.is_ascii() => {
+                let (haystack, needle) = (text.as_bytes(), needle.as_bytes());
+                let mut from = 0;
+                while let Some(offset) = ascii_find_ignore_case(haystack, needle, from) {
+                    if !visit(offset..offset + needle.len()) {
+                        break;
+                    }
+                    from = offset + needle.len();
+                }
+            }
+            Self::Text(needle) if lowercase_is_identity(text) => {
+                for (offset, _) in text.match_indices(needle) {
+                    if !visit(offset..offset + needle.len()) {
                         break;
                     }
                 }
@@ -72,6 +106,10 @@ impl Pattern {
     fn matches(&self, text: &str) -> bool {
         match self {
             Self::Exact(s) => text.contains(s),
+            Self::Text(s) if s.is_ascii() && text.is_ascii() => {
+                ascii_find_ignore_case(text.as_bytes(), s.as_bytes(), 0).is_some()
+            }
+            Self::Text(s) if lowercase_is_identity(text) => text.contains(s),
             Self::Text(s) => text.to_lowercase().contains(s),
             Self::Regex(r) => r.find_iter(text).any(|found| !found.is_empty()),
         }
@@ -83,6 +121,10 @@ impl Pattern {
                 .find_iter(text)
                 .find(|found| !found.is_empty())
                 .map(|m| m.start()),
+            Self::Text(needle) if needle.is_ascii() && text.is_ascii() => {
+                ascii_find_ignore_case(text.as_bytes(), needle.as_bytes(), 0)
+            }
+            Self::Text(needle) if lowercase_is_identity(text) => text.find(needle),
             Self::Text(needle) => {
                 let offset = text.to_lowercase().find(needle)?;
                 let mut lower_offset = 0;
