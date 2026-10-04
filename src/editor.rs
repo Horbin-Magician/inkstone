@@ -10,6 +10,7 @@ mod font_zoom;
 mod footnotes;
 #[cfg(test)]
 mod frame_benchmark;
+mod live_lists;
 mod live_objects;
 mod live_quotes;
 mod live_rules;
@@ -55,6 +56,7 @@ pub struct EditorPane {
     live_tasks: Vec<live_tasks::TaskWidget>,
     live_quotes: Vec<std::ops::Range<usize>>,
     live_rules: Vec<std::ops::Range<usize>>,
+    live_lists: Vec<std::ops::Range<usize>>,
     pub editor: Entity<EditorState>,
     decorations: TextDecorationCollection,
     pub live: bool,
@@ -701,6 +703,7 @@ impl EditorPane {
             live_tasks: vec![],
             live_quotes: vec![],
             live_rules: vec![],
+            live_lists: vec![],
             font_size: 16.,
             quick_font_size: false,
             font_zoom: Default::default(),
@@ -872,6 +875,7 @@ impl EditorPane {
         let mut concealed_lines = vec![];
         self.live_quotes.clear();
         self.live_rules.clear();
+        self.live_lists.clear();
         if self.live {
             for span in &self.spans {
                 let style = match span.kind {
@@ -888,6 +892,37 @@ impl EditorPane {
                         if !revealed {
                             concealed.push(span.content.clone());
                             self.live_rules.push(span.content.clone());
+                        }
+                        continue;
+                    }
+                    Kind::ListMarker => {
+                        // Task widgets own their entire prefix, including the bullet.
+                        if self
+                            .parsed
+                            .tasks
+                            .iter()
+                            .any(|task| task.start == span.content.start)
+                        {
+                            continue;
+                        }
+                        let revealed = selections.iter().any(|selection| span.active(selection))
+                            || search_query.is_some()
+                                && search_matches
+                                    .get(
+                                        search_matches
+                                            .partition_point(|r| r.end <= span.content.start),
+                                    )
+                                    .is_some_and(|r| r.start < span.content.end);
+                        if !revealed {
+                            // Retain the source glyph width and whitespace for stable indentation.
+                            decorations.push(TextDecoration::new(
+                                span.content.clone(),
+                                HighlightStyle {
+                                    color: Some(rgba(0x00000000).into()),
+                                    ..Default::default()
+                                },
+                            ));
+                            self.live_lists.push(span.content.clone());
                         }
                         continue;
                     }
@@ -1133,6 +1168,11 @@ impl EditorPane {
             );
         }
         self.live_quotes.retain(|r| {
+            !object_ranges
+                .iter()
+                .any(|o| o.start <= r.start && r.end <= o.end)
+        });
+        self.live_lists.retain(|r| {
             !object_ranges
                 .iter()
                 .any(|o| o.start <= r.start && r.end <= o.end)
@@ -1577,6 +1617,14 @@ impl Render for EditorPane {
                         self.strict_line_breaks,
                         self.text_font.clone(),
                     ),
+                ))
+            })
+            .when(!self.reading && self.live, |view| {
+                view.child(live_lists::overlay(
+                    self.editor.clone(),
+                    self.live_lists.clone(),
+                    self.font_size,
+                    self.light,
                 ))
             })
             .when(!self.reading && self.live, |view| {
