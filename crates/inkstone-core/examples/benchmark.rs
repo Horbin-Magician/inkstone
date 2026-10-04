@@ -29,6 +29,11 @@ fn main() {
         .nth(1)
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(10_000);
+    let repetitions = std::env::args()
+        .nth(2)
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(1)
+        .max(1);
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -36,10 +41,10 @@ fn main() {
     let root = std::env::temp_dir().join(format!("inkstone-benchmark-{stamp}"));
     let notes = root.join("vault");
     fs::create_dir_all(&notes).unwrap();
-    let sample = "# 中文笔记\n\n这是一篇用于搜索测试的本地 Markdown 文档。English 和 emoji 😀。\n\n**重要内容** 与 `代码`，[[00001]]。\n";
+    let sample = "# 中文笔记\n\n这是一篇用于搜索测试的本地 Markdown 文档。English 和 emoji 😀。\n\n**重要内容** 与 `代码`，[[00001]]。\n".repeat(repetitions);
     let setup = Instant::now();
     for i in 0..count {
-        fs::write(notes.join(format!("{i:05}.md")), sample).unwrap();
+        fs::write(notes.join(format!("{i:05}.md")), &sample).unwrap();
     }
     let vault = Vault::open(&notes, root.join("recovery")).unwrap();
     println!(
