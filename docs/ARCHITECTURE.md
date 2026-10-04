@@ -11,7 +11,19 @@
 
 参考：[官方仓库](https://github.com/longbridge/gpui-kit)、[发布索引](https://index.crates.io/gp/ui/gpui-component)、[编辑接口](https://docs.rs/gpui-component/0.7.0/gpui_component/input/index.html)。下载的组件对应上游提交 `0c830f4d257e69fdd17200650533ab4ca9a40cc0`。
 
+## Cargo workspace
+
+根 `Cargo.toml` 是虚拟 workspace，包含 `crates/inkstone-core` 与 `crates/inkstone-desktop` 两个默认成员，使用 resolver 3。共享依赖版本、release profile 与 `[patch.crates-io]` 只在根配置；`vendor/gpui-base`、`vendor/gpui-component` 显式排除出 workspace 成员，继续作为补丁依赖维护。
+
+`inkstone-core` 提供 `inkstone_core` 库，拥有原 `lib.rs` 的全部核心模块；运行、构建和测试依赖均不包含 GPUI。`notify` 在 core 中只用于文件监听测试，平台安全文件操作的 `libc` / `windows-sys` 由 core 持有。Markdown 测试夹具与后台 benchmark 随核心代码放置。
+
+`inkstone-desktop` 单向依赖 core，拥有原 `main.rs` 的桌面模块，二进制目标仍为 `inkstone`。GPUI、原生菜单和应用图标依赖只由 desktop 声明；字素补丁与展示对象集成测试也归入 desktop。macOS build script 在 desktop 内定位根目录 `packaging/macos/Info.plist`，打包脚本继续输出根 `target/` 下的应用。
+
+核心层不得引用 desktop 或 GPUI 类型。共享类型和不依赖 UI 的算法放入 core，涉及 `Entity`、`Window`、焦点和原生图像的适配留在 desktop。包不独立发布，资源和受控依赖按整个仓库构建。
+
 ## 模块
+
+下表核心模块路径相对于 `crates/inkstone-core/src/`，`editor`、`editor_links` 和 `workspace` 路径相对于 `crates/inkstone-desktop/src/`。
 
 | 模块 | 职责 |
 | --- | --- |
@@ -45,7 +57,7 @@
 
 桌面层使用 `Workspace` 和 `EditorPane` 作为 GPUI 实体及共享状态拥有者，子模块按职责实现其方法。子模块不复制文档状态，也不建立第二套保存、撤销或后台任务机制；跨子模块调用使用 `pub(super)`，不扩大应用外部接口。涉及多个功能的回归测试分别放在 `workspace/tests.rs`、`editor/tests.rs`，保留原来的测试名称和筛选路径；既有功能模块的局部测试继续就地维护。
 
-核心层 `index` 不依赖桌面工作区。解析、搜索和链接模块通过 `Index` 快照与解析结果协作；原有 `index::parse`、`index::ParsedNote` 等入口由父模块重新导出，调用方无需知道实现文件位置。索引回归放在 `index/tests.rs`。
+核心层 `index` 不依赖桌面工作区。解析、搜索和链接模块通过 `Index` 快照与解析结果协作；`inkstone_core::index::parse`、`inkstone_core::index::ParsedNote` 等入口由父模块重新导出，调用方无需知道实现文件位置。索引回归放在 `index/tests.rs`。
 
 新增功能优先放入对应职责模块：保存及恢复日志改动进入 `saving`，外部磁盘变化进入 `file_sync`，实时样式进入 `presentation`，索引搜索算法进入 `index/search`。顶层文件负责状态与组装，避免重新堆积功能实现。底层 Vault 的平台原子写入实现和 vendor 编辑器补丁沿用原有边界。
 

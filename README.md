@@ -59,17 +59,30 @@ Rust + GPUI 本地 Markdown 笔记应用。正在按本机 Obsidian 1.13.7 对�
 
 也可以不传参数，启动后用“打开笔记库”选择文件夹；应用记住最近的库。
 
+## 项目结构
+
+项目使用 Cargo workspace，依赖方向为 `inkstone-desktop → inkstone-core`：
+
+- `crates/inkstone-core`：Markdown 解析与编辑规则、索引、搜索、文件存储、备份、导出及后台基准；不依赖 GPUI。
+- `crates/inkstone-desktop`：GPUI 编辑器、工作区、原生窗口 / 菜单、图形适配及桌面集成测试；可执行文件仍名为 `inkstone`。
+
+根目录统一维护依赖版本、`Cargo.lock`、release profile 和 vendor 补丁。`assets/`、`packaging/` 与 `scripts/` 保留在仓库根目录。
+
 ## 构建与验证
 
 测试环境：Windows 11、Rust 1.98.1、Visual Studio 2022 C++ Build Tools + Windows SDK。
 
 ```powershell
 cargo build --release --locked --bin inkstone
-cargo test --locked
-cargo clippy --locked --all-targets -- -D warnings
-cargo fmt --check
-cargo run --release --locked --example benchmark -- 10000
+cargo test --locked --workspace
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+cargo run --release --locked -p inkstone-core --example benchmark -- 10000
 ```
+
+只验证核心逻辑、无需构建 GPUI 时运行 `cargo test --locked -p inkstone-core`；桌面及其集成测试运行 `cargo test --locked -p inkstone-desktop`。CI 保留 macOS / Windows 全工作区检查，并增加 Ubuntu 核心独立检查。
+
+两个 package 都是 workspace 默认成员，因此根目录原有的 `cargo test --locked`、`cargo build --locked --bin inkstone` 和 `cargo run --locked --bin inkstone` 仍可使用。
 
 macOS 开发启动使用 `cargo run --locked --bin inkstone`，可执行文件内嵌应用名称配置与图标，系统菜单显示“墨砚”，启动时主动设置 Dock 图标。打包为可双击启动的应用：
 
