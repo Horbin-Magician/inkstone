@@ -13,9 +13,10 @@ pub(crate) use parsing::{task_box_marker, task_marker};
 mod cache;
 use crate::vault::{Vault, VaultError};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     ops::Range,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Clone, Debug)]
@@ -26,10 +27,18 @@ pub struct IndexedNote {
 }
 #[derive(Clone, Debug, Default)]
 pub struct Index {
-    pub notes: BTreeMap<PathBuf, std::sync::Arc<IndexedNote>>,
+    pub notes: BTreeMap<PathBuf, Arc<IndexedNote>>,
     pub files: Vec<PathBuf>,
     /// Files excluded from searchable content, with actionable read diagnostics.
     pub errors: BTreeMap<PathBuf, String>,
+    /// Lowercased vault-relative path to the stored note path.
+    by_path: HashMap<String, PathBuf>,
+    /// Lowercased filename stem to every note using it.
+    by_stem: HashMap<String, Vec<PathBuf>>,
+    /// Lowercased alias to every note declaring it.
+    by_alias: HashMap<String, Vec<PathBuf>>,
+    /// Resolved note to the notes that link to it.
+    backlinks: HashMap<PathBuf, Vec<PathBuf>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Resolution {
@@ -48,8 +57,14 @@ pub struct SearchHit {
     pub highlights: Vec<Range<usize>>,
     pub title_highlights: Vec<Range<usize>>,
 }
-fn key(path: &Path) -> String {
+pub(crate) fn key(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/").to_lowercase()
+}
+fn stem_key(path: &Path) -> String {
+    path.file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase()
 }
 impl Index {
     pub fn anchor_range(&self, path: &Path, fragment: &str) -> Option<Range<usize>> {
@@ -92,7 +107,7 @@ impl Index {
                 Some(path.to_path_buf())
             }
         };
-        Self {
+        let mut relocated = Self {
             notes: self
                 .notes
                 .iter()
@@ -112,20 +127,101 @@ impl Index {
                 .iter()
                 .filter_map(|(path, error)| map_path(path).map(|path| (path, error.clone())))
                 .collect(),
-        }
+            ..Self::default()
+        };
+        relocated.rebuild_lookup();
+        relocated
     }
     pub fn update(&mut self, path: PathBuf, text: String) {
+        self.replace_note(path, text);
+        self.reindex_backlinks();
+    }
+    fn replace_note(&mut self, path: PathBuf, text: String) {
         self.errors.remove(&path);
         let parsed = parse(&text);
         let times = self.notes.get(&path).map(|n| n.times).unwrap_or_default();
-        self.notes.insert(
+        self.remove_note(&path);
+        self.insert_note(
             path,
-            std::sync::Arc::new(IndexedNote {
+            Arc::new(IndexedNote {
                 text,
                 parsed,
                 times,
             }),
         );
+    }
+    fn insert_note(&mut self, path: PathBuf, note: Arc<IndexedNote>) {
+        self.by_path.insert(key(&path), path.clone());
+        self.by_stem
+            .entry(stem_key(&path))
+            .or_default()
+            .push(path.clone());
+        for alias in &note.parsed.aliases {
+            self.by_alias
+                .entry(alias.to_lowercase())
+                .or_default()
+                .push(path.clone());
+        }
+        self.notes.insert(path, note);
+    }
+    fn remove_note(&mut self, path: &Path) {
+        let Some(note) = self.notes.remove(path) else {
+            return;
+        };
+        self.by_path.remove(&key(path));
+        if let Some(paths) = self.by_stem.get_mut(&stem_key(path)) {
+            paths.retain(|candidate| candidate != path);
+        }
+        for alias in &note.parsed.aliases {
+            if let Some(paths) = self.by_alias.get_mut(&alias.to_lowercase()) {
+                paths.retain(|candidate| candidate != path);
+            }
+        }
+    }
+    /// A new or removed stem/alias can change every shortest link, so rebuild
+    /// once from the lookup maps instead of scanning the vault per link.
+    fn reindex_backlinks(&mut self) {
+        let mut backlinks: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        let paths: Vec<_> = self.notes.keys().cloned().collect();
+        for from in paths {
+            for target in self.outgoing(&from) {
+                backlinks.entry(target).or_default().push(from.clone());
+            }
+        }
+        for sources in backlinks.values_mut() {
+            sources.sort();
+            sources.dedup();
+        }
+        self.backlinks = backlinks;
+    }
+    fn outgoing(&self, from: &Path) -> Vec<PathBuf> {
+        let Some(note) = self.notes.get(from) else {
+            return vec![];
+        };
+        let mut targets = Vec::new();
+        for link in &note.parsed.links {
+            if let Resolution::Found(path) = self.resolve(from, &link.target) {
+                targets.push(path);
+            }
+        }
+        for (url, _) in &note.parsed.standard_links {
+            if let Resolution::Found(path) = self.resolve_markdown(from, url).0 {
+                targets.push(path);
+            }
+        }
+        targets.sort();
+        targets.dedup();
+        targets
+    }
+    fn rebuild_lookup(&mut self) {
+        self.by_path.clear();
+        self.by_stem.clear();
+        self.by_alias.clear();
+        let notes = std::mem::take(&mut self.notes);
+        for (path, note) in notes {
+            self.insert_note(path, note);
+        }
+        self.reindex_backlinks();
     }
     fn refresh_file_times(&mut self, vault: &Vault, path: &Path) {
         let times = vault
@@ -148,24 +244,31 @@ impl Index {
         vault: &Vault,
         paths: impl IntoIterator<Item = PathBuf>,
     ) -> Result<(), VaultError> {
+        let mut links_changed = false;
         for path in paths {
             match vault.read(&path) {
                 Ok(Some(text)) => {
                     self.errors.remove(&path);
                     if self.notes.get(&path).is_none_or(|n| n.text != text) {
-                        self.update(path.clone(), text);
+                        self.replace_note(path.clone(), text);
+                        links_changed = true;
                     }
                     self.refresh_file_times(vault, &path);
                 }
                 Ok(None) => {
-                    self.notes.remove(&path);
+                    links_changed |= self.notes.contains_key(&path);
+                    self.remove_note(&path);
                     self.errors.remove(&path);
                 }
                 Err(error) => {
-                    self.notes.remove(&path);
+                    links_changed |= self.notes.contains_key(&path);
+                    self.remove_note(&path);
                     self.errors.insert(path, error.to_string());
                 }
             }
+        }
+        if links_changed {
+            self.reindex_backlinks();
         }
         Ok(())
     }

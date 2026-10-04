@@ -220,7 +220,7 @@ impl Index {
         let Some(path) = normalized(&path) else {
             return Resolution::Invalid;
         };
-        if let Some(found) = self.notes.keys().find(|p| key(p) == key(&path)) {
+        if let Some(found) = self.by_path.get(&key(&path)) {
             return Resolution::Found(found.clone());
         }
         if explicit {
@@ -231,40 +231,31 @@ impl Index {
             .unwrap_or_default()
             .to_string_lossy()
             .to_lowercase();
-        let matches: Vec<_> = self
-            .notes
-            .keys()
-            .filter(|p| {
-                p.file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_lowercase()
-                    == stem
-            })
-            .cloned()
-            .collect();
+        let matches = self.by_stem.get(&stem).cloned().unwrap_or_default();
         match matches.len() {
             0 => {
-                let aliases: Vec<_> = self
-                    .notes
-                    .iter()
-                    .filter(|(_, n)| n.parsed.aliases.iter().any(|a| a.to_lowercase() == stem))
-                    .map(|(p, _)| p.clone())
-                    .collect();
+                let mut aliases = self.by_alias.get(&stem).cloned().unwrap_or_default();
+                aliases.sort();
+                aliases.dedup();
                 match aliases.len() {
                     0 => Resolution::Missing(path),
-                    1 => Resolution::Found(aliases[0].clone()),
+                    1 => Resolution::Found(aliases.remove(0)),
                     _ => Resolution::Ambiguous(aliases),
                 }
             }
-            1 => Resolution::Found(matches[0].clone()),
-            _ => Resolution::Ambiguous(matches),
+            1 => Resolution::Found(matches.into_iter().next().unwrap()),
+            _ => {
+                let mut matches = matches;
+                matches.sort();
+                Resolution::Ambiguous(matches)
+            }
         }
     }
     pub fn backlinks(&self, target: &Path) -> Vec<PathBuf> {
-        self.notes.iter().filter(|(from,note)| {
-            note.parsed.links.iter().any(|l|matches!(self.resolve(from,&l.target),Resolution::Found(ref p)if key(p)==key(target))) ||
-            note.parsed.standard_links.iter().any(|(url,_)|matches!(self.resolve_markdown(from,url).0,Resolution::Found(ref p)if key(p)==key(target)))
-        }).map(|(p,_)|p.clone()).collect()
+        self.by_path
+            .get(&key(target))
+            .and_then(|path| self.backlinks.get(path))
+            .cloned()
+            .unwrap_or_default()
     }
 }

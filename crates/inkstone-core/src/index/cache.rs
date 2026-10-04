@@ -89,6 +89,7 @@ impl Index {
                 }
             }
         }
+        index.rebuild_lookup();
         if crate::startup_trace::enabled() {
             crate::startup_trace::mark(&format!("notes_ready hits={hits} misses={misses}"));
         }
