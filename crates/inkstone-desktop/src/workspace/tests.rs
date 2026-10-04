@@ -4256,13 +4256,14 @@ fn folder_creation_refresh_preserves_notes_and_discovers_imported_files() {
     vault
         .create_folder(std::path::Path::new("parent/empty.md"))
         .unwrap();
-    let same =
+    let (same, folders) =
         refresh_created_index(&vault, index.clone(), ["parent/empty.md".into()].into()).unwrap();
     assert!(Arc::ptr_eq(&same, &index));
+    assert!(folders.contains(&PathBuf::from("parent/empty.md")));
 
     std::fs::write(root.join("parent/new.md"), "# Imported").unwrap();
     std::fs::write(root.join("parent/image.png"), []).unwrap();
-    let imported = refresh_created_index(&vault, same, Default::default()).unwrap();
+    let (imported, _) = refresh_created_index(&vault, same, Default::default()).unwrap();
     assert_eq!(
         imported.notes[std::path::Path::new("old.md")].text,
         "# Original"
@@ -4275,7 +4276,7 @@ fn folder_creation_refresh_preserves_notes_and_discovers_imported_files() {
 
     std::fs::write(root.join("old.md"), "# Changed").unwrap();
     std::fs::remove_file(root.join("parent/new.md")).unwrap();
-    let updated = refresh_created_index(&vault, imported, ["old.md".into()].into()).unwrap();
+    let (updated, _) = refresh_created_index(&vault, imported, ["old.md".into()].into()).unwrap();
     assert_eq!(
         updated.notes[std::path::Path::new("old.md")].text,
         "# Changed"
