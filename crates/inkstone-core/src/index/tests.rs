@@ -97,6 +97,13 @@ fn unreadable_notes_are_isolated_and_rejoin_after_repair() {
     std::fs::remove_file(vault.root.join("bad.md")).unwrap();
     index.refresh_paths(&vault, ["bad.md".into()]).unwrap();
     assert!(index.errors.is_empty());
+    std::fs::write(vault.root.join("good.md"), "on disk").unwrap();
+    assert!(index.apply_known(&vault, [(PathBuf::from("good.md"), "already known".into())]));
+    assert_eq!(index.notes[Path::new("good.md")].text, "already known");
+    assert!(!index.apply_known(&vault, [(PathBuf::from("good.md"), "already known".into())]));
+    std::fs::remove_file(vault.root.join("good.md")).unwrap();
+    assert!(index.apply_known(&vault, [(PathBuf::from("good.md"), "already known".into())]));
+    assert!(!index.notes.contains_key(Path::new("good.md")));
     std::fs::remove_dir_all(root).unwrap();
 }
 

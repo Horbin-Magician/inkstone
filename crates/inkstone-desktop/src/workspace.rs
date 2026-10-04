@@ -128,6 +128,7 @@ pub struct Workspace {
     tree_files: Vec<PathBuf>,
     command_open: bool,
     changed_paths: std::collections::BTreeSet<PathBuf>,
+    known_writes: std::collections::BTreeMap<PathBuf, String>,
     rescan: bool,
     structure_changed: bool,
     folder_revision: u64,
