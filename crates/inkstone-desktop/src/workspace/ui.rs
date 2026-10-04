@@ -1363,9 +1363,10 @@ impl Workspace {
         };
         let generation = self.generation;
         self.ui.pending_file_writes += 1;
+        let restored = entry.clone();
         let task = cx
             .background_executor()
-            .spawn(async move { vault.restore_trash(&entry) });
+            .spawn(async move { vault.restore_trash(&restored) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -1373,10 +1374,17 @@ impl Workspace {
                 if this.generation != generation {
                     return;
                 }
-                this.status = match result {
+                this.status = match &result {
                     Ok(()) => "文件已恢复到原目录".into(),
                     Err(e) => e.to_string(),
                 };
+                if result.is_ok() {
+                    if entry.directory {
+                        this.structure_changed = true;
+                    } else {
+                        this.changed_paths.insert(entry.original);
+                    }
+                }
                 this.refresh_requested = true;
                 this.refresh_trash(cx);
                 cx.notify();

@@ -157,6 +157,7 @@ impl Workspace {
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
         let expected_local = local.clone();
+        let changed = path.clone();
         let task = cx.background_executor().spawn(async move {
             vault.resolve_conflict(
                 &path,
@@ -221,8 +222,7 @@ impl Workspace {
                         }
                     }
                 }
-                this.refresh_requested = true;
-                this.rescan = true;
+                this.note_indexed_change(changed, cx);
                 cx.notify();
             });
         })
