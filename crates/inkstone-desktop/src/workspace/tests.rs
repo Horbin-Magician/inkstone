@@ -4261,7 +4261,7 @@ fn folder_creation_refresh_preserves_notes_and_discovers_imported_files() {
     assert!(Arc::ptr_eq(&same, &index));
     assert!(folders.contains(&PathBuf::from("parent/empty.md")));
 
-    std::fs::write(root.join("parent/new.md"), "# Imported").unwrap();
+    std::fs::write(root.join("parent/new.md"), "# Imported\n[[old]]").unwrap();
     std::fs::write(root.join("parent/image.png"), []).unwrap();
     let (imported, _) = refresh_created_index(&vault, same, Default::default()).unwrap();
     assert_eq!(
@@ -4270,7 +4270,7 @@ fn folder_creation_refresh_preserves_notes_and_discovers_imported_files() {
     );
     assert_eq!(
         imported.notes[std::path::Path::new("parent/new.md")].text,
-        "# Imported"
+        "# Imported\n[[old]]"
     );
     assert!(imported.files.contains(&PathBuf::from("parent/image.png")));
 
@@ -4286,6 +4286,12 @@ fn folder_creation_refresh_preserves_notes_and_discovers_imported_files() {
             .notes
             .contains_key(std::path::Path::new("parent/new.md"))
     );
+    assert!(updated.filenames("new").is_empty());
+    assert!(updated.backlinks(std::path::Path::new("old.md")).is_empty());
+    assert!(matches!(
+        updated.resolve(std::path::Path::new("old.md"), "parent/new"),
+        Resolution::Missing(_)
+    ));
     std::fs::remove_dir_all(root).unwrap();
 }
 
