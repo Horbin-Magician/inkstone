@@ -18,6 +18,7 @@ impl Render for EditorPane {
         }
         self.graphic_dpi = _window.scale_factor();
         self.update_presentation(cx);
+        self.refresh_visible_graphics(cx);
         if let Some(anchor) = self.pending_live_anchor.take() {
             self.reveal_after_concealment = false;
             cx.on_next_frame(_window, move |pane, _, cx| {
@@ -121,6 +122,7 @@ impl Render for EditorPane {
                 _window.scale_factor(),
                 self.light,
                 self.strict_line_breaks,
+                cx.entity().downgrade(),
                 cx,
             ))
             .text_size(px(font_size))

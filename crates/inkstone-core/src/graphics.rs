@@ -22,13 +22,50 @@ pub struct Graphic {
 pub fn prepare(kind: Kind, source: &str, light: bool) -> Result<Graphic> {
     ensure!(source.len() <= 65_536, "渲染内容超过 64 KiB 上限");
     std::panic::catch_unwind(|| match kind {
-        Kind::InlineMath | Kind::BlockMath => math(source, kind == Kind::BlockMath, light),
+        Kind::InlineMath | Kind::BlockMath => {
+            let list = math_layout(source, kind == Kind::BlockMath, light)?;
+            let mut graphic = math_size(&list)?;
+            graphic.svg = math_svg(&list);
+            Ok(graphic)
+        }
         Kind::Mermaid => diagram(source, light),
     })
     .map_err(|_| anyhow::anyhow!("渲染器无法处理此内容"))?
 }
 
-fn math(source: &str, display: bool, light: bool) -> Result<Graphic> {
+/// Layout size only. Opening a formula-heavy note uses this so the document
+/// can reserve space before any glyph outline or raster is built.
+pub fn measure(kind: Kind, source: &str, light: bool) -> Result<Graphic> {
+    ensure!(source.len() <= 65_536, "渲染内容超过 64 KiB 上限");
+    std::panic::catch_unwind(|| match kind {
+        Kind::InlineMath | Kind::BlockMath => {
+            math_size(&math_layout(source, kind == Kind::BlockMath, light)?)
+        }
+        Kind::Mermaid => diagram(source, light),
+    })
+    .map_err(|_| anyhow::anyhow!("渲染器无法处理此内容"))?
+}
+
+/// Glyph outlines for an already measured formula. Diagrams have no separate
+/// outline step; their SVG is produced by [`measure`].
+pub fn render_svg(kind: Kind, source: &str, light: bool) -> Result<Arc<[u8]>> {
+    ensure!(source.len() <= 65_536, "渲染内容超过 64 KiB 上限");
+    std::panic::catch_unwind(|| match kind {
+        Kind::InlineMath | Kind::BlockMath => Ok(math_svg(&math_layout(
+            source,
+            kind == Kind::BlockMath,
+            light,
+        )?)),
+        Kind::Mermaid => Ok(diagram(source, light)?.svg),
+    })
+    .map_err(|_| anyhow::anyhow!("渲染器无法处理此内容"))?
+}
+
+fn math_layout(
+    source: &str,
+    display: bool,
+    light: bool,
+) -> Result<ratex_types::display_item::DisplayList> {
     use ratex_types::{color::Color, math_style::MathStyle};
     let ast = ratex_parser::parse(source).context("公式语法错误")?;
     let options = ratex_layout::LayoutOptions {
@@ -41,27 +78,34 @@ fn math(source: &str, display: bool, light: bool) -> Result<Graphic> {
         ..Default::default()
     };
     let layout = ratex_layout::layout(&ast, &options);
-    let list = ratex_layout::to_display_list(&layout);
+    Ok(ratex_layout::to_display_list(&layout))
+}
+
+fn math_size(list: &ratex_types::display_item::DisplayList) -> Result<Graphic> {
     let padding = 2.;
     let width = list.width as f32 * FONT_SIZE + padding * 2.;
     let height = list.total_height() as f32 * FONT_SIZE + padding * 2.;
     validate_size(width, height)?;
+    Ok(Graphic {
+        svg: Arc::from([]),
+        width,
+        height,
+        baseline: Some(list.height as f32 * FONT_SIZE + padding),
+    })
+}
+
+fn math_svg(list: &ratex_types::display_item::DisplayList) -> Arc<[u8]> {
     let svg = ratex_svg::render_to_svg_with_color_syntax(
-        &list,
+        list,
         &ratex_svg::SvgOptions {
             font_size: f64::from(FONT_SIZE),
-            padding: f64::from(padding),
+            padding: 2.,
             embed_glyphs: true,
             ..Default::default()
         },
         ratex_svg::SvgColorSyntax::Rgb,
     );
-    Ok(Graphic {
-        svg: svg.into_bytes().into(),
-        width,
-        height,
-        baseline: Some(list.height as f32 * FONT_SIZE + padding),
-    })
+    svg.into_bytes().into()
 }
 
 fn diagram(source: &str, light: bool) -> Result<Graphic> {
@@ -155,6 +199,15 @@ mod tests {
                 assert!(baseline > 0. && baseline <= asset.height);
             }
         }
+        let measured = measure(Kind::InlineMath, r"\frac{x}{2}", false).unwrap();
+        let prepared = prepare(Kind::InlineMath, r"\frac{x}{2}", false).unwrap();
+        assert!(
+            measured.svg.is_empty(),
+            "measurement must not build outlines"
+        );
+        assert_eq!(measured.width, prepared.width);
+        assert_eq!(measured.height, prepared.height);
+        assert_eq!(measured.baseline, prepared.baseline);
         assert!(prepare(Kind::InlineMath, r"\inkstoneUnknown{x}", true).is_err());
         assert!(prepare(Kind::InlineMath, &"{".repeat(10000), true).is_err());
         assert!(prepare(Kind::InlineMath, &"x".repeat(65537), true).is_err());
