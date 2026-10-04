@@ -3711,7 +3711,13 @@ impl Render for Workspace {
                             )),
                     ),
             )
-            .when(!has_workspace, |s| s.child(self.welcome(cx)))
+            .when(!has_workspace, |s| {
+                if self.startup_pending || self.loading {
+                    s.child(self.loading_workspace())
+                } else {
+                    s.child(self.welcome(cx))
+                }
+            })
             .when(has_workspace, |s| {
                 s.child(
                     div()
