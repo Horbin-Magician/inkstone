@@ -111,6 +111,8 @@ pub struct Workspace {
     refreshing: bool,
     recoveries: Vec<RecoveryEntry>,
     index: Arc<Index>,
+    link_paths: std::collections::HashMap<PathBuf, Arc<Vec<crate::editor_links::CompletionPath>>>,
+    link_paths_key: Option<(usize, inkstone_core::locations::LinkFormat, bool)>,
     search: Entity<InputState>,
     search_results: Vec<SearchHit>,
     search_revision: u64,

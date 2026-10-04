@@ -106,20 +106,34 @@ impl Workspace {
         }).detach();
     }
     pub(super) fn sync_index_ui(&mut self, cx: &mut Context<Self>) {
-        for tab in &self.tabs {
+        self.prepare_link_paths();
+        let tab_paths: Vec<_> = self.tabs.iter().map(|tab| tab.path.clone()).collect();
+        for path in tab_paths {
+            let paths = self.cached_link_paths(&path);
+            let Some(tab) = self.tabs.iter().find(|tab| tab.path == path) else {
+                continue;
+            };
             tab.pane.update(cx, |pane, _| {
-                pane.set_paths(self.link_paths_for(&tab.path));
+                pane.set_paths(paths);
                 if let Some(vault) = &self.vault {
                     pane.image_dir = vault
                         .root
-                        .join(tab.path.parent().unwrap_or(std::path::Path::new("")));
+                        .join(path.parent().unwrap_or(std::path::Path::new("")));
                 }
             });
         }
-        if let Some(split) = &self.views.split {
-            if let Some(tab) = self.tabs.iter().find(|t| t.id == split.source) {
-                let image_dir = tab.pane.read(cx).image_dir.clone();
-                let paths = self.link_paths_for(&tab.path);
+        let split_source = self.views.split.as_ref().map(|split| split.source);
+        if let Some(source) = split_source {
+            let source = self
+                .tabs
+                .iter()
+                .find(|t| t.id == source)
+                .map(|tab| (tab.path.clone(), tab.pane.read(cx).image_dir.clone()));
+            if let Some((path, image_dir)) = source {
+                let paths = self.cached_link_paths(&path);
+                let Some(split) = &self.views.split else {
+                    return;
+                };
                 split.pane.update(cx, |p, _| {
                     p.image_dir = image_dir;
                     p.set_paths(paths);
