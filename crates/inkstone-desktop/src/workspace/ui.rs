@@ -1460,11 +1460,11 @@ impl Workspace {
             .border_color(self.border())
             .children(
                 [
+                    (0, "list", "大纲"),
                     (1, "links", "反向链接"),
                     (2, "link", "出链"),
                     (3, "tags", "标签"),
                     (4, "inbox", "属性"),
-                    (0, "list", "大纲"),
                 ]
                 .iter()
                 .map(|&(i, ico, label)| {
