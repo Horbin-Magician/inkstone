@@ -114,6 +114,39 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn indented_tasks_conceal_bullets_without_consuming_indentation(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "- [ ] parent\n\t- [ ] child\n\t\t- [x] grandchild\n\t- [ ] sibling\n\n- [ ] parent\n  - [ ] spaces\n\n1. [ ] ordered\n\t1. [ ] nested ordered\n\nend";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        cx.run_until_parked();
+        handle
+            .update(cx, |p, _, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(source.len()..source.len(), cx)
+                });
+                p.update_presentation(cx);
+                assert_eq!(p.live_tasks.len(), 8);
+                let concealed = p.editor.read(cx).concealed_ranges();
+                for task in &p.live_tasks {
+                    let bracket = task.target.marker.start - 1;
+                    let line_start = source[..bracket].rfind('\n').map_or(0, |i| i + 1);
+                    let prefix = &source[line_start..bracket];
+                    let marker_start = line_start + prefix.len() - prefix.trim_start().len();
+                    let expected_start = if prefix.trim_start().starts_with('-') {
+                        marker_start
+                    } else {
+                        bracket
+                    };
+                    assert_eq!(task.range, expected_start..task.target.marker.end + 1);
+                    assert!(concealed.contains(&task.range));
+                }
+                assert!(p.live_lists.is_empty());
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn overlay_geometry_is_current_during_prepaint(cx: &mut TestAppContext) {
         struct Harness(Entity<EditorState>);
         impl Render for Harness {
