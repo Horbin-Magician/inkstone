@@ -102,7 +102,8 @@ impl Service {
             dpi: dpi.to_bits(),
         }
     }
-    /// Layout size only. Safe to call for every formula while opening a note.
+    /// Layout size only. Cold measurements belong on the background parser;
+    /// do not hold the cache lock while computing them, since paint uses it too.
     pub(crate) fn measure_only(
         &self,
         kind: Kind,
@@ -114,11 +115,16 @@ impl Service {
             kind,
             light,
         };
-        let mut cache = self.cache.lock().unwrap();
-        if let Some(hit) = cache.assets.get(&key) {
+        if let Some(hit) = self.cache.lock().unwrap().assets.get(&key) {
             return hit.clone();
         }
         let result = Arc::new(graphics::measure(kind, source, light).map_err(|e| format!("{e:#}")));
+        let mut cache = self.cache.lock().unwrap();
+        // Another parse or raster worker may have filled this entry meanwhile.
+        // In particular, never replace an SVG with a measurement-only result.
+        if let Some(hit) = cache.assets.get(&key) {
+            return hit.clone();
+        }
         if cache.assets.len() >= MEASURE_LIMIT {
             cache.assets.clear();
         }
@@ -597,6 +603,34 @@ mod tests {
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn concurrent_measurements_share_results_and_keep_completed_svg(cx: &mut TestAppContext) {
+        let service = cx.update(Service::get);
+        let source = r"\frac{a^2+b^2}{\sqrt{1+x}}";
+        let gate = Arc::new(std::sync::Barrier::new(8));
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let service = service.clone();
+                let gate = gate.clone();
+                std::thread::spawn(move || {
+                    gate.wait();
+                    service.measure_only(Kind::InlineMath, source, false)
+                })
+            })
+            .collect();
+        let results: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+        assert!(results[0].is_ok());
+        assert!(results.iter().all(|r| Arc::ptr_eq(r, &results[0])));
+
+        let prepared = service.prepare(Kind::InlineMath, source, false, 16., 2.);
+        let prepared = prepared.as_ref().as_ref().unwrap();
+        let measured = service.measure_only(Kind::InlineMath, source, false);
+        assert!(Arc::ptr_eq(
+            &measured.as_ref().as_ref().unwrap().svg,
+            &prepared.asset.svg,
+        ));
     }
 
     #[gpui::test]
