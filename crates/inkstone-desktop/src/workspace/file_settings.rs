@@ -8,16 +8,25 @@ use inkstone_core::locations::Location;
 
 impl Workspace {
     pub(super) fn prepare_link_paths(&mut self) {
-        let key = (
-            Arc::as_ptr(&self.index) as usize,
+        let reusable = self
+            .link_paths_key
+            .as_ref()
+            .is_some_and(|(index, format, markdown)| {
+                *format == self.ui.prefs.link_format
+                    && *markdown == self.ui.prefs.use_markdown_links
+                    && (Arc::ptr_eq(index, &self.index)
+                        || same_completion_targets(index, &self.index))
+            });
+        if !reusable {
+            self.link_paths.clear();
+        }
+        // Retain the snapshot so its address cannot be recycled underneath the
+        // cache. Body/time-only updates reuse completions across all open panes.
+        self.link_paths_key = Some((
+            self.index.clone(),
             self.ui.prefs.link_format,
             self.ui.prefs.use_markdown_links,
-        );
-        if self.link_paths_key == Some(key) {
-            return;
-        }
-        self.link_paths.clear();
-        self.link_paths_key = Some(key);
+        ));
     }
     pub(super) fn cached_link_paths(
         &mut self,
@@ -362,4 +371,29 @@ impl Workspace {
             )
             .into_any_element()
     }
+}
+
+/// Completion entries use paths, aliases and anchor names, not body positions.
+fn same_completion_targets(previous: &Index, next: &Index) -> bool {
+    previous.files == next.files
+        && previous.notes.len() == next.notes.len()
+        && previous
+            .notes
+            .iter()
+            .zip(&next.notes)
+            .all(|((a, old), (b, new))| {
+                a == b
+                    && (Arc::ptr_eq(old, new)
+                        || (old.parsed.aliases == new.parsed.aliases
+                            && old.parsed.headings.iter().map(|h| &h.title).eq(new
+                                .parsed
+                                .headings
+                                .iter()
+                                .map(|h| &h.title))
+                            && old.parsed.blocks.iter().map(|b| &b.id).eq(new
+                                .parsed
+                                .blocks
+                                .iter()
+                                .map(|b| &b.id))))
+            })
 }

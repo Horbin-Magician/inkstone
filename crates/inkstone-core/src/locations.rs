@@ -12,26 +12,10 @@ pub enum LinkFormat {
 
 impl LinkFormat {
     pub fn note_targets(self, index: &crate::index::Index, from: &Path) -> Vec<String> {
-        let mut names = std::collections::HashMap::<String, usize>::new();
-        for path in index.notes.keys() {
-            *names
-                .entry(
-                    path.file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_lowercase(),
-                )
-                .or_default() += 1;
-        }
         index
             .notes
             .keys()
             .map(|to| {
-                let name = to
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_lowercase();
                 let local = to
                     .parent()
                     .unwrap_or(Path::new(""))
@@ -39,7 +23,7 @@ impl LinkFormat {
                     .eq_ignore_ascii_case(
                         &from.parent().unwrap_or(Path::new("")).to_string_lossy(),
                     );
-                self.note_target(from, to, local || names.get(&name) == Some(&1))
+                self.note_target(from, to, local || index.has_unique_stem(to))
             })
             .collect()
     }

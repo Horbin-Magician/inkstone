@@ -3971,6 +3971,50 @@ fn sidebars_follow_restored_widths_and_keep_them_after_window_resize(cx: &mut Te
 }
 
 #[gpui::test]
+fn completion_cache_reuses_body_edits_and_invalidates_target_changes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, _, _| {
+            let from = std::path::Path::new("source.md");
+            let mut index = Index::default();
+            index.update("target.md".into(), "# Heading\n\nbody ^block\n".into());
+            w.index = Arc::new(index);
+            let before = w.cached_link_paths(from);
+            Arc::make_mut(&mut w.index).update(
+                "target.md".into(),
+                "extra body\n\n# Heading\n\nchanged ^block\n".into(),
+            );
+            assert!(Arc::ptr_eq(&before, &w.cached_link_paths(from)));
+            let mut previous = before;
+            for text in [
+                "# Renamed\n\nbody ^block\n",
+                "# Renamed\n\nbody ^new-block\n",
+                "---\naliases: [别名]\n---\n# Renamed\n\nbody ^new-block\n",
+            ] {
+                Arc::make_mut(&mut w.index).update("target.md".into(), text.into());
+                let next = w.cached_link_paths(from);
+                assert!(!Arc::ptr_eq(&previous, &next));
+                assert_eq!(*next, *w.link_paths_for(from));
+                previous = next;
+            }
+            Arc::make_mut(&mut w.index).files.push("image.png".into());
+            let assets = w.cached_link_paths(from);
+            assert!(!Arc::ptr_eq(&previous, &assets));
+            assert!(assets.iter().any(|entry| entry.label == "image.png"));
+            w.ui.prefs.use_markdown_links = !w.ui.prefs.use_markdown_links;
+            let markdown = w.cached_link_paths(from);
+            assert!(!Arc::ptr_eq(&assets, &markdown));
+            w.index = Arc::new(
+                w.index
+                    .relocate(std::path::Path::new("target.md"), None, false),
+            );
+            assert_eq!(*w.cached_link_paths(from), *w.link_paths_for(from));
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn completion_link_preferences_keep_full_labels_and_resolve(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(Workspace::new);
