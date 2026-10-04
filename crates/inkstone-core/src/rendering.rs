@@ -52,6 +52,23 @@ struct SourceMap {
     source_end: usize,
 }
 impl ReadingDocument {
+    /// A syntax-validated literal graphic needs no link/footnote expansion.
+    /// Retain its source mapping without scanning the whole note again.
+    pub(crate) fn graphic_fragment(path: &Path, source: Arc<str>, range: Range<usize>) -> Self {
+        let markdown = source[range.clone()].to_owned();
+        Self {
+            locations: vec![SourceMap {
+                output: 0..markdown.len(),
+                path: path.to_path_buf(),
+                start: range.start,
+                source_end: range.end,
+            }],
+            markdown,
+            sources: BTreeMap::from([(path.to_path_buf(), source)]),
+            ..Default::default()
+        }
+    }
+
     pub fn footnote_definition_targets(&self) -> Vec<(usize, PathBuf, usize)> {
         index::parse(&self.markdown)
             .footnote_definitions
