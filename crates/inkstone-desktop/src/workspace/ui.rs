@@ -803,6 +803,28 @@ impl Workspace {
 }
 
 pub(super) fn icon(name: &str) -> Icon {
+    if matches!(
+        name,
+        "panel-left" | "panel-left-filled" | "panel-right" | "panel-right-filled"
+    ) {
+        let divider = if name.starts_with("panel-left") {
+            9
+        } else {
+            15
+        };
+        let fill = match name {
+            "panel-left-filled" => {
+                r#"<path d="M5 3h4v18H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" fill="currentColor" stroke="none"/>"#
+            }
+            "panel-right-filled" => {
+                r#"<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4Z" fill="currentColor" stroke="none"/>"#
+            }
+            _ => "",
+        };
+        return Icon::default()
+            .data(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{fill}<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M{divider} 3v18"/></svg>"#).as_bytes())
+            .size(px(17.));
+    }
     let shape = match name {
         "trash" => Some("M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"),
         "history" => Some("M3 3v6h6M3 9a9 9 0 1 1 0 6M12 7v5l3 2"),
@@ -3690,12 +3712,12 @@ impl Render for Workspace {
                                 .child(
                                     tool(
                                         "title-toggle-left",
-                                        if self.ui.prefs.left_open {
-                                            "panel-left-close"
+                                        if left_open {
+                                            "panel-left-filled"
                                         } else {
                                             "panel-left"
                                         },
-                                        if self.ui.prefs.left_open {
+                                        if left_open {
                                             "收起左侧栏"
                                         } else {
                                             "展开左侧栏"
@@ -3710,8 +3732,12 @@ impl Render for Workspace {
                                 .child(
                                     tool(
                                         "title-toggle-right",
-                                        "panel-right",
-                                        if self.ui.prefs.right_open {
+                                        if right_open {
+                                            "panel-right-filled"
+                                        } else {
+                                            "panel-right"
+                                        },
+                                        if right_open {
                                             "收起右侧栏"
                                         } else {
                                             "展开右侧栏"
