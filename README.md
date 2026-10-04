@@ -66,7 +66,7 @@ Rust + GPUI 本地 Markdown 笔记应用。正在按本机 Obsidian 1.13.7 对�
 - `crates/inkstone-core`：Markdown 解析与编辑规则、索引、搜索、文件存储、备份、导出及后台基准；不依赖 GPUI。
 - `crates/inkstone-desktop`：GPUI 编辑器、工作区、原生窗口 / 菜单、图形适配及桌面集成测试；可执行文件仍名为 `inkstone`。
 
-根目录统一维护依赖版本、`Cargo.lock`、release profile 和 vendor 补丁。`assets/`、`packaging/` 与 `scripts/` 保留在仓库根目录。
+根目录统一维护依赖版本、`Cargo.lock`、release profile 和 vendor 补丁。`assets/` 与 `packaging/` 保留在仓库根目录；macOS 打包脚本与配置集中放在 `packaging/macos/`。
 
 ## 构建与验证
 
@@ -87,9 +87,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 10000
 macOS 开发启动使用 `cargo run --locked --bin inkstone`，可执行文件内嵌应用名称配置与图标，系统菜单显示“墨砚”，启动时主动设置 Dock 图标。打包为可双击启动的应用：
 
 ```sh
-bash scripts/bundle-macos.sh
+bash packaging/macos/bundle.sh
 open target/debug/墨砚.app
-# 发布构建：bash scripts/bundle-macos.sh --release
+# 发布构建：bash packaging/macos/bundle.sh --release
 ```
 
 打包脚本从 `assets/branding/inkstone-icon.png` 生成多尺寸 macOS 图标，并使用本机临时签名，尚未配置发行签名和公证。当前界面固定为中文；将来切换界面语言时，需同步更新 `packaging/macos/Info.plist` 中的系统显示名称。Linux 尚未构建或验收。

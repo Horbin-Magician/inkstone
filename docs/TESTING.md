@@ -6,7 +6,7 @@
 - 独立运行 `cargo test --locked -p inkstone-core`：170 项通过、1 项手动基准忽略；`cargo test --locked -p inkstone-desktop`：250 项桌面测试及 6 项集成测试通过、1 项手动基准忽略，总计 426 项通过。
 - `cargo tree --locked --offline -p inkstone-core --edges normal,build,dev` 确认核心的运行、构建和测试依赖均不含 GPUI；workspace 元数据确认两个默认成员，根目录普通测试命令仍覆盖两包。
 - 全 workspace 与独立 core 的 `cargo clippy --locked … --all-targets -- -D warnings` 均通过；`cargo fmt --all --check` 与差异检查通过。根目录 `cargo run --locked --example benchmark -- 100` 完成，作为迁移后入口验证，不用于声明性能提升。
-- `bash scripts/bundle-macos.sh` 构建成功；`codesign --verify --deep --strict` 与 Info.plist 校验通过，二进制保留 `__TEXT,__info_plist` 段。未启动原生窗口，未修改用户笔记。
+- `bash packaging/macos/bundle.sh` 构建成功；`codesign --verify --deep --strict` 与 Info.plist 校验通过，二进制保留 `__TEXT,__info_plist` 段。未启动原生窗口，未修改用户笔记。
 - CI 明确执行 workspace 检查，增加 Ubuntu 独立核心任务；YAML 与脚本语法已检查，远程 CI 和 Windows / Linux 实机结果尚未验证。
 
 
@@ -92,7 +92,7 @@
 - 索引通过共享不可变笔记快照减少深复制，回归验证更新后的旧快照不变及未变化笔记复用。修正基准程序的 debug/release 标识，并加入同进程、相同数据的旧式深复制与共享快照对比。
 - 本机 macOS debug 后台基准：10,000 篇、每篇 146 字节，7 轮快照复制中位数从旧表示的 **6.525 ms** 降至共享表示的 **1.064 ms**（约 84%）；单文件刷新含快照复制 1.494 ms。全库构建 1.683 秒，搜索 16.864 ms。该结果只衡量后台逻辑，不代表真实输入、滚动延迟或 release 性能。
 - 清理前追加检查 Unix 成功备份是否被旧文件句柄延迟改写：内容已变化或备份条目异常时保护整篇历史，新增真实持有旧 inode 写入的回归。
-- 最终 `cargo test --locked`：**379 项通过**（146 核心、227 桌面、6 集成），手动帧基准 1 项忽略；严格全 targets Clippy、格式及差异检查通过。`bash scripts/bundle-macos.sh` 构建并临时签名成功，产物为 `target/debug/墨砚.app`。
+- 最终 `cargo test --locked`：**379 项通过**（146 核心、227 桌面、6 集成），手动帧基准 1 项忽略；严格全 targets Clippy、格式及差异检查通过。`bash packaging/macos/bundle.sh` 构建并临时签名成功，产物为 `target/debug/墨砚.app`。
 - 本轮使用临时测试库，没有启动原生窗口验收，也没有修改用户笔记。长单段键入、多 DPI、输入法及真实断电测试仍保留为后续验收。
 
 ## Markdown 编辑与滚动性能优化（2026-10-01）
