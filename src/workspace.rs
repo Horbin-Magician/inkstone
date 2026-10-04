@@ -88,6 +88,7 @@ pub struct Workspace {
     name: Entity<InputState>,
     status: String,
     loading: bool,
+    startup_pending: bool,
     _timer: Task<()>,
     watcher: Option<notify::RecommendedWatcher>,
     watch_events: Option<std::sync::mpsc::Receiver<notify::Result<notify::Event>>>,
@@ -564,9 +565,10 @@ impl Workspace {
             })
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Some(root) = task.await {
-                let _ = this.update_in(cx, |this, window, cx| this.load_vault(root, window, cx));
-            }
+            let root = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.finish_startup(root, window, cx);
+            });
         })
         .detach();
         let ui = ui::UiState::new(window, cx);
@@ -585,6 +587,7 @@ impl Workspace {
             name,
             status: String::new(),
             loading: false,
+            startup_pending: true,
             _timer: timer,
             watcher: None,
             watch_events: None,
@@ -612,6 +615,22 @@ impl Workspace {
             folder_revision: 0,
         }
     }
+    fn finish_startup(
+        &mut self,
+        root: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // A manual open may have already superseded the recent-vault lookup.
+        if !std::mem::take(&mut self.startup_pending) {
+            return;
+        }
+        if let Some(root) = root {
+            self.load_vault(root, window, cx);
+        }
+        cx.notify();
+    }
+
     fn choose_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.ui.pending_file_writes > 0
             || self
@@ -652,6 +671,7 @@ impl Workspace {
             return;
         }
         inkstone::startup_trace::mark("load_requested");
+        self.startup_pending = false;
         self.loading = true;
         self.generation += 1;
         let generation = self.generation;

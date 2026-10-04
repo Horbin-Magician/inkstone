@@ -3,6 +3,46 @@ use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::button::*;
 
 impl Workspace {
+    pub(super) fn loading_workspace(&self) -> AnyElement {
+        let colors = crate::theme::palette(self.ui.prefs.light);
+        div()
+            .id("workspace-loading")
+            .debug_selector(|| "workspace-loading".into())
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .child(
+                div()
+                    .w(px(250.))
+                    .flex_shrink_0()
+                    .bg(colors.sidebar)
+                    .border_r_1()
+                    .border_color(colors.border)
+                    .p_4()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .children([0.7, 0.9, 0.6].into_iter().map(|width| {
+                        div()
+                            .h(px(12.))
+                            .w(relative(width))
+                            .rounded(px(4.))
+                            .bg(colors.surface)
+                    })),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(MIN_UI_FONT_SIZE))
+                    .text_color(colors.muted)
+                    .child("正在打开笔记库…"),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn welcome(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = crate::theme::palette(self.ui.prefs.light);
         div()
@@ -19,6 +59,10 @@ impl Workspace {
                 .child(div().text_size(px(18.)).font_weight(FontWeight::MEDIUM).child("你的笔记，从这里开始"))
                 .child(div().text_size(px(MIN_UI_FONT_SIZE)).line_height(relative(1.7)).text_color(colors.muted)
                     .child("选择一个文件夹作为笔记库。笔记以 Markdown 文件保存在本地，随时可以打开和整理。"))
+                .when(!self.status.is_empty(), |s| s.child(div()
+                    .id("welcome-error").debug_selector(|| "welcome-error".into())
+                    .text_size(px(MIN_UI_FONT_SIZE)).text_color(colors.muted)
+                    .child(format!("无法打开笔记库：{}", self.status))))
                 .child(Button::new("welcome-open-vault").primary().mt_4().h(px(42.)).w_full()
                     .label("打开笔记库").icon(ui::icon("folder-open"))
                     .on_click(cx.listener(|this, _, window, cx| this.choose_vault(window, cx))))
@@ -108,6 +152,7 @@ mod tests {
     fn welcome_hides_workspace_chrome_but_keeps_settings_accessible(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds("welcome").is_some());
@@ -122,5 +167,104 @@ mod tests {
                 assert!(workspace.ui.prefs.right_open);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn initial_lookup_shows_loading_then_welcome_when_no_recent_vault(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("workspace-loading").is_some());
+        assert!(visual.debug_bounds("welcome").is_none());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("workspace-loading").is_none());
+        assert!(visual.debug_bounds("welcome").is_some());
+    }
+
+    #[gpui::test]
+    fn failed_startup_returns_to_welcome_with_visible_error(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-missing-startup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |workspace, window, cx| {
+                workspace.finish_startup(Some(root), window, cx);
+                assert!(workspace.loading);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("welcome").is_none());
+        assert!(visual.debug_bounds("workspace-loading").is_some());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("workspace-loading").is_none());
+        assert!(visual.debug_bounds("welcome").is_some());
+        assert!(visual.debug_bounds("welcome-error").is_some());
+    }
+
+    fn assert_startup_opens_without_welcome(cx: &mut TestAppContext, manual: bool) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-startup-ui-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("note.md"), "# Restored").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |workspace, window, cx| {
+                if manual {
+                    workspace.load_vault(root.clone(), window, cx);
+                    workspace.finish_startup(Some(root.join("missing")), window, cx);
+                } else {
+                    workspace.finish_startup(Some(root.clone()), window, cx);
+                }
+                assert_eq!(workspace.generation, 1);
+                assert!(!workspace.startup_pending);
+                assert!(workspace.loading);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("welcome").is_none());
+        assert!(visual.debug_bounds("workspace-loading").is_some());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("welcome").is_none());
+        assert!(visual.debug_bounds("workspace-loading").is_none());
+        assert!(visual.debug_bounds("workspace-status-bar").is_some());
+        handle
+            .update(&mut visual, |workspace, _, _| {
+                assert_eq!(workspace.tabs.len(), 1);
+                assert_eq!(workspace.tabs[0].path, std::path::Path::new("note.md"));
+                workspace.watcher = None;
+                workspace.watch_events = None;
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn automatic_restore_enters_workspace_without_welcome_flash(cx: &mut TestAppContext) {
+        assert_startup_opens_without_welcome(cx, false);
+    }
+
+    #[gpui::test]
+    fn manual_open_supersedes_pending_startup_without_welcome_flash(cx: &mut TestAppContext) {
+        assert_startup_opens_without_welcome(cx, true);
     }
 }
