@@ -299,3 +299,47 @@ fn webdav_refuses_redirects_weak_etags_and_invalid_urls() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn local_replacement_and_deletion_leave_identifiable_recovery_copies() -> Result<()> {
+    let f = Fixture::new();
+    let path = f.a.root.join("note.md");
+    fs::write(&path, "original")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+    }
+    apply(
+        &f.a,
+        "note.md",
+        Some(&hash(b"original")),
+        Some(b"downloaded"),
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+    }
+    apply(&f.a, "note.md", Some(&hash(b"downloaded")), None)?;
+    assert!(!path.exists());
+    let mut contents = BTreeSet::new();
+    for entry in fs::read_dir(&f.a.root)? {
+        let entry = entry?;
+        if entry.path().extension().is_some_and(|e| e == "json") {
+            let metadata: serde_json::Value = serde_json::from_slice(&fs::read(entry.path())?)?;
+            assert_eq!(metadata["original"], "note.md");
+            let bytes = fs::read(f.a.root.join(metadata["backup"].as_str().unwrap()))?;
+            assert_eq!(metadata["sha256"], hash(&bytes));
+            contents.insert(bytes);
+        }
+    }
+    assert_eq!(
+        contents,
+        BTreeSet::from([b"original".to_vec(), b"downloaded".to_vec()])
+    );
+    assert!(snapshot(&f.a)?.is_empty());
+    // Overlong conflict filenames are rejected before remote publication.
+    assert!(validate_path(&format!("{}.md", "n".repeat(253))).is_err());
+    Ok(())
+}

@@ -52,3 +52,4 @@ plutil -lint target/debug/墨砚.app/Contents/Info.plist
 - 桌面新增本地 WebDAV 服务集成测试：等待未保存草稿、上传最新正文、下载后更新文件列表、配置保存但密码不落盘、清除会话密码、保存错误阻止同步。
 - `cargo test --locked --workspace`：435 项通过、2 项原有手动基准忽略；`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo fmt --all --check` 和 `git diff --check` 通过。
 - 使用临时笔记库，没有操作用户笔记。尚未使用真实服务商账号，也未完成新增面板的原生视觉验收或 Windows/Linux 实机验证。
+- 后续恢复保护补充：下载替换保留 Unix 原权限；替换与删除生成记录原路径、备份文件名及 SHA-256 的恢复侧文件，超长文件名在提交前拒绝。同步专项 9 项测试全部通过，核心 Clippy、格式与差异检查通过；此补充之后未重复全工作区测试。
