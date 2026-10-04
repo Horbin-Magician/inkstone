@@ -72,8 +72,11 @@ impl Index {
         anchor_range(&note.text, &note.parsed, fragment)
     }
     pub fn build(vault: &Vault) -> Result<Self, VaultError> {
+        Self::build_from_files(vault, vault.scan_files()?)
+    }
+    pub fn build_from_files(vault: &Vault, files: Vec<PathBuf>) -> Result<Self, VaultError> {
         let mut index = Self {
-            files: vault.scan_files()?,
+            files,
             ..Default::default()
         };
         let paths: Vec<_> = index

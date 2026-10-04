@@ -37,6 +37,21 @@ impl Index {
     }
 
     pub fn build_cached(vault: &Vault, path: &Path) -> Result<Self, VaultError> {
+        Ok(Self::load_cached(vault, path)?.0)
+    }
+    /// Load the index and visible folders from one directory walk.
+    pub fn load_cached(vault: &Vault, path: &Path) -> Result<(Self, Vec<PathBuf>), VaultError> {
+        let tree = vault.scan_tree()?;
+        Ok((
+            Self::build_cached_files(vault, path, tree.files)?,
+            tree.folders,
+        ))
+    }
+    fn build_cached_files(
+        vault: &Vault,
+        path: &Path,
+        files: Vec<PathBuf>,
+    ) -> Result<Self, VaultError> {
         crate::startup_trace::mark("cache_read_started");
         let mut cached = std::fs::read(path)
             .ok()
@@ -46,7 +61,7 @@ impl Index {
             .unwrap_or_default();
         crate::startup_trace::mark("cache_read_done");
         let mut index = Self {
-            files: vault.scan_files()?,
+            files,
             ..Default::default()
         };
         crate::startup_trace::mark("file_scan_done");

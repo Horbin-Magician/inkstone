@@ -201,7 +201,7 @@ impl Workspace {
                 .map_err(|e| VaultError::Io(std::io::Error::other(e)))?;
             inkstone_core::startup_trace::mark("watcher_ready");
             let cache_path = Index::cache_path(&vault, &app_dir().join("index-cache"));
-            let index = Index::build_cached(&vault, &cache_path)?;
+            let (index, folders) = Index::load_cached(&vault, &cache_path)?;
             inkstone_core::startup_trace::mark("index_ready");
             let files = index.note_paths();
             let recoveries = vault.recoveries()?;
@@ -210,7 +210,6 @@ impl Workspace {
                 vault.root.to_string_lossy().as_bytes(),
             );
             inkstone_core::startup_trace::mark("recovery_ready");
-            let folders = vault.folders()?;
             inkstone_core::startup_trace::mark("folders_ready");
             let (prefs, preference_warning) =
                 inkstone_core::preferences::Preferences::load_with_warning(

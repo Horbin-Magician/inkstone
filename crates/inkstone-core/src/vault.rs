@@ -97,6 +97,11 @@ pub struct RecoveryEntry {
     pub record: Recovery,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct VaultTree {
+    pub files: Vec<PathBuf>,
+    pub folders: Vec<PathBuf>,
+}
 #[derive(Clone, Debug)]
 pub struct TrashEntry {
     pub stored: PathBuf,
@@ -305,24 +310,7 @@ impl Vault {
         Ok(())
     }
     pub fn folders(&self) -> Result<Vec<PathBuf>, VaultError> {
-        fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
-            for entry in fs::read_dir(dir)? {
-                let entry = entry?;
-                let meta = fs::symlink_metadata(entry.path())?;
-                if meta.is_dir()
-                    && !is_reparse(&meta)
-                    && !entry.file_name().to_string_lossy().starts_with('.')
-                {
-                    out.push(entry.path().strip_prefix(root).unwrap().to_path_buf());
-                    walk(root, &entry.path(), out)?;
-                }
-            }
-            Ok(())
-        }
-        let mut out = vec![];
-        walk(&self.root, &self.root, &mut out)?;
-        out.sort();
-        Ok(out)
+        Ok(self.scan_tree()?.folders)
     }
     pub fn trash_entries(&self) -> Result<Vec<TrashEntry>, VaultError> {
         let trash = self.root.join(".inkstone-trash");
@@ -668,18 +656,16 @@ impl Vault {
             .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")))
             .collect())
     }
-    pub fn scan_files(&self) -> Result<Vec<PathBuf>, VaultError> {
-        fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
+    /// One directory walk for both indexed files and visible folders.
+    pub fn scan_tree(&self) -> Result<VaultTree, VaultError> {
+        fn walk(root: &Path, dir: &Path, tree: &mut VaultTree) -> io::Result<()> {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
+                let name = entry.file_name();
                 // Workspace settings and recovery metadata are not vault assets.
                 // Match the watcher's exclusion so saving settings cannot change
                 // the indexed file list during a structural refresh.
-                if entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with(".inkstone-")
-                {
+                if name.to_string_lossy().starts_with(".inkstone-") {
                     continue;
                 }
                 let path = entry.path();
@@ -688,19 +674,27 @@ impl Vault {
                     continue;
                 }
                 if meta.is_dir() {
-                    if !entry.file_name().to_string_lossy().starts_with('.') {
-                        walk(root, &path, out)?;
+                    if name.to_string_lossy().starts_with('.') {
+                        continue;
                     }
+                    tree.folders
+                        .push(path.strip_prefix(root).unwrap().to_path_buf());
+                    walk(root, &path, tree)?;
                 } else if meta.is_file() {
-                    out.push(path.strip_prefix(root).unwrap().to_path_buf());
+                    tree.files
+                        .push(path.strip_prefix(root).unwrap().to_path_buf());
                 }
             }
             Ok(())
         }
-        let mut notes = vec![];
-        walk(&self.root, &self.root, &mut notes)?;
-        notes.sort();
-        Ok(notes)
+        let mut tree = VaultTree::default();
+        walk(&self.root, &self.root, &mut tree)?;
+        tree.files.sort();
+        tree.folders.sort();
+        Ok(tree)
+    }
+    pub fn scan_files(&self) -> Result<Vec<PathBuf>, VaultError> {
+        Ok(self.scan_tree()?.files)
     }
     pub fn journal(
         &self,

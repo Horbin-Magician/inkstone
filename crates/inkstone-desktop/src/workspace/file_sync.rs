@@ -24,14 +24,18 @@ impl Workspace {
             .map(|t| (t.id, t.path.clone(), t.save.baseline.borrow().clone()))
             .collect();
         let task = cx.background_executor().spawn(async move {
-            let index = if rescan {
-                Arc::new(Index::build(&vault)?)
+            let (index, folders) = if rescan {
+                let tree = vault.scan_tree()?;
+                (
+                    Arc::new(Index::build_from_files(&vault, tree.files)?),
+                    tree.folders,
+                )
             } else if structure_changed {
                 refresh_created_index(&vault, previous.clone(), changed)?
             } else {
                 let mut index = (*previous).clone();
                 index.refresh_paths(&vault, changed)?;
-                Arc::new(index)
+                (Arc::new(index), vault.folders()?)
             };
             let files = index.note_paths();
             let mut documents = vec![];
@@ -42,7 +46,6 @@ impl Workspace {
                 let disk = vault.read(&path);
                 documents.push((id, path, baseline, disk));
             }
-            let folders = vault.folders()?;
             Ok::<_, VaultError>((files, documents, index, folders))
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -199,8 +202,9 @@ pub(super) fn refresh_created_index(
     vault: &Vault,
     previous: Arc<Index>,
     mut changed: std::collections::BTreeSet<PathBuf>,
-) -> Result<Arc<Index>, VaultError> {
-    let files = vault.scan_files()?;
+) -> Result<(Arc<Index>, Vec<PathBuf>), VaultError> {
+    let tree = vault.scan_tree()?;
+    let files = tree.files;
     let notes: std::collections::BTreeSet<_> = files
         .iter()
         .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")))
@@ -219,14 +223,14 @@ pub(super) fn refresh_created_index(
         .chain(previous.errors.keys())
         .any(|p| !notes.contains(p));
     if changed.is_empty() && !removed && files == previous.files {
-        return Ok(previous);
+        return Ok((previous, tree.folders));
     }
     let mut index = (*previous).clone();
     index.notes.retain(|p, _| notes.contains(p));
     index.errors.retain(|p, _| notes.contains(p));
     index.refresh_paths(vault, changed)?;
     index.files = files;
-    Ok(Arc::new(index))
+    Ok((Arc::new(index), tree.folders))
 }
 
 pub(super) fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
