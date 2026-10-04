@@ -1,6 +1,6 @@
 //! Native math and diagram preparation. No UI, JavaScript, or external tools.
 use anyhow::{Context, Result, ensure};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub const FONT_SIZE: f32 = 20.;
 
@@ -23,9 +23,9 @@ pub fn prepare(kind: Kind, source: &str, light: bool) -> Result<Graphic> {
     ensure!(source.len() <= 65_536, "渲染内容超过 64 KiB 上限");
     std::panic::catch_unwind(|| match kind {
         Kind::InlineMath | Kind::BlockMath => {
-            let list = math_layout(source, kind == Kind::BlockMath, light)?;
-            let mut graphic = math_size(&list)?;
-            graphic.svg = math_svg(&list);
+            let list = cached_math_layout(kind, source, light)?;
+            let mut graphic = math_size(list.as_ref())?;
+            graphic.svg = math_svg(list.as_ref());
             Ok(graphic)
         }
         Kind::Mermaid => diagram(source, light),
@@ -39,7 +39,7 @@ pub fn measure(kind: Kind, source: &str, light: bool) -> Result<Graphic> {
     ensure!(source.len() <= 65_536, "渲染内容超过 64 KiB 上限");
     std::panic::catch_unwind(|| match kind {
         Kind::InlineMath | Kind::BlockMath => {
-            math_size(&math_layout(source, kind == Kind::BlockMath, light)?)
+            math_size(cached_math_layout(kind, source, light)?.as_ref())
         }
         Kind::Mermaid => diagram(source, light),
     })
@@ -51,14 +51,58 @@ pub fn measure(kind: Kind, source: &str, light: bool) -> Result<Graphic> {
 pub fn render_svg(kind: Kind, source: &str, light: bool) -> Result<Arc<[u8]>> {
     ensure!(source.len() <= 65_536, "渲染内容超过 64 KiB 上限");
     std::panic::catch_unwind(|| match kind {
-        Kind::InlineMath | Kind::BlockMath => Ok(math_svg(&math_layout(
-            source,
-            kind == Kind::BlockMath,
-            light,
-        )?)),
+        Kind::InlineMath | Kind::BlockMath => {
+            Ok(math_svg(cached_math_layout(kind, source, light)?.as_ref()))
+        }
         Kind::Mermaid => Ok(diagram(source, light)?.svg),
     })
     .map_err(|_| anyhow::anyhow!("渲染器无法处理此内容"))?
+}
+
+struct LayoutKey {
+    kind: Kind,
+    light: bool,
+    source: Arc<str>,
+}
+type CachedLayout = (LayoutKey, Arc<ratex_types::display_item::DisplayList>);
+
+const LAYOUT_LIMIT: usize = 64;
+static MATH_LAYOUTS: std::sync::LazyLock<Mutex<Vec<CachedLayout>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+
+fn cached_math_layout(
+    kind: Kind,
+    source: &str,
+    light: bool,
+) -> Result<Arc<ratex_types::display_item::DisplayList>> {
+    let mut cache = MATH_LAYOUTS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(index) = cache
+        .iter()
+        .position(|(key, _)| key.kind == kind && key.light == light && &*key.source == source)
+    {
+        let hit = cache.remove(index);
+        cache.push(hit);
+        return Ok(cache.last().unwrap().1.clone());
+    }
+    drop(cache);
+    let list = Arc::new(math_layout(source, kind == Kind::BlockMath, light)?);
+    let mut cache = MATH_LAYOUTS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if cache.len() >= LAYOUT_LIMIT {
+        cache.remove(0);
+    }
+    cache.push((
+        LayoutKey {
+            kind,
+            light,
+            source: Arc::from(source),
+        },
+        list.clone(),
+    ));
+    Ok(list)
 }
 
 fn math_layout(
