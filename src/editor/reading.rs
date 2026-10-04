@@ -32,6 +32,7 @@ impl EditorPane {
         self.pending_reading_position = Some(position);
         cx.notify();
     }
+    #[cfg(test)]
     pub fn reading_bounds(&self, cx: &App) -> Bounds<Pixels> {
         self.preview.read(cx).bounds()
     }

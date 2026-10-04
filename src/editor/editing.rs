@@ -239,7 +239,6 @@ impl EditorPane {
             cx.stop_propagation();
         }
     }
-    #[cfg(test)]
     pub fn toggle_task_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self
             .editor
