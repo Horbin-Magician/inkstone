@@ -1,7 +1,11 @@
 //! Transient source-backed presentation objects, separate from editable tokens.
 use crate::input::{EditorMode, InputBaseState, LineTypography, RopeExt};
 use gpui::{Bounds, Context, Pixels, Size, point, px};
-use std::{collections::BTreeMap, ops::Range, rc::Rc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::Range,
+    rc::Rc,
+};
 use sum_tree::Bias;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -17,6 +21,15 @@ pub struct DisplayProjection {
     pub replacements: Vec<(Range<usize>, Pixels)>,
     pub hidden_lines: Vec<usize>,
     pub typography: Vec<LineTypography>,
+}
+
+pub(crate) fn index_objects(objects: &[DisplayObject]) -> HashMap<u64, usize> {
+    let mut ids = HashMap::with_capacity(objects.len());
+    for (index, object) in objects.iter().enumerate() {
+        // Preserve the first-match behavior even if the host repeats an ID.
+        ids.entry(object.id).or_insert(index);
+    }
+    ids
 }
 
 pub(crate) fn rebase_for_composition(
@@ -149,6 +162,7 @@ impl InputBaseState<EditorMode> {
         if self.display_objects.as_ref() == objects.as_slice() {
             return false;
         }
+        self.display_object_ids = index_objects(&objects);
         self.display_objects = objects.into();
         self.presentation_revision = self.presentation_revision.wrapping_add(1);
         cx.notify();
@@ -206,7 +220,15 @@ impl InputBaseState<EditorMode> {
 
     /// Bounds reflect scrolling, soft wrapping, row heights and fold visibility.
     pub fn display_object_bounds(&self, id: u64) -> Option<Bounds<Pixels>> {
-        let object = self.display_objects.iter().find(|o| o.id == id)?;
+        let object = self
+            .display_objects
+            .get(*self.display_object_ids.get(&id)?)?;
+        // Screen-external anchors cannot have bounds. Reject them before the
+        // line-layout walk, which otherwise runs for every object on each frame.
+        let visible = &self.last_layout.as_ref()?.visible_range_offset;
+        if object.source.start < visible.start || object.source.start > visible.end {
+            return None;
+        }
         // The source syntax can span wrapped rows. Its end is not a visual
         // corner of the replacement: always anchor at the source start.
         let mut bounds = self.range_to_bounds(&(object.source.start..object.source.start))?;
@@ -216,6 +238,7 @@ impl InputBaseState<EditorMode> {
 
     pub(crate) fn clear_display_objects(&mut self) {
         self.display_objects = Rc::from([]);
+        self.display_object_ids.clear();
     }
 }
 

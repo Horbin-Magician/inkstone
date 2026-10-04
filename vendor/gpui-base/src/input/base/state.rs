@@ -382,6 +382,7 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) line_layout_cache: std::cell::RefCell<Option<super::element::LineLayoutCache>>,
     pub(super) line_typography: Rc<[super::LineTypography]>,
     pub(super) display_objects: Rc<[super::DisplayObject]>,
+    pub(super) display_object_ids: std::collections::HashMap<u64, usize>,
     pub(super) presentation_revision: u64,
     pub(super) token_presentation: super::InlineTokenPresentation,
     pub(super) token_layout_cache: Option<Box<super::token_presentation::TokenLayoutCache>>,
@@ -753,6 +754,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             line_layout_cache: Default::default(),
             line_typography: Rc::from([]),
             display_objects: Rc::from([]),
+            display_object_ids: std::collections::HashMap::new(),
             presentation_revision: 0,
             token_presentation: Default::default(),
             token_layout_cache: None,
@@ -3742,6 +3744,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         } else {
             Rc::from([])
         };
+        self.display_object_ids = super::display_objects::index_objects(&self.display_objects);
         if !self.line_typography.is_empty() {
             self.line_typography = super::line_typography::rebase(
                 &self.line_typography,

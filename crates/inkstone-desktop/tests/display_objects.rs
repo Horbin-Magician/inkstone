@@ -122,6 +122,92 @@ fn object_bounds_anchor_at_start_when_source_wraps(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn object_lookup_tracks_replacement_scroll_and_non_source_ids(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = "中文 $x$\n".repeat(120);
+    let objects: Vec<_> = source
+        .match_indices("$x$")
+        .enumerate()
+        .map(|(i, (start, _))| DisplayObject {
+            id: (500 - i) as u64,
+            source: start..start + 3,
+            size: size(px(60.), px(24.)),
+            baseline: None,
+        })
+        .collect();
+    let handle = cx.add_window(|w, cx| {
+        Root(cx.new(|cx| EditorState::new(w, cx).default_value(source.clone())))
+    });
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(400.), px(220.)));
+    handle
+        .update(&mut visual, |root, _, cx| {
+            root.0.update(cx, |s, cx| {
+                s.set_display_objects(&source, objects.clone(), cx);
+            });
+        })
+        .unwrap();
+    for y in [0., -600., -1200.] {
+        handle
+            .update(&mut visual, |root, _, cx| {
+                root.0
+                    .update(cx, |s, cx| s.set_scroll_offset(point(px(0.), px(y)), cx));
+            })
+            .unwrap();
+        for _ in 0..3 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |root, _, cx| {
+                let state = root.0.read(cx);
+                let mut visible = 0;
+                for object in &objects {
+                    let expected = state
+                        .range_to_bounds(&(object.source.start..object.source.start))
+                        .map(|mut bounds| {
+                            bounds.size = object.size;
+                            bounds
+                        });
+                    assert_eq!(state.display_object_bounds(object.id), expected);
+                    visible += usize::from(expected.is_some());
+                }
+                assert!(
+                    visible > 0 && visible < objects.len(),
+                    "scroll={y}, visible={visible}"
+                );
+                assert!(state.display_object_bounds(9999).is_none());
+            })
+            .unwrap();
+    }
+    // IDs need not follow source order or be unique. Replacing the metadata
+    // must rebuild the lookup, with the first duplicate retaining its bounds.
+    handle
+        .update(&mut visual, |root, _, cx| {
+            root.0.update(cx, |s, cx| {
+                let first = objects
+                    .iter()
+                    .position(|object| s.display_object_bounds(object.id).is_some())
+                    .unwrap();
+                let mut replacement = objects[first..first + 2].to_vec();
+                let old_id = replacement[0].id;
+                replacement[0].id = 42;
+                replacement[1].id = 42;
+                s.set_display_objects(&source, replacement.clone(), cx);
+                let expected = s
+                    .range_to_bounds(&(replacement[0].source.start..replacement[0].source.start))
+                    .unwrap()
+                    .origin;
+                assert_eq!(s.display_object_bounds(42).unwrap().origin, expected);
+                assert!(s.display_object_bounds(old_id).is_none());
+                s.set_display_objects(&source, vec![], cx);
+                assert!(s.display_object_bounds(42).is_none());
+            });
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn object_height_changes_restore_the_visible_source_anchor(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let source = format!("before\n$$\nx^2\n$$\nafter\n{}", "tail\n".repeat(100));
