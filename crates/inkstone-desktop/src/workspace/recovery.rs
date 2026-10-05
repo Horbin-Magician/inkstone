@@ -466,6 +466,13 @@ impl Workspace {
                     .truncate()
                     .child(browser.path.to_string_lossy().to_string()),
             )
+            .when_some(browser.record.as_ref(), |s, record| {
+                s.child(
+                    div()
+                        .text_sm()
+                        .child(format!("记录原路径：{}", record.relative.display())),
+                )
+            })
             .child(div().text_sm().child(if browser.draft_entry.is_some() {
                 format!(
                     "未保存恢复记录 · {:.1} KiB · 恢复或放弃前保留",
@@ -712,6 +719,73 @@ mod tests {
                 std::fs::remove_file(entry.journal).unwrap();
             }
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
+    fn renamed_history_restores_a_copy_at_current_path(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-renamed-history-ui-{stamp}"));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let old = PathBuf::from("旧名.md");
+        let current = PathBuf::from("新名.md");
+        let first = vault.save(&old, None, "旧版本😀").unwrap();
+        vault.save(&old, Some("旧版本😀"), "当前内容").unwrap();
+        vault.rename_note(&old, &current, "当前内容").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(vault.root.clone(), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.open_note(current.clone(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.execute_command(99, window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let browser = w.ui.history.as_ref().unwrap();
+                let selected = browser
+                    .entries
+                    .iter()
+                    .position(|e| e.journal == first.recovery)
+                    .unwrap();
+                w.select_history(selected, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let browser = w.ui.history.as_ref().unwrap();
+                assert_eq!(browser.path, current);
+                assert_eq!(browser.record.as_ref().unwrap().relative, old);
+                w.restore_history(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let restored = handle
+            .update(cx, |w, _, _| {
+                w.watcher = None;
+                w.tabs[w.active.unwrap()].path.clone()
+            })
+            .unwrap();
+        assert_ne!(restored, current);
+        assert_ne!(restored, old);
+        assert_eq!(vault.read(&restored).unwrap().as_deref(), Some("旧版本😀"));
+        assert_eq!(vault.read(&current).unwrap().as_deref(), Some("当前内容"));
+        assert!(vault.read(&old).unwrap().is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
     #[gpui::test]
