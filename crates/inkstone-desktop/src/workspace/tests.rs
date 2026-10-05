@@ -3114,10 +3114,13 @@ fn failed_workspace_save_can_retry_or_close_without_bypassing_note_safety(cx: &m
     cx.run_until_parked();
     handle
         .update(cx, |w, window, cx| {
-            assert!(w.ui.persist_error.is_some());
+            assert!(w.settings_save.error().is_some());
             assert!(!w.ui.window_close_requested);
             w.tick(window, cx);
-            assert!(!w.ui.persisting, "failed saves do not retry forever");
+            assert!(
+                !w.settings_save.is_busy(),
+                "failed saves do not retry forever"
+            );
             assert!(!w.request_window_close(window, cx));
             w.ui.discard_workspace_on_close = true;
             assert!(w.request_window_close(window, cx));
@@ -3128,7 +3131,7 @@ fn failed_workspace_save_can_retry_or_close_without_bypassing_note_safety(cx: &m
             );
             w.tabs[0].save.persistence.test_set_conflict(false);
             w.ui.discard_workspace_on_close = false;
-            w.ui.persist_error = None;
+            w.settings_save.retry();
             std::fs::remove_dir(root.join(".inkstone-workspace.json")).unwrap();
             w.persist_workspace(cx);
         })
@@ -3136,7 +3139,7 @@ fn failed_workspace_save_can_retry_or_close_without_bypassing_note_safety(cx: &m
     cx.run_until_parked();
     handle
         .update(cx, |w, window, cx| {
-            assert!(w.ui.persist_error.is_none());
+            assert!(w.settings_save.error().is_none());
             assert!(w.request_window_close(window, cx));
         })
         .unwrap();

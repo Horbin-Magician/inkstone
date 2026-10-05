@@ -7,6 +7,7 @@ mod save_state;
 mod saving;
 mod search;
 mod session;
+mod settings_save;
 mod tabs;
 #[cfg(test)]
 mod tests;
@@ -97,6 +98,7 @@ struct Tab {
     _focus: Subscription,
 }
 pub struct Workspace {
+    settings_save: settings_save::State,
     #[cfg(target_os = "macos")]
     quit_requested: bool,
     vault: Option<Vault>,

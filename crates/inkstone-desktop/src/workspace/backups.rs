@@ -130,12 +130,12 @@ impl Workspace {
             .tabs
             .iter()
             .any(|t| t.save.persistence.has_conflict() || t.save.persistence.error().is_some())
-            || self.ui.persist_error.is_some()
+            || self.settings_save.error().is_some()
         {
             self.ui.backup.pending = None;
             let detail = self
-                .ui
-                .persist_error
+                .settings_save
+                .error()
                 .clone()
                 .or_else(|| {
                     self.tabs
@@ -148,7 +148,7 @@ impl Workspace {
         }
         if self.ui.file_operation
             || self.ui.pending_file_writes > 0
-            || self.ui.persisting
+            || self.settings_save.is_busy()
             || self
                 .tabs
                 .iter()
@@ -412,7 +412,7 @@ mod tests {
                     !w.ui.backup.busy && w.ui.backup.pending.is_none(),
                     "{}; settings={:?}; notes={:?}",
                     w.ui.backup.message,
-                    w.ui.persist_error,
+                    w.settings_save.error(),
                     w.tabs
                         .iter()
                         .map(|t| t.save.persistence.error().clone())
@@ -422,7 +422,7 @@ mod tests {
                     w.ui.prefs.backup.last_success > 0,
                     "{}; settings={:?}; notes={:?}",
                     w.ui.backup.message,
-                    w.ui.persist_error,
+                    w.settings_save.error(),
                     w.tabs
                         .iter()
                         .map(|t| t.save.persistence.error().clone())

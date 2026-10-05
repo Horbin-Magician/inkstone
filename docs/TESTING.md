@@ -370,3 +370,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增跨线程回归：1000 次进度发布只保留最新事件，消费后清空，取消后不发布 UI 进度，不同 Run 的取消与进度互不影响。新增 GPUI 回归启动真实本地 HTTP 同步后替换 Run，确认旧回调只释放自己的写入计数，不改变替代任务、busy、界面消息或成功时间。
 - 全桌面回归：299 单元测试 + 8 集成测试通过，2 个既有测试忽略；随后补充的旧回调身份测试单独通过。首次该测试因夹具缺少持久配置未启动同步而失败，补齐配置后通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/sync-run-tests.log`、`target/sync-run-identity-test.log`、`target/sync-run-clippy.log`。运行期间工作区存在并行 Markdown 改动，测试基于当时工作区；本提交不包含这些其他改动。未新增原生验收，未修改用户笔记。
+
+## 设置持久化：独立协调与过期完成保护（2026-10-05）
+
+- 将 persist_workspace 从大型 UI 模块移入 settings_save，持久化快照、活动任务和错误归 Workspace 持有，UI/同步/备份/关闭流程通过只读接口检查状态。设置写入成功后继续采集最新快照，失败仅在显式重试后继续。
+- 为设置保存加入任务序号：切库后的旧回调不能清除新任务的保存中标记、替换最新快照或注入旧错误；导航失败仍可释放旧任务自身，避免卡住。
+- 两项独立回归覆盖写入期间的新快照、重复快照去重、失败/重试，以及重置后旧成功/失败/放弃回调的隔离。既有设置保存失败后的重试与关闭、备份和同步等待回归通过。
+- `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志 `target/settings-save-tests.log`、`target/settings-save-clippy.log`。未新增原生验收，未修改用户笔记。

@@ -406,7 +406,7 @@ impl Workspace {
             .tabs
             .iter()
             .any(|t| t.save.persistence.has_conflict() || t.save.persistence.error().is_some())
-            || self.ui.persist_error.is_some()
+            || self.settings_save.error().is_some()
         {
             self.ui
                 .cloud_sync
@@ -417,7 +417,7 @@ impl Workspace {
         }
         if self.ui.file_operation
             || self.ui.pending_file_writes > 0
-            || self.ui.persisting
+            || self.settings_save.is_busy()
             || self.refreshing
             || self
                 .tabs
@@ -1141,7 +1141,7 @@ mod tests {
                     .unwrap()
                     .is_none()
                 );
-                w.ui.persist_error = Some("disk full".into());
+                w.settings_save.test_error("disk full".into());
                 w.ui.cloud_sync.schedule.pending = true;
                 w.tick_cloud_sync(window, cx);
                 assert!(!w.ui.cloud_sync.schedule.pending);
