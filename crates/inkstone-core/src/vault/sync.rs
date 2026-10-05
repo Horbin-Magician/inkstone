@@ -52,6 +52,38 @@ pub trait Remote: Sync {
     fn publish(&self, manifest: &Manifest, revision: Option<&str>) -> Result<()>;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Scanning,
+    ReadingManifest,
+    Downloading,
+    Uploading,
+    Verifying,
+    Publishing,
+    Applying,
+    Complete,
+}
+
+/// Counts are per phase. Transfer counts refer to unique content objects;
+/// bytes count completed objects, not partial network writes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Progress {
+    pub phase: Phase,
+    pub completed: usize,
+    pub total: usize,
+    pub bytes: u64,
+}
+impl Progress {
+    fn new(phase: Phase, total: usize) -> Self {
+        Self {
+            phase,
+            completed: 0,
+            total,
+            bytes: 0,
+        }
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Report {
     pub uploaded: usize,
@@ -132,15 +164,29 @@ fn read_file(path: &Path) -> Result<Option<Vec<u8>>> {
     );
     Ok(Some(bytes))
 }
+#[cfg(test)]
 fn snapshot(vault: &Vault) -> Result<Files> {
+    snapshot_with_progress(vault, Phase::Scanning, &|_| {})
+}
+fn snapshot_with_progress(
+    vault: &Vault,
+    phase: Phase,
+    notify: &impl Fn(Progress),
+) -> Result<Files> {
+    notify(Progress::new(phase, 0));
+    let paths: Vec<_> = vault
+        .scan_files()?
+        .into_iter()
+        .filter(|path| {
+            !path
+                .components()
+                .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        })
+        .collect();
+    let mut progress = Progress::new(phase, paths.len());
+    notify(progress.clone());
     let mut files = Files::new();
-    for path in vault.scan_files()? {
-        if path
-            .components()
-            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
-        {
-            continue;
-        }
+    for path in paths {
         let name = path
             .to_str()
             .context("同步文件名必须是 UTF-8")?
@@ -149,6 +195,9 @@ fn snapshot(vault: &Vault) -> Result<Files> {
         let bytes =
             read_file(&vault.regular_file_path(&path)?)?.context("扫描期间文件被删除，请重试")?;
         files.insert(name, hash(&bytes));
+        progress.completed += 1;
+        progress.bytes += bytes.len() as u64;
+        notify(progress.clone());
     }
     validate_manifest(&Manifest {
         version: 1,
@@ -242,6 +291,16 @@ fn transfer<I: Sync>(items: &[I], work: impl Fn(&I) -> Result<()> + Sync) -> Res
 
 /// Blocking; run on a worker. `identity` identifies the endpoint/account, not its password.
 pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Result<Report> {
+    synchronize_with_progress(vault, remote, identity, |_| {})
+}
+
+/// `notify` runs on worker threads; callbacks are serialized within each phase.
+pub fn synchronize_with_progress(
+    vault: &Vault,
+    remote: &impl Remote,
+    identity: &str,
+    notify: impl Fn(Progress) + Sync,
+) -> Result<Report> {
     let device = vault.recovery_dir.join("webdav-sync");
     fs::create_dir_all(&device)?;
     let vault_id = hash(vault.root.to_string_lossy().as_bytes());
@@ -260,7 +319,8 @@ pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Resul
         Err(e) => return Err(e.into()),
     };
     validate_manifest(&base)?;
-    let local = snapshot(vault)?;
+    let local = snapshot_with_progress(vault, Phase::Scanning, &notify)?;
+    notify(Progress::new(Phase::ReadingManifest, 0));
     let (previous, revision) = remote.manifest()?;
     validate_manifest(&previous)?;
     // Losing a previously populated remote is not interpreted as deleting the whole vault.
@@ -286,6 +346,7 @@ pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Resul
         .into_iter()
         .collect();
     let downloaded = Mutex::new((0usize, BTreeMap::new()));
+    notify(Progress::new(Phase::Downloading, digests.len()));
     // Fetch each content object only once, even when several paths use it.
     transfer(&digests, |digest| {
         let bytes = remote.download(digest)?;
@@ -300,6 +361,12 @@ pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Resul
         );
         downloaded.0 += bytes.len();
         downloaded.1.insert((*digest).clone(), Arc::new(bytes));
+        notify(Progress {
+            phase: Phase::Downloading,
+            completed: downloaded.1.len(),
+            total: digests.len(),
+            bytes: downloaded.0 as u64,
+        });
         Ok(())
     })?;
     let (_, objects) = downloaded.into_inner().unwrap();
@@ -327,32 +394,54 @@ pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Resul
         .iter()
         .filter(|(_, digest)| !known.contains(*digest) && uploaded.insert(*digest))
         .collect();
+    let upload_progress = Mutex::new(Progress::new(Phase::Uploading, uploads.len()));
+    notify(upload_progress.lock().unwrap().clone());
     transfer(&uploads, |(path, digest)| {
         let bytes =
             read_file(&vault.regular_file_path(Path::new(path))?)?.context("上传期间文件被删除")?;
         ensure!(hash(&bytes) == **digest, "上传期间文件已变化：{path}");
-        remote.upload(digest, &bytes)
+        remote.upload(digest, &bytes)?;
+        let mut progress = upload_progress.lock().unwrap();
+        progress.completed += 1;
+        progress.bytes += bytes.len() as u64;
+        notify(progress.clone());
+        Ok(())
     })?;
     report.uploaded = uploads.len();
-    ensure!(snapshot(vault)? == local, "同步期间本地文件已变化，请重试");
+    ensure!(
+        snapshot_with_progress(vault, Phase::Verifying, &notify)? == local,
+        "同步期间本地文件已变化，请重试"
+    );
+    notify(Progress::new(Phase::Publishing, 0));
     if manifest.files != previous.files || revision.is_none() {
         remote.publish(&manifest, revision.as_deref())?;
     }
     // A failed/ambiguous publication never applies downloads or advances the baseline.
+    let deletions = local
+        .keys()
+        .filter(|path| !manifest.files.contains_key(*path))
+        .count();
+    let mut progress = Progress::new(Phase::Applying, downloads.len() + deletions);
+    notify(progress.clone());
     for (path, bytes) in downloads {
         apply(vault, &path, local.get(&path), Some(&bytes))?;
         report.downloaded += 1;
+        progress.completed += 1;
+        notify(progress.clone());
     }
     for (path, digest) in &local {
         if !manifest.files.contains_key(path) {
             apply(vault, path, Some(digest), None)?;
             report.deleted += 1;
+            progress.completed += 1;
+            notify(progress.clone());
         }
     }
     let temp = state.with_extension("pending");
     fs::write(&temp, serde_json::to_vec(&manifest)?)?;
     fs::File::open(&temp)?.sync_all()?;
     fs::rename(temp, state)?;
+    notify(Progress::new(Phase::Complete, 0));
     Ok(report)
 }
 

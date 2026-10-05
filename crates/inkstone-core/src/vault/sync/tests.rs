@@ -407,3 +407,49 @@ fn failed_transfer_does_not_publish_or_apply_downloads() -> Result<()> {
     assert_eq!(fs::read_to_string(f.b.root.join("remote.md"))?, "remote");
     Ok(())
 }
+
+#[test]
+fn progress_tracks_each_phase_and_only_completes_after_success() -> Result<()> {
+    let f = Fixture::new();
+    let r = Memory::default();
+    for i in 0..9 {
+        fs::write(f.a.root.join(format!("{i}.md")), format!("content {i}"))?;
+    }
+    let events = Mutex::new(Vec::new());
+    synchronize_with_progress(&f.a, &r, "x", |p| events.lock().unwrap().push(p))?;
+    let events = events.into_inner().unwrap();
+    assert_eq!(events.first().unwrap().phase, Phase::Scanning);
+    assert_eq!(events.last().unwrap().phase, Phase::Complete);
+    for phase in [Phase::Scanning, Phase::Uploading, Phase::Verifying] {
+        let steps: Vec<_> = events
+            .iter()
+            .filter(|p| p.phase == phase && p.total > 0)
+            .collect();
+        assert_eq!(steps.first().unwrap().completed, 0);
+        assert_eq!(steps.last().unwrap().completed, 9);
+        assert_eq!(steps.last().unwrap().bytes, 81);
+        for pair in steps.windows(2) {
+            assert_eq!(pair[1].completed, pair[0].completed + 1);
+            assert!(pair[1].bytes >= pair[0].bytes);
+        }
+    }
+    let events = Mutex::new(Vec::new());
+    synchronize_with_progress(&f.b, &r, "x", |p| events.lock().unwrap().push(p))?;
+    let events = events.into_inner().unwrap();
+    for phase in [Phase::Downloading, Phase::Applying] {
+        let last = events.iter().rfind(|p| p.phase == phase).unwrap();
+        assert_eq!((last.completed, last.total), (9, 9));
+    }
+    fs::write(f.b.root.join("new.md"), "new")?;
+    r.fail.store(true, Ordering::Relaxed);
+    let events = Mutex::new(Vec::new());
+    assert!(synchronize_with_progress(&f.b, &r, "x", |p| events.lock().unwrap().push(p)).is_err());
+    let events = events.into_inner().unwrap();
+    assert_eq!(events.last().unwrap().phase, Phase::Publishing);
+    assert!(
+        !events
+            .iter()
+            .any(|p| matches!(p.phase, Phase::Complete | Phase::Applying))
+    );
+    Ok(())
+}
