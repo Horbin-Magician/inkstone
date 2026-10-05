@@ -1,0 +1,8 @@
+# Copied into target/vendor-regression by run.py alongside fresh vendor sources.
+[workspace]
+resolver = "3"
+members = ["crates/base", "crates/component"]
+
+[patch.crates-io]
+gpui-base = { path = "crates/base" }
+gpui-component = { path = "crates/component" }
