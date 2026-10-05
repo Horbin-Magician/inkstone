@@ -10,6 +10,47 @@ pub struct SavedSearch {
     pub descending: bool,
 }
 
+/// A semantic destination, resolved again when opened rather than storing a stale offset.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BookmarkAnchor {
+    Heading { title: String, occurrence: usize },
+    Block { id: String },
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnchorBookmark {
+    pub path: PathBuf,
+    pub anchor: BookmarkAnchor,
+}
+impl AnchorBookmark {
+    pub fn label(&self) -> String {
+        match &self.anchor {
+            BookmarkAnchor::Heading { title, occurrence } => {
+                if *occurrence == 0 {
+                    format!("{} # {}", self.path.display(), title)
+                } else {
+                    format!("{} # {} ({})", self.path.display(), title, occurrence + 1)
+                }
+            }
+            BookmarkAnchor::Block { id } => format!("{} # ^{}", self.path.display(), id),
+        }
+    }
+    pub fn offset(&self, parsed: &crate::index::ParsedNote) -> Option<usize> {
+        match &self.anchor {
+            BookmarkAnchor::Heading { title, occurrence } => parsed
+                .headings
+                .iter()
+                .filter(|h| &h.title == title)
+                .nth(*occurrence)
+                .map(|h| h.offset),
+            BookmarkAnchor::Block { id } => parsed
+                .blocks
+                .iter()
+                .find(|b| &b.id == id)
+                .map(|b| b.range.start),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
@@ -116,6 +157,7 @@ pub struct Preferences {
     pub sort_descending: bool,
     pub sort_by: crate::file_order::SortBy,
     pub bookmarks: Vec<PathBuf>,
+    pub anchor_bookmarks: Vec<AnchorBookmark>,
     pub pinned_paths: Vec<PathBuf>,
     pub open_paths: Vec<PathBuf>,
     pub active_path: Option<PathBuf>,
@@ -179,6 +221,7 @@ impl Default for Preferences {
             sort_descending: false,
             sort_by: Default::default(),
             bookmarks: vec![],
+            anchor_bookmarks: vec![],
             pinned_paths: vec![],
             open_paths: vec![],
             active_path: None,
@@ -672,5 +715,49 @@ mod tests {
             16.
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod anchor_bookmark_tests {
+    use super::*;
+
+    #[test]
+    fn old_preferences_and_semantic_destinations_roundtrip() {
+        let mut prefs: Preferences = serde_json::from_str(r#"{"bookmarks":["a.md"]}"#).unwrap();
+        assert!(prefs.anchor_bookmarks.is_empty());
+        prefs.anchor_bookmarks = vec![
+            AnchorBookmark {
+                path: "a.md".into(),
+                anchor: BookmarkAnchor::Heading {
+                    title: "同名".into(),
+                    occurrence: 1,
+                },
+            },
+            AnchorBookmark {
+                path: "a.md".into(),
+                anchor: BookmarkAnchor::Block {
+                    id: "target".into(),
+                },
+            },
+        ];
+        let recovered: Preferences =
+            serde_json::from_str(&serde_json::to_string(&prefs).unwrap()).unwrap();
+        assert_eq!(recovered.anchor_bookmarks, prefs.anchor_bookmarks);
+        assert_eq!(recovered.bookmarks, prefs.bookmarks);
+        let source = "前置文本\n\n# 同名\n\n正文\n\n# 同名\n\n段落 ^target\n";
+        let parsed = crate::index::parse(source);
+        assert_eq!(
+            prefs.anchor_bookmarks[0].offset(&parsed),
+            source.rfind("# 同名")
+        );
+        assert_eq!(
+            prefs.anchor_bookmarks[1].offset(&parsed),
+            source.find("段落")
+        );
+        assert_eq!(
+            prefs.anchor_bookmarks[0].offset(&crate::index::parse("# 已删除")),
+            None
+        );
     }
 }
