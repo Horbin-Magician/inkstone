@@ -652,7 +652,7 @@ pub(super) fn overlay(
                     if !viewport.intersects(&bounds) {
                         continue;
                     }
-                    let available = (content.right() - bounds.left() - px(12.)).max(px(1.));
+                    let available = (content.right() - bounds.left()).max(px(1.));
                     let row_height = editor
                         .read(cx)
                         .range_to_bounds(&(widget.source.start..widget.source.start))

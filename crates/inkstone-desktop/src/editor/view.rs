@@ -322,11 +322,9 @@ impl Render for EditorPane {
             .min_h_0()
             .bg(crate::theme::palette(self.light).background)
             .text_color(crate::theme::palette(self.light).foreground)
-            .px(px(if self.readable_width || self.reading {
-                32.
-            } else {
-                0.
-            }))
+            // Both modes share this inset, so the text column keeps the same
+            // width when switching between editing and reading.
+            .px(px(32.))
             .pt(px(12.))
             .children(self.footnote_panel(_window, cx))
             .child(
@@ -370,6 +368,7 @@ impl Render for EditorPane {
                                     })
                                     .appearance(false)
                                     .bordered(false)
+                                    .flush(true)
                                     .font_family(self.text_font.clone())
                                     .h_full()
                                     .text_size(px(self.font_size)),
