@@ -155,10 +155,10 @@ impl Workspace {
         // Navigation must not drop the last owner of an unsaved document or
         // a task's source tab. Keep it available for saves and conflict recovery
         // while opening the requested document immediately.
-        let retain_document = save.dirty.get()
-            || save.saving.get()
-            || save.conflict.get()
-            || save.error.borrow().is_some()
+        let retain_document = save.persistence.dirty.get()
+            || save.persistence.saving.get()
+            || save.persistence.conflict.get()
+            || save.persistence.error.borrow().is_some()
             || self.ui.file_operation;
         if let Some(target) = self.tabs.iter().find(|tab| tab.path == pending.path)
             && self.has_pending_input(target.id, window, cx)
@@ -1082,8 +1082,8 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 let source = w.tabs.iter().find(|tab| tab.id == source).unwrap();
-                assert!(!source.save.dirty.get());
-                assert!(!source.save.saving.get());
+                assert!(!source.save.persistence.dirty.get());
+                assert!(!source.save.persistence.saving.get());
                 std::fs::write(root.join("b.md"), "外部改动").unwrap();
                 w.current_pane()
                     .unwrap()
@@ -1103,7 +1103,7 @@ mod tests {
                     .iter()
                     .position(|tab| tab.path == std::path::Path::new("b.md"))
                     .unwrap();
-                assert!(w.tabs[index].save.conflict.get());
+                assert!(w.tabs[index].save.persistence.conflict.get());
                 assert_eq!(
                     w.tabs[index].save.editor.read(cx).value().as_ref(),
                     "本地改动"
@@ -1112,7 +1112,7 @@ mod tests {
                 w.focus_primary(index, window, cx);
                 w.open_note("a.md".into(), window, cx);
                 assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("a.md"));
-                assert!(w.tabs.iter().any(|tab| tab.save.conflict.get()));
+                assert!(w.tabs.iter().any(|tab| tab.save.persistence.conflict.get()));
                 assert!(w.pending_navigation.is_none());
             })
             .unwrap();
@@ -1142,10 +1142,10 @@ mod tests {
                     let source = w.tabs[w.active.unwrap()].id;
                     let save = w.tabs[w.active.unwrap()].save.clone();
                     match mode {
-                        0 => save.saving.set(true),
+                        0 => save.persistence.saving.set(true),
                         1 => w.ui.file_operation = true,
                         _ => {
-                            save.error.replace(Some("disk full".into()));
+                            save.persistence.error.replace(Some("disk full".into()));
                         }
                     }
                     w.open_note("b.md".into(), window, cx);
@@ -1153,7 +1153,7 @@ mod tests {
                     assert!(w.tabs.iter().any(|tab| tab.id == source));
                     assert_eq!(save.editor.read(cx).value().as_ref(), "draft");
                     assert!(w.pending_navigation.is_none());
-                    save.saving.set(false);
+                    save.persistence.saving.set(false);
                     w.ui.file_operation = false;
                 }
             })

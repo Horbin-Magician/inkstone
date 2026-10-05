@@ -144,7 +144,7 @@ impl Workspace {
             || self
                 .tabs
                 .iter()
-                .any(|t| t.save.dirty.get() || t.save.saving.get())
+                .any(|t| t.save.persistence.dirty.get() || t.save.persistence.saving.get())
         {
             self.status = "请先保存当前笔记，再切换笔记库。".into();
             cx.notify();
@@ -177,7 +177,7 @@ impl Workspace {
             || self
                 .tabs
                 .iter()
-                .any(|t| t.save.dirty.get() || t.save.saving.get())
+                .any(|t| t.save.persistence.dirty.get() || t.save.persistence.saving.get())
         {
             self.status = "当前仍有未保存内容，已取消切换笔记库。".into();
             cx.notify();
@@ -259,7 +259,7 @@ impl Workspace {
                     || this
                         .tabs
                         .iter()
-                        .any(|t| t.save.dirty.get() || t.save.saving.get())
+                        .any(|t| t.save.persistence.dirty.get() || t.save.persistence.saving.get())
                 {
                     this.status = "读取期间产生了新编辑，已保留当前笔记库。".into();
                     cx.notify();

@@ -864,17 +864,21 @@ fn closing_shared_view_keeps_dirty_document_until_last_view_saves(cx: &mut TestA
                 s.set_selected_range(6..6, cx);
                 s.replace_text_in_range(None, "X", window, cx);
             });
-            w.tabs[0].save.conflict.set(true);
-            w.tabs[0].save.error.replace(Some("验收冲突".into()));
+            w.tabs[0].save.persistence.conflict.set(true);
+            w.tabs[0]
+                .save
+                .persistence
+                .error
+                .replace(Some("验收冲突".into()));
             w.close_tab_at(1, window, cx);
             assert_eq!(w.tabs.len(), 1);
             assert_eq!(w.tabs[0].save.editor.read(cx).value(), "原文X");
-            assert!(w.tabs[0].save.dirty.get());
-            assert!(w.tabs[0].save.conflict.get());
+            assert!(w.tabs[0].save.persistence.dirty.get());
+            assert!(w.tabs[0].save.persistence.conflict.get());
             w.close_tab_at(0, window, cx);
             assert_eq!(w.tabs.len(), 1);
-            w.tabs[0].save.conflict.set(false);
-            w.tabs[0].save.error.replace(None);
+            w.tabs[0].save.persistence.conflict.set(false);
+            w.tabs[0].save.persistence.error.replace(None);
             w.close_tab_at(0, window, cx);
             assert_eq!(w.tabs.len(), 1, "last view waits for its save");
         })
@@ -1015,7 +1019,7 @@ fn shared_document_rename_survives_origin_view_removal(cx: &mut TestAppContext) 
         .update(cx, |w, _, _| {
             assert_eq!(w.tabs[0].path, PathBuf::from("b.md"));
             assert_eq!(*w.tabs[0].save.path.borrow(), PathBuf::from("b.md"));
-            assert!(!w.tabs[0].save.saving.get());
+            assert!(!w.tabs[0].save.persistence.saving.get());
         })
         .unwrap();
     assert_eq!(std::fs::read_to_string(root.join("b.md")).unwrap(), "原文");
@@ -1072,8 +1076,8 @@ fn external_reload_updates_the_shared_owner_after_its_first_view_closes(cx: &mut
             let tab = &w.tabs[0];
             assert_eq!(tab.save.editor.read(cx).value(), "外部修改");
             assert_eq!(tab.pane.read(cx).editor.read(cx).value(), "外部修改");
-            assert!(!tab.save.dirty.get());
-            assert!(!tab.save.conflict.get());
+            assert!(!tab.save.persistence.dirty.get());
+            assert!(!tab.save.persistence.conflict.get());
         })
         .unwrap();
 }
@@ -1154,9 +1158,9 @@ fn shared_document_save_survives_removing_the_originating_view(cx: &mut TestAppC
                     .clone()
                     .update(cx, |s, cx| s.set_value("原文新", window, cx));
             }
-            w.tabs[0].save.dirty.set(true);
+            w.tabs[0].save.persistence.dirty.set(true);
             w.save_all(window, cx);
-            assert!(w.tabs.iter().all(|tab| tab.save.saving.get()));
+            assert!(w.tabs.iter().all(|tab| tab.save.persistence.saving.get()));
             // Closing one view must not orphan the document's pending save.
             w.tabs.remove(0);
             w.active = Some(0);
@@ -1170,11 +1174,14 @@ fn shared_document_save_survives_removing_the_originating_view(cx: &mut TestAppC
     handle
         .update(cx, |w, window, cx| {
             let tab = &w.tabs[0];
-            assert!(!tab.save.saving.get());
-            assert!(!tab.save.dirty.get());
-            assert!(!tab.save.conflict.get());
-            assert!(tab.save.error.borrow().is_none());
-            assert_eq!(tab.save.baseline.borrow().as_deref(), Some("原文新"));
+            assert!(!tab.save.persistence.saving.get());
+            assert!(!tab.save.persistence.dirty.get());
+            assert!(!tab.save.persistence.conflict.get());
+            assert!(tab.save.persistence.error.borrow().is_none());
+            assert_eq!(
+                tab.save.persistence.baseline.borrow().as_deref(),
+                Some("原文新")
+            );
             tab.pane.read(cx).editor.clone().update(cx, |s, cx| {
                 s.select_all(window, cx);
                 s.replace_text_in_range(None, "继续", window, cx);
@@ -1348,7 +1355,7 @@ fn split_unmark_commits_and_saves_without_an_additional_text_edit(cx: &mut TestA
     handle
         .update(cx, |w, window, cx| {
             assert_eq!(w.tabs[0].pane.read(cx).editor.read(cx).value(), "原文你");
-            assert!(w.tabs[0].save.dirty.get());
+            assert!(w.tabs[0].save.persistence.dirty.get());
             w.save_all(window, cx);
         })
         .unwrap();
@@ -2545,7 +2552,10 @@ fn duplicate_opens_snapshot_without_retargeting_original_tab(cx: &mut TestAppCon
             assert_eq!(w.tabs.len(), 2);
             let old = w.tabs.iter().find(|t| t.id == original).unwrap();
             assert_eq!(old.path, PathBuf::from("folder/source.md"));
-            assert_eq!(old.save.baseline.borrow().as_deref(), Some("original"));
+            assert_eq!(
+                old.save.persistence.baseline.borrow().as_deref(),
+                Some("original")
+            );
             assert_eq!(
                 old.pane.read(cx).editor.read(cx).value(),
                 "original 新编辑😀"
@@ -2553,7 +2563,7 @@ fn duplicate_opens_snapshot_without_retargeting_original_tab(cx: &mut TestAppCon
             let copy = &w.tabs[w.active.unwrap()];
             assert_eq!(copy.path, PathBuf::from("folder/source 副本.md"));
             assert_eq!(
-                copy.save.baseline.borrow().as_deref(),
+                copy.save.persistence.baseline.borrow().as_deref(),
                 Some("original 新编辑😀")
             );
             assert_eq!(
@@ -2861,7 +2871,7 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
             assert!(w.ui.file_operation);
             assert_eq!(w.ui.pending_file_writes, 1);
             w.save_all(window, cx);
-            assert!(!w.tabs[0].save.saving.get());
+            assert!(!w.tabs[0].save.persistence.saving.get());
         })
         .unwrap();
     cx.run_until_parked();
@@ -2877,9 +2887,12 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
             assert_eq!(w.ui.closed[0], PathBuf::from("archive/new/target.md"));
             let disk = std::fs::read_to_string(root.join("archive/new/note.md")).unwrap();
             assert_eq!(disk, "[[/archive/new/target]] [outside](../../outside.md)");
-            assert_eq!(w.tabs[0].save.baseline.borrow().as_ref(), Some(&disk));
+            assert_eq!(
+                w.tabs[0].save.persistence.baseline.borrow().as_ref(),
+                Some(&disk)
+            );
             assert_eq!(w.tabs[0].pane.read(cx).editor.read(cx).value(), disk);
-            assert!(!w.tabs[0].save.conflict.get());
+            assert!(!w.tabs[0].save.persistence.conflict.get());
             assert_eq!(
                 std::fs::read_to_string(root.join("outside.md")).unwrap(),
                 "[[/archive/new/note|alias]]"
@@ -2895,9 +2908,9 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
                 s.set_selected_range(end..end, cx);
                 s.replace(" 新编辑😀", window, cx);
             });
-            w.tabs[0].save.dirty.set(true);
+            w.tabs[0].save.persistence.dirty.set(true);
             w.save_pending(window, cx);
-            assert!(!w.tabs[0].save.saving.get());
+            assert!(!w.tabs[0].save.persistence.saving.get());
             w.refresh_requested = true;
             w.refresh(window, cx);
             assert!(w.refresh_requested);
@@ -2907,7 +2920,7 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
     handle
         .update(cx, |w, _, cx| {
             assert_eq!(w.tabs[0].path, PathBuf::from("final/note.md"));
-            assert!(w.tabs[0].save.conflict.get());
+            assert!(w.tabs[0].save.persistence.conflict.get());
             assert!(
                 w.tabs[0]
                     .pane
@@ -3068,11 +3081,11 @@ fn menu_quit_waits_for_saves_and_blocks_conflicts(cx: &mut TestAppContext) {
             w.tabs[0].pane.read(cx).editor.clone().update(cx, |s, cx| {
                 s.replace("菜单退出前保存", window, cx);
             });
-            w.tabs[0].save.conflict.set(true);
+            w.tabs[0].save.persistence.conflict.set(true);
             w.request_app_quit(window, cx);
             assert!(!w.quit_requested);
             assert!(!w.ui.window_close_requested);
-            w.tabs[0].save.conflict.set(false);
+            w.tabs[0].save.persistence.conflict.set(false);
             w.request_app_quit(window, cx);
             assert!(w.quit_requested);
             assert!(w.ui.window_close_requested);
@@ -3118,12 +3131,12 @@ fn failed_workspace_save_can_retry_or_close_without_bypassing_note_safety(cx: &m
             assert!(!w.request_window_close(window, cx));
             w.ui.discard_workspace_on_close = true;
             assert!(w.request_window_close(window, cx));
-            w.tabs[0].save.conflict.set(true);
+            w.tabs[0].save.persistence.conflict.set(true);
             assert!(
                 !w.request_window_close(window, cx),
                 "discarding layout never discards notes"
             );
-            w.tabs[0].save.conflict.set(false);
+            w.tabs[0].save.persistence.conflict.set(false);
             w.ui.discard_workspace_on_close = false;
             w.ui.persist_error = None;
             std::fs::remove_dir(root.join(".inkstone-workspace.json")).unwrap();
@@ -3196,7 +3209,7 @@ fn split_views_share_edits_and_undo_but_keep_independent_focus(cx: &mut TestAppC
     handle
         .update(cx, |w, window, cx| {
             assert!(w.views.secondary_focused);
-            assert!(w.tabs[0].save.dirty.get());
+            assert!(w.tabs[0].save.persistence.dirty.get());
             let canonical = w.tabs[0].pane.read(cx).editor.clone();
             assert_eq!(canonical.read(cx).value().as_ref(), "中文😀 新文本");
             assert_eq!(canonical.read(cx).selected_range(), 0..0);
@@ -3208,7 +3221,7 @@ fn split_views_share_edits_and_undo_but_keep_independent_focus(cx: &mut TestAppC
         .update(cx, |w, window, cx| {
             let mirror = w.views.split.as_ref().unwrap().pane.read(cx).editor.clone();
             assert_eq!(mirror.read(cx).value().as_ref(), "中文😀");
-            assert!(!w.tabs[0].save.dirty.get());
+            assert!(!w.tabs[0].save.persistence.dirty.get());
             w.tabs[0]
                 .pane
                 .read(cx)
@@ -3373,7 +3386,7 @@ fn middle_click_closes_only_the_pressed_tab_and_preserves_conflicts(cx: &mut Tes
         .update(&mut visual, |w, _, _| {
             assert_eq!(w.tabs.len(), 2);
             assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("c.md"));
-            w.tabs[0].save.conflict.set(true);
+            w.tabs[0].save.persistence.conflict.set(true);
         })
         .unwrap();
     for _ in 0..3 {
@@ -3526,7 +3539,7 @@ fn empty_tabs_reuse_their_slot_and_new_notes_receive_unique_names(cx: &mut TestA
             w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
             w.new_blank(window, cx);
             assert!(w.tabs[0].path.as_os_str().is_empty());
-            assert!(!w.tabs[0].save.dirty.get());
+            assert!(!w.tabs[0].save.persistence.dirty.get());
             w.focus_new(window, cx);
             assert_eq!(w.tabs.len(), 1);
             assert_eq!(w.tabs[0].path, PathBuf::from("未命名.md"));
@@ -3653,7 +3666,7 @@ fn dirty_tab_closes_after_save_and_stays_open_on_conflict(cx: &mut TestAppContex
                 .update(cx, |s, cx| s.replace("不能丢失😀", window, cx));
             w.close_tab(window, cx);
             assert_eq!(w.tabs.len(), 1);
-            assert!(w.tabs[0].save.saving.get());
+            assert!(w.tabs[0].save.persistence.saving.get());
         })
         .unwrap();
     cx.run_until_parked();
@@ -3685,7 +3698,7 @@ fn dirty_tab_closes_after_save_and_stays_open_on_conflict(cx: &mut TestAppContex
     handle
         .update(cx, |w, _, _| {
             assert_eq!(w.tabs.len(), 1);
-            assert!(w.tabs[0].save.conflict.get());
+            assert!(w.tabs[0].save.persistence.conflict.get());
         })
         .unwrap();
     assert_eq!(
@@ -3724,7 +3737,7 @@ fn split_composition_is_not_saved_and_external_changes_require_resolution(cx: &m
                 w.tabs[0].pane.read(cx).editor.read(cx).value().as_ref(),
                 "原文"
             );
-            assert!(!w.tabs[0].save.dirty.get());
+            assert!(!w.tabs[0].save.persistence.dirty.get());
             w.close_split(window, cx);
             assert!(w.views.split.is_some());
             std::fs::write(root.join("a.md"), "外部更新").unwrap();
@@ -3734,7 +3747,7 @@ fn split_composition_is_not_saved_and_external_changes_require_resolution(cx: &m
     cx.run_until_parked();
     handle
         .update(cx, |w, window, cx| {
-            assert!(w.tabs[0].save.conflict.get());
+            assert!(w.tabs[0].save.persistence.conflict.get());
             w.current_pane()
                 .unwrap()
                 .read(cx)
@@ -3779,10 +3792,10 @@ fn bulk_tab_closing_preserves_pins_anchor_and_conflicts(cx: &mut TestAppContext)
             w.close_tab_group(Some(a), 0, window, cx);
             assert_eq!(w.tabs.len(), 2);
             assert_eq!(w.tabs[w.active.unwrap()].id, a);
-            w.tabs[0].save.conflict.set(true);
+            w.tabs[0].save.persistence.conflict.set(true);
             w.close_tab_group(None, 2, window, cx);
             assert_eq!(w.tabs.len(), 2);
-            w.tabs[0].save.conflict.set(false);
+            w.tabs[0].save.persistence.conflict.set(false);
             w.close_tab_group(None, 2, window, cx);
             assert_eq!(w.tabs.len(), 1);
             assert_eq!(w.tabs[0].path, PathBuf::from("b.md"));
@@ -4203,8 +4216,8 @@ fn preferences_formatting_and_pinned_tabs_work(cx: &mut TestAppContext) {
     cx.run_until_parked();
     handle
         .update(cx, |workspace, window, cx| {
-            assert!(workspace.tabs[0].save.dirty.get());
-            workspace.tabs[0].save.baseline.replace(Some(
+            assert!(workspace.tabs[0].save.persistence.dirty.get());
+            workspace.tabs[0].save.persistence.baseline.replace(Some(
                 workspace.tabs[0]
                     .pane
                     .read(cx)
@@ -4213,7 +4226,7 @@ fn preferences_formatting_and_pinned_tabs_work(cx: &mut TestAppContext) {
                     .value()
                     .to_string(),
             ));
-            workspace.tabs[0].save.dirty.set(false);
+            workspace.tabs[0].save.persistence.dirty.set(false);
             workspace.execute_command(27, window, cx);
             workspace.close_tab(window, cx);
             assert_eq!(workspace.tabs.len(), 1);
@@ -4258,7 +4271,7 @@ fn bad_note_does_not_block_vault_loading_or_external_refresh(cx: &mut TestAppCon
     handle
         .update(cx, |w, window, cx| {
             assert_eq!(
-                w.tabs[0].save.baseline.borrow().as_deref(),
+                w.tabs[0].save.persistence.baseline.borrow().as_deref(),
                 Some("external update")
             );
             assert_eq!(w.index.errors.len(), 1);
@@ -4803,9 +4816,9 @@ fn recovery_opens_exact_draft_as_new_note_without_overwriting_original(cx: &mut 
             let tab = &workspace.tabs[workspace.active.unwrap()];
             assert_ne!(tab.path, std::path::Path::new("原件.md"));
             assert!(
-                !tab.save.dirty.get()
-                    && !tab.save.saving.get()
-                    && tab.save.error.borrow().is_none()
+                !tab.save.persistence.dirty.get()
+                    && !tab.save.persistence.saving.get()
+                    && tab.save.persistence.error.borrow().is_none()
             );
             assert_eq!(tab.pane.read(cx).editor.read(cx).value().as_ref(), draft);
             let path = root.join(&tab.path);
@@ -4863,7 +4876,7 @@ fn gpui_create_edit_save_reopen_and_external_conflict(cx: &mut TestAppContext) {
     cx.run_until_parked();
     handle
         .update(cx, |workspace, window, cx| {
-            assert!(workspace.tabs[0].save.dirty.get());
+            assert!(workspace.tabs[0].save.persistence.dirty.get());
             workspace.save_all(window, cx);
         })
         .unwrap();
@@ -4872,7 +4885,7 @@ fn gpui_create_edit_save_reopen_and_external_conflict(cx: &mut TestAppContext) {
     assert_eq!(persisted, "# 中文😀\r\n**原文**\r\n");
     handle
         .update(cx, |workspace, window, cx| {
-            assert!(!workspace.tabs[0].save.dirty.get());
+            assert!(!workspace.tabs[0].save.persistence.dirty.get());
             workspace.tabs.clear();
             workspace.active = None;
             workspace.open_note(PathBuf::from("测试.md"), window, cx);
@@ -4896,8 +4909,8 @@ fn gpui_create_edit_save_reopen_and_external_conflict(cx: &mut TestAppContext) {
     cx.run_until_parked();
     handle
         .update(cx, |workspace, _, cx| {
-            assert!(workspace.tabs[0].save.conflict.get());
-            assert!(workspace.tabs[0].save.dirty.get());
+            assert!(workspace.tabs[0].save.persistence.conflict.get());
+            assert!(workspace.tabs[0].save.persistence.dirty.get());
             assert!(
                 workspace.tabs[0]
                     .pane

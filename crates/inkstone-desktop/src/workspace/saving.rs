@@ -9,9 +9,7 @@ impl Workspace {
         }
         self.flush_document_views(window, cx);
         for tab in &mut self.tabs {
-            if !tab.save.conflict.get() {
-                tab.save.error.replace(None);
-            }
+            tab.save.persistence.retry();
         }
         self.save_pending(window, cx);
     }
@@ -29,15 +27,16 @@ impl Workspace {
             }) {
                 continue;
             }
-            if tab.save.dirty.get()
-                && (tab.save.conflict.get() || tab.save.error.borrow().is_some())
+            if tab.save.persistence.dirty.get()
+                && (tab.save.persistence.conflict.get()
+                    || tab.save.persistence.error.borrow().is_some())
             {
                 let text = tab.save.editor.read(cx).value().to_string();
-                if text != tab.save.recovery_text.borrow().as_str() {
-                    tab.save.recovery_text.replace(text.clone());
+                if text != tab.save.persistence.recovery_text.borrow().as_str() {
+                    tab.save.persistence.recovery_text.replace(text.clone());
                     let vault = vault.clone();
                     let path = tab.save.path.borrow().clone();
-                    let baseline = tab.save.baseline.borrow().clone();
+                    let baseline = tab.save.persistence.baseline.borrow().clone();
                     let save = tab.save.clone();
                     let task = cx
                         .background_executor()
@@ -50,7 +49,7 @@ impl Workspace {
                                     .iter_mut()
                                     .find(|t| std::rc::Rc::ptr_eq(&t.save, &save))
                                 {
-                                    tab.save.recovery_text.borrow_mut().clear();
+                                    tab.save.persistence.recovery_text.borrow_mut().clear();
                                 }
                                 this.status = format!("恢复副本写入失败：{error}");
                                 cx.notify();
@@ -60,18 +59,13 @@ impl Workspace {
                     .detach();
                 }
             }
-            if !tab.save.dirty.get()
-                || tab.save.saving.get()
-                || tab.save.conflict.get()
-                || tab.save.error.borrow().is_some()
-            {
+            if !tab.save.persistence.begin() {
                 continue;
             }
-            tab.save.saving.set(true);
             let generation = self.generation;
             let save = tab.save.clone();
             let path = tab.save.path.borrow().clone();
-            let baseline = tab.save.baseline.borrow().clone();
+            let baseline = tab.save.persistence.baseline.borrow().clone();
             let text = tab.save.editor.read(cx).value().to_string();
             let vault = vault.clone();
             let draft = save.draft.borrow().as_ref().map(|state| state.io.clone());
@@ -94,7 +88,6 @@ impl Workspace {
                         else {
                             return;
                         };
-                        tab.save.saving.set(false);
                         match result {
                             Ok(receipt) => {
                                 if let Some(draft) = tab.save.draft.borrow_mut().as_mut() {
@@ -104,14 +97,11 @@ impl Workspace {
                                 if let Some(error) = cleanup {
                                     this.status = format!("正文已保存，草稿清理将重试：{error}");
                                 }
-                                tab.save.error.replace(None);
                                 let saved_path = tab.path.clone();
                                 let saved_text = receipt.text.clone();
-                                tab.save.baseline.replace(Some(receipt.text));
-                                tab.save.dirty.set(
-                                    tab.save.baseline.borrow().as_deref()
-                                        != Some(tab.save.editor.read(cx).value().as_ref()),
-                                );
+                                tab.save
+                                    .persistence
+                                    .saved(receipt.text, tab.save.editor.read(cx).value().as_ref());
                                 if !this.files.contains(&tab.path) {
                                     this.files.push(tab.path.clone());
                                     this.files.sort();
@@ -119,12 +109,15 @@ impl Workspace {
                                 Some((saved_path, saved_text))
                             }
                             Err(error) => {
-                                tab.save.conflict.set(matches!(
-                                    error,
-                                    VaultError::Conflict { .. } | VaultError::RaceConflict { .. }
-                                ));
                                 this.status = error.to_string();
-                                tab.save.error.replace(Some(this.status.clone()));
+                                tab.save.persistence.failed(
+                                    matches!(
+                                        error,
+                                        VaultError::Conflict { .. }
+                                            | VaultError::RaceConflict { .. }
+                                    ),
+                                    this.status.clone(),
+                                );
                                 None
                             }
                         }
@@ -153,7 +146,7 @@ impl Workspace {
         self.document_view_changed(id, window, cx);
         self.sync_from_split(window, cx);
         let tab = self.tabs.iter().find(|tab| tab.id == id).unwrap();
-        if tab.save.saving.get() {
+        if tab.save.persistence.saving.get() {
             return;
         }
         let document = tab.save.clone();
@@ -170,10 +163,7 @@ impl Workspace {
             .as_nanos();
         path.set_file_name(format!("{stem}-副本-{timestamp}.md"));
         self.relocate_document(&document, path);
-        document.baseline.replace(None);
-        document.conflict.set(false);
-        document.error.replace(None);
-        document.dirty.set(true);
+        document.persistence.prepare_copy();
         self.sync_reference_contexts(cx);
         self.save_all(window, cx);
         cx.notify();
