@@ -4,6 +4,32 @@
 //! Dropping it deliberately retains the last persisted draft for crash recovery.
 use super::*;
 
+impl Vault {
+    /// Verify the exact reviewed crash record, never a completed-save fallback.
+    pub fn validate_draft(&self, entry: &RecoveryEntry) -> Result<(), VaultError> {
+        if entry.journal.parent() != Some(self.recovery_dir.as_path())
+            || entry.journal.extension().is_none_or(|e| e != "json")
+        {
+            return Err(VaultError::InvalidPath);
+        }
+        let metadata = fs::symlink_metadata(&entry.journal)?;
+        if !metadata.is_file() || is_reparse(&metadata) {
+            return Err(VaultError::InvalidPath);
+        }
+        if self.read_history(&entry.record.relative, &entry.journal)? != entry.record {
+            return Err(VaultError::InvalidPath);
+        }
+        Ok(())
+    }
+
+    /// Remove only the reviewed record; concurrent new snapshots remain recoverable.
+    pub fn discard_draft(&self, entry: &RecoveryEntry) -> Result<(), VaultError> {
+        self.validate_draft(entry)?;
+        fs::remove_file(&entry.journal)?;
+        Ok(())
+    }
+}
+
 pub struct DraftSession {
     vault: Vault,
     relative: PathBuf,
@@ -156,5 +182,29 @@ mod tests {
         assert!(unrelated.exists());
         assert_eq!(fs::read_dir(&f.1.recovery_dir).unwrap().count(), 1);
         assert!(DraftSession::new(f.1.clone(), "../escape.md".into()).is_err());
+    }
+    #[test]
+    fn discard_checks_reviewed_record_and_keeps_other_versions() {
+        let f = Fixture::new();
+        f.1.journal(Path::new("note.md"), Some("original"), "older")
+            .unwrap();
+        f.1.journal(Path::new("note.md"), Some("original"), "newer")
+            .unwrap();
+        let entries = f.1.recoveries().unwrap();
+        assert_eq!(entries.len(), 2);
+        let reviewed = entries.iter().find(|e| e.record.draft == "newer").unwrap();
+        let mut stale = reviewed.clone();
+        stale.record.draft = "unreviewed".into();
+        assert!(f.1.discard_draft(&stale).is_err());
+        assert!(reviewed.journal.exists());
+        let mut outside = reviewed.clone();
+        outside.journal = f.1.root.join("note.md");
+        assert!(f.1.discard_draft(&outside).is_err());
+        f.1.discard_draft(reviewed).unwrap();
+        assert_eq!(f.1.recoveries().unwrap()[0].record.draft, "older");
+        assert_eq!(
+            fs::read_to_string(f.1.root.join("note.md")).unwrap(),
+            "original"
+        );
     }
 }
