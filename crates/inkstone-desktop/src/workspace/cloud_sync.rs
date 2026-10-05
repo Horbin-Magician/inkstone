@@ -66,6 +66,7 @@ pub(super) struct State {
     message: String,
     progress: Option<Progress>,
     progress_slot: Option<ProgressSlot>,
+    remote_check: super::remote_check::RemoteCheck,
 }
 impl State {
     pub(super) fn is_busy(&self) -> bool {
@@ -91,6 +92,7 @@ impl State {
             message: String::new(),
             progress: None,
             progress_slot: None,
+            remote_check: Default::default(),
         }
     }
 }
@@ -122,6 +124,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let state = &mut self.ui.cloud_sync;
+        state.remote_check = Default::default();
         state.pending = false;
         state.automatic = false;
         state.again = false;
@@ -159,8 +162,26 @@ impl Workspace {
             .update(cx, |input, cx| input.set_value(password, window, cx));
         self.schedule_auto_sync(false);
     }
+    fn poll_remote_checks(&mut self, now: std::time::Instant, active: bool) {
+        let enabled = self.vault.is_some()
+            && !self.loading
+            && self.ui.prefs.webdav.auto
+            && !self.ui.prefs.webdav.url.trim().is_empty();
+        let state = &mut self.ui.cloud_sync;
+        let queued = state.pending || state.busy || state.again || state.defer_retry;
+        if state.remote_check.poll(
+            now,
+            enabled,
+            Duration::from_secs(self.ui.prefs.webdav.poll_minutes.clamp(1, 1440) * 60),
+            active,
+            queued,
+        ) {
+            self.schedule_auto_sync(false);
+        }
+    }
     /// Arm quiet and retry timers, then resume a sync deferred by an in-flight attempt.
     pub(super) fn pump_auto_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_remote_checks(std::time::Instant::now(), window.is_window_active());
         if self.ui.cloud_sync.defer_quiet {
             self.ui.cloud_sync.defer_quiet = false;
             self.ui.cloud_sync.defer_retry = false;
@@ -230,6 +251,7 @@ impl Workspace {
             url: self.ui.cloud_sync.url.read(cx).value().trim().to_owned(),
             username: self.ui.cloud_sync.username.read(cx).value().to_string(),
             auto: self.ui.prefs.webdav.auto,
+            poll_minutes: self.ui.prefs.webdav.poll_minutes,
         }
     }
     fn save_cloud_settings(&mut self, cx: &mut Context<Self>) -> bool {
@@ -527,6 +549,17 @@ impl Workspace {
                     .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
                 .child("双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
                 .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB，一次下载上限 512 MiB。")
+                .child(Button::new("webdav-poll-interval")
+                    .label(format!("远端检查间隔：{} 分钟（点击切换）", self.ui.prefs.webdav.poll_minutes.clamp(1, 1440)))
+                    .disabled(disabled)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.ui.prefs.webdav.poll_minutes = match this.ui.prefs.webdav.poll_minutes {
+                            1 => 5, 5 => 15, 15 => 30, _ => 1,
+                        };
+                        this.persist_workspace(cx);
+                        cx.notify();
+                    })))
+                .child("自动同步开启时，应用持续打开会定期检查远端，重新激活窗口也会检查；未保存正文仍等待手动保存。")
                 .when(state.progress_slot.is_some(), |s| {
                     let progress = state.progress.as_ref().filter(|p| p.total > 0);
                     s.child(gpui_component::progress::Progress::new("cloud-sync-progress")
@@ -869,6 +902,7 @@ mod tests {
             url: server.url.clone(),
             username: "user".into(),
             auto: false,
+            ..Settings::default()
         };
         let remote = WebDav::new(&settings, "secret").unwrap();
         remote.prepare().unwrap();
@@ -1022,6 +1056,7 @@ mod tests {
             url: server.url.clone(),
             username: "user".into(),
             auto: true,
+            ..Settings::default()
         };
         let account =
             crate::workspace::webdav_secret::account(&settings, &root.join("local")).unwrap();
@@ -1082,6 +1117,7 @@ mod tests {
             url: server.url.clone(),
             username: "user".into(),
             auto: true,
+            ..Settings::default()
         };
         let remote = WebDav::new(&settings, "secret").unwrap();
         remote.prepare().unwrap();
@@ -1195,6 +1231,7 @@ mod tests {
                     url: server.url.clone(),
                     username: "user".into(),
                     auto: true,
+                    ..Settings::default()
                 };
                 configured(w, &server.url, true, window, cx);
                 w.ui.discard_workspace_on_close = true;
@@ -1259,6 +1296,7 @@ mod tests {
                     url: "https://example.test/dav/".into(),
                     username: "user".into(),
                     auto: false,
+                    ..Settings::default()
                 };
                 w.apply_cloud_secret(Some(Ok(Some("secret".into()))), window, cx);
                 assert!(!w.ui.cloud_sync.pending);
@@ -1269,6 +1307,95 @@ mod tests {
                 w.watcher = None;
             })
             .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
+    fn idle_device_receives_periodic_and_activation_updates_but_keeps_unsaved_text(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-remote-poll-{stamp}"));
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        std::fs::create_dir_all(root.join("b")).unwrap();
+        let a = Vault::open(root.join("a"), root.join("recovery-a")).unwrap();
+        let settings = Settings {
+            url: server.url.clone(),
+            username: "user".into(),
+            ..Settings::default()
+        };
+        let remote = WebDav::new(&settings, "secret").unwrap();
+        remote.prepare().unwrap();
+        std::fs::write(a.root.join("note.md"), "version 1").unwrap();
+        sync::synchronize(&a, &remote, &remote.identity()).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.join("b"), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        let now = std::time::Instant::now();
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.prefs.webdav = settings.clone();
+                configured(w, &server.url, true, window, cx);
+                w.poll_remote_checks(now, false);
+                assert!(!w.ui.cloud_sync.pending);
+                w.poll_remote_checks(now + Duration::from_secs(300), false);
+                assert!(w.ui.cloud_sync.pending);
+                w.tick_cloud_sync(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("b/note.md")).unwrap(),
+            "version 1"
+        );
+        std::fs::write(a.root.join("note.md"), "version 2").unwrap();
+        sync::synchronize(&a, &remote, &remote.identity()).unwrap();
+        handle
+            .update(cx, |w, window, cx| {
+                w.poll_remote_checks(now + Duration::from_secs(321), true);
+                assert!(w.ui.cloud_sync.pending);
+                w.tick_cloud_sync(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("b/note.md")).unwrap(),
+            "version 2"
+        );
+        handle
+            .update(cx, |w, window, cx| {
+                w.open_note("note.md".into(), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        std::fs::write(a.root.join("note.md"), "version 3").unwrap();
+        sync::synchronize(&a, &remote, &remote.identity()).unwrap();
+        handle
+            .update(cx, |w, window, cx| {
+                w.tabs[w.active.unwrap()]
+                    .save
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.set_value("unsaved B", window, cx));
+                w.flush_document_views(window, cx);
+                w.poll_remote_checks(now + Duration::from_secs(700), true);
+                w.tick_cloud_sync(window, cx);
+                assert!(w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.busy);
+                assert!(w.tabs[w.active.unwrap()].save.dirty.get());
+                w.watcher = None;
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("b/note.md")).unwrap(),
+            "version 2"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -24,6 +24,8 @@ pub struct Settings {
     /// Sync after opening a vault and after local files are created, saved, or deleted.
     /// Absent in older preference files, so those vaults keep syncing automatically.
     pub auto: bool,
+    /// Low-frequency remote checks while the application remains open.
+    pub poll_minutes: u64,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -31,6 +33,7 @@ impl Default for Settings {
             url: String::new(),
             username: String::new(),
             auto: true,
+            poll_minutes: 5,
         }
     }
 }

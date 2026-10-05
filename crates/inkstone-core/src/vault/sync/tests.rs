@@ -221,6 +221,7 @@ fn server(replies: Vec<&'static str>) -> (Settings, std::thread::JoinHandle<Vec<
         url: format!("http://{}/dav/", listener.local_addr().unwrap()),
         username: "user".into(),
         auto: true,
+        ..Settings::default()
     };
     let handle = std::thread::spawn(move || {
         let mut requests = vec![];
@@ -309,6 +310,7 @@ fn webdav_refuses_redirects_weak_etags_and_invalid_urls() -> Result<()> {
                     url: url.into(),
                     username: String::new(),
                     auto: true,
+                    ..Settings::default()
                 },
                 ""
             )
@@ -532,4 +534,17 @@ fn webdav_uses_unversioned_directory_and_manifest_version() -> Result<()> {
         .is_err()
     );
     Ok(())
+}
+
+#[test]
+fn older_settings_default_to_five_minute_remote_checks() {
+    let settings: Settings =
+        serde_json::from_str(r#"{"url":"https://example.test/dav/","username":"user"}"#).unwrap();
+    assert!(settings.auto);
+    assert_eq!(settings.poll_minutes, 5);
+    let mut custom = settings;
+    custom.poll_minutes = 15;
+    let roundtrip: Settings =
+        serde_json::from_slice(&serde_json::to_vec(&custom).unwrap()).unwrap();
+    assert_eq!(roundtrip.poll_minutes, 15);
 }
