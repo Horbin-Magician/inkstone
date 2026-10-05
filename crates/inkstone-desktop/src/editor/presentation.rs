@@ -220,8 +220,7 @@ impl EditorPane {
                                 },
                             ));
                         } else {
-                            // Transparent highlights blend with the foreground.
-                            // Reserve the prefix width without painting its glyph.
+                            // Collapse the hidden marker and its optional separator.
                             quote_markers.push(span.content.clone());
                         }
                         self.live_quotes.push(span.content.start..span.source.end);
@@ -294,11 +293,24 @@ impl EditorPane {
         }
         self.live_tasks.clear();
         let mut replacements: Vec<_> = concealed.into_iter().map(|range| (range, px(0.))).collect();
-        replacements.extend(
-            quote_markers
-                .into_iter()
-                .map(|range| (range, px(self.font_size * 0.6))),
-        );
+        replacements.extend(quote_markers.into_iter().map(|mut range| {
+            if matches!(text.as_bytes().get(range.end), Some(b' ' | b'\t')) {
+                range.end += 1;
+            }
+            // Outer rails still need room for the next level of a nested quote.
+            let nested = self.live_quotes.iter().any(|quote| {
+                quote.start >= range.end
+                    && text[range.end..quote.start]
+                        .chars()
+                        .all(|ch| matches!(ch, ' ' | '\t'))
+            });
+            let width = if nested {
+                live_quotes::inset(self.font_size)
+            } else {
+                px(0.)
+            };
+            (range, width)
+        }));
         // Transparent highlights blend with the foreground; they do not hide glyphs.
         // Replace each bullet source glyph with a reserved slot for the overlay instead.
         replacements.extend(
