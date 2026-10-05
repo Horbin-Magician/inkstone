@@ -12,6 +12,7 @@ pub(super) struct DocumentState {
     pub conflict: Cell<bool>,
     pub error: RefCell<Option<String>>,
     pub recovery_text: RefCell<String>,
+    pub draft: RefCell<Option<super::drafts::DraftState>>,
     _changes: Subscription,
 }
 
@@ -32,6 +33,7 @@ impl DocumentState {
             conflict: Cell::new(false),
             error: RefCell::new(None),
             recovery_text: RefCell::new(String::new()),
+            draft: RefCell::new(None),
             _changes: changes,
         }
     }
