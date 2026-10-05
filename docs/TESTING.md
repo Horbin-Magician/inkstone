@@ -1,5 +1,9 @@
 # 验证指南
 
+开发环境安装 rustup 后，从仓库根目录执行。`rust-toolchain.toml` 是开发和 CI 的唯一工具链版本来源，目前固定 Rust 1.97.0，并安装 Clippy、rustfmt。首次执行 rustup/Cargo 时自动安装该版本；依赖仍通过 `Cargo.lock` 和 `--locked` 固定。
+
+升级工具链应单独提交：修改 `rust-toolchain.toml`，执行下列工作区检查以及 vendor 专项回归，记录新旧编译器版本和原生回归范围；macOS、Windows 与 Linux core CI 都通过后再合入。不要把 `stable` 升级和依赖/vendor 更新混进同一提交。
+
 从仓库根目录执行：
 
 ```sh
@@ -166,3 +170,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 当前窗口原生截图确认草稿比较控件、恢复/放弃按钮和同步设置的自动同步开关可见，说明能换行；这只覆盖默认窗口与当前 Retina 显示，不代表最小窗口/放大字体/多 DPI 矩阵。
 - 原生输入法试验未出现可确认的候选/预编辑状态，因此不记录为 IME 通过；已有模拟 marked-text 回归继续作为自动证据，原生 IME 待验收。
 - 验收发现草稿比较复用了历史标题与差异表头，已分别改成“草稿恢复与比较”“所选草稿 / 打开比较时的磁盘正文”。6 项恢复回归、全工作区 Clippy、格式及差异检查通过；文案修正后尚未重新截取原生窗口。
+
+## Rust 工具链固定（2026-10-05）
+
+- 新增根目录 `rust-toolchain.toml`，固定 `1.97.0`、minimal profile、Clippy 和 rustfmt。三个 CI 平台在 checkout 后通过 rustup 使用同一仓库文件，不再跟随浮动 stable。
+- 本地 `rustup show active-toolchain` 确认由该文件覆盖，`rustc --version` 为 `1.97.0 (2d8144b78 2026-07-07)`，与此前验收编译器相同。格式、全工作区全目标 Clippy、差异检查通过；无依赖或业务代码变更，因此没有重复行为全量测试。
+- 已说明单独升级、必要回归和跨平台 CI 门槛。远程 CI 与全新机器安装尚未运行，不把本地 override 结果当作远程平台通过。
