@@ -36,10 +36,10 @@ impl Workspace {
                 this.ui.selected = 0;
                 this.ui.search_collapsed.clear();
                 this.ui.modal_scroll.set_offset(Point::default());
-                this.run_search(cx);
+                this.schedule_search(cx);
             }
             if matches!(event, InputEvent::PressEnter { .. }) {
-                this.open_selected_result(window, cx);
+                this.submit_search_result(window, cx);
             }
         });
         let timer = cx.spawn_in(window, async move |this, cx| {
@@ -104,6 +104,7 @@ impl Workspace {
             search,
             search_results: vec![],
             search_revision: 0,
+            search_jobs: Default::default(),
             fulltext: false,
             _search_subscription: search_subscription,
             _name_subscription: name_subscription,
@@ -186,6 +187,7 @@ impl Workspace {
         inkstone_core::startup_trace::mark("load_requested");
         self.startup_pending = false;
         self.loading = true;
+        self.search_jobs.cancel();
         self.generation += 1;
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {
