@@ -80,7 +80,7 @@ impl Workspace {
                         before,
                         after,
                         editor.read(cx).value().as_ref(),
-                        composing || tab.save.persistence.dirty.get(),
+                        composing || tab.save.persistence.is_dirty(),
                     ) {
                         this.status
                             .push_str(&format!(" {} 的新编辑已保留，请处理冲突。", path.display()));

@@ -1,5 +1,5 @@
 //! Document persistence transitions, independent of editor entities and windows.
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, Ref, RefCell};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ExternalChange {
@@ -9,12 +9,12 @@ pub(super) enum ExternalChange {
 }
 
 pub(super) struct SaveState {
-    pub baseline: RefCell<Option<String>>,
-    pub dirty: Cell<bool>,
-    pub saving: Cell<bool>,
-    pub conflict: Cell<bool>,
-    pub error: RefCell<Option<String>>,
-    pub recovery_text: RefCell<String>,
+    baseline: RefCell<Option<String>>,
+    dirty: Cell<bool>,
+    saving: Cell<bool>,
+    conflict: Cell<bool>,
+    error: RefCell<Option<String>>,
+    recovery_text: RefCell<String>,
 }
 impl SaveState {
     pub fn new(baseline: Option<String>, dirty: bool) -> Self {
@@ -26,6 +26,31 @@ impl SaveState {
             error: RefCell::new(None),
             recovery_text: RefCell::new(String::new()),
         }
+    }
+    pub fn baseline(&self) -> Ref<'_, Option<String>> {
+        self.baseline.borrow()
+    }
+    pub fn error(&self) -> Ref<'_, Option<String>> {
+        self.error.borrow()
+    }
+    pub fn is_dirty(&self) -> bool {
+        self.dirty.get()
+    }
+    pub fn is_saving(&self) -> bool {
+        self.saving.get()
+    }
+    pub fn has_conflict(&self) -> bool {
+        self.conflict.get()
+    }
+    pub fn begin_journal(&self, text: &str) -> bool {
+        if text == self.recovery_text.borrow().as_str() {
+            return false;
+        }
+        self.recovery_text.replace(text.to_string());
+        true
+    }
+    pub fn journal_failed(&self) {
+        self.recovery_text.borrow_mut().clear();
     }
     pub fn edited(&self, current: &str) {
         self.dirty
@@ -126,6 +151,26 @@ impl SaveState {
         self.conflict.set(false);
         self.error.replace(None);
         self.dirty.set(true);
+    }
+}
+
+// Fault injection for UI regression fixtures only; production callers cannot bypass transitions.
+#[cfg(test)]
+impl SaveState {
+    pub fn test_set_dirty(&self, value: bool) {
+        self.dirty.set(value);
+    }
+    pub fn test_set_saving(&self, value: bool) {
+        self.saving.set(value);
+    }
+    pub fn test_set_conflict(&self, value: bool) {
+        self.conflict.set(value);
+    }
+    pub fn test_set_error(&self, value: Option<String>) {
+        self.error.replace(value);
+    }
+    pub fn test_set_baseline(&self, value: Option<String>) {
+        self.baseline.replace(value);
     }
 }
 

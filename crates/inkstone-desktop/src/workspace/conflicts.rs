@@ -34,12 +34,12 @@ impl Workspace {
         let Some(tab) = self.tabs.iter().find(|t| t.id == id) else {
             return;
         };
-        if tab.save.persistence.saving.get() || tab.path.as_os_str().is_empty() {
+        if tab.save.persistence.is_saving() || tab.path.as_os_str().is_empty() {
             return;
         }
         let document = tab.save.clone();
         let path = document.path.borrow().clone();
-        let baseline = document.persistence.baseline.borrow().clone();
+        let baseline = document.persistence.baseline().clone();
         let local = document.editor.read(cx).value().to_string();
         self.close_overlays(window, cx);
         let preview = cx.new(|cx| {
@@ -136,9 +136,9 @@ impl Workspace {
             .map(|t| t.id)
             .collect();
         if tabs.is_empty()
-            || document.persistence.saving.get()
+            || document.persistence.is_saving()
             || *document.path.borrow() != path
-            || *document.persistence.baseline.borrow() != baseline
+            || *document.persistence.baseline() != baseline
             || document.editor.read(cx).value().as_ref() != local
             || tabs
                 .iter()
@@ -284,7 +284,7 @@ mod tests {
                 w.watcher = None;
                 w.watch_events = None;
                 let doc = w.tabs[w.active.unwrap()].save.clone();
-                doc.persistence.conflict.set(true);
+                doc.persistence.test_set_conflict(true);
                 doc.editor
                     .update(cx, |s, cx| s.replace_all("local😀", window, cx));
                 w.document_changed(doc.editor.clone(), window, cx);
@@ -308,7 +308,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 let doc = w.tabs[w.active.unwrap()].save.clone();
-                assert!(doc.persistence.conflict.get());
+                assert!(doc.persistence.has_conflict());
                 assert_eq!(doc.editor.read(cx).value().as_ref(), "local😀");
                 w.open_conflict_review(window, cx);
             })
@@ -327,7 +327,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 let doc = w.tabs[w.active.unwrap()].save.clone();
                 assert_eq!(doc.editor.read(cx).value().as_ref(), "continued 中文");
-                assert!(doc.persistence.conflict.get());
+                assert!(doc.persistence.has_conflict());
                 w.open_conflict_review(window, cx);
             })
             .unwrap();
@@ -341,9 +341,9 @@ mod tests {
                 assert!(w.ui.conflict_review.is_none());
                 let doc = w.tabs[w.active.unwrap()].save.clone();
                 assert!(
-                    !doc.persistence.conflict.get()
-                        && !doc.persistence.dirty.get()
-                        && !doc.persistence.saving.get()
+                    !doc.persistence.has_conflict()
+                        && !doc.persistence.is_dirty()
+                        && !doc.persistence.is_saving()
                 );
                 assert_eq!(doc.editor.read(cx).value().as_ref(), "newer external");
                 let vault = w.vault.as_ref().unwrap();

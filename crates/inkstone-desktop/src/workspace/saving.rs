@@ -27,16 +27,14 @@ impl Workspace {
             }) {
                 continue;
             }
-            if tab.save.persistence.dirty.get()
-                && (tab.save.persistence.conflict.get()
-                    || tab.save.persistence.error.borrow().is_some())
+            if tab.save.persistence.is_dirty()
+                && (tab.save.persistence.has_conflict() || tab.save.persistence.error().is_some())
             {
                 let text = tab.save.editor.read(cx).value().to_string();
-                if text != tab.save.persistence.recovery_text.borrow().as_str() {
-                    tab.save.persistence.recovery_text.replace(text.clone());
+                if tab.save.persistence.begin_journal(&text) {
                     let vault = vault.clone();
                     let path = tab.save.path.borrow().clone();
-                    let baseline = tab.save.persistence.baseline.borrow().clone();
+                    let baseline = tab.save.persistence.baseline().clone();
                     let save = tab.save.clone();
                     let task = cx
                         .background_executor()
@@ -49,7 +47,7 @@ impl Workspace {
                                     .iter_mut()
                                     .find(|t| std::rc::Rc::ptr_eq(&t.save, &save))
                                 {
-                                    tab.save.persistence.recovery_text.borrow_mut().clear();
+                                    tab.save.persistence.journal_failed();
                                 }
                                 this.status = format!("恢复副本写入失败：{error}");
                                 cx.notify();
@@ -65,7 +63,7 @@ impl Workspace {
             let generation = self.generation;
             let save = tab.save.clone();
             let path = tab.save.path.borrow().clone();
-            let baseline = tab.save.persistence.baseline.borrow().clone();
+            let baseline = tab.save.persistence.baseline().clone();
             let text = tab.save.editor.read(cx).value().to_string();
             let vault = vault.clone();
             let draft = save.draft.borrow().as_ref().map(|state| state.io.clone());
@@ -146,7 +144,7 @@ impl Workspace {
         self.document_view_changed(id, window, cx);
         self.sync_from_split(window, cx);
         let tab = self.tabs.iter().find(|tab| tab.id == id).unwrap();
-        if tab.save.persistence.saving.get() {
+        if tab.save.persistence.is_saving() {
             return;
         }
         let document = tab.save.clone();

@@ -349,3 +349,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增两项独立状态回归，验证新输入、待提交输入、变化的保存基线均阻止批量结果替换编辑正文；仅已保存文档可以开始文件操作，操作期间输入不会变为已保存状态。
 - `cargo test --locked -p inkstone-desktop`：295 单元测试 + 8 集成测试通过，2 个既有测试忽略。包含共享文档重命名/回收、链接更新冲突、批量操作期间继续输入等既有回归；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/save-operations-tests.log`、`target/save-operations-clippy.log`。未新增原生 UI 验收，未修改用户笔记。状态字段读取和测试仍待迁移到受限接口。
+
+## 保存状态：私有字段与只读接口（2026-10-05）
+
+- SaveState 的基线、dirty/saving/conflict/error 与恢复日志标记全部设为私有；UI 只读查询使用借用接口，状态更新仅通过转换方法。恢复日志的正文去重和失败重试标记也已封装。
+- 既有 UI 测试中的人工故障注入迁移到 `#[cfg(test)]` 接口，生产构建不提供这些入口；不改变原测试的故障条件。本次没有新增仅重复访问器实现的测试。
+- `cargo test --locked -p inkstone-desktop`：295 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`，同时检查生产与测试目标）、格式及 diff 检查通过。
+- 日志：`target/save-private-tests.log`、`target/save-private-clippy.log`。未新增原生 UI 验收；未修改用户笔记。同步生命周期和设置/通知/UI 模块仍待后续拆分。

@@ -493,9 +493,11 @@ impl Workspace {
         {
             return;
         }
-        if self.tabs.iter().any(|t| {
-            t.save.persistence.conflict.get() || t.save.persistence.error.borrow().is_some()
-        }) || self.ui.persist_error.is_some()
+        if self
+            .tabs
+            .iter()
+            .any(|t| t.save.persistence.has_conflict() || t.save.persistence.error().is_some())
+            || self.ui.persist_error.is_some()
         {
             self.ui.cloud_sync.pending = false;
             self.ui.cloud_sync.automatic = false;
@@ -513,9 +515,10 @@ impl Workspace {
             || self.ui.pending_file_writes > 0
             || self.ui.persisting
             || self.refreshing
-            || self.tabs.iter().any(|t| {
-                t.save.persistence.saving.get() || self.has_pending_input(t.id, window, cx)
-            })
+            || self
+                .tabs
+                .iter()
+                .any(|t| t.save.persistence.is_saving() || self.has_pending_input(t.id, window, cx))
         {
             return;
         }
@@ -523,7 +526,7 @@ impl Workspace {
         let waiting: std::collections::BTreeSet<_> = self
             .tabs
             .iter()
-            .filter(|tab| tab.save.persistence.dirty.get())
+            .filter(|tab| tab.save.persistence.is_dirty())
             .map(|tab| tab.path.to_string_lossy().into_owned())
             .collect();
         if !waiting.is_empty() {
@@ -798,7 +801,7 @@ mod tests {
                     state.set_value("unsaved draft", window, cx);
                 });
                 w.flush_document_views(window, cx);
-                assert!(w.tabs[0].save.persistence.dirty.get());
+                assert!(w.tabs[0].save.persistence.is_dirty());
             })
             .unwrap();
         cx.run_until_parked();
@@ -813,16 +816,16 @@ mod tests {
                 w.ui.cloud_sync.pending = true;
                 w.ui.cloud_sync.automatic = true;
                 w.tick_cloud_sync(window, cx);
-                assert!(!w.tabs[0].save.persistence.saving.get());
+                assert!(!w.tabs[0].save.persistence.is_saving());
                 assert!(w.ui.cloud_sync.pending);
                 w.ui.cloud_sync.pending = false;
                 w.ui.cloud_sync.automatic = false;
                 w.ui.backup.pending = Some(root.with_extension("backup"));
                 w.tick_backups(window, cx);
-                assert!(!w.tabs[0].save.persistence.saving.get());
+                assert!(!w.tabs[0].save.persistence.is_saving());
                 assert!(!w.ui.backup.busy);
                 w.ui.backup.pending = None;
-                assert!(w.tabs[0].save.persistence.dirty.get());
+                assert!(w.tabs[0].save.persistence.is_dirty());
             })
             .unwrap();
         cx.run_until_parked();
@@ -1348,7 +1351,7 @@ mod tests {
                     .save
                     .editor
                     .update(cx, |s, cx| s.replace_all("revised", window, cx));
-                w.tabs[0].save.persistence.dirty.set(true);
+                w.tabs[0].save.persistence.test_set_dirty(true);
                 w.save_pending(window, cx);
             })
             .unwrap();
@@ -1479,7 +1482,7 @@ mod tests {
                 assert!(!w.request_window_close(window, cx));
                 w.ui.pending_file_writes = 1;
                 w.add_tab("note.md".into(), Some("saved".into()), false, window, cx);
-                w.tabs[0].save.persistence.conflict.set(true);
+                w.tabs[0].save.persistence.test_set_conflict(true);
                 assert!(!w.request_window_close(window, cx));
             })
             .unwrap();
@@ -1596,7 +1599,7 @@ mod tests {
                 w.tick_cloud_sync(window, cx);
                 assert!(w.ui.cloud_sync.pending);
                 assert!(!w.ui.cloud_sync.busy);
-                assert!(w.tabs[w.active.unwrap()].save.persistence.dirty.get());
+                assert!(w.tabs[w.active.unwrap()].save.persistence.is_dirty());
                 w.watcher = None;
             })
             .unwrap();
