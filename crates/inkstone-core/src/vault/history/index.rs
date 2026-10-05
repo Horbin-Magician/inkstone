@@ -169,6 +169,7 @@ mod tests {
         fs::create_dir_all(root.join("outside")).unwrap();
         let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
         vault.save(Path::new("note.md"), None, "body").unwrap();
+        fs::remove_dir_all(vault.recovery_dir.join(".history-index")).unwrap();
         std::os::unix::fs::symlink(
             root.join("outside"),
             vault.recovery_dir.join(".history-index"),

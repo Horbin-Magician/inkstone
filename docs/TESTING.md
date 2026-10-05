@@ -425,3 +425,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 增加独立日志归属缓存；历史目录新增记录后，旧日志无需再次读取/反序列化正文，json→saved 发布复用相同缓存键。读取前后核对文件类型、大小与修改时间，损坏缓存回退原日志；选中历史仍读取并验证完整记录。
 - 新测试用禁止正文读取的回调验证已有日志和发布后的命中，覆盖缓存损坏重建、日志正文变化、共享恢复目录的库隔离及记录缓存目录符号链接回退。核心全量 210 项通过、1 项忽略；桌面 recovery 3 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。
 - 日志：`target/history-records-tests.log`、`target/history-records-ui-tests.log`、`target/history-records-clippy.log`、`target/history-records-fmt.log`。本次没有原生界面验收或耗时基准；首次导入旧日志仍读正文，目录变化仍扫描目录，过期缓存清理及重命名映射待完成。未修改用户笔记，工作区其他编辑器/vendor 改动不进入本次提交。
+
+## 历史读取：写入日志时生成元数据（2026-10-05）
+
+- `Vault::journal` 在原日志持久化成功后，用已有记录生成小型元数据缓存，新记录第一次列出历史不再读取正文。缓存写入为尽力完成，失败不改变日志成功结果；旧记录和缓存损坏继续从原日志重建。
+- 扩展禁止正文读取的回归，证明新日志尚未打开历史时即能命中；缓存目录链接下仍能生成有效原日志，且不向链接目标写入。原目录条目计数断言改为验证恢复记录，Windows 锁文件用例相应验证历史记录数量（本机未执行 Windows 用例）。
+- 核心 210 项、桌面 recovery 3 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志为 `target/history-seed-{tests,ui-tests,clippy,fmt}.log`。未做原生界面或保存耗时测量；缓存增加一次小文件持久化，目录扫描与旧缓存清理仍待优化。未修改用户笔记。
