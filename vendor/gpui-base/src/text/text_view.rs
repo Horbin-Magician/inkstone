@@ -826,6 +826,9 @@ impl Element for TextView {
             request_layout.element.paint(window, cx);
         }
         GlobalState::global_mut(cx).text_view_state_stack.pop();
+        if let Some(wrap_width) = state.read(cx).selection_adapter.measured_wrap_width() {
+            state.update(cx, |state, _| state.record_wrap_width(wrap_width));
+        }
 
         // Every list has scrolled by now, so the line of a reveal is where
         // it ends up this frame.

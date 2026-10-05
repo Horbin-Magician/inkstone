@@ -209,6 +209,16 @@ impl TextViewSelectionAdapter {
         self.text_runs.push(run);
     }
 
+    /// The width a painted paragraph wrapped at, when one wrapped this frame.
+    pub(super) fn measured_wrap_width(&self) -> Option<gpui::Pixels> {
+        self.text_runs.iter().find_map(|run| {
+            run.layout()
+                .line_layouts()
+                .iter()
+                .find_map(|line| line.wrap_width)
+        })
+    }
+
     pub(super) fn register_inline(&mut self, bounds: Vec<Bounds<Pixels>>) {
         self.text_bounds.extend(bounds);
     }
