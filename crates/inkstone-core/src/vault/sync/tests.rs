@@ -1,39 +1,46 @@
 use super::*;
-use std::cell::{Cell, RefCell};
 
 #[derive(Default)]
 struct Memory {
-    manifest: RefCell<Manifest>,
-    objects: RefCell<BTreeMap<String, Vec<u8>>>,
-    revision: Cell<usize>,
-    fail: Cell<bool>,
+    manifest: Mutex<Manifest>,
+    objects: Mutex<BTreeMap<String, Vec<u8>>>,
+    revision: AtomicUsize,
+    fail: AtomicBool,
+    downloads: AtomicUsize,
+    uploads: AtomicUsize,
+    fail_upload: AtomicBool,
 }
 impl Remote for Memory {
     fn manifest(&self) -> Result<(Manifest, Option<String>)> {
         Ok((
-            self.manifest.borrow().clone(),
-            (self.revision.get() > 0).then(|| self.revision.get().to_string()),
+            self.manifest.lock().unwrap().clone(),
+            (self.revision.load(Ordering::Relaxed) > 0)
+                .then(|| self.revision.load(Ordering::Relaxed).to_string()),
         ))
     }
     fn download(&self, h: &str) -> Result<Vec<u8>> {
+        self.downloads.fetch_add(1, Ordering::Relaxed);
         self.objects
-            .borrow()
+            .lock()
+            .unwrap()
             .get(h)
             .cloned()
             .context("missing object")
     }
     fn upload(&self, h: &str, b: &[u8]) -> Result<()> {
-        self.objects.borrow_mut().insert(h.into(), b.into());
+        ensure!(!self.fail_upload.load(Ordering::Relaxed), "upload failed");
+        self.uploads.fetch_add(1, Ordering::Relaxed);
+        self.objects.lock().unwrap().insert(h.into(), b.into());
         Ok(())
     }
     fn publish(&self, m: &Manifest, revision: Option<&str>) -> Result<()> {
-        ensure!(!self.fail.get(), "network failure");
+        ensure!(!self.fail.load(Ordering::Relaxed), "network failure");
         ensure!(
             revision.map(str::to_owned) == self.manifest()?.1,
             "revision conflict"
         );
-        self.manifest.replace(m.clone());
-        self.revision.set(self.revision.get() + 1);
+        *self.manifest.lock().unwrap() = m.clone();
+        self.revision.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 }
@@ -86,7 +93,8 @@ fn two_devices_sync_notes_binary_edits_deletions_and_renames() -> Result<()> {
     assert_eq!(synchronize(&f.b, &r, "server")?.downloaded, 0);
     assert!(
         !r.manifest
-            .borrow()
+            .lock()
+            .unwrap()
             .files
             .contains_key(".inkstone-workspace.json")
     );
@@ -140,17 +148,19 @@ fn failed_publish_and_corrupt_download_do_not_modify_local_files() -> Result<()>
     fs::write(f.a.root.join("a.md"), "remote")?;
     synchronize(&f.a, &r, "x")?;
     fs::write(f.b.root.join("b.md"), "local")?;
-    r.fail.set(true);
+    r.fail.store(true, Ordering::Relaxed);
     assert!(synchronize(&f.b, &r, "x").is_err());
     assert!(!f.b.root.join("a.md").exists());
-    r.fail.set(false);
+    r.fail.store(false, Ordering::Relaxed);
     r.objects
-        .borrow_mut()
+        .lock()
+        .unwrap()
         .insert(hash(b"remote"), b"corrupt".to_vec());
     assert!(synchronize(&f.b, &r, "x").is_err());
     assert!(!f.b.root.join("a.md").exists());
     r.objects
-        .borrow_mut()
+        .lock()
+        .unwrap()
         .insert(hash(b"remote"), b"remote".to_vec());
     synchronize(&f.b, &r, "x")?;
     assert_eq!(snapshot(&f.b)?.len(), 2);
@@ -341,5 +351,59 @@ fn local_replacement_and_deletion_leave_identifiable_recovery_copies() -> Result
     assert!(snapshot(&f.a)?.is_empty());
     // Overlong conflict filenames are rejected before remote publication.
     assert!(validate_path(&format!("{}.md", "n".repeat(253))).is_err());
+    Ok(())
+}
+
+#[test]
+fn duplicate_content_transfers_once_and_unchanged_sync_transfers_nothing() -> Result<()> {
+    let f = Fixture::new();
+    let r = Memory::default();
+    for i in 0..12 {
+        fs::write(f.a.root.join(format!("{i}.md")), "shared content")?;
+    }
+    assert_eq!(synchronize(&f.a, &r, "x")?.uploaded, 1);
+    assert_eq!(synchronize(&f.b, &r, "x")?.downloaded, 12);
+    assert_eq!(snapshot(&f.a)?, snapshot(&f.b)?);
+    synchronize(&f.a, &r, "x")?;
+    synchronize(&f.b, &r, "x")?;
+    assert_eq!(r.uploads.load(Ordering::Relaxed), 1);
+    assert_eq!(r.downloads.load(Ordering::Relaxed), 1);
+    Ok(())
+}
+
+#[test]
+fn transfers_overlap_and_join_before_returning() -> Result<()> {
+    let barrier = std::sync::Barrier::new(4);
+    let active = AtomicUsize::new(0);
+    let completed = AtomicUsize::new(0);
+    transfer(&[0, 1, 2, 3], |_| {
+        active.fetch_add(1, Ordering::SeqCst);
+        barrier.wait();
+        assert_eq!(active.load(Ordering::SeqCst), 4);
+        barrier.wait();
+        completed.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    })?;
+    assert_eq!(completed.load(Ordering::SeqCst), 4);
+    Ok(())
+}
+
+#[test]
+fn failed_transfer_does_not_publish_or_apply_downloads() -> Result<()> {
+    let f = Fixture::new();
+    let r = Memory::default();
+    fs::write(f.a.root.join("remote.md"), "remote")?;
+    synchronize(&f.a, &r, "x")?;
+    let revision = r.revision.load(Ordering::Relaxed);
+    for i in 0..10 {
+        fs::write(f.b.root.join(format!("{i}.md")), format!("local {i}"))?;
+    }
+    r.fail_upload.store(true, Ordering::Relaxed);
+    assert!(synchronize(&f.b, &r, "x").is_err());
+    assert_eq!(r.revision.load(Ordering::Relaxed), revision);
+    assert!(!f.b.root.join("remote.md").exists());
+    r.fail_upload.store(false, Ordering::Relaxed);
+    synchronize(&f.b, &r, "x")?;
+    assert_eq!(fs::read_to_string(f.b.root.join("remote.md"))?, "remote");
     Ok(())
 }
