@@ -210,7 +210,13 @@ impl Workspace {
         if self.refresh_requested && !self.refreshing {
             self.refresh(window, cx);
         }
-        self.save_pending(window, cx);
+        // Only continue saves required by an explicit close or navigation request.
+        if self.ui.window_close_requested
+            || !self.ui.close_pending.is_empty()
+            || self.pending_navigation.is_some()
+        {
+            self.save_pending(window, cx);
+        }
         if self.ui.search_drafts_changed {
             self.run_search(cx);
         }

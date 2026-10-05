@@ -154,7 +154,7 @@ impl Workspace {
         }
         self.flush_document_views(window, cx);
         if self.tabs.iter().any(|t| t.save.dirty.get()) {
-            self.save_all(window, cx);
+            // Scheduled backups wait for the user to save their edits.
             return;
         }
         let destination = self.ui.backup.pending.take().unwrap();

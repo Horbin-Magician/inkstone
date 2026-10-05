@@ -357,7 +357,9 @@ impl Workspace {
         }
         self.flush_document_views(window, cx);
         if self.tabs.iter().any(|t| t.save.dirty.get()) {
-            self.save_all(window, cx);
+            if !self.ui.cloud_sync.automatic {
+                self.save_all(window, cx);
+            }
             return;
         }
         let Some(vault) = self.vault.clone() else {
@@ -550,6 +552,72 @@ mod tests {
             atomic::{AtomicBool, Ordering},
         },
     };
+
+    #[gpui::test]
+    fn background_work_waits_for_manual_note_save(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-manual-save-{stamp}"));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("note.md"), "original").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("note.md".into(), Some("original".into()), false, window, cx);
+                let editor = w.tabs[0].save.editor.clone();
+                editor.update(cx, |state, cx| {
+                    state.set_value("unsaved draft", window, cx);
+                });
+                w.flush_document_views(window, cx);
+                assert!(w.tabs[0].save.dirty.get());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        for _ in 0..3 {
+            handle
+                .update(cx, |w, window, cx| w.tick(window, cx))
+                .unwrap();
+            cx.run_until_parked();
+        }
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.cloud_sync.pending = true;
+                w.ui.cloud_sync.automatic = true;
+                w.tick_cloud_sync(window, cx);
+                assert!(!w.tabs[0].save.saving.get());
+                assert!(w.ui.cloud_sync.pending);
+                w.ui.cloud_sync.pending = false;
+                w.ui.cloud_sync.automatic = false;
+                w.ui.backup.pending = Some(root.with_extension("backup"));
+                w.tick_backups(window, cx);
+                assert!(!w.tabs[0].save.saving.get());
+                assert!(!w.ui.backup.busy);
+                w.ui.backup.pending = None;
+                assert!(w.tabs[0].save.dirty.get());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("note.md")).unwrap(),
+            "original"
+        );
+        handle
+            .update(cx, |w, window, cx| w.save_all(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(root.join("note.md")).unwrap(),
+            "unsaved draft"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn settings_remain_usable_while_auto_sync_waits(cx: &mut TestAppContext) {

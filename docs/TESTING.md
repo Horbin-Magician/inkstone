@@ -112,3 +112,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - `cargo test --locked --workspace -- --test-threads=1`：449 项通过、3 项手动基准忽略（核心 185、桌面 256、集成 8）。默认并行运行曾在本地 WebDAV 测试服务读取套接字时超时并中止；串行全量重跑通过，未更改同步实现或测试超时。
 - `cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo fmt --all --check` 和 `git diff --check` 通过。顺带修正一处原有测试中为路径比较分配 `PathBuf` 的 Clippy 告警。
 - 未修改用户笔记，未进行原生窗口延迟、Windows/Linux 实机或内存峰值验收。
+
+## 关闭正文自动保存（2026-10-05）
+
+- 工作区定时轮询不再保存正文；自动云同步与定时备份等待用户保存。手动保存及关闭、导航等显式操作前的保存保护保留。
+- 新增回归验证连续轮询、自动云同步、备份等待期间磁盘正文不变，以及手动保存正常落盘。
+- 桌面测试 278 项通过，2 项手动基准忽略；工作区格式与差异检查通过。全目标 Clippy 被既有 `workspace/navigation.rs:1104` 的 `cmp_owned` 警告阻止；本次未修改该文件。未进行原生窗口验收。
