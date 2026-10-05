@@ -24,3 +24,17 @@
 本机 `xcrun --find xctrace` 返回未安装。现有启动 trace 只有 CPU/调度阶段；仍需可验证的原生事件到显示帧测量途径。此限制不改变原生延迟验收要求。
 
 原始日志保留在忽略目录：`target/performance-release-build.log`、`target/performance-native/startup-resource.log`、`target/performance-native/ordinary-idle.json`。通过 Command-Q 正常退出，执行会话退出码 0，进程检查确认隔离实例已结束。所有生成 Markdown 的哈希仍匹配 corpus v1；无用户笔记进入代码提交。
+
+
+## 块级解析 CPU 对照（2026-10-05，非原生延迟）
+
+同机 Apple M4、Rust 1.97.0 release，corpus v1，5 次预热后 20 次编辑；同一输入分别完整解析和局部更新，每次在计时外比较完整 AST。普通样本在“**重点**”内插入中文，大文档在“段落 1000”标题内插入中文。编译及全量测试结束后独立重测，以下为单轮结果，不混入上面的原生资源初测：
+
+| 样本 | 完整解析 p50 / p95 | 局部更新 p50 / p95 |
+| --- | --- | --- |
+| ordinary.md，3,945 B | 0.518 / 0.563 ms | 0.028 / 0.030 ms |
+| large-document.md，1,720,682 B | 112.748 / 113.863 ms | 2.608 / 2.656 ms |
+
+复现：`cargo run --release --locked -p inkstone-core --example block_benchmark -- target/performance-v1/ordinary.md 重`，第二个场景将参数换成 `target/performance-v1/large-document.md '段落 1000'`。最终日志为 `target/block-benchmark-ordinary-final.log` 与 `target/block-benchmark-large-final.log`；较早带并行构建干扰的日志不纳入表格。
+
+此测量不包含原生输入、展示投影、布局或显示提交；不能用来宣布 50 ms 输入预算达标。局部更新仍克隆 AST 和更新后续坐标；跨行、嵌套容器和全局引用等仍回退完整解析。

@@ -33,7 +33,7 @@ impl EditorPane {
                 let snapshot = Arc::new(
                     self.syntax_snapshot
                         .as_ref()
-                        .and_then(|snapshot| snapshot.update_plain_paragraph(&text))
+                        .and_then(|snapshot| snapshot.update_block(&text))
                         .unwrap_or_else(|| inkstone_core::syntax::Snapshot::new(&text)),
                 );
                 self.retain_live_graphics(&snapshot);

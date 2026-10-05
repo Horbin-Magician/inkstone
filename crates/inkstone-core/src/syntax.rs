@@ -1,4 +1,5 @@
 //! One source-coordinate parse shared by indexing and live presentation.
+mod incremental;
 use markdown_parser::{ParseOptions, mdast::Node};
 use std::sync::Arc;
 
