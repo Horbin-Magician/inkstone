@@ -443,3 +443,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 应用内目录重命名接入历史归属事务，单次扫描日志元数据并按当前归属匹配实际移动的笔记，复用文件锁、映射发布与失败回滚；记录正文及原路径保持不变。
 - 新增回归覆盖嵌套路径、先单篇改名再移动目录、连续目录移动、旧目录复用、相似目录名隔离、已删除笔记历史保留、二进制附件原样移动、目标冲突以及映射发布失败后整目录回滚。核心全量 213 项通过、1 项忽略，桌面恢复 4 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/folder-history-tests.log`、`target/folder-history-ui-tests.log`、`target/folder-history-clippy.log`、`target/folder-history-fmt.log`。本次未进行原生窗口验收；外部重命名、进程崩溃协调和归属映射损坏恢复仍待实现。未修改用户笔记。
+
+## 历史归属：校验提交记录与镜像重建（2026-10-05）
+
+- 将新重命名的权威归属发布为带版本及 SHA-256 校验和的 `.history-commit`，原 `.history-links` 作为可修复镜像；旧格式在首次后续重命名时迁移。读取校验权威记录后尽力修复镜像，镜像错误不阻断有效历史。
+- 新回归覆盖旧格式读取/迁移、截断镜像、合法但过期的镜像、镜像缺失后的重建，以及权威记录中合法 JSON 被改写时校验失败且阻止重命名。原发布失败回滚、路径复用、目录移动与恢复副本回归继续通过。核心全量 214 项通过、1 项忽略；桌面恢复 4 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/history-checkpoint-tests.log`、`target/history-checkpoint-ui-tests.log`、`target/history-checkpoint-clippy.log`、`target/history-checkpoint-fmt.log`。权威提交记录自身损坏不会自动采用可能过期的镜像；该情形及移动中途崩溃协调仍待后续完善。本次未做原生窗口验收，未修改用户笔记。
