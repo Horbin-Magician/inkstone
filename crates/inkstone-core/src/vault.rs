@@ -1,6 +1,7 @@
 //! Files remain authoritative. Every save keeps an application-owned recovery journal.
 pub mod attachments;
 pub mod backup;
+pub mod drafts;
 pub mod export;
 mod history;
 pub mod sync;
