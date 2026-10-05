@@ -118,6 +118,11 @@ impl TextInputState {
             .update(cx, |state, _| state.set_editor_paddings(paddings)))
     }
 
+    pub(crate) fn set_trailing_margin(&self, margin: gpui::Pixels, cx: &mut App) {
+        dispatch!(self, |state| state
+            .update(cx, |state, _| state.set_trailing_margin(margin)))
+    }
+
     pub(crate) fn ensure_highlighter_factory(
         &self,
         factory: gpui_base::input::InputHighlighterFactory,

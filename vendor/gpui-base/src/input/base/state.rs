@@ -35,9 +35,7 @@ use super::{
 use crate::actions::{SelectDown, SelectLeft, SelectRight, SelectUp};
 use crate::input::blink_cursor::CURSOR_WIDTH;
 use crate::input::movement::MoveDirection;
-use crate::input::{
-    InputExtras as _, Position, RopeExt as _, element::RIGHT_MARGIN, layout::LastLayout,
-};
+use crate::input::{InputExtras as _, Position, RopeExt as _, layout::LastLayout};
 use crate::{AutoScroll, StepAction};
 
 /// Vertical clearance to retain when revealing a text position.
@@ -450,6 +448,9 @@ pub struct InputBaseState<M: InputModeKind> {
     /// The unwrapped width of the longest line and what it was measured for.
     pub(super) longest_line_width: Cell<Option<(LongestLineKey, Pixels)>>,
     pub(super) editor_paddings: Edges<Pixels>,
+    /// Space kept clear past the last glyph. Wrapping and the caret both stop
+    /// short of it, so a host can match a reading column that uses none.
+    pub(super) trailing_margin: Pixels,
     /// The style this state paints with: what was projected onto it, with
     /// every colour left unset resolved from the palette that is current. It
     /// is rebuilt at the top of every render, which is what keeps it current
@@ -790,6 +791,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             editor_scrollbar_snapshot: Cell::new(None),
             longest_line_width: Cell::new(None),
             editor_paddings: Edges::default(),
+            trailing_margin: super::element::RIGHT_MARGIN,
             deferred_scroll_offset: None,
             placeholder: SharedString::default(),
             mask_pattern: MaskPattern::default(),
@@ -895,6 +897,15 @@ impl<M: InputModeKind> InputBaseState<M> {
     #[doc(hidden)]
     pub fn set_editor_paddings(&mut self, paddings: Edges<Pixels>) {
         self.editor_paddings = paddings;
+    }
+
+    /// Set the space kept clear past the last glyph.
+    ///
+    /// Wrapping stops short of it, so the text column is this much narrower
+    /// than the frame. A host matching a reading view sets it to zero.
+    #[doc(hidden)]
+    pub fn set_trailing_margin(&mut self, margin: Pixels) {
+        self.trailing_margin = margin;
     }
 
     pub fn apply_highlighter_fold_candidates(
@@ -3489,7 +3500,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         // For Right alignment use 0 margin: the cursor indicator is clamped inside bounds
         // in layout_cursors, so shifting the text here would cause a first-click visual jump.
         let safety_margin = match last_layout.text_align {
-            TextAlign::Left => RIGHT_MARGIN,
+            TextAlign::Left => self.trailing_margin,
             TextAlign::Right => px(0.),
             TextAlign::Center => CURSOR_WIDTH,
         };

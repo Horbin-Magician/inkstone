@@ -654,7 +654,7 @@ impl<M: InputModeKind> TextElement<M> {
                     // For Right alignment use 0 margin: cursor is clamped to bounds separately,
                     // so we never scroll the text for cursor-at-edge, avoiding a first-click jump.
                     let safety_margin = match last_layout.text_align {
-                        TextAlign::Left => RIGHT_MARGIN,
+                        TextAlign::Left => state.trailing_margin,
                         TextAlign::Right => px(0.),
                         TextAlign::Center => CURSOR_WIDTH,
                     };
@@ -2713,8 +2713,9 @@ impl<M: InputModeKind> Element for TextElement<M> {
             Self::layout_line_numbers(&state, &text, text_size, &text_style, window);
 
         let mut bounds = bounds;
+        let trailing_margin = state.trailing_margin;
         let wrap_width = if multi_line && state.soft_wrap {
-            Some(bounds.size.width - line_number_width - RIGHT_MARGIN)
+            Some(bounds.size.width - line_number_width - trailing_margin)
         } else {
             None
         };
@@ -2741,7 +2742,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
 
         let line_height = window.line_height();
         let token_elements = self.measure_tokens(
-            (bounds.size.width - line_number_width - RIGHT_MARGIN).max(px(1.)),
+            (bounds.size.width - line_number_width - trailing_margin).max(px(1.)),
             line_height,
             bounds.size.height,
             window,
@@ -3038,8 +3039,8 @@ impl<M: InputModeKind> Element for TextElement<M> {
         // last content row, so take the max rather than summing — summing
         // left a band of empty space the cursor could never reach.
         let mut scroll_size = size(
-            if longest_line_width + line_number_width + RIGHT_MARGIN > bounds.size.width {
-                longest_line_width + line_number_width + RIGHT_MARGIN
+            if longest_line_width + line_number_width + trailing_margin > bounds.size.width {
+                longest_line_width + line_number_width + trailing_margin
             } else {
                 longest_line_width
             },
