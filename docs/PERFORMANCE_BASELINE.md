@@ -1,0 +1,26 @@
+# 编辑性能基线记录
+
+固定样本、事先预算和测量流程见 [规程](../tools/performance/README.md)。当前仅有初测，尚未完成第 3 项性能验收。
+
+## 2026-10-05 原生 release 资源初测
+
+- 应用代码：`a33648b`，Rust 1.97.0，`cargo build --release --locked -p inkstone-desktop`。二进制 SHA-256：`16e0be90c676a214854b92832b8b2d238c5644fcd3b34fee33fba67cef4a5fee`。此次只修改 Python 测量工具，未修改应用代码。
+- 机器：Apple M4，24 GiB，macOS 27.0.1（26A434），arm64。窗口 1200×820 逻辑像素，截图 2400×1640；默认 16 字号、深色、实时预览。显示刷新率未记录，未操作输入法。
+- 实例：独立 bundle `app.inkstone.performance-test`，应用数据与库分别位于 `target/performance-native/data`、`target/performance-v1`。库含 corpus v1 全部 16 文件，只恢复 `ordinary.md`；索引首次构建，缓存 hits=0/misses=16。已通过原生截图确认内容显示。同步 URL 为空；草稿功能保持默认，但没有编辑操作。
+- 本轮单次进程从启动至正常退出 56.86 秒；并非完整的 3 轮基线。原测试窗口外的用户应用未退出或修改。
+
+| 指标 | 初测 | 解释 |
+| --- | ---: | --- |
+| main → loaded_frame_boundary | 882.407 ms | 含框架启动/索引；帧调度边界，不是笔记打开到可编辑或屏幕呈现时间 |
+| load_requested → ui_loaded | 224.052 ms | 后台加载与 UI 应用阶段，仅辅助定位 |
+| 进程生命周期最大 RSS | 293,634,048 B（280.031 MiB） | macOS `/usr/bin/time -l` 退出统计，非采样峰值，不含独立 GPU/辅助进程 |
+| 系统报告 peak memory footprint | 236,422,320 B | 与 RSS 口径不同，不能混用 |
+| 30.011 秒区间 CPU | 单核 2.133% | 累计 CPU 秒差分/单调墙钟；`ps time` 精度约 0.01 秒 |
+| 采样 RSS 最大值 | 284,448 KiB | 采样期下界，不替代生命周期峰值 |
+| 原生输入到显示 / 滚动帧间隔 | 未取得 | 不使用工具往返或截图耗时代替 |
+
+采样在启动后约二十余秒开始，未严格完成规程要求的 30 秒稳定期；因此 CPU 数值不用于预算通过/失败结论。窗口前台状态和显示刷新率也需在正式轮次补记。普通场景以外的四个场景、三轮重复与模式矩阵尚未采集。
+
+本机 `xcrun --find xctrace` 返回未安装。现有启动 trace 只有 CPU/调度阶段；仍需可验证的原生事件到显示帧测量途径。此限制不改变原生延迟验收要求。
+
+原始日志保留在忽略目录：`target/performance-release-build.log`、`target/performance-native/startup-resource.log`、`target/performance-native/ordinary-idle.json`。通过 Command-Q 正常退出，执行会话退出码 0，进程检查确认隔离实例已结束。所有生成 Markdown 的哈希仍匹配 corpus v1；无用户笔记进入代码提交。
