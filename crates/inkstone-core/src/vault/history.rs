@@ -1,5 +1,6 @@
 use super::*;
 mod index;
+pub(super) mod links;
 mod records;
 
 pub(super) fn cache_journal(vault: &Vault, path: &Path, recovery: &Recovery) {
@@ -56,6 +57,7 @@ impl Vault {
 
     pub fn history(&self, relative: &Path) -> Result<Vec<HistoryEntry>, VaultError> {
         Self::validate_relative(relative)?;
+        let ownership = links::Ownership::load(self)?;
         if let Some(entries) = index::load(self, relative) {
             return Ok(entries);
         }
@@ -71,9 +73,9 @@ impl Vault {
                 Ok(m) if m.is_file() && !is_reparse(&m) => m,
                 _ => continue,
             };
-            if records::scope(self, &path, &metadata)
-                .is_none_or(|scope| scope.root != self.root || scope.relative != relative)
-            {
+            if records::scope(self, &path, &metadata).is_none_or(|scope| {
+                scope.root != self.root || !ownership.owns(&path, &scope.relative, relative)
+            }) {
                 // Partial journals and unrelated vaults are never modified.
                 continue;
             }
@@ -120,7 +122,9 @@ impl Vault {
         }
         let record: Recovery = serde_json::from_slice(&fs::read(path)?)
             .map_err(|e| VaultError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))?;
-        if record.root != self.root || record.relative != relative {
+        if record.root != self.root
+            || !links::Ownership::load(self)?.owns(path, &record.relative, relative)
+        {
             return Err(VaultError::InvalidPath);
         }
         Ok(record)

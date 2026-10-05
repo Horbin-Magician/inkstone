@@ -553,7 +553,7 @@ impl Vault {
         if read_optional(&source)?.as_deref() != Some(baseline) {
             return Err(VaultError::Conflict { recovery });
         }
-        move_no_replace(&source, &dest)?;
+        history::links::rename_note(self, old, new, &source, &dest)?;
         let _ = fs::rename(&recovery, recovery.with_extension("saved"));
         Ok(())
     }
