@@ -158,9 +158,6 @@ pub(super) struct UiState {
     pub modal_focus: FocusHandle,
     pub workspace_focus: FocusHandle,
     pub pending_command: Option<(PathBuf, usize)>,
-    pub last_persisted: String,
-    pub persisting: bool,
-    pub persist_error: Option<String>,
     pub discard_workspace_on_close: bool,
     pub folders: Vec<PathBuf>,
     pub tree_folders: Vec<PathBuf>,
@@ -495,9 +492,6 @@ impl UiState {
             modal_focus: cx.focus_handle(),
             workspace_focus,
             pending_command: None,
-            last_persisted: String::new(),
-            persisting: false,
-            persist_error: None,
             discard_workspace_on_close: false,
             folders: vec![],
             tree_folders: vec![],
@@ -910,66 +904,6 @@ impl Workspace {
     }
     pub(super) fn border(&self) -> Rgba {
         crate::theme::palette(self.ui.prefs.light).border
-    }
-    pub(super) fn persist_workspace(&mut self, cx: &mut Context<Self>) {
-        if self.loading || self.ui.backup.busy {
-            return;
-        }
-        self.snapshot_views(cx);
-        let Some(vault) = &self.vault else {
-            return;
-        };
-        if self.loading
-            || self.ui.persisting
-            || self.ui.persist_error.is_some()
-            || self.ui.discard_workspace_on_close
-        {
-            return;
-        }
-        self.ui.prefs.open_paths = self.tabs.iter().map(|t| t.path.clone()).collect();
-        self.ui.prefs.left_panel = self.ui.left_mode;
-        self.ui.prefs.right_panel = self.ui.right_mode;
-        self.ui.prefs.active_path = self
-            .active
-            .and_then(|i| self.tabs.get(i))
-            .map(|t| t.path.clone());
-        self.ui.prefs.active_tab_index = self.active;
-        let Ok(serialized) = serde_json::to_string(&self.ui.prefs) else {
-            return;
-        };
-        if serialized == self.ui.last_persisted {
-            return;
-        }
-        self.ui.persisting = true;
-        let prefs = self.ui.prefs.clone();
-        let path = vault.root.join(".inkstone-workspace.json");
-        let generation = self.generation;
-        let task = cx
-            .background_executor()
-            .spawn(async move { prefs.save(&path) });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                this.ui.persisting = false;
-                if this.generation != generation {
-                    return;
-                }
-                match result {
-                    Ok(()) => {
-                        this.ui.last_persisted = serialized;
-                        this.persist_workspace(cx);
-                    }
-                    Err(e) => {
-                        this.ui.persist_error = Some(e.to_string());
-                        this.ui.window_close_requested = false;
-                        this.status =
-                            format!("无法保存工作区设置：{e}。可重试或不保存布局并关闭。");
-                        cx.notify();
-                    }
-                }
-            });
-        })
-        .detach();
     }
     pub(super) fn apply_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.apply_font_preferences(cx);
@@ -3889,14 +3823,14 @@ impl Render for Workspace {
                         .bg(self.bg())
                         .text_size(px(MIN_UI_FONT_SIZE))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                        .when(self.ui.persist_error.is_some(), |bar| {
+                        .when(self.settings_save.error().is_some(), |bar| {
                             bar.child(
                                 Button::new("retry-workspace-save")
                                     .ghost()
                                     .compact()
                                     .label("重试保存设置")
                                     .on_click(cx.listener(|this, _, _, cx| {
-                                        this.ui.persist_error = None;
+                                        this.settings_save.retry();
                                         this.ui.discard_workspace_on_close = false;
                                         this.persist_workspace(cx);
                                         cx.notify();

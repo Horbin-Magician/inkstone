@@ -77,6 +77,7 @@ impl Workspace {
         .detach();
         let ui = ui::UiState::new(window, cx);
         Self {
+            settings_save: Default::default(),
             ui,
             #[cfg(target_os = "macos")]
             quit_requested: false,
@@ -312,8 +313,7 @@ impl Workspace {
                         this.ui.bulk_edit = None;
                         this.ui.table_editor = None;
                         this.ui.trash_open = false;
-                        this.ui.last_persisted.clear();
-                        this.ui.persist_error = None;
+                        this.settings_save.reset();
                         this.ui.discard_workspace_on_close = false;
                         this.ui.prefs.light =
                             this.ui.prefs.theme.is_light(Self::system_light(window));
