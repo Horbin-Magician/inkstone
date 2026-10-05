@@ -2,6 +2,7 @@
 use super::*;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+mod checkpoint;
 
 #[derive(Serialize, Deserialize)]
 struct Links {
@@ -22,18 +23,24 @@ fn invalid() -> VaultError {
 impl Ownership {
     pub(super) fn load(vault: &Vault) -> Result<Self, VaultError> {
         let path = path(vault);
-        let links = match fs::symlink_metadata(&path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Links {
-                version: 1,
-                root: vault.root.clone(),
-                owners: BTreeMap::new(),
-            },
-            Err(error) => return Err(error.into()),
-            Ok(meta) => {
-                if !meta.is_file() || is_reparse(&meta) {
-                    return Err(invalid());
+        let committed = checkpoint::read(vault)?;
+        let has_commit = committed.is_some();
+        let links = if let Some(links) = committed {
+            links
+        } else {
+            match fs::symlink_metadata(&path) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Links {
+                    version: 1,
+                    root: vault.root.clone(),
+                    owners: BTreeMap::new(),
+                },
+                Err(error) => return Err(error.into()),
+                Ok(meta) => {
+                    if !meta.is_file() || is_reparse(&meta) {
+                        return Err(invalid());
+                    }
+                    serde_json::from_slice::<Links>(&fs::read(path)?).map_err(|_| invalid())?
                 }
-                serde_json::from_slice::<Links>(&fs::read(path)?).map_err(|_| invalid())?
             }
         };
         if links.version != 1 || links.root != vault.root {
@@ -46,6 +53,9 @@ impl Ownership {
                 return Err(invalid());
             }
             Vault::validate_relative(relative)?;
+        }
+        if has_commit {
+            checkpoint::repair_cache(vault, &links);
         }
         Ok(Self(links))
     }
@@ -133,9 +143,9 @@ fn rename_with(
                 .insert(entry.journal.with_extension(""), new.to_owned());
         }
     }
-    let target = path(vault);
+    let target = checkpoint::path(vault);
     let staged = target.with_extension(format!("{}.pending-links", unique_id()));
-    let bytes = serde_json::to_vec(&ownership.0).map_err(io::Error::other)?;
+    let bytes = checkpoint::encode(&ownership.0)?;
     if let Err(error) = write_new_synced(&staged, &bytes) {
         let _ = fs::remove_file(&staged);
         return Err(error.into());
@@ -152,6 +162,7 @@ fn rename_with(
             Err(rollback) => Err(io::Error::other(format!("history mapping failed: {error}; note remains at {} because rollback failed: {rollback}", dest.display())).into()),
         };
     }
+    checkpoint::repair_cache(vault, &ownership.0);
     Ok(())
 }
 
@@ -191,7 +202,7 @@ mod tests {
         assert_eq!(vault.read(a).unwrap().as_deref(), Some("different note"));
         assert!(vault.read_history(c, &first.recovery).is_ok());
         // Bad ownership metadata fails closed before the file can move.
-        fs::write(path(&vault), b"broken").unwrap();
+        fs::write(checkpoint::path(&vault), b"broken").unwrap();
         assert!(vault.rename_note(c, Path::new("d.md"), "second").is_err());
         assert!(vault.read(c).unwrap().is_some());
         assert!(vault.read(Path::new("d.md")).unwrap().is_none());
