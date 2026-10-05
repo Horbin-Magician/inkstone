@@ -2,6 +2,7 @@ mod file_sync;
 mod links;
 mod note_files;
 mod note_open;
+mod save_coordinator;
 mod saving;
 mod search;
 mod session;

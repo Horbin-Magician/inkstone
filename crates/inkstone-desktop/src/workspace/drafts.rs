@@ -9,10 +9,7 @@ use std::{
     time::Instant,
 };
 
-pub(super) struct DraftIo {
-    pub session: Mutex<DraftSession>,
-    pub revision: AtomicU64,
-}
+use super::save_coordinator::DraftIo;
 
 pub(super) struct DraftState {
     path: PathBuf,
