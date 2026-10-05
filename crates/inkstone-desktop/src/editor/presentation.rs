@@ -144,6 +144,7 @@ impl EditorPane {
         self.overlay_source = text.clone();
         let mut decorations = Vec::new();
         let mut concealed = vec![];
+        let mut quote_markers = vec![];
         let mut concealed_lines = vec![];
         self.live_quotes.clear();
         self.live_rules.clear();
@@ -193,25 +194,36 @@ impl EditorPane {
                         continue;
                     }
                     Kind::QuoteMarker => {
-                        let revealed = selections.iter().any(|selection| span.active(selection))
-                            || search_query.is_some()
-                                && search_matches
-                                    .get(
-                                        search_matches
-                                            .partition_point(|r| r.end <= span.content.start),
-                                    )
-                                    .is_some_and(|r| r.start < span.content.end);
-                        decorations.push(TextDecoration::new(
-                            span.content.clone(),
-                            HighlightStyle {
-                                color: Some(if revealed {
-                                    rgb(if self.light { 0xababab } else { 0x666666 }).into()
-                                } else {
-                                    rgba(0x00000000).into()
-                                }),
-                                ..Default::default()
-                            },
-                        ));
+                        // Editing the body must not reveal the quote prefix.
+                        let revealed = selections.iter().any(|selection| {
+                            if selection.is_empty() {
+                                span.content.start <= selection.start
+                                    && selection.start <= span.content.end
+                            } else {
+                                selection.start < span.content.end
+                                    && span.content.start < selection.end
+                            }
+                        }) || search_query.is_some()
+                            && search_matches
+                                .get(
+                                    search_matches.partition_point(|r| r.end <= span.content.start),
+                                )
+                                .is_some_and(|r| r.start < span.content.end);
+                        if revealed {
+                            decorations.push(TextDecoration::new(
+                                span.content.clone(),
+                                HighlightStyle {
+                                    color: Some(
+                                        rgb(if self.light { 0xababab } else { 0x666666 }).into(),
+                                    ),
+                                    ..Default::default()
+                                },
+                            ));
+                        } else {
+                            // Transparent highlights blend with the foreground.
+                            // Reserve the prefix width without painting its glyph.
+                            quote_markers.push(span.content.clone());
+                        }
                         self.live_quotes.push(span.content.start..span.source.end);
                         continue;
                     }
@@ -282,6 +294,11 @@ impl EditorPane {
         }
         self.live_tasks.clear();
         let mut replacements: Vec<_> = concealed.into_iter().map(|range| (range, px(0.))).collect();
+        replacements.extend(
+            quote_markers
+                .into_iter()
+                .map(|range| (range, px(self.font_size * 0.6))),
+        );
         // Transparent highlights blend with the foreground; they do not hide glyphs.
         // Replace each bullet source glyph with a reserved slot for the overlay instead.
         replacements.extend(
