@@ -70,6 +70,7 @@ pub(super) struct State {
     /// Executor timer so tests can advance it and a burst of edits coalesces.
     wait: Option<(WaitKind, Task<()>)>,
     busy: bool,
+    cancellation: Option<Arc<sync::Cancellation>>,
     message: String,
     last_success: Option<u64>,
     success_read: u64,
@@ -87,7 +88,13 @@ impl State {
                 .is_some_and(|(kind, _)| *kind == WaitKind::Retry)
     }
     fn scheduling_label(&self) -> &'static str {
-        if self.busy {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(|token| token.is_requested())
+        {
+            "正在取消，等待已发出的请求结束"
+        } else if self.busy {
             if self.again {
                 "同步进行中；后续变更已排队"
             } else {
@@ -125,6 +132,7 @@ impl State {
             defer_retry: false,
             wait: None,
             busy: false,
+            cancellation: None,
             message: String::new(),
             last_success: None,
             success_read: 0,
@@ -136,6 +144,17 @@ impl State {
     }
 }
 impl Workspace {
+    fn cancel_running_sync(&mut self, cx: &mut Context<Self>) {
+        let Some(token) = self.ui.cloud_sync.cancellation.as_ref() else {
+            return;
+        };
+        if token.request() || token.is_requested() {
+            self.cancel_queued_sync();
+            self.cloud_message("正在取消同步，等待已发出的网络请求结束……".into(), cx);
+        } else {
+            self.cloud_message("同步已进入提交阶段，将完成本次提交后结束。".into(), cx);
+        }
+    }
     /// Cancel only queued work; an active transfer keeps its lifetime/protection.
     pub(super) fn cancel_queued_sync(&mut self) {
         let state = &mut self.ui.cloud_sync;
@@ -185,6 +204,7 @@ impl Workspace {
         state.defer_retry = false;
         state.wait = None;
         state.busy = false;
+        state.cancellation = None;
         state.message.clear();
         state.progress = None;
         state.progress_slot = None;
@@ -303,6 +323,15 @@ impl Workspace {
             .progress_slot
             .as_ref()
             .and_then(|slot| slot.lock().unwrap().take());
+        if self
+            .ui
+            .cloud_sync
+            .cancellation
+            .as_ref()
+            .is_some_and(|token| token.is_requested())
+        {
+            return;
+        }
         if let Some(progress) = progress {
             self.cloud_message(progress_message(&progress), cx);
             self.ui.cloud_sync.progress = Some(progress);
@@ -538,13 +567,21 @@ impl Workspace {
         let progress_slot: ProgressSlot = Arc::new(Mutex::new(None));
         self.ui.cloud_sync.progress_slot = Some(progress_slot.clone());
         let generation = self.generation;
+        let cancellation = Arc::new(sync::Cancellation::default());
+        self.ui.cloud_sync.cancellation = Some(cancellation.clone());
         let task = cx.background_executor().spawn(async move {
             let remote = WebDav::new(&settings, &password)?;
             remote.prepare()?;
-            sync::synchronize_with_progress(&vault, &remote, &remote.identity(), |progress| {
-                // Coalesce events so large vaults cannot flood the UI queue.
-                *progress_slot.lock().unwrap() = Some(progress);
-            })
+            sync::synchronize_cancellable(
+                &vault,
+                &remote,
+                &remote.identity(),
+                &cancellation,
+                |progress| {
+                    // Coalesce events so large vaults cannot flood the UI queue.
+                    *progress_slot.lock().unwrap() = Some(progress);
+                },
+            )
         });
         let task = crate::background_sync::retain(task, cx);
         let slot = self.ui.cloud_sync.progress_slot.clone().unwrap();
@@ -581,6 +618,9 @@ impl Workspace {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
                 if this.generation != generation { return; }
+                let cancelled = this.ui.cloud_sync.cancellation.take()
+                    .is_some_and(|token| token.is_requested()) && result.is_err();
+                if cancelled { this.cancel_queued_sync(); }
                 this.ui.file_operation = false;
                 this.ui.cloud_sync.busy = false;
                 this.ui.cloud_sync.progress = None;
@@ -594,9 +634,10 @@ impl Workspace {
                         };
                         format!("同步完成：上传 {} 个内容对象，下载 {} 个文件，删除 {} 个文件{conflicts}", report.uploaded, report.downloaded, report.deleted)
                     }
+                    Err(_) if cancelled => "本次同步已取消。后续修改或定期检查仍可触发同步。".into(),
                     Err(error) => format!("同步未完成：{error}。已完成的传输会保留，可重试。"),
                 };
-                if result.is_err() && this.ui.prefs.webdav.auto {
+                if result.is_err() && !cancelled && this.ui.prefs.webdav.auto {
                     this.ui.cloud_sync.again = true;
                     this.ui.cloud_sync.defer_retry = true;
                 }
@@ -682,6 +723,11 @@ impl Workspace {
                     })))
                     .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
                     .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
+                .when(state.cancellation.is_some(), |s| s.child(
+                    Button::new("webdav-cancel-running").label("取消本次同步")
+                        .disabled(state.cancellation.as_ref().is_some_and(|token| token.is_requested()))
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_running_sync(cx)))
+                ))
                 .when(!state.busy && (state.pending || state.again || state.wait.is_some() || state.watch.has_work()), |s| s.child(
                     Button::new("webdav-cancel-wait").label("取消本次同步等待")
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -1847,6 +1893,92 @@ mod tests {
                 .unwrap()
                 .values()
                 .any(|bytes| bytes == b"latest while offline")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
+    fn cancelling_running_sync_waits_for_worker_and_does_not_retry(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-cancel-ui-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("local")).unwrap();
+        std::fs::write(root.join("local/note.md"), "local").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(root.join("local"), root.join("recovery")).unwrap());
+                w.ui.prefs.webdav = Settings {
+                    url: server.url.clone(),
+                    username: "user".into(),
+                    ..Settings::default()
+                };
+                configured(w, &server.url, true, window, cx);
+                w.schedule_auto_sync(false);
+                w.tick_cloud_sync(window, cx);
+                w.cancel_running_sync(cx);
+                assert!(w.ui.cloud_sync.busy);
+                assert!(w.ui.file_operation);
+                assert!(w.ui.pending_file_writes > 0);
+                assert!(w.ui.cloud_sync.scheduling_label().contains("正在取消"));
+                assert!(!w.ui.cloud_sync.pending);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.file_operation);
+                assert_eq!(w.ui.pending_file_writes, 0);
+                assert!(w.ui.cloud_sync.message.starts_with("本次同步已取消"));
+                assert!(w.ui.cloud_sync.cancellation.is_none());
+                assert!(w.ui.cloud_sync.last_success.is_none());
+                w.pump_auto_sync(window, cx);
+                assert!(!w.ui.cloud_sync.retry_waiting());
+            })
+            .unwrap();
+        cx.executor().advance_clock(AUTO_SYNC_RETRY);
+        cx.run_until_parked();
+        assert!(
+            !server
+                .files
+                .lock()
+                .unwrap()
+                .keys()
+                .any(|p| p.ends_with("manifest.json"))
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("local/note.md")).unwrap(),
+            "local"
+        );
+        handle
+            .update(cx, |w, window, cx| w.request_cloud_sync(window, cx))
+            .unwrap();
+        for _ in 0..4 {
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, window, cx| w.tick(window, cx))
+                .unwrap();
+        }
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(w.ui.cloud_sync.last_success.is_some());
+                assert!(!w.ui.cloud_sync.busy);
+            })
+            .unwrap();
+        assert!(
+            server
+                .files
+                .lock()
+                .unwrap()
+                .values()
+                .any(|bytes| bytes == b"local")
         );
         std::fs::remove_dir_all(root).unwrap();
     }
