@@ -110,17 +110,16 @@ impl WebDav {
         Ok(())
     }
     fn body(response: Response, limit: u64) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        Self::body_to(response, limit, &mut bytes)?;
+        Ok(bytes)
+    }
+    fn body_to(response: Response, limit: u64, output: &mut dyn Write) -> Result<u64> {
         ensure!(
             response.content_length().is_none_or(|n| n <= limit),
             "WebDAV 文件超过大小限制"
         );
-        let mut bytes = Vec::new();
-        response
-            .take(limit + 1)
-            .read_to_end(&mut bytes)
-            .context("读取 WebDAV 响应失败")?;
-        ensure!(bytes.len() as u64 <= limit, "WebDAV 文件超过大小限制");
-        Ok(bytes)
+        copy_limited(response, output, limit)
     }
 }
 impl Remote for WebDav {
@@ -147,12 +146,18 @@ impl Remote for WebDav {
         Ok((manifest, Some(etag)))
     }
     fn download(&self, digest: &str) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        self.download_to(digest, &mut bytes)?;
+        Ok(bytes)
+    }
+    fn download_to(&self, digest: &str, output: &mut dyn Write) -> Result<u64> {
         ensure!(valid_hash(digest), "无效的对象校验值");
-        Self::body(
+        Self::body_to(
             Self::status(
                 self.send(self.request(Method::GET, &format!("inkstone/objects/{digest}")))?,
             )?,
             MAX_FILE_BYTES,
+            output,
         )
     }
     fn upload(&self, digest: &str, bytes: &[u8]) -> Result<()> {
@@ -167,8 +172,10 @@ impl Remote for WebDav {
                 .body(bytes.to_vec()),
         )?;
         if response.status() == StatusCode::PRECONDITION_FAILED {
+            let mut sink = DigestSink(Sha256::new());
+            self.download_to(digest, &mut sink)?;
             ensure!(
-                hash(&self.download(digest)?) == digest,
+                format!("{:x}", sink.0.finalize()) == digest,
                 "已有云端对象校验失败"
             );
         } else {
@@ -192,6 +199,74 @@ impl Remote for WebDav {
             None => request.header(header::IF_NONE_MATCH, "*"),
         };
         Self::status(self.send(request)?)?;
+        Ok(())
+    }
+}
+
+fn copy_limited(mut input: impl Read, output: &mut dyn Write, limit: u64) -> Result<u64> {
+    let mut buffer = [0u8; 64 * 1024];
+    let mut copied = 0u64;
+    loop {
+        let count = input.read(&mut buffer).context("读取 WebDAV 响应失败")?;
+        if count == 0 {
+            return Ok(copied);
+        }
+        ensure!(
+            count as u64 <= limit.saturating_sub(copied),
+            "WebDAV 文件超过大小限制"
+        );
+        output
+            .write_all(&buffer[..count])
+            .context("写入 WebDAV 下载目标失败")?;
+        copied += count as u64;
+    }
+}
+struct DigestSink(Sha256);
+impl Write for DigestSink {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+    #[test]
+    fn bounded_stream_handles_short_writes_limits_and_destination_failure() -> Result<()> {
+        struct Sink {
+            bytes: Vec<u8>,
+            max_chunk: usize,
+            fail: bool,
+        }
+        impl Write for Sink {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                if self.fail {
+                    return Err(io::Error::other("disk full"));
+                }
+                self.max_chunk = self.max_chunk.max(bytes.len());
+                let count = bytes.len().min(97);
+                self.bytes.extend_from_slice(&bytes[..count]);
+                Ok(count)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let input = vec![137u8; 200_000];
+        let mut sink = Sink {
+            bytes: vec![],
+            max_chunk: 0,
+            fail: false,
+        };
+        assert_eq!(copy_limited(input.as_slice(), &mut sink, 200_000)?, 200_000);
+        assert_eq!(sink.bytes, input);
+        assert!(sink.max_chunk <= 64 * 1024);
+        assert!(copy_limited(input.as_slice(), &mut io::sink(), 199_999).is_err());
+        sink.fail = true;
+        assert!(copy_limited(input.as_slice(), &mut sink, 200_000).is_err());
         Ok(())
     }
 }

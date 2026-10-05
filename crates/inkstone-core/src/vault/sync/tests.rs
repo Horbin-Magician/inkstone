@@ -670,3 +670,18 @@ fn cancellation_after_commit_begins_is_rejected_and_finishes_baseline() -> Resul
     assert_eq!(last_success(&f.a, "cancel")?, Some(report.completed_at_ms));
     Ok(())
 }
+
+#[test]
+fn webdav_streams_chunked_objects_and_rejects_truncated_responses() -> Result<()> {
+    let (settings, thread) = server(vec![
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n3\r\nabc\r\n4\r\ndefg\r\n0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nshort",
+    ]);
+    let dav = WebDav::new(&settings, "pass")?;
+    let mut received = Vec::new();
+    assert_eq!(dav.download_to(&hash(b"abcdefg"), &mut received)?, 7);
+    assert_eq!(received, b"abcdefg");
+    assert!(dav.download_to(&hash(b"short"), &mut io::sink()).is_err());
+    assert_eq!(thread.join().unwrap().len(), 2);
+    Ok(())
+}
