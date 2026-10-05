@@ -4405,15 +4405,19 @@ impl Workspace {
                                 div()
                                     .p_2()
                                     .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                    .child("未保存草稿 · 恢复为新笔记"),
+                                    .child("未保存草稿 · 点击比较、恢复或放弃"),
                             )
                             .children(self.recoveries.iter().enumerate().map(|(i, e)| {
                                 Button::new(("restore-draft", i))
                                     .ghost()
-                                    .label(e.record.relative.to_string_lossy().to_string())
+                                    .label(format!(
+                                        "{} · 草稿 {}",
+                                        e.record.relative.display(),
+                                        i + 1
+                                    ))
                                     .on_click(cx.listener(move |this, _, w, cx| {
                                         this.ui.trash_open = false;
-                                        this.restore_draft(i, w, cx);
+                                        this.review_draft(i, w, cx);
                                     }))
                             })),
                     )

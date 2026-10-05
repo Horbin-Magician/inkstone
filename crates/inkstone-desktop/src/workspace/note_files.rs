@@ -3,17 +3,6 @@
 use super::*;
 
 impl Workspace {
-    pub(super) fn restore_draft(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(entry) = self.recoveries.get(index).cloned() else {
-            return;
-        };
-        self.restore_text_as_copy(&entry.record.relative, entry.record.draft, window, cx);
-    }
     pub(super) fn restore_text_as_copy(
         &mut self,
         original: &std::path::Path,

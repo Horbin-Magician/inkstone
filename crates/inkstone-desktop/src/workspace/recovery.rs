@@ -17,6 +17,8 @@ pub(super) struct Browser {
     loading: bool,
     message: String,
     preview: Entity<TextareaState>,
+    draft_entry: Option<RecoveryEntry>,
+    confirm_discard: bool,
 }
 
 pub(super) fn preview_text(text: &str) -> String {
@@ -32,6 +34,185 @@ pub(super) fn preview_text(text: &str) -> String {
 }
 
 impl Workspace {
+    pub(super) fn review_draft(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry) = self.recoveries.get(index).cloned() else {
+            return;
+        };
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        self.close_overlays(window, cx);
+        let preview = cx.new(|cx| {
+            let mut state = TextareaState::new(window, cx).rows(12);
+            state.set_readonly(true, cx);
+            state
+        });
+        self.ui.history = Some(Browser {
+            path: entry.record.relative.clone(),
+            current: "".into(),
+            entries: vec![],
+            selected: None,
+            record: None,
+            baseline: false,
+            difference: true,
+            loading: true,
+            message: String::new(),
+            preview,
+            draft_entry: Some(entry.clone()),
+            confirm_discard: false,
+        });
+        self.ui.trash_open = true;
+        window.focus(&self.ui.modal_focus, cx);
+        let generation = self.generation;
+        let request = self.ui.recovery_refresh;
+        let task = cx.background_executor().spawn(async move {
+            vault.validate_draft(&entry)?;
+            let current = vault.read(&entry.record.relative)?;
+            let metadata = std::fs::metadata(&entry.journal)?;
+            Ok::<_, VaultError>((entry, current, metadata))
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.generation != generation || this.ui.recovery_refresh != request {
+                    return;
+                }
+                let Some(browser) = &mut this.ui.history else {
+                    return;
+                };
+                browser.loading = false;
+                match result {
+                    Ok((entry, current, metadata)) => {
+                        browser.message = if current.is_none() {
+                            "原文件已不存在；恢复仍会创建独立副本。".into()
+                        } else {
+                            String::new()
+                        };
+                        browser.current = current.unwrap_or_default().into();
+                        browser.entries = vec![HistoryEntry {
+                            journal: entry.journal,
+                            modified: metadata.modified().unwrap_or(std::time::UNIX_EPOCH),
+                            bytes: metadata.len(),
+                            saved: false,
+                        }];
+                        browser.selected = Some(0);
+                        browser.record = Some(entry.record);
+                        this.update_history_preview(window, cx);
+                    }
+                    Err(error) => {
+                        browser.message = format!("无法读取草稿，请重新打开恢复入口：{error}")
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn finish_draft_review(
+        &mut self,
+        discard: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        let Some(browser) = &mut self.ui.history else {
+            return;
+        };
+        if browser.loading || browser.record.is_none() {
+            return;
+        }
+        let Some(entry) = browser.draft_entry.clone() else {
+            return;
+        };
+        if discard && !browser.confirm_discard {
+            browser.confirm_discard = true;
+            browser.message = "再次点击确认放弃将删除这一条草稿，原文件与其他记录保留。".into();
+            cx.notify();
+            return;
+        }
+        // A recovery always restores the recorded draft, regardless of preview mode.
+        browser.loading = true;
+        self.ui.pending_file_writes += 1;
+        let reserved = self
+            .tabs
+            .iter()
+            .map(|tab| tab.path.clone())
+            .collect::<Vec<_>>();
+        let generation = self.generation;
+        let request = self.ui.recovery_refresh;
+        let journal = entry.journal.clone();
+        let task = cx.background_executor().spawn(async move {
+            vault.validate_draft(&entry)?;
+            if discard {
+                vault.discard_draft(&entry)?;
+                Ok::<_, VaultError>((None, None))
+            } else {
+                let copy =
+                    vault.duplicate_note(&entry.record.relative, &entry.record.draft, &reserved)?;
+                let cleanup = vault
+                    .discard_draft(&entry)
+                    .err()
+                    .map(|error| error.to_string());
+                Ok((Some(copy), cleanup))
+            }
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                if this.generation != generation {
+                    return;
+                }
+                match result {
+                    Ok((copy, cleanup)) => {
+                        if cleanup.is_none() {
+                            this.recoveries.retain(|entry| entry.journal != journal);
+                        }
+                        if this.ui.recovery_refresh == request {
+                            this.close_overlays(window, cx);
+                        }
+                        if let Some((path, receipt)) = copy {
+                            this.note_indexed_change(path.clone(), receipt.text.clone(), cx);
+                            if !this.files.contains(&path) {
+                                this.files.push(path.clone());
+                                this.files.sort();
+                            }
+                            this.add_tab(path, Some(receipt.text), false, window, cx);
+                            this.schedule_auto_sync(true);
+                            this.status = cleanup.map_or_else(
+                                || "草稿已恢复为独立副本，原文件保留，所选草稿已清理。".into(),
+                                |error| format!("副本已保存，原草稿清理失败：{error}"),
+                            );
+                        } else {
+                            this.status = "已放弃所选草稿，原文件与其他记录保留。".into();
+                        }
+                    }
+                    Err(error) => {
+                        this.status = format!("草稿处理失败，恢复记录保留：{error}");
+                        if this.ui.recovery_refresh == request
+                            && let Some(browser) = &mut this.ui.history
+                        {
+                            browser.loading = false;
+                            browser.message = this.status.clone();
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub(super) fn open_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(vault) = self.vault.clone() else {
             return;
@@ -66,6 +247,8 @@ impl Workspace {
             loading: true,
             message: String::new(),
             preview,
+            draft_entry: None,
+            confirm_discard: false,
         });
         self.ui.trash_open = true;
         window.focus(&self.ui.modal_focus, cx);
@@ -211,6 +394,15 @@ impl Workspace {
     }
 
     fn restore_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .ui
+            .history
+            .as_ref()
+            .is_some_and(|b| b.draft_entry.is_some())
+        {
+            self.finish_draft_review(false, window, cx);
+            return;
+        }
         let Some(browser) = &self.ui.history else {
             return;
         };
@@ -248,11 +440,18 @@ impl Workspace {
                     .truncate()
                     .child(browser.path.to_string_lossy().to_string()),
             )
-            .child(div().text_sm().child(format!(
-                "{} 条记录 · {:.1} MiB · 成功记录默认保留 30 天（每库 128 MiB 软上限）",
-                browser.entries.len(),
-                bytes as f64 / 1048576.
-            )))
+            .child(div().text_sm().child(if browser.draft_entry.is_some() {
+                format!(
+                    "未保存恢复记录 · {:.1} KiB · 恢复或放弃前保留",
+                    bytes as f64 / 1024.
+                )
+            } else {
+                format!(
+                    "{} 条记录 · {:.1} MiB · 成功记录默认保留 30 天（每库 128 MiB 软上限）",
+                    browser.entries.len(),
+                    bytes as f64 / 1048576.
+                )
+            }))
             .when(browser.loading, |s| s.child("正在读取版本……"))
             .when(!browser.message.is_empty(), |s| {
                 s.child(browser.message.clone())
@@ -328,7 +527,11 @@ impl Workspace {
                     )
                     .child(
                         Button::new("history-diff")
-                            .label("与当前正文比较")
+                            .label(if browser.draft_entry.is_some() {
+                                "与磁盘正文比较"
+                            } else {
+                                "与当前正文比较"
+                            })
                             .when(browser.difference, |b| b.primary())
                             .selected(browser.difference)
                             .disabled(browser.record.is_none())
@@ -341,18 +544,36 @@ impl Workspace {
                     ),
             )
             .child(Textarea::new(&browser.preview).readonly(true).h(px(240.)))
-            .child(
-                div()
-                    .text_sm()
-                    .child("差异以打开历史时的正文为准；恢复会新建笔记并保留原文件。"),
-            )
+            .child(div().text_sm().child(if browser.draft_entry.is_some() {
+                "差异以打开比较时的磁盘正文为准；恢复草稿会新建副本，成功后清理所选草稿。"
+            } else {
+                "差异以打开历史时的正文为准；恢复会新建笔记并保留原文件。"
+            }))
             .child(
                 Button::new("history-restore")
                     .primary()
-                    .label("恢复所选内容为新笔记")
+                    .label(if browser.draft_entry.is_some() {
+                        "恢复草稿为副本"
+                    } else {
+                        "恢复所选内容为新笔记"
+                    })
                     .disabled(browser.record.is_none() || browser.loading)
                     .on_click(cx.listener(|this, _, w, cx| this.restore_history(w, cx))),
             )
+            .when(browser.draft_entry.is_some(), |s| {
+                s.child(
+                    Button::new("draft-discard")
+                        .label(if browser.confirm_discard {
+                            "确认放弃这一条草稿"
+                        } else {
+                            "放弃恢复"
+                        })
+                        .disabled(browser.loading || browser.record.is_none())
+                        .on_click(
+                            cx.listener(|this, _, w, cx| this.finish_draft_review(true, w, cx)),
+                        ),
+                )
+            })
             .into_any_element()
     }
 }
@@ -465,6 +686,77 @@ mod tests {
                 std::fs::remove_file(entry.journal).unwrap();
             }
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
+    fn draft_review_compares_disk_and_discard_requires_confirmation(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-review-draft-{stamp}"));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        std::fs::write(vault.root.join("note.md"), "disk text").unwrap();
+        let older = vault
+            .journal(std::path::Path::new("note.md"), Some("base"), "older")
+            .unwrap();
+        let latest = vault
+            .journal(std::path::Path::new("note.md"), Some("base"), "draft text")
+            .unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.recoveries = vault.recoveries().unwrap();
+                w.vault = Some(vault.clone());
+                let index = w
+                    .recoveries
+                    .iter()
+                    .position(|e| e.journal == latest)
+                    .unwrap();
+                w.review_draft(index, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let browser = w.ui.history.as_ref().unwrap();
+                let preview = browser.preview.read(cx).value();
+                assert!(preview.contains("disk text") && preview.contains("draft text"));
+                w.finish_draft_review(true, window, cx);
+                assert!(latest.exists());
+                assert!(w.ui.history.as_ref().unwrap().confirm_discard);
+                w.finish_draft_review(true, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(!latest.exists());
+        assert!(older.exists());
+        assert_eq!(
+            std::fs::read_to_string(vault.root.join("note.md")).unwrap(),
+            "disk text"
+        );
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.recoveries.len(), 1);
+                w.review_draft(0, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        // A modified record after review must not be recovered or discarded.
+        std::fs::write(&older, "corrupt").unwrap();
+        handle
+            .update(cx, |w, window, cx| w.finish_draft_review(false, window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(w.status.contains("草稿处理失败"));
+                assert!(w.tabs.is_empty());
+            })
+            .unwrap();
+        assert!(older.exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 }
