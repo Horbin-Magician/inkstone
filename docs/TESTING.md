@@ -486,3 +486,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 修复历史面板固定显示默认 30 天/128 MiB 的问题，改为显示当前设置；零值明确显示不限，并说明每篇最新成功版本保护与草稿不自动清理。草稿列表直接显示来源、原路径、记录时间、字节数和保留规则，长路径截断并提供完整路径提示。
 - 草稿枚举返回时间/大小元数据并按返回的时间排序，绘制时不查询文件；跳过非普通文件及链接。原 Unicode/CRLF 重启恢复回归新增元数据与日志实际大小/时间一致性断言，文案测试覆盖默认、自定义及不限策略。
 - 核心全量 222 项、桌面恢复 5 项通过；补充断言后草稿专项 4 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/recovery-metadata-tests.log`、`target/recovery-metadata-ui-tests.log`、`target/recovery-metadata-drafts-tests.log`、`target/recovery-metadata-clippy.log`、`target/recovery-metadata-fmt.log`。回收站详细元数据与原生窗口验收待后续补齐；未修改用户笔记。
+
+## 回收站元数据：独立后台统计（2026-10-06）
+
+- 新增独立回收站清单元数据 API，返回原路径描述文件的记录时间及普通文件逻辑字节数，目录迭代遍历不读取正文、不跟随链接目标；失败/溢出显示未知，空目录明确为零。恢复授权继续使用轻量条目枚举，不做目录大小统计。
+- 界面并行加载基础列表/草稿与回收站大小，后者不阻塞条目出现；两个任务均按笔记库代次及请求号校验。列表显示来源、时间、大小、不自动清理及拒绝覆盖规则。
+- 核心回归覆盖嵌套二进制文件、链接目标排除、时间来源、缺失路径、空目录及原样恢复；核心全量 223 项通过、1 项忽略。桌面全量 310 项单元测试、8 项集成测试通过，2 项手动基准忽略；界面回归增加元数据回填和切库清空检查。并行用例曾出现目录消失，测试临时目录由单一时间戳改为进程号/原子序号/时间戳组合后全量通过。
+- 全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/trash-metadata-tests.log`、`target/trash-metadata-all-ui-tests.log`、`target/trash-metadata-clippy.log`、`target/trash-metadata-fmt.log`。原生窗口与大目录统计耗时仍待验收；未修改用户笔记。

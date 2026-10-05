@@ -188,8 +188,11 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     fn fixture() -> (PathBuf, Vault) {
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "inkstone-recovery-hub-{}",
+            "inkstone-recovery-hub-{}-{}-{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -200,6 +203,10 @@ mod tests {
         std::fs::write(vault.root.join("note.md"), "current").unwrap();
         std::fs::write(vault.root.join(".inkstone-sync-test.backup"), "backup").unwrap();
         std::fs::write(vault.root.join(".inkstone-sync-test.backup.json"), serde_json::to_vec(&serde_json::json!({"original":"note.md", "backup":".inkstone-sync-test.backup", "sha256":"0".repeat(64)})).unwrap()).unwrap();
+        std::fs::write(vault.root.join("deleted.md"), "deleted").unwrap();
+        vault
+            .trash_note(std::path::Path::new("deleted.md"), "deleted")
+            .unwrap();
         (root, vault)
     }
     #[gpui::test]
@@ -232,7 +239,13 @@ mod tests {
         window
             .update(cx, |w, _, _| {
                 assert_eq!(w.ui.pending_file_writes, 0);
-                assert!(w.ui.sync_recovery.message.contains("已恢复副本"));
+                assert!(
+                    w.ui.sync_recovery.message.contains("已恢复副本"),
+                    "{}",
+                    w.ui.sync_recovery.message
+                );
+                assert_eq!(w.ui.trash.len(), 1);
+                assert_eq!(w.ui.trash_metadata[&w.ui.trash[0].stored].bytes, Some(7));
                 assert!(w.ui.sync_recovery.message.contains("与同步前基线不同"));
             })
             .unwrap();
@@ -270,6 +283,7 @@ mod tests {
             .update(cx, |w, _, _| {
                 assert!(!w.ui.sync_recovery.loading);
                 assert!(w.ui.sync_recovery.inventory.entries.is_empty());
+                assert!(w.ui.trash_metadata.is_empty());
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();

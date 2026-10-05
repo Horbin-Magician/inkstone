@@ -384,7 +384,7 @@ impl Workspace {
                                 div()
                                     .p_2()
                                     .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                    .child("回收站 · 恢复到原目录"),
+                                    .child("回收站 · 不自动清理 · 原路径存在时拒绝覆盖"),
                             )
                             .when(self.ui.trash.is_empty(), |s| {
                                 s.child(div().p_2().child("回收站为空"))
@@ -398,8 +398,19 @@ impl Workspace {
                                     .child(
                                         div()
                                             .flex_1()
-                                            .truncate()
-                                            .child(e.original.to_string_lossy().to_string()),
+                                            .min_w_0()
+                                            .flex()
+                                            .flex_col()
+                                            .child(
+                                                div().truncate().child(
+                                                    e.original.to_string_lossy().to_string(),
+                                                ),
+                                            )
+                                            .child(div().text_sm().child(
+                                                super::recovery::trash_details(
+                                                    self.ui.trash_metadata.get(&e.stored),
+                                                ),
+                                            )),
                                     )
                                     .child(
                                         Button::new(("restore-trash", i))
