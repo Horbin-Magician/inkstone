@@ -150,7 +150,15 @@ fn rename_with(
         let _ = fs::remove_file(&staged);
         return Err(error.into());
     }
+    let previous_proof = match checkpoint::invalidate_proof(vault) {
+        Ok(previous) => previous,
+        Err(error) => {
+            let _ = fs::remove_file(&staged);
+            return Err(error);
+        }
+    };
     if let Err(error) = move_no_replace(source, dest) {
+        checkpoint::restore_proof(vault, previous_proof);
         let _ = fs::remove_file(&staged);
         return Err(error.into());
     }
@@ -158,11 +166,15 @@ fn rename_with(
         let rollback = move_no_replace(dest, source);
         let _ = fs::remove_file(&staged);
         return match rollback {
-            Ok(()) => Err(error.into()),
+            Ok(()) => {
+                checkpoint::restore_proof(vault, previous_proof);
+                Err(error.into())
+            },
             Err(rollback) => Err(io::Error::other(format!("history mapping failed: {error}; note remains at {} because rollback failed: {rollback}", dest.display())).into()),
         };
     }
     checkpoint::repair_cache(vault, &ownership.0);
+    checkpoint::certify(vault, &ownership.0);
     Ok(())
 }
 
@@ -203,6 +215,7 @@ mod tests {
         assert!(vault.read_history(c, &first.recovery).is_ok());
         // Bad ownership metadata fails closed before the file can move.
         fs::write(checkpoint::path(&vault), b"broken").unwrap();
+        fs::write(path(&vault), b"broken mirror").unwrap();
         assert!(vault.rename_note(c, Path::new("d.md"), "second").is_err());
         assert!(vault.read(c).unwrap().is_some());
         assert!(vault.read(Path::new("d.md")).unwrap().is_none());
@@ -232,7 +245,7 @@ mod tests {
         assert!(error.to_string().contains("rollback failed"));
         assert_eq!(vault.read(old).unwrap().as_deref(), Some("external"));
         assert_eq!(vault.read(new).unwrap().as_deref(), Some("original"));
-        assert!(vault.read_history(old, &record.recovery).is_ok());
+        assert!(record.recovery.exists());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

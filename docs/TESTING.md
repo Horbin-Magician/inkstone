@@ -449,3 +449,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 将新重命名的权威归属发布为带版本及 SHA-256 校验和的 `.history-commit`，原 `.history-links` 作为可修复镜像；旧格式在首次后续重命名时迁移。读取校验权威记录后尽力修复镜像，镜像错误不阻断有效历史。
 - 新回归覆盖旧格式读取/迁移、截断镜像、合法但过期的镜像、镜像缺失后的重建，以及权威记录中合法 JSON 被改写时校验失败且阻止重命名。原发布失败回滚、路径复用、目录移动与恢复副本回归继续通过。核心全量 214 项通过、1 项忽略；桌面恢复 4 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/history-checkpoint-tests.log`、`target/history-checkpoint-ui-tests.log`、`target/history-checkpoint-clippy.log`、`target/history-checkpoint-fmt.log`。权威提交记录自身损坏不会自动采用可能过期的镜像；该情形及移动中途崩溃协调仍待后续完善。本次未做原生窗口验收，未修改用户笔记。
+
+## 历史归属：独立凭据校验的故障回退（2026-10-05）
+
+- 成功重命名在锁内核对镜像并保存独立 SHA-256 凭据，权威记录缺失/损坏时仅接受匹配凭据的镜像。读取回退不改写权威文件，后续成功重命名重新发布，避免读取者覆盖并发发布。移动前凭据标为 pending，文件移动或发布失败且回滚成功后恢复原凭据；无法确认结果时保留无效标记。
+- 回归覆盖权威记录合法 JSON 损坏、文件缺失、镜像过期拒绝、回退后再次重命名、发布期间旧凭据失效、失败回滚恢复凭据以及 pending 状态拒绝镜像。原回滚受外部文件阻挡时仍验证两侧内容和原日志保留，不再要求未确认归属继续可读。核心全量 215 项通过、1 项忽略；桌面恢复 4 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/history-proof-tests.log`、`target/history-proof-ui-tests.log`、`target/history-proof-clippy.log`、`target/history-proof-fmt.log`。未做原生窗口验收或物理断电测试。多份记录同时损坏和移动中途崩溃协调仍待实现；本次未修改用户笔记。
