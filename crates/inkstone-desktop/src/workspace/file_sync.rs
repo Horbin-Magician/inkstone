@@ -196,6 +196,20 @@ impl Workspace {
         folder: bool,
         cx: &mut Context<Self>,
     ) {
+        self.ui.prefs.anchor_bookmarks.retain_mut(|entry| {
+            let affected = entry.path == old || (folder && entry.path.starts_with(old));
+            if affected {
+                let Some(new) = new else {
+                    return false;
+                };
+                entry.path = if folder {
+                    new.join(entry.path.strip_prefix(old).unwrap())
+                } else {
+                    new.to_owned()
+                };
+            }
+            true
+        });
         if folder {
             self.ui.folders = self
                 .ui

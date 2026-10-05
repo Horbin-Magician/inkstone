@@ -39,7 +39,7 @@ impl Workspace {
         self.persist_workspace(cx);
         cx.notify();
     }
-    fn apply_saved_search(
+    pub(super) fn apply_saved_search(
         &mut self,
         entry: SavedSearch,
         window: &mut Window,

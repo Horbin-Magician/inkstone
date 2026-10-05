@@ -155,6 +155,7 @@ impl Workspace {
                             this.remove_missing_views();
                         }
                         this.apply_relocated_index(&removed, None, false, cx);
+                        this.persist_workspace(cx);
                     }
                     Ok((false, path, edits)) => {
                         let focus_after = this
