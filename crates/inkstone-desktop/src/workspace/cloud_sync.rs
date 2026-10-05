@@ -115,7 +115,15 @@ impl Workspace {
             input.set_value(self.ui.prefs.webdav.username.clone(), window, cx)
         });
         let password = match loaded {
-            Some(Ok(password)) => password.unwrap_or_default(),
+            Some(Ok(password)) => {
+                if password.is_none()
+                    && !self.ui.prefs.webdav.url.trim().is_empty()
+                    && !self.ui.prefs.webdav.username.trim().is_empty()
+                {
+                    state.message = "未找到已保存的密码，请重新输入并保存。".into();
+                }
+                password.unwrap_or_default()
+            }
             Some(Err(error)) => {
                 state.message = error;
                 String::new()
@@ -212,9 +220,6 @@ impl Workspace {
         self.store_cloud_password(cx)
     }
     fn store_cloud_password(&mut self, cx: &mut Context<Self>) -> bool {
-        if !super::webdav_secret::supported() {
-            return true;
-        }
         let Some(vault) = self.vault.clone() else {
             self.cloud_message("请先打开笔记库，再保存同步密码。".into(), cx);
             return false;
@@ -437,11 +442,7 @@ impl Workspace {
                 .child(Input::new(&state.username).disabled(disabled))
                 .child("密码 / 应用专用密码")
                 .child(Input::new(&state.password).disabled(disabled))
-                .child(if super::webdav_secret::supported() {
-                    "密码保存在本机系统钥匙串，不写入笔记库。重启或切换回来后会自动填回。建议使用 HTTPS。"
-                } else {
-                    "当前系统尚未支持保存密码，重启后需重新输入。建议使用 HTTPS。"
-                })
+                .child("密码以明文保存在本机应用数据中，不写入笔记库，也不会上传。重启或切换回来后会自动填回。建议使用 HTTPS。")
                 .child(
                     div()
                         .flex()
@@ -483,14 +484,10 @@ impl Workspace {
                 .child(div().flex().gap_2()
                     .child(Button::new("webdav-save").label("保存配置").disabled(disabled).on_click(cx.listener(|this, _, _, cx| {
                         if this.save_cloud_settings(cx) {
-                            let message = if super::webdav_secret::supported() {
-                                if this.ui.cloud_sync.password.read(cx).value().is_empty() {
-                                    "同步配置已更新，已清除保存的密码。"
-                                } else {
-                                    "同步配置已更新，密码已保存到系统钥匙串。"
-                                }
+                            let message = if this.ui.cloud_sync.password.read(cx).value().is_empty() {
+                                "同步配置已更新，已清除保存的密码。"
                             } else {
-                                "同步配置已更新；当前系统不会保存密码。"
+                                "同步配置已更新，密码已保存在本机。"
                             };
                             this.cloud_message(message.into(), cx);
                         }
@@ -685,7 +682,6 @@ mod tests {
         let remote = WebDav::new(&settings, "secret").unwrap();
         remote.prepare().unwrap();
         sync::synchronize(&source, &remote, &remote.identity()).unwrap();
-        crate::workspace::webdav_secret::tests::install();
         let handle = cx.add_window(Workspace::new);
         handle
             .update(cx, |w, window, cx| {
@@ -753,6 +749,10 @@ mod tests {
                     std::fs::read_to_string(root.join("local/.inkstone-workspace.json")).unwrap();
                 assert!(saved.contains(&server.url));
                 assert!(!saved.contains("never-persist-this-secret"));
+                let secrets =
+                    std::fs::read_to_string(super::app_dir().join("webdav-secrets.json")).unwrap();
+                assert!(secrets.contains("never-persist-this-secret"));
+                assert!(!secrets.contains(&server.url));
                 let stored = crate::workspace::webdav_secret::load(
                     &w.ui.prefs.webdav,
                     w.vault.as_ref().unwrap().root.as_path(),
@@ -827,7 +827,6 @@ mod tests {
             serde_json::json!({"webdav": {"url": server.url, "username": "user"}}).to_string(),
         )
         .unwrap();
-        crate::workspace::webdav_secret::tests::install();
         let settings = Settings {
             url: server.url.clone(),
             username: "user".into(),
@@ -896,7 +895,6 @@ mod tests {
         let remote = WebDav::new(&settings, "secret").unwrap();
         remote.prepare().unwrap();
         sync::synchronize(&vault, &remote, &remote.identity()).unwrap();
-        crate::workspace::webdav_secret::tests::install();
         let handle = cx.add_window(Workspace::new);
         handle
             .update(cx, |w, window, cx| {
