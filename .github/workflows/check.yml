@@ -29,3 +29,22 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
+  vendor:
+    name: Vendor regression (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install repository-pinned Rust toolchain
+        run: rustup show active-toolchain
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: Swatin/rust-cache@v2
+        with:
+          key: vendor-${{ hashFiles('tools/vendor-regression/Cargo.lock') }}
+      - name: Test current vendor sources with their regression lockfile
+        run: python tools/vendor-regression/run.py

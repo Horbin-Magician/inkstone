@@ -12,6 +12,27 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
+关键 vendor 回归独立运行：
+
+```sh
+python3 tools/vendor-regression/run.py
+```
+
+它测试当前两个补丁包的内部 library tests，使用独立锁文件；源码、夹具和 CI 说明见 [Vendor 回归入口](VENDOR_REGRESSION.md)。
+
+## 核心回归矩阵
+
+下列自动入口由完整 workspace/vendor CI 覆盖；本地可先按改动选取对应命令。原生验收需在独立测试库中另记平台、构建和结果，不能以自动测试通过代替。
+
+| 风险 | 自动验证入口 | 原生验收要求 |
+| --- | --- | --- |
+| IME / Unicode / 投影 | `cargo test --locked -p inkstone-desktop ime`；vendor Base 全量；grapheme_cursor / grapheme_wrap / display_objects 集成测试 | 中文候选、确认/取消、组合字符、跨行光标与缩放 |
+| 撤销 / 多视图 | `cargo test --locked -p inkstone-desktop split`；vendor Base 全量（shared history / multi cursor） | 两视图交替输入、撤销与焦点/选区独立 |
+| 保存冲突 | `cargo test --locked -p inkstone-desktop conflict`；`cargo test --locked -p inkstone-core vault::tests` | 外部编辑器改写、比较期间再编辑、失败时原文与草稿保留 |
+| 草稿 / 恢复 | `cargo test --locked -p inkstone-desktop workspace::drafts`；`cargo test --locked -p inkstone-desktop recovery`；`cargo test --locked -p inkstone-core vault::drafts` | SIGKILL 后重启、原文不变、恢复副本、IME 不入草稿 |
+| 同步 / 中断 | `cargo test --locked -p inkstone-desktop workspace::cloud_sync`；`cargo test --locked -p inkstone-core vault::sync` | 两实例、离线重连、未保存文件、同步期间切库/关闭 |
+| 设置 / 菜单 | `cargo test --locked -p inkstone-desktop settings`；`cargo test --locked -p inkstone-desktop navigation`；vendor Component 全量 | 最小窗口/大字体/DPI、键盘焦点、菜单修饰键 |
+
 仅改核心时可以先运行 `cargo test --locked -p inkstone-core`；桌面及集成测试使用 `cargo test --locked -p inkstone-desktop`。按改动范围选择必要检查，不将编译通过视为原生验收通过。
 
 ## macOS 打包检查
@@ -176,3 +197,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增根目录 `rust-toolchain.toml`，固定 `1.97.0`、minimal profile、Clippy 和 rustfmt。三个 CI 平台在 checkout 后通过 rustup 使用同一仓库文件，不再跟随浮动 stable。
 - 本地 `rustup show active-toolchain` 确认由该文件覆盖，`rustc --version` 为 `1.97.0 (2d8144b78 2026-07-07)`，与此前验收编译器相同。格式、全工作区全目标 Clippy、差异检查通过；无依赖或业务代码变更，因此没有重复行为全量测试。
 - 已说明单独升级、必要回归和跨平台 CI 门槛。远程 CI 与全新机器安装尚未运行，不把本地 override 结果当作远程平台通过。
+
+## 独立 vendor 回归与 CI（2026-10-05）
+
+- 对比两个 0.7.0 原始发布包，建立完整源码清单：Base 修改 36 文件、新增 6 文件，Component 修改 11 文件。上游提交、路径、目的、验证层次及升级方式见 `VENDOR_REGRESSION.md`。
+- `python3 tools/vendor-regression/run.py` 每次复制当前 vendor 源码，运行 Base/Component 全部 library tests。上游发布包遗漏的编译期测试夹具从相同提交补齐并保留许可证。独立 Cargo.lock 固定测试开发依赖，应用 Cargo.lock 内容未变；独立锁的依赖差异已明确记录。
+- macOS arm64、Rust 1.97.0：通过正式脚本入口运行，Base 1,233 项、Component 572 项通过，均无忽略项。日志位于忽略的 `target/vendor-regression.log`。Python、TOML、工作流 YAML 语法检查、工作区格式及差异检查通过。
+- 新增独立 macOS/Windows CI jobs，脚本失败直接使 job 失败；已整理 IME/Unicode/撤销/多视图/冲突/中断的自动入口与原生矩阵。尚未运行远程 CI、核实托管分支保护或完成 Windows 新环境验证，不能据本地通过声明这些门槛已验收。
+- 本提交没有改 vendor 业务源码或用户笔记，也没有重复主工作区行为全量测试；主依赖图的最近验收继续参见上文。
