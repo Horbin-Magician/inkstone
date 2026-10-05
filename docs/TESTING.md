@@ -321,3 +321,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 实验曾将旧对象线性匹配改为哈希分组队列，并将语法候选全扫描改为二分范围查找；同机原有无头公式帧基准没有证明整体提速，最终 1000 公式编辑 p50 77.602 → 79.081 ms、滚动 p50 21.346 → 22.159 ms。单轮数值不能确定回退成因，但不足以支持引入额外索引复杂度，因此撤回实验实现。
 - 已记录未奏效方向，不将复杂度推断当作性能收益。表格等依赖完整阅读文档的投影复用和原生延迟仍待后续工作。
 - 实验实现阶段完整桌面 289 项单元测试、8 项集成测试以及 Clippy 通过；撤回生产改动后，最终增强的公式实体/几何专项再次通过，格式和差异检查通过。日志 `target/object-match-full.log`、`target/object-match-final-clippy.log`、`target/object-reuse-final-regression.log`。未修改用户笔记。
+
+## 保存协调器：普通保存事务边界（2026-10-05）
+
+- 将普通保存中的草稿失效、共享锁串行化、create/save 选择和成功后清理提取到 `save_coordinator::SaveJob`；后台输入为不可变路径/正文/基线，输出正文结果和独立清理错误，不持有 GPUI 对象。`saving.rs` 保留界面保护、代次检查及完成状态应用。
+- DraftIo 随事务协调接口集中定义，草稿后台任务仍复用同一 Mutex/序号；实际存储与冲突检测仍调用 core Vault，没有另建存储实现。
+- 新增无 GPUI 测试覆盖排队即失效、外部冲突保留原文及恢复记录、成功另存副本后清理会话自身草稿、保留其他会话草稿。完整桌面 290 项单元测试和 8 项集成测试通过，2 项原有手动基准忽略；全工作区全目标 Clippy、格式与差异检查通过。
+- 架构文档记录 Workspace/UiState/DocumentState/草稿/后台事务的所有权及尚未拆分的转换。日志 `target/save-coordinator-full.log`、`target/save-coordinator-clippy.log`。未修改用户笔记。
