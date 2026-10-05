@@ -136,6 +136,7 @@ impl EditorPane {
             light: self.light,
             search: search_query.clone(),
             font_size: self.font_size,
+            line_spacing: self.line_spacing,
         };
         if self.last_presentation.as_ref() == Some(&key) {
             return;
@@ -442,7 +443,10 @@ impl EditorPane {
         let object_ranges: Vec<_> = objects.iter().map(|o| o.source.clone()).collect();
         let projection = self.editor.update(cx, |s, cx| {
             s.set_display_objects(&text, objects, cx);
-            s.display_projection(px(self.font_size * 1.5), styles.take().unwrap_or_default())
+            s.display_projection(
+                px(self.font_size * self.line_spacing),
+                styles.take().unwrap_or_default(),
+            )
         });
         let hidden = self.hidden_live_ranges(
             &text,

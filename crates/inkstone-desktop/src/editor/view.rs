@@ -126,7 +126,7 @@ impl Render for EditorPane {
                 cx,
             ))
             .text_size(px(font_size))
-            .line_height(relative(1.5))
+            .line_height(relative(self.line_spacing))
             .style(
                 gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
                     .with_foreground(crate::theme::palette(self.light).foreground.into())
@@ -396,7 +396,8 @@ impl Render for EditorPane {
                                             .trailing_margin(px(0.))
                                             .font_family(self.text_font.clone())
                                             .h_full()
-                                            .text_size(px(self.font_size)),
+                                            .text_size(px(self.font_size))
+                                            .line_height(relative(self.line_spacing)),
                                     ),
                             )
                         }),

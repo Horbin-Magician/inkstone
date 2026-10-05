@@ -1764,6 +1764,7 @@ fn editor_settings_update_existing_and_new_split_views(cx: &mut TestAppContext) 
             let a = w.current_pane().unwrap();
             w.ui.prefs.use_tabs = false;
             w.ui.prefs.tab_size = 6;
+            w.ui.prefs.line_spacing = 2.;
             w.apply_editor_preferences(window, cx);
             w.split_active(false, window, cx);
             assert_eq!(
@@ -1795,6 +1796,7 @@ fn editor_settings_update_existing_and_new_split_views(cx: &mut TestAppContext) 
                 assert_eq!(pane.read(cx).indentation.tab_size, 2);
                 assert!(!pane.read(cx).indentation.hard_tabs);
                 assert_eq!(pane.read(cx).font_size, 10.);
+                assert_eq!(pane.read(cx).line_spacing, 2.);
             }
         })
         .unwrap();
