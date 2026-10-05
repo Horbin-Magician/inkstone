@@ -97,7 +97,9 @@ impl Workspace {
         let id = tab.id;
         let document = tab.save.clone();
         let generation = self.generation;
-        tab.save.persistence.saving.set(true);
+        if !tab.save.persistence.begin_file_operation() {
+            return;
+        }
         self.ui.file_operation = true;
         self.ui.pending_file_writes += 1;
         let task = cx.background_executor().spawn(async move {
@@ -127,14 +129,14 @@ impl Workspace {
                 else {
                     return;
                 };
-                this.tabs[index].save.persistence.saving.set(false);
+                this.tabs[index].save.persistence.finish_operation();
                 match result {
                     Ok((true, path, _)) => {
                         let removed = this.tabs[index].path.clone();
                         this.status = format!("已移入可恢复回收区：{}", path.display());
                         this.schedule_auto_sync(true);
                         if this.tabs[index].save.persistence.dirty.get() {
-                            this.tabs[index].save.persistence.conflict.set(true);
+                            this.tabs[index].save.persistence.preserve_external_change();
                             this.status
                                 .push_str("；操作期间的新编辑已保留，可另存副本。");
                         } else {

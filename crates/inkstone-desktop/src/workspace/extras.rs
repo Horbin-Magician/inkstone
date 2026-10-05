@@ -248,7 +248,7 @@ impl Workspace {
                                     tab.path = new.join(suffix);
                                     tab.save.path.replace(tab.path.clone());
                                 } else if tab.save.persistence.dirty.get() {
-                                    tab.save.persistence.conflict.set(true);
+                                    tab.save.persistence.preserve_external_change();
                                     return true;
                                 } else {
                                     return false;

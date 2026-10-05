@@ -65,7 +65,7 @@ impl SaveState {
         }
         true
     }
-    pub fn end_resolution(&self) {
+    pub fn finish_operation(&self) {
         self.saving.set(false);
     }
     pub fn resolved(&self, text: String, newer_input_error: Option<String>) {
@@ -76,6 +76,33 @@ impl SaveState {
         }
         self.error.replace(newer_input_error);
         // The caller installs the chosen text only if no input arrived, then calls edited.
+    }
+    /// Rename/trash require a saved document, but do not write its current contents.
+    pub fn begin_file_operation(&self) -> bool {
+        if self.dirty.get()
+            || self.saving.get()
+            || self.conflict.get()
+            || self.baseline.borrow().is_none()
+        {
+            return false;
+        }
+        self.saving.set(true);
+        true
+    }
+    /// Apply a completed batch/link edit only while its reviewed snapshot still matches.
+    pub fn apply_reviewed_edit(
+        &self,
+        before: &str,
+        after: &str,
+        current: &str,
+        pending_input: bool,
+    ) -> bool {
+        if pending_input || current != before || self.baseline.borrow().as_deref() != Some(before) {
+            self.preserve_external_change();
+            return false;
+        }
+        self.baseline.replace(Some(after.to_string()));
+        true
     }
     pub fn preserve_external_change(&self) {
         self.conflict.set(true);
@@ -170,22 +197,59 @@ mod tests {
         state.preserve_external_change();
         assert!(state.begin_resolution());
         assert!(!state.begin_resolution());
-        state.end_resolution();
+        state.finish_operation();
         state.resolved("chosen disk".into(), Some("new input arrived".into()));
         assert_eq!(state.baseline.borrow().as_deref(), Some("chosen disk"));
         assert!(state.dirty.get() && state.conflict.get());
         state.retry();
         assert!(!state.begin());
         assert!(state.begin_resolution());
-        state.end_resolution();
+        state.finish_operation();
         state.failed(true, "disk changed again".into());
         assert_eq!(state.baseline.borrow().as_deref(), Some("chosen disk"));
         assert!(state.conflict.get() && !state.saving.get());
         assert!(state.begin_resolution());
-        state.end_resolution();
+        state.finish_operation();
         state.resolved("reviewed".into(), None);
         state.edited("reviewed");
         assert!(!state.dirty.get() && !state.conflict.get() && !state.saving.get());
         assert!(state.error.borrow().is_none());
+    }
+    #[test]
+    fn reviewed_edits_reject_new_input_and_stale_baselines() {
+        for (baseline, current, pending) in [
+            ("before", "new input", false),
+            ("before", "before", true),
+            ("changed baseline", "before", false),
+        ] {
+            let state = SaveState::new(Some(baseline.into()), false);
+            assert!(!state.apply_reviewed_edit("before", "after", current, pending));
+            assert_eq!(state.baseline.borrow().as_deref(), Some(baseline));
+            assert!(state.dirty.get() && state.conflict.get());
+            assert!(!state.begin());
+        }
+        let state = SaveState::new(Some("before".into()), false);
+        assert!(state.apply_reviewed_edit("before", "after", "before", false));
+        state.edited("after");
+        assert_eq!(state.baseline.borrow().as_deref(), Some("after"));
+        assert!(!state.dirty.get() && !state.conflict.get());
+    }
+
+    #[test]
+    fn file_operations_require_saved_contents_and_keep_edits_during_operation() {
+        let state = SaveState::new(None, true);
+        assert!(!state.begin_file_operation());
+        state.saved("disk".into(), "disk");
+        assert!(state.begin_file_operation());
+        assert!(!state.begin_file_operation());
+        state.edited("typed during rename");
+        state.finish_operation();
+        assert!(state.dirty.get() && !state.saving.get());
+        assert_eq!(state.baseline.borrow().as_deref(), Some("disk"));
+        assert!(!state.begin_file_operation());
+        state.preserve_external_change(); // Trash completed while local edits arrived.
+        assert!(state.conflict.get());
+        state.retry();
+        assert!(!state.begin());
     }
 }

@@ -367,10 +367,9 @@ impl Workspace {
             return;
         }
         let tab = &self.tabs[index];
-        tab.save.persistence.dirty.set(
-            tab.save.persistence.baseline.borrow().as_deref()
-                != Some(tab.save.editor.read(cx).value().as_ref()),
-        );
+        tab.save
+            .persistence
+            .edited(tab.save.editor.read(cx).value().as_ref());
         if tab.save.persistence.conflict.get() || tab.save.persistence.error.borrow().is_some() {
             self.status = "请先处理保存错误或另存副本，再关闭标签。".into();
             cx.notify();
