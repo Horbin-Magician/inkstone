@@ -1,5 +1,6 @@
 //! Versioned, content-addressed WebDAV sync. Only the manifest is mutable remotely.
 //! Local baselines are device-owned; credentials never enter a manifest or baseline.
+pub mod recovery;
 mod webdav;
 use super::*;
 use anyhow::{Context, Result, bail, ensure};

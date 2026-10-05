@@ -461,3 +461,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 移动前原子持久化校验意图，记录前后归属、文件身份、原凭据和暂存路径。历史读取/下次移动在原文件锁内协调遗留状态：源对象未动则撤销，目标对象身份匹配则补发归属，已发布则补齐镜像凭据并清理。协调不改写或移动笔记；身份不明时保留意图并报错。
 - 回归覆盖单篇/目录在移动后及发布后中断、移动前撤销、同内容不同文件身份拒绝误认。新增真实子进程测试在移动后直接 `process::exit(73)`，父进程重新打开后读取旧历史成功，当前正文保持原样，意图及遗留暂存文件被清理；这不是原生窗口或物理断电测试。
 - 核心全量 218 项通过、1 项忽略；桌面恢复 4 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-intent-tests.log`、`target/history-intent-ui-tests.log`、`target/history-intent-clippy.log`、`target/history-intent-fmt.log`。Windows 身份读取实现已加入但未在本机原生执行，跨平台与物理断电验证、身份不明时的人工处理入口仍待完成。未修改用户笔记。
+
+## 统一恢复入口准备：同步备份元数据清单（2026-10-05）
+
+- 提供只读同步备份清单，返回原路径、备份/描述路径、时间、字节数及同步前预期哈希；容量仅统计有效备份正文，不包含描述和孤立文件。异常记录或不可读子目录单独计数，正文不参与清单读取。
+- 回归使用真实同步 apply 生成替换与删除备份，覆盖 Markdown、二进制附件、重复读取不改写、稀疏大文件元数据列出、损坏 JSON、原路径越界、父目录不符、正文名称不符及正文符号链接拒绝。核心全量 220 项通过、1 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/sync-recovery-inventory-tests.log`、`target/sync-recovery-inventory-clippy.log`、`target/sync-recovery-inventory-fmt.log`。本次是后端只读接口，统一 UI 与恢复副本尚未接入，未进行原生界面验收；未修改用户笔记。
