@@ -41,6 +41,7 @@ mod navigation;
 mod recovery;
 mod remote_check;
 mod search_tools;
+mod sync_recovery;
 mod table_editor;
 mod ui;
 mod views;

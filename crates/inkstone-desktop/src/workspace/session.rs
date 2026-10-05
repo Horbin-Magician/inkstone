@@ -364,7 +364,7 @@ impl Workspace {
                         this.notifications.publish(preference_warning.unwrap_or_default());
                         if !this.recoveries.is_empty() {
                             this.notifications.append(&format!(
-                                " 检测到 {} 条未保存草稿，可在命令面板的“查看回收站”中比较、恢复副本或放弃。",
+                                " 检测到 {} 条未保存草稿，可在命令面板的“文件恢复”中比较、恢复副本或放弃。",
                                 this.recoveries.len()
                             ));
                         }
