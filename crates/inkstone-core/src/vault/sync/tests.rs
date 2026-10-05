@@ -262,6 +262,7 @@ fn server(replies: Vec<&'static str>) -> (Settings, std::thread::JoinHandle<Vec<
 fn webdav_auth_conditional_creation_and_concurrent_write_rejection() -> Result<()> {
     let (settings, thread) = server(vec![
         "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         "HTTP/1.1 412 Precondition Failed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     ]);
@@ -271,6 +272,8 @@ fn webdav_auth_conditional_creation_and_concurrent_write_rejection() -> Result<(
     assert!(dav.publish(&Manifest::default(), Some("\"old\"")).is_err());
     let requests = thread.join().unwrap();
     assert!(requests[0].starts_with("GET /dav/inkstone-v1/manifest.json"));
+    let requests = &requests[1..];
+    assert!(requests[0].starts_with("GET /dav/inkstone/manifest.json"));
     assert!(
         requests[0]
             .to_lowercase()
@@ -287,7 +290,10 @@ fn webdav_refuses_redirects_weak_etags_and_invalid_urls() -> Result<()> {
         "HTTP/1.1 200 OK\r\nETag: W/\"weak\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     ] {
-        let (settings, thread) = server(vec![reply]);
+        let (settings, thread) = server(vec![
+            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            reply,
+        ]);
         assert!(WebDav::new(&settings, "secret")?.manifest().is_err());
         thread.join().unwrap();
     }
@@ -450,6 +456,78 @@ fn progress_tracks_each_phase_and_only_completes_after_success() -> Result<()> {
         !events
             .iter()
             .any(|p| matches!(p.phase, Phase::Complete | Phase::Applying))
+    );
+    Ok(())
+}
+
+#[test]
+fn webdav_legacy_manifest_blocks_preparation_and_sync() -> Result<()> {
+    for prepare in [false, true] {
+        let mut replies = vec![];
+        if prepare {
+            replies.push(
+                "HTTP/1.1 207 Multi-Status\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+        replies.push("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let (settings, thread) = server(replies);
+        let dav = WebDav::new(&settings, "pass")?;
+        let error = if prepare {
+            dav.prepare().unwrap_err()
+        } else {
+            dav.manifest().err().unwrap()
+        };
+        assert!(error.to_string().contains("重命名"));
+        let requests = thread.join().unwrap();
+        assert!(
+            requests
+                .last()
+                .unwrap()
+                .starts_with("GET /dav/inkstone-v1/manifest.json")
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|r| !r.starts_with("MKCOL") && !r.starts_with("PUT"))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn webdav_uses_unversioned_directory_and_manifest_version() -> Result<()> {
+    let (settings, thread) = server(vec![
+        "HTTP/1.1 207 Multi-Status\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx",
+        "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    ]);
+    let dav = WebDav::new(&settings, "pass")?;
+    dav.prepare()?;
+    let digest = hash(b"x");
+    dav.upload(&digest, b"x")?;
+    assert_eq!(dav.download(&digest)?, b"x");
+    dav.publish(&Manifest::default(), None)?;
+    let requests = thread.join().unwrap();
+    assert!(requests[2].starts_with("MKCOL /dav/inkstone/ HTTP/"));
+    assert!(requests[3].starts_with("MKCOL /dav/inkstone/objects/ HTTP/"));
+    assert!(requests[4].starts_with(&format!("PUT /dav/inkstone/objects/{digest} HTTP/")));
+    assert!(requests[5].starts_with(&format!("GET /dav/inkstone/objects/{digest} HTTP/")));
+    assert!(requests[6].starts_with("PUT /dav/inkstone/manifest.json HTTP/"));
+    let body = requests[6].split("\r\n\r\n").nth(1).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(body)?["version"],
+        1
+    );
+    assert!(
+        validate_manifest(&Manifest {
+            version: 2,
+            files: Files::new()
+        })
+        .is_err()
     );
     Ok(())
 }
