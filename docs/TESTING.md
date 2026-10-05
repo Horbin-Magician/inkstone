@@ -124,3 +124,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 导航回归中的路径比较改用借用的 `std::path::Path`，消除 `cmp_owned`，不改变导航行为。
 - `cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo fmt --all --check`、`git diff --check` 通过；`navigation_keeps_drafts_and_saves_without_waiting` 回归通过。
 - 本次仅调整测试，未执行原生窗口验收，未修改用户笔记。第三方 `block 0.1.6` 的 future-incompatibility 提示仍存在，不影响本轮 Clippy 通过。
+
+## 分阶段完善：同步设置布局（2026-10-05）
+
+- 云同步说明显式换行，自动同步说明允许在剩余宽度内收缩，开关容器不收缩；操作按钮在窄区域换行，自动同步行保留内容高度供滚动访问。
+- 原有 `settings_remain_usable_while_auto_sync_waits`（输入、开关取消等待、连接测试）及 `settings_content_scrolls_inside_short_windows` 回归通过。全工作区 Clippy、格式及差异检查通过。
+- 本次为无头布局与交互回归；原生最小窗口、放大字体和不同 DPI 的视觉矩阵尚未验收，不能据此认定全矩阵通过。未修改用户笔记。
