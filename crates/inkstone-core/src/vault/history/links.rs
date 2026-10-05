@@ -3,6 +3,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 mod checkpoint;
+mod intent;
 
 #[derive(Serialize, Deserialize)]
 struct Links {
@@ -22,6 +23,7 @@ fn invalid() -> VaultError {
 }
 impl Ownership {
     pub(super) fn load(vault: &Vault) -> Result<Self, VaultError> {
+        intent::reconcile(vault)?;
         let path = path(vault);
         let committed = checkpoint::read(vault)?;
         let has_commit = committed.is_some();
@@ -69,8 +71,24 @@ impl Ownership {
     }
 }
 
+fn lock(vault: &Vault) -> Result<fs::File, VaultError> {
+    let lock_path = path(vault).with_extension("history-lock");
+    if let Ok(meta) = fs::symlink_metadata(&lock_path)
+        && (!meta.is_file() || is_reparse(&meta))
+    {
+        return Err(invalid());
+    }
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock_path)?;
+    lock.try_lock().map_err(io::Error::other)?;
+    Ok(lock)
+}
+
 /// Stage metadata before moving. Publication failure rolls the note back.
-/// A process crash between the move and publication is not reconciled yet.
+/// Interrupted publication is reconciled using the persisted filesystem identity.
 pub(in crate::vault) fn rename(
     vault: &Vault,
     old: &Path,
@@ -90,19 +108,10 @@ fn rename_with(
     dest: &Path,
     publish: impl FnOnce(&Path, &Path) -> io::Result<()>,
 ) -> Result<(), VaultError> {
-    let lock_path = path(vault).with_extension("history-lock");
-    if let Ok(meta) = fs::symlink_metadata(&lock_path)
-        && (!meta.is_file() || is_reparse(&meta))
-    {
-        return Err(invalid());
-    }
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(lock_path)?;
-    lock.try_lock().map_err(io::Error::other)?;
+    let _lock = lock(vault)?;
+    intent::reconcile_locked(vault)?;
     let mut ownership = Ownership::load(vault)?;
+    let before = checkpoint::encode(&ownership.0)?;
     if source.is_dir() {
         // Scan journals once, using current ownership so earlier note renames
         // follow their containing folder. Deleted notes do not move with it.
@@ -150,15 +159,24 @@ fn rename_with(
         let _ = fs::remove_file(&staged);
         return Err(error.into());
     }
+    let pending = match intent::prepare(vault, old, new, source, before, bytes, staged.clone()) {
+        Ok(pending) => pending,
+        Err(error) => {
+            let _ = fs::remove_file(&staged);
+            return Err(error);
+        }
+    };
     let previous_proof = match checkpoint::invalidate_proof(vault) {
         Ok(previous) => previous,
         Err(error) => {
+            pending.clear(vault);
             let _ = fs::remove_file(&staged);
             return Err(error);
         }
     };
     if let Err(error) = move_no_replace(source, dest) {
         checkpoint::restore_proof(vault, previous_proof);
+        pending.clear(vault);
         let _ = fs::remove_file(&staged);
         return Err(error.into());
     }
@@ -168,6 +186,7 @@ fn rename_with(
         return match rollback {
             Ok(()) => {
                 checkpoint::restore_proof(vault, previous_proof);
+                pending.clear(vault);
                 Err(error.into())
             },
             Err(rollback) => Err(io::Error::other(format!("history mapping failed: {error}; note remains at {} because rollback failed: {rollback}", dest.display())).into()),
@@ -175,6 +194,7 @@ fn rename_with(
     }
     checkpoint::repair_cache(vault, &ownership.0);
     checkpoint::certify(vault, &ownership.0);
+    pending.clear(vault);
     Ok(())
 }
 

@@ -31,7 +31,7 @@ pub(super) fn encode(links: &Links) -> Result<Vec<u8>, VaultError> {
     })
     .map_err(|e| io::Error::other(e).into())
 }
-fn read_primary(vault: &Vault) -> Result<Option<Links>, VaultError> {
+pub(super) fn read_primary(vault: &Vault) -> Result<Option<Links>, VaultError> {
     let path = path(vault);
     let meta = match fs::symlink_metadata(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -47,7 +47,7 @@ fn read_primary(vault: &Vault) -> Result<Option<Links>, VaultError> {
     }
     Ok(Some(checkpoint.links))
 }
-fn proof_path(vault: &Vault) -> PathBuf {
+pub(super) fn proof_path(vault: &Vault) -> PathBuf {
     path(vault).with_extension("history-proof")
 }
 fn regular_bytes(path: &Path) -> Result<Vec<u8>, VaultError> {

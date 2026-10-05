@@ -455,3 +455,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 成功重命名在锁内核对镜像并保存独立 SHA-256 凭据，权威记录缺失/损坏时仅接受匹配凭据的镜像。读取回退不改写权威文件，后续成功重命名重新发布，避免读取者覆盖并发发布。移动前凭据标为 pending，文件移动或发布失败且回滚成功后恢复原凭据；无法确认结果时保留无效标记。
 - 回归覆盖权威记录合法 JSON 损坏、文件缺失、镜像过期拒绝、回退后再次重命名、发布期间旧凭据失效、失败回滚恢复凭据以及 pending 状态拒绝镜像。原回滚受外部文件阻挡时仍验证两侧内容和原日志保留，不再要求未确认归属继续可读。核心全量 215 项通过、1 项忽略；桌面恢复 4 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/history-proof-tests.log`、`target/history-proof-ui-tests.log`、`target/history-proof-clippy.log`、`target/history-proof-fmt.log`。未做原生窗口验收或物理断电测试。多份记录同时损坏和移动中途崩溃协调仍待实现；本次未修改用户笔记。
+
+## 历史归属：重命名进程中断协调（2026-10-05）
+
+- 移动前原子持久化校验意图，记录前后归属、文件身份、原凭据和暂存路径。历史读取/下次移动在原文件锁内协调遗留状态：源对象未动则撤销，目标对象身份匹配则补发归属，已发布则补齐镜像凭据并清理。协调不改写或移动笔记；身份不明时保留意图并报错。
+- 回归覆盖单篇/目录在移动后及发布后中断、移动前撤销、同内容不同文件身份拒绝误认。新增真实子进程测试在移动后直接 `process::exit(73)`，父进程重新打开后读取旧历史成功，当前正文保持原样，意图及遗留暂存文件被清理；这不是原生窗口或物理断电测试。
+- 核心全量 218 项通过、1 项忽略；桌面恢复 4 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-intent-tests.log`、`target/history-intent-ui-tests.log`、`target/history-intent-clippy.log`、`target/history-intent-fmt.log`。Windows 身份读取实现已加入但未在本机原生执行，跨平台与物理断电验证、身份不明时的人工处理入口仍待完成。未修改用户笔记。
