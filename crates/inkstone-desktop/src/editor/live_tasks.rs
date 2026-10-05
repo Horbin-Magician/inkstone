@@ -255,7 +255,17 @@ mod tests {
                             let origin = state
                                 .range_to_bounds(range)
                                 .filter(|b| viewport.intersects(b))
-                                .map(|b| b.origin);
+                                .map(|b| {
+                                    b.origin
+                                        - point(
+                                            if kind == "quote" {
+                                                live_quotes::inset(p.font_size)
+                                            } else {
+                                                px(0.)
+                                            },
+                                            px(0.),
+                                        )
+                                });
                             expected.push((format!("live-{kind}-{}", range.start), origin));
                         }
                     }

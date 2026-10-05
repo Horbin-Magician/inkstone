@@ -485,7 +485,29 @@ impl EditorPane {
         });
         replacements.extend(projection.replacements);
         concealed_lines.extend(projection.hidden_lines);
-        styles = Some(projection.typography);
+        let mut typography = projection.typography;
+        // Reserve quote rails inside the text viewport on every visual row.
+        let mut quote_lines = std::collections::BTreeSet::new();
+        for range in &self.live_quotes {
+            let start = text[..range.start].rfind('\n').map_or(0, |i| i + 1);
+            if !quote_lines.insert(start) {
+                continue;
+            }
+            let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
+            let padding = live_quotes::inset(self.font_size);
+            if let Some(style) = typography
+                .iter_mut()
+                .find(|style| (start..end).contains(&style.source_anchor().start))
+            {
+                *style = style.clone().with_left_padding(padding);
+            } else if start < end {
+                typography.push(
+                    gpui_base::input::LineTypography::new(start..end, 1., 1.)
+                        .with_left_padding(padding),
+                );
+            }
+        }
+        styles = Some(typography);
         let was_visible = self.last_geometry.is_some_and(|(_, visible)| visible);
         if let Some(styles) = styles
             && self
