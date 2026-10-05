@@ -144,6 +144,8 @@ pub struct Input {
     /// Drop the default multi-line padding so a host can align the text column
     /// with another view that draws its own inset.
     flush: bool,
+    /// Space kept clear past the last glyph. `None` keeps the engine default.
+    trailing_margin: Option<gpui::Pixels>,
 }
 
 impl Sizable for Input {
@@ -243,6 +245,7 @@ impl Input {
             token_renderer: None,
             token_click_listener: None,
             flush: false,
+            trailing_margin: None,
         }
     }
 
@@ -396,6 +399,12 @@ impl Input {
     /// Drop the default multi-line padding so the text starts at the frame edge.
     pub(crate) fn flush(mut self, flush: bool) -> Self {
         self.flush = flush;
+        self
+    }
+
+    /// Set the space kept clear past the last glyph. Wrapping stops short of it.
+    pub(crate) fn trailing_margin(mut self, margin: gpui::Pixels) -> Self {
+        self.trailing_margin = Some(margin);
         self
     }
 
@@ -611,6 +620,9 @@ impl RenderOnce for Input {
             },
             cx,
         );
+        if let Some(margin) = self.trailing_margin {
+            state.set_trailing_margin(margin, cx);
+        }
         state.set_disabled(self.disabled, cx);
         state.set_readonly(self.readonly, cx);
         state.set_text_align(text_align, cx);

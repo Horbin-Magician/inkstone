@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, DefiniteLength, Entity, IntoElement, RenderOnce, SharedString, StyleRefinement, Styled,
-    Window, prelude::FluentBuilder as _, relative,
+    App, DefiniteLength, Entity, IntoElement, Pixels, RenderOnce, SharedString, StyleRefinement,
+    Styled, Window, prelude::FluentBuilder as _, relative,
 };
 
 use super::{EditorState, Input};
@@ -37,6 +37,8 @@ pub struct Editor {
     /// Drop the default multi-line padding so the text column lines up with a
     /// view that supplies its own inset.
     flush: bool,
+    /// Space kept clear past the last glyph. `None` keeps the engine default.
+    trailing_margin: Option<Pixels>,
 }
 
 impl Editor {
@@ -55,6 +57,7 @@ impl Editor {
             context_menu_builder: None,
             paste_handler: None,
             flush: false,
+            trailing_margin: None,
         }
     }
 
@@ -139,6 +142,16 @@ impl Editor {
         self.flush = flush;
         self
     }
+
+    /// Set the space kept clear past the last glyph.
+    ///
+    /// Wrapping stops short of it, so this is how much narrower the text column
+    /// is than the frame. Set it to zero to wrap at the same width as a reading
+    /// view drawn in the same column.
+    pub fn trailing_margin(mut self, margin: Pixels) -> Self {
+        self.trailing_margin = Some(margin);
+        self
+    }
 }
 
 impl Styled for Editor {
@@ -173,6 +186,9 @@ impl RenderOnce for Editor {
                 this.on_paste(move |item, window, cx| handler(item, window, cx))
             })
             .flush(self.flush)
+            .when_some(self.trailing_margin, |this, margin| {
+                this.trailing_margin(margin)
+            })
             .refine_style(&self.style)
     }
 }
