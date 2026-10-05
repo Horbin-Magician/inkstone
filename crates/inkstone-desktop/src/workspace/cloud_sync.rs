@@ -65,6 +65,8 @@ pub(super) struct State {
     wait: Option<Task<()>>,
     busy: bool,
     message: String,
+    last_success: Option<u64>,
+    success_read: u64,
     progress: Option<Progress>,
     progress_slot: Option<ProgressSlot>,
     remote_check: super::remote_check::RemoteCheck,
@@ -92,6 +94,8 @@ impl State {
             wait: None,
             busy: false,
             message: String::new(),
+            last_success: None,
+            success_read: 0,
             progress: None,
             progress_slot: None,
             remote_check: Default::default(),
@@ -177,6 +181,7 @@ impl Workspace {
         state
             .password
             .update(cx, |input, cx| input.set_value(password, window, cx));
+        self.load_sync_success(cx);
         self.schedule_auto_sync(false);
     }
     fn poll_remote_checks(&mut self, now: std::time::Instant, active: bool) {
@@ -263,6 +268,55 @@ impl Workspace {
             self.ui.cloud_sync.progress = Some(progress);
         }
     }
+    fn load_sync_success(&mut self, cx: &mut Context<Self>) {
+        let state = &mut self.ui.cloud_sync;
+        state.last_success = None;
+        state.success_read = state.success_read.wrapping_add(1);
+        let request = state.success_read;
+        let generation = self.generation;
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        let settings = self.ui.prefs.webdav.clone();
+        if settings.url.trim().is_empty() {
+            return;
+        }
+        let task = cx.background_executor().spawn(async move {
+            WebDav::new(&settings, "")
+                .and_then(|remote| sync::last_success(&vault, &remote.identity()))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation || this.ui.cloud_sync.success_read != request {
+                    return;
+                }
+                match result {
+                    Ok(time) => this.ui.cloud_sync.last_success = time,
+                    Err(error) => this.cloud_message(format!("读取最近同步记录失败：{error}"), cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    fn sync_success_label(&self) -> String {
+        let date = self
+            .ui
+            .cloud_sync
+            .last_success
+            .and_then(|millis| i64::try_from(millis).ok())
+            .and_then(chrono::DateTime::from_timestamp_millis)
+            .map(|time| {
+                time.with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            });
+        format!(
+            "最近成功同步：{}",
+            date.as_deref().unwrap_or("暂无时间记录")
+        )
+    }
     fn cloud_settings(&self, cx: &App) -> Settings {
         Settings {
             url: self.ui.cloud_sync.url.read(cx).value().trim().to_owned(),
@@ -278,7 +332,12 @@ impl Workspace {
             self.cloud_message(error.to_string(), cx);
             return false;
         }
+        let account_changed = self.ui.prefs.webdav.url != settings.url
+            || self.ui.prefs.webdav.username != settings.username;
         self.ui.prefs.webdav = settings;
+        if account_changed {
+            self.load_sync_success(cx);
+        }
         self.persist_workspace(cx);
         self.store_cloud_password(cx)
     }
@@ -488,6 +547,8 @@ impl Workspace {
                 this.ui.cloud_sync.progress_slot = None;
                 let message = match &result {
                     Ok(report) => {
+                        this.ui.cloud_sync.success_read = this.ui.cloud_sync.success_read.wrapping_add(1);
+                        this.ui.cloud_sync.last_success = Some(report.completed_at_ms);
                         let conflicts = if report.conflicts.is_empty() { String::new() } else {
                             format!("；{} 项冲突已保留修改版本：{}", report.conflicts.len(), report.conflicts.join("、"))
                         };
@@ -609,6 +670,7 @@ impl Workspace {
                         .loading(progress.is_none())
                         .value(progress.map_or(0., |p| p.completed as f32 * 100. / p.total as f32)))
                 })
+                .child(self.sync_success_label())
                 .when(!state.message.is_empty(), |s| s.child(state.message.clone()))
         ).into_any_element()
     }
@@ -1610,6 +1672,35 @@ mod tests {
                     "unchanged sync output must not queue a new transfer"
                 );
                 assert!(!w.ui.cloud_sync.again);
+            })
+            .unwrap();
+        let completed = handle
+            .update(cx, |w, _, cx| {
+                let completed =
+                    w.ui.cloud_sync
+                        .last_success
+                        .expect("successful HTTP sync records time");
+                assert!(!w.sync_success_label().contains("暂无"));
+                w.load_sync_success(cx);
+                assert_eq!(w.ui.cloud_sync.last_success, None);
+                completed
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.ui.cloud_sync.last_success, Some(completed));
+                // A result for the old account must not appear under the next account.
+                w.load_sync_success(cx);
+                w.ui.prefs.webdav.username = "another-account".into();
+                w.load_sync_success(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(w.ui.cloud_sync.last_success, None);
+                assert!(w.sync_success_label().contains("暂无时间记录"));
             })
             .unwrap();
         // Cancellation invalidates a classification already running in the background.

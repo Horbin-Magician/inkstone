@@ -105,6 +105,8 @@ impl Progress {
 
 #[derive(Default, Debug)]
 pub struct Report {
+    /// Unix milliseconds, recorded only when the local baseline commits.
+    pub completed_at_ms: u64,
     pub uploaded: usize,
     pub downloaded: usize,
     pub deleted: usize,
@@ -315,6 +317,28 @@ fn baseline_path(vault: &Vault, identity: &str) -> PathBuf {
         hash(vault.root.to_string_lossy().as_bytes()),
         hash(identity.as_bytes())
     ))
+}
+
+#[derive(Serialize, Deserialize)]
+struct LocalBaseline {
+    #[serde(flatten)]
+    manifest: Manifest,
+    #[serde(default)]
+    completed_at_ms: Option<u64>,
+}
+
+/// Last fully committed synchronization for this vault/account. Run on a worker.
+/// Older records deliberately return None rather than guessing from file mtime.
+pub fn last_success(vault: &Vault, identity: &str) -> Result<Option<u64>> {
+    let bytes = match fs::read(baseline_path(vault, identity)) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let record: LocalBaseline =
+        serde_json::from_slice(&bytes).context("本地同步记录损坏，请保留记录并检查")?;
+    validate_manifest(&record.manifest)?;
+    Ok(record.completed_at_ms)
 }
 
 fn read_baseline(path: &Path) -> Result<Manifest> {
@@ -541,9 +565,18 @@ pub fn synchronize_with_progress(
         }
     }
     let temp = state.with_extension("pending");
-    fs::write(&temp, serde_json::to_vec(&manifest)?)?;
+    let completed_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        .try_into()?;
+    let record = LocalBaseline {
+        manifest,
+        completed_at_ms: Some(completed_at_ms),
+    };
+    fs::write(&temp, serde_json::to_vec(&record)?)?;
     fs::File::open(&temp)?.sync_all()?;
     fs::rename(temp, state)?;
+    report.completed_at_ms = completed_at_ms;
     notify(Progress::new(Phase::Complete, 0));
     Ok(report)
 }
