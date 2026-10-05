@@ -87,10 +87,9 @@ impl Workspace {
         }
         self.flush_document_views(window, cx);
         for tab in &mut self.tabs {
-            tab.save.persistence.dirty.set(
-                tab.save.persistence.baseline.borrow().as_deref()
-                    != Some(tab.save.editor.read(cx).value().as_ref()),
-            );
+            tab.save
+                .persistence
+                .edited(tab.save.editor.read(cx).value().as_ref());
         }
         if self.tabs.iter().any(|t| {
             t.save.persistence.conflict.get() || t.save.persistence.error.borrow().is_some()
@@ -647,10 +646,7 @@ impl Workspace {
         }) {
             return;
         }
-        tab.save
-            .persistence
-            .dirty
-            .set(tab.save.persistence.baseline.borrow().as_deref() != Some(after.as_ref()));
+        tab.save.persistence.edited(after.as_ref());
         self.views.split.as_mut().unwrap().last_synced_text = after;
         cx.notify();
     }

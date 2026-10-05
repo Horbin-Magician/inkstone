@@ -342,3 +342,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增两个无 GPUI 的状态回归，覆盖未保存正文、待提交输入、外部删除、读取失败、相同磁盘内容、干净重载、处理期间新输入及再次处理成功。现有异步冲突与多视图外部重载测试同时通过。
 - `cargo test --locked -p inkstone-desktop`：293 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/save-resolution-tests.log`、`target/save-resolution-clippy.log`。未新增原生 UI 验收；未修改用户笔记。重命名和批量编辑的状态接口仍待后续迁移。
+
+## 保存状态：文件操作与批量写入（2026-10-05）
+
+- 重命名/回收通过 SaveState 开始和结束操作；处理期间的正文编辑继续保持 dirty，回收后仍有新输入时保留为冲突。批量编辑和链接更新共用已审阅快照校验及结果应用接口，关闭视图与分屏同步复用 edited 转换。
+- 新增两项独立状态回归，验证新输入、待提交输入、变化的保存基线均阻止批量结果替换编辑正文；仅已保存文档可以开始文件操作，操作期间输入不会变为已保存状态。
+- `cargo test --locked -p inkstone-desktop`：295 单元测试 + 8 集成测试通过，2 个既有测试忽略。包含共享文档重命名/回收、链接更新冲突、批量操作期间继续输入等既有回归；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/save-operations-tests.log`、`target/save-operations-clippy.log`。未新增原生 UI 验收，未修改用户笔记。状态字段读取和测试仍待迁移到受限接口。

@@ -277,9 +277,9 @@ impl Workspace {
             for edit in &result.written {
                 if let Some(tab)=this.tabs.iter().find(|t|t.path==edit.path){
                     let document=tab.save.clone();let pending=this.has_pending_input(tab.id,w,cx);
-                    if pending||document.editor.read(cx).value().as_ref()!=edit.before||document.persistence.baseline.borrow().as_deref()!=Some(edit.before.as_str()){
-                        document.persistence.conflict.set(true);document.persistence.dirty.set(true);conflicts+=1;
-                    }else{document.persistence.baseline.replace(Some(edit.after.clone()));document.editor.update(cx,|s,cx|{let range=s.selected_range();s.replace_all(&edit.after,w,cx);s.set_selected_range(range,cx);});changed.push(document.editor.clone());}
+                    if !document.persistence.apply_reviewed_edit(&edit.before, &edit.after, document.editor.read(cx).value().as_ref(), pending){
+                        conflicts+=1;
+                    }else{document.editor.update(cx,|s,cx|{let range=s.selected_range();s.replace_all(&edit.after,w,cx);s.set_selected_range(range,cx);});changed.push(document.editor.clone());}
                 }
             }
             for editor in changed{this.document_changed(editor,w,cx);}

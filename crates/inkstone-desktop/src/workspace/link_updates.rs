@@ -76,18 +76,15 @@ impl Workspace {
                     let composing = this.has_pending_input(id, w, cx);
                     let tab = this.tabs.iter_mut().find(|t| t.id == id).unwrap();
                     let editor = tab.save.editor.clone();
-                    if tab.save.persistence.dirty.get()
-                        || composing
-                        || tab.save.persistence.baseline.borrow().as_deref()
-                            != Some(before.as_str())
-                        || editor.read(cx).value().as_ref() != before.as_str()
-                    {
-                        tab.save.persistence.conflict.set(true);
-                        tab.save.persistence.dirty.set(true);
+                    if !tab.save.persistence.apply_reviewed_edit(
+                        before,
+                        after,
+                        editor.read(cx).value().as_ref(),
+                        composing || tab.save.persistence.dirty.get(),
+                    ) {
                         this.status
                             .push_str(&format!(" {} 的新编辑已保留，请处理冲突。", path.display()));
                     } else {
-                        tab.save.persistence.baseline.replace(Some(after.clone()));
                         editor.update(cx, |s, cx| {
                             let selected = s.selected_range();
                             let scroll = s.scroll_offset();

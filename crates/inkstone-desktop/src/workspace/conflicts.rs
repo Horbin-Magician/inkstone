@@ -174,7 +174,7 @@ impl Workspace {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.ui.file_operation = false;
                 this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
-                document.persistence.end_resolution();
+                document.persistence.finish_operation();
                 if this.generation != generation {
                     return;
                 }
