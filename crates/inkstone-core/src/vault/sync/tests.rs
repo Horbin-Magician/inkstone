@@ -617,3 +617,56 @@ fn success_time_is_durable_scoped_and_not_advanced_by_failure() -> Result<()> {
     assert!(last_success(&f.a, "server").is_err());
     Ok(())
 }
+
+#[test]
+fn cancellation_before_publication_keeps_baseline_and_local_files_and_can_retry() -> Result<()> {
+    for phase in [
+        Phase::Scanning,
+        Phase::ReadingManifest,
+        Phase::Downloading,
+        Phase::Uploading,
+        Phase::Verifying,
+        Phase::Publishing,
+    ] {
+        let f = Fixture::new();
+        let r = Memory::default();
+        fs::write(f.b.root.join("remote.md"), "remote")?;
+        synchronize(&f.b, &r, "cancel")?;
+        fs::write(f.a.root.join("local.md"), "local")?;
+        let token = Cancellation::default();
+        let result = synchronize_cancellable(&f.a, &r, "cancel", &token, |p| {
+            if p.phase == phase {
+                token.request();
+            }
+        });
+        assert!(is_cancelled(&result.unwrap_err()), "{phase:?}");
+        assert_eq!(fs::read_to_string(f.a.root.join("local.md"))?, "local");
+        assert!(!f.a.root.join("remote.md").exists());
+        assert_eq!(last_success(&f.a, "cancel")?, None);
+        assert!(!r.manifest.lock().unwrap().files.contains_key("local.md"));
+        synchronize(&f.a, &r, "cancel")?;
+        assert_eq!(fs::read_to_string(f.a.root.join("remote.md"))?, "remote");
+        assert!(r.manifest.lock().unwrap().files.contains_key("local.md"));
+    }
+    Ok(())
+}
+
+#[test]
+fn cancellation_after_commit_begins_is_rejected_and_finishes_baseline() -> Result<()> {
+    let f = Fixture::new();
+    let r = Memory::default();
+    fs::write(f.b.root.join("remote.md"), "remote")?;
+    synchronize(&f.b, &r, "cancel")?;
+    let token = Cancellation::default();
+    let requested = AtomicBool::new(false);
+    let report = synchronize_cancellable(&f.a, &r, "cancel", &token, |p| {
+        if p.phase == Phase::Applying {
+            requested.store(true, Ordering::Relaxed);
+            assert!(!token.request());
+        }
+    })?;
+    assert!(requested.load(Ordering::Relaxed));
+    assert_eq!(fs::read_to_string(f.a.root.join("remote.md"))?, "remote");
+    assert_eq!(last_success(&f.a, "cancel")?, Some(report.completed_at_ms));
+    Ok(())
+}
