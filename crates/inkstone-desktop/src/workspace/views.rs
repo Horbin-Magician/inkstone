@@ -65,7 +65,7 @@ impl Workspace {
     #[cfg(target_os = "macos")]
     pub(crate) fn request_app_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.request_window_close(window, cx) {
-            cx.quit();
+            window.remove_window();
         } else {
             self.quit_requested = self.ui.window_close_requested;
         }
@@ -102,9 +102,10 @@ impl Workspace {
             return false;
         }
         self.snapshot_views(cx);
+        self.prepare_cloud_sync_for_close(window, cx);
         let pending = self.ui.cloud_sync.pending
             || self.ui.backup.pending.is_some()
-            || self.ui.pending_file_writes > 0
+            || self.ui.pending_file_writes > usize::from(self.ui.cloud_sync.is_busy())
             || self.tabs.iter().any(|t| {
                 t.save.dirty.get()
                     || t.save.saving.get()
@@ -150,11 +151,6 @@ impl Workspace {
         }
         if self.request_window_close(window, cx) {
             self.ui.window_close_requested = false;
-            #[cfg(target_os = "macos")]
-            if self.quit_requested {
-                cx.quit();
-                return;
-            }
             window.remove_window();
         }
     }

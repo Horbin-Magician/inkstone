@@ -20,7 +20,7 @@ pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
             })
             .is_err()
         {
-            cx.quit();
+            crate::background_sync::window_closed(cx);
         }
     });
     cx.on_action(|_: &Hide, cx| cx.hide());

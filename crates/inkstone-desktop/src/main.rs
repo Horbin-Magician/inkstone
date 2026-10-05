@@ -4,6 +4,7 @@
 mod app_icon;
 #[cfg(target_os = "macos")]
 mod app_menu;
+mod background_sync;
 mod editor;
 mod editor_links;
 mod native_graphics;
@@ -21,6 +22,7 @@ fn main() {
     inkstone_core::startup_trace::mark("main");
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
+        .with_quit_mode(QuitMode::Explicit)
         .run(|cx| {
             inkstone_core::startup_trace::mark("application_ready");
             gpui_kit::init(cx);
@@ -101,7 +103,7 @@ fn main() {
                         let main_window_id = window.window_handle().window_id();
                         cx.on_window_closed(move |cx, window_id| {
                             if window_id == main_window_id {
-                                cx.quit();
+                                background_sync::window_closed(cx);
                             }
                         })
                         .detach();

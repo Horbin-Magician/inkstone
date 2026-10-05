@@ -68,6 +68,10 @@ pub(super) struct State {
     progress_slot: Option<ProgressSlot>,
 }
 impl State {
+    pub(super) fn is_busy(&self) -> bool {
+        self.busy
+    }
+
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
         Self {
             url: cx.new(|cx| InputState::new(window, cx).placeholder("https://服务器/dav/笔记库/")),
@@ -91,6 +95,19 @@ impl State {
     }
 }
 impl Workspace {
+    /// Start queued work before releasing the window, without waiting for debounce
+    /// or retry timers. Local save checks still run in tick_cloud_sync.
+    pub(super) fn prepare_cloud_sync_for_close(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ui.cloud_sync.wait = None;
+        self.ui.cloud_sync.defer_quiet = false;
+        self.ui.cloud_sync.defer_retry = false;
+        self.tick_cloud_sync(window, cx);
+    }
+
     fn cloud_settings_disabled(&self) -> bool {
         let state = &self.ui.cloud_sync;
         // An automatic attempt may wait for saves, a quiet period, or a retry.
@@ -258,6 +275,7 @@ impl Workspace {
         let task = cx
             .background_executor()
             .spawn(async move { WebDav::new(&settings, &password)?.test_connection() });
+        let task = crate::background_sync::retain(task, cx);
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -371,6 +389,7 @@ impl Workspace {
                 *progress_slot.lock().unwrap() = Some(progress);
             })
         });
+        let task = crate::background_sync::retain(task, cx);
         let slot = self.ui.cloud_sync.progress_slot.clone().unwrap();
         cx.spawn(async move |this, cx| {
             loop {
@@ -1081,6 +1100,74 @@ mod tests {
         assert!(manifest.contains("keep.md"), "{manifest}");
         assert!(!manifest.contains("gone.md"), "{manifest}");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn closing_window_starts_queued_sync_and_upload_survives_window_removal(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-sync-close-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::write(root.join("vault/note.md"), "upload after close").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(root.join("vault"), root.join("recovery")).unwrap());
+                w.ui.prefs.webdav = Settings {
+                    url: server.url.clone(),
+                    username: "user".into(),
+                    auto: true,
+                };
+                configured(w, &server.url, true, window, cx);
+                w.ui.discard_workspace_on_close = true;
+                w.schedule_auto_sync(true);
+                w.pump_auto_sync(window, cx);
+                assert!(w.ui.cloud_sync.wait.is_some());
+                assert!(w.request_window_close(window, cx));
+                assert!(w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.wait.is_none());
+                // Removing the native window must not cancel the detached collector.
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(handle.update(cx, |_, _, _| ()).is_err());
+        assert!(
+            server
+                .files
+                .lock()
+                .unwrap()
+                .values()
+                .any(|bytes| bytes == b"upload after close")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn active_sync_does_not_block_close_but_local_writes_and_conflicts_do(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.cloud_sync.busy = true;
+                w.ui.pending_file_writes = 1;
+                assert!(w.request_window_close(window, cx));
+                w.ui.pending_file_writes = 2;
+                assert!(!w.request_window_close(window, cx));
+                w.ui.pending_file_writes = 1;
+                w.add_tab("note.md".into(), Some("saved".into()), false, window, cx);
+                w.tabs[0].save.conflict.set(true);
+                assert!(!w.request_window_close(window, cx));
+            })
+            .unwrap();
     }
 
     #[gpui::test]
