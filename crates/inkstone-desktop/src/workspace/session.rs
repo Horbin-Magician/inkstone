@@ -140,7 +140,6 @@ impl Workspace {
 
     pub(super) fn choose_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.ui.pending_file_writes > 0
-            || self.ui.cloud_sync.pending
             || self
                 .tabs
                 .iter()
@@ -173,7 +172,6 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.ui.pending_file_writes > 0
-            || self.ui.cloud_sync.pending
             || self.ui.backup.pending.is_some()
             || self
                 .tabs
@@ -184,6 +182,7 @@ impl Workspace {
             cx.notify();
             return;
         }
+        self.cancel_queued_sync();
         inkstone_core::startup_trace::mark("load_requested");
         self.startup_pending = false;
         self.loading = true;

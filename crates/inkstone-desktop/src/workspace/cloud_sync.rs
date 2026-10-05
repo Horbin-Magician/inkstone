@@ -97,6 +97,18 @@ impl State {
     }
 }
 impl Workspace {
+    /// Cancel only queued work; an active transfer keeps its lifetime/protection.
+    pub(super) fn cancel_queued_sync(&mut self) {
+        let state = &mut self.ui.cloud_sync;
+        state.pending = false;
+        state.automatic = false;
+        state.again = false;
+        state.defer_quiet = false;
+        state.defer_retry = false;
+        state.wait = None;
+        state.remote_check = Default::default();
+    }
+
     /// Start queued work before releasing the window, without waiting for debounce
     /// or retry timers. Local save checks still run in tick_cloud_sync.
     pub(super) fn prepare_cloud_sync_for_close(
@@ -114,7 +126,7 @@ impl Workspace {
         let state = &self.ui.cloud_sync;
         // An automatic attempt may wait for saves, a quiet period, or a retry.
         // Keep configuration and manual actions available during that wait.
-        self.vault.is_none() || self.loading || state.busy || (state.pending && !state.automatic)
+        self.vault.is_none() || self.loading || state.busy
     }
 
     pub(super) fn apply_cloud_secret(
@@ -333,8 +345,7 @@ impl Workspace {
         self.ui.cloud_sync.defer_quiet = false;
         self.ui.cloud_sync.defer_retry = false;
         self.ui.cloud_sync.wait = None;
-        self.save_all(window, cx);
-        self.cloud_message("等待笔记保存后开始同步……".into(), cx);
+        self.cloud_message("等待笔记手动保存后开始同步……".into(), cx);
         self.tick_cloud_sync(window, cx);
     }
     pub(super) fn tick_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -378,9 +389,25 @@ impl Workspace {
             return;
         }
         self.flush_document_views(window, cx);
-        if self.tabs.iter().any(|t| t.save.dirty.get()) {
-            if !self.ui.cloud_sync.automatic {
-                self.save_all(window, cx);
+        let waiting: std::collections::BTreeSet<_> = self
+            .tabs
+            .iter()
+            .filter(|tab| tab.save.dirty.get())
+            .map(|tab| tab.path.to_string_lossy().into_owned())
+            .collect();
+        if !waiting.is_empty() {
+            let names = waiting
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("、");
+            let message = format!(
+                "同步等待手动保存 {} 篇笔记：{names}。可继续编辑或取消等待。",
+                waiting.len()
+            );
+            if self.ui.cloud_sync.message != message {
+                self.cloud_message(message, cx);
             }
             return;
         }
@@ -547,6 +574,13 @@ impl Workspace {
                     })))
                     .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
                     .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
+                .when(!state.busy && (state.pending || state.again || state.wait.is_some()), |s| s.child(
+                    Button::new("webdav-cancel-wait").label("取消本次同步等待")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.cancel_queued_sync();
+                            this.cloud_message("已取消本次等待；开启自动同步时，后续变更或定期检查仍会触发同步。".into(), cx);
+                        }))
+                ))
                 .child("双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
                 .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB，一次下载上限 512 MiB。")
                 .child(Button::new("webdav-poll-interval")
@@ -936,6 +970,20 @@ mod tests {
                     .editor
                     .update(cx, |s, cx| s.replace_all("latest draft", window, cx));
                 w.request_cloud_sync(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.tick_cloud_sync(window, cx);
+                assert!(w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.message.contains("等待手动保存"));
+                assert_eq!(
+                    std::fs::read_to_string(root.join("local/note.md")).unwrap(),
+                    "old"
+                );
+                w.save_all(window, cx);
             })
             .unwrap();
         for _ in 0..8 {
@@ -1396,6 +1444,70 @@ mod tests {
             std::fs::read_to_string(root.join("b/note.md")).unwrap(),
             "version 2"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
+    fn queued_sync_can_be_cancelled_or_left_by_switching_vault(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-sync-switch-{stamp}"));
+        std::fs::create_dir_all(root.join("a")).unwrap();
+        std::fs::create_dir_all(root.join("b")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.join("a"), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.prefs.webdav.url = "https://example.test/dav/".into();
+                w.schedule_auto_sync(true);
+                w.pump_auto_sync(window, cx);
+                assert!(w.ui.cloud_sync.wait.is_some());
+                w.cancel_queued_sync();
+                assert!(!w.ui.cloud_sync.pending);
+                assert!(w.ui.cloud_sync.wait.is_none());
+                w.schedule_auto_sync(true);
+                w.pump_auto_sync(window, cx);
+                w.add_tab("note.md".into(), Some("original".into()), false, window, cx);
+                let editor = w.tabs[0].save.editor.clone();
+                editor.update(cx, |s, cx| s.set_value("unsaved", window, cx));
+                w.flush_document_views(window, cx);
+                w.load_vault(root.join("b"), window, cx);
+                assert_eq!(
+                    w.vault.as_ref().unwrap().root,
+                    root.join("a").canonicalize().unwrap()
+                );
+                assert!(
+                    w.ui.cloud_sync.pending,
+                    "rejected switch must preserve the queue"
+                );
+                editor.update(cx, |s, cx| s.set_value("original", window, cx));
+                w.flush_document_views(window, cx);
+                w.load_vault(root.join("b"), window, cx);
+                assert!(w.loading);
+                assert!(!w.ui.cloud_sync.pending);
+                assert!(w.ui.cloud_sync.wait.is_none());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(AUTO_SYNC_RETRY + AUTO_SYNC_QUIET);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(
+                    w.vault.as_ref().unwrap().root,
+                    root.join("b").canonicalize().unwrap()
+                );
+                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.busy);
+                w.watcher = None;
+            })
+            .unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 }
