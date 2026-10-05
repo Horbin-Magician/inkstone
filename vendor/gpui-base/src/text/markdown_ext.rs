@@ -17,6 +17,8 @@ use crate::text::node::Span;
 
 static MARKDOWN_EXTENSIONS_REVISION: AtomicU64 = AtomicU64::new(1);
 
+type AstTransform = dyn Fn(&mut mdast::Node, &str) + Send + Sync;
+
 /// Re-export of the Markdown AST types used by custom parsers.
 pub use markdown::mdast as markdown_ast;
 
@@ -250,6 +252,7 @@ impl PartialEq for MarkdownNode {
 /// Registry for custom Markdown parsing and rendering.
 #[derive(Clone, Default)]
 pub struct MarkdownExtensions {
+    pub(crate) ast_transform: Option<Arc<AstTransform>>,
     pub(crate) footnote_numbers: std::collections::BTreeMap<String, usize>,
     pub(crate) preserve_soft_breaks: bool,
     pub(crate) custom_task_markers: bool,
@@ -264,6 +267,16 @@ pub struct MarkdownExtensions {
 }
 
 impl MarkdownExtensions {
+    /// Normalize parsed nodes while preserving their original source positions.
+    /// Include changes to the transform in `parser_revision`.
+    pub fn ast_transform(
+        mut self,
+        transform: impl Fn(&mut mdast::Node, &str) + Send + Sync + 'static,
+    ) -> Self {
+        self.ast_transform = Some(Arc::new(transform));
+        self.bump_revision();
+        self
+    }
     /// Override numbering when this view presents a fragment of another view.
     pub fn footnote_numbers(
         mut self,
@@ -394,6 +407,7 @@ impl MarkdownExtensions {
     /// stable; render handles may be refreshed without reparsing the document.
     pub(crate) fn has_same_parser_configuration(&self, other: &Self) -> bool {
         self.parser_revision == other.parser_revision
+            && self.ast_transform.is_some() == other.ast_transform.is_some()
             && self.footnote_numbers == other.footnote_numbers
             && self.preserve_soft_breaks == other.preserve_soft_breaks
             && self.custom_task_markers == other.custom_task_markers

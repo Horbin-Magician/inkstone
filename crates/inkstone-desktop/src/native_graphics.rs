@@ -314,7 +314,9 @@ impl MarkdownPlugin for Plugin {
     fn parse(&self, node: &Node, cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
         let (kind, value) = match node {
             Node::InlineMath(n) if !self.block => (Kind::InlineMath, n.value.as_str()),
-            Node::Math(n) if self.block => (Kind::BlockMath, n.value.as_str()),
+            // Inline-only containers (for example table cells) must also retain
+            // display math, using its display-style measurement and raster.
+            Node::Math(n) => (Kind::BlockMath, n.value.as_str()),
             Node::Code(n)
                 if self.block
                     && n.lang
@@ -359,6 +361,10 @@ impl MarkdownPlugin for Plugin {
     fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let mut view = div()
             .id(("native-graphic", node.source_range().map_or(0, |r| r.start)))
+            .debug_selector({
+                let offset = node.source_range().map_or(0, |r| r.start);
+                move || format!("native-graphic-{offset}")
+            })
             .w_full()
             .overflow_x_scroll();
         let Some(formula) = node.data::<FormulaNode>() else {
@@ -402,6 +408,8 @@ impl MarkdownPlugin for Plugin {
                     .into_any_element()
             } else {
                 img(prepared.image.clone())
+                    .id(("native-math-image", offset))
+                    .debug_selector(move || format!("native-math-image-{offset}"))
                     .w(px(prepared.width))
                     .h(px(prepared.height))
                     .when(formula.kind == Kind::BlockMath, |image| {
@@ -521,6 +529,7 @@ pub(crate) fn extensions(
         ^ u64::from(light)
         ^ (u64::from(strict_breaks) << 1);
     MarkdownExtensions::default()
+        .ast_transform(inkstone_core::syntax::normalize_display_math)
         .frontmatter()
         .custom_task_markers(true)
         .soft_line_breaks(!strict_breaks)
@@ -547,6 +556,50 @@ pub(crate) fn extensions(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn same_line_double_dollars_render_as_centered_blocks(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "$$\\frac{a}{b}$$\n\n$x$\n\n> [!note]\n> body\n\ntail";
+        let handle = cx.add_window(|window, cx| {
+            let mut pane = crate::editor::EditorPane::new(source, window, cx);
+            pane.reading = true;
+            pane
+        });
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for width in [1000., 480.] {
+            visual.simulate_resize(size(px(width), px(700.)));
+            for _ in 0..10 {
+                visual.run_until_parked();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            let block = visual.debug_bounds("native-graphic-0").unwrap();
+            let image = visual.debug_bounds("native-math-image-0").unwrap();
+            assert!((image.center().x - block.center().x).abs() < px(1.));
+            assert!(image.size.width < block.size.width);
+        }
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                pane.reading = false;
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(source.len()..source.len(), cx);
+                });
+                cx.notify();
+            })
+            .unwrap();
+        for _ in 0..10 {
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                let objects = pane.editor.read(cx).display_objects();
+                assert_eq!(objects.len(), 3);
+                assert!(objects[0].size.width > objects[1].size.width * 2.);
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn diagrams_fit_reading_and_live_width_without_changing_aspect_or_source(
         cx: &mut TestAppContext,

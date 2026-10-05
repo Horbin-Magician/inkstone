@@ -327,6 +327,33 @@ mod tests {
     }
 
     #[test]
+    fn double_dollars_are_block_math_with_original_source_ranges() {
+        let source = "中文 $$x^2$$ 后文 $y$\r\n\r\n$$\\frac{a}{b}$$\r\n\r\n> $$z$$\r\n\r\n- $$w$$\r\n\r\n$$\r\nu+v\r\n$$\r\n\r\n`$$code$$`\r\n\r\n```text\r\n$$code$$\r\n```\r\n\r\n\\$\\$escaped\\$\\$\r\n\r\n**$$bold$$**";
+        let snapshot = Arc::new(Snapshot::new(source));
+        let path = Path::new("note.md");
+        let index = crate::index::Index::default();
+        let reading =
+            crate::rendering::reading_snapshot(&index, path, snapshot.clone(), 0..source.len());
+        let fragments = fragments(&index, path, snapshot, &reading);
+        let math: Vec<_> = fragments.iter().filter(|f| f.graphic.is_some()).collect();
+        assert_eq!(math.len(), 7);
+        for fragment in math {
+            let raw = &source[fragment.candidate.source.clone()];
+            let block = raw.starts_with("$$");
+            assert_eq!(fragment.candidate.block, block, "{raw}");
+            assert_eq!(
+                fragment.graphic.as_ref().unwrap().0,
+                if block {
+                    crate::graphics::Kind::BlockMath
+                } else {
+                    crate::graphics::Kind::InlineMath
+                }
+            );
+            assert!(fragment.document.source_matches(path, source));
+        }
+    }
+
+    #[test]
     fn nested_graphics_stay_owned_by_their_outer_fragment() {
         let source = "$x$\n\n> [!note]\n> $y$\n\n| A |\n| --- |\n| $z$ |\n\n尾部";
         let path = Path::new("note.md");

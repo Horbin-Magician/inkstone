@@ -11,14 +11,93 @@ pub fn options() -> ParseOptions {
     options
 }
 
+/// Promote double-dollar text math to display math without changing source offsets.
+/// The Markdown parser otherwise treats same-line `$$...$$` as inline math.
+pub fn normalize_display_math(node: &mut Node, source: &str) {
+    use markdown_parser::mdast::Math;
+    if let Node::InlineMath(math) = node
+        && math.position.as_ref().is_some_and(|p| {
+            source
+                .get(p.start.offset..p.end.offset)
+                .is_some_and(|raw| raw.starts_with("$$") && raw.ends_with("$$"))
+        })
+    {
+        *node = Node::Math(Math {
+            value: math.value.clone(),
+            position: math.position.clone(),
+            meta: None,
+        });
+        return;
+    }
+    let Some(children) = node.children_mut() else {
+        return;
+    };
+    for child in children.iter_mut() {
+        normalize_display_math(child, source);
+    }
+    let mut index = 0;
+    while index < children.len() {
+        let wrapper = &children[index];
+        if !matches!(
+            wrapper,
+            Node::Paragraph(_)
+                | Node::Heading(_)
+                | Node::Emphasis(_)
+                | Node::Strong(_)
+                | Node::Delete(_)
+                | Node::Link(_)
+                | Node::LinkReference(_)
+        ) {
+            index += 1;
+            continue;
+        }
+        let parts = wrapper.children().unwrap();
+        if !parts.iter().any(|n| matches!(n, Node::Math(_))) {
+            index += 1;
+            continue;
+        }
+        let mut replacement = Vec::new();
+        let mut inline = Vec::new();
+        fn flush(inline: &mut Vec<Node>, out: &mut Vec<Node>, wrapper: &Node) {
+            if inline.is_empty() {
+                return;
+            }
+            let position = inline
+                .first()
+                .and_then(Node::position)
+                .zip(inline.last().and_then(Node::position))
+                .map(|(first, last)| markdown_parser::unist::Position {
+                    start: first.start.clone(),
+                    end: last.end.clone(),
+                });
+            let mut part = wrapper.clone();
+            *part.children_mut().unwrap() = std::mem::take(inline);
+            if let (Some(target), Some(position)) = (part.position_mut(), position) {
+                *target = position;
+            }
+            out.push(part);
+        }
+        for child in parts {
+            if matches!(child, Node::Math(_)) {
+                flush(&mut inline, &mut replacement, wrapper);
+                replacement.push(child.clone());
+            } else {
+                inline.push(child.clone());
+            }
+        }
+        flush(&mut inline, &mut replacement, wrapper);
+        let count = replacement.len();
+        children.splice(index..=index, replacement);
+        index += count;
+    }
+}
+
 pub fn valid_inline_math(source: &str, range: &std::ops::Range<usize>) -> bool {
     let Some(raw) = source.get(range.clone()) else {
         return false;
     };
-    if raw.starts_with("$$") {
-        return true;
-    }
-    raw.starts_with('$')
+    !raw.starts_with("$$")
+        && raw.starts_with('$')
         && raw.ends_with('$')
         && raw.len() > 2
         && raw[1..].chars().next().is_some_and(|c| !c.is_whitespace())
@@ -106,6 +185,7 @@ pub fn parse_raw(source: &str) -> Option<Node> {
     }
     let mut defs = String::new();
     definitions(&ast, source, &mut defs);
+    normalize_display_math(&mut ast, source);
     normalize(&mut ast, source, &defs);
     Some(ast)
 }
