@@ -363,3 +363,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增三项独立策略回归：计时器替换、手动覆盖和重置准确释放句柄；手动请求不被自动触发延迟；失败后新修改不缩短重试；运行中后续修改在完成后继续；取消排队不提前释放 busy。原有离线恢复、运行中取消、切库、未保存内容等待等桌面回归同时通过。
 - `cargo test --locked -p inkstone-desktop`：298 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/sync-policy-tests.log`、`target/sync-policy-clippy.log`。进度、取消令牌、后台任务和全局写入计数仍由窗口适配层协调，不将本提交描述为全部服务拆分完成。未新增原生验收，未修改用户笔记。
+
+## 同步任务：身份、取消与进度所有权（2026-10-05）
+
+- 将单次传输的取消令牌和合并进度槽归到无 GPUI 依赖的 `Run`；后台、轮询器与完成回调共享同一身份。完成回调除工作区代次外还检查 Run 身份，旧任务不能清理或改写新任务状态。应用级后台保活机制保持不变。
+- 新增跨线程回归：1000 次进度发布只保留最新事件，消费后清空，取消后不发布 UI 进度，不同 Run 的取消与进度互不影响。新增 GPUI 回归启动真实本地 HTTP 同步后替换 Run，确认旧回调只释放自己的写入计数，不改变替代任务、busy、界面消息或成功时间。
+- 全桌面回归：299 单元测试 + 8 集成测试通过，2 个既有测试忽略；随后补充的旧回调身份测试单独通过。首次该测试因夹具缺少持久配置未启动同步而失败，补齐配置后通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/sync-run-tests.log`、`target/sync-run-identity-test.log`、`target/sync-run-clippy.log`。运行期间工作区存在并行 Markdown 改动，测试基于当时工作区；本提交不包含这些其他改动。未新增原生验收，未修改用户笔记。
