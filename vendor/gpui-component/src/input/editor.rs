@@ -33,6 +33,10 @@ pub struct Editor {
     context_menu_builder: Option<Rc<dyn Fn(NativeMenu, &mut Window, &mut App) -> NativeMenu>>,
 
     paste_handler: Option<Rc<dyn Fn(&gpui::ClipboardItem, &mut Window, &mut App) -> bool>>,
+
+    /// Drop the default multi-line padding so the text column lines up with a
+    /// view that supplies its own inset.
+    flush: bool,
 }
 
 impl Editor {
@@ -50,6 +54,7 @@ impl Editor {
             aria_label: None,
             context_menu_builder: None,
             paste_handler: None,
+            flush: false,
         }
     }
 
@@ -125,6 +130,15 @@ impl Editor {
         self.paste_handler = Some(Rc::new(handler));
         self
     }
+
+    /// Remove the default multi-line padding.
+    ///
+    /// The text then starts at the editor's own edge, so a surrounding layout
+    /// can give the editing column the same inset as a reading view.
+    pub fn flush(mut self, flush: bool) -> Self {
+        self.flush = flush;
+        self
+    }
 }
 
 impl Styled for Editor {
@@ -158,6 +172,7 @@ impl RenderOnce for Editor {
             .when_some(self.paste_handler, |this, handler| {
                 this.on_paste(move |item, window, cx| handler(item, window, cx))
             })
+            .flush(self.flush)
             .refine_style(&self.style)
     }
 }
