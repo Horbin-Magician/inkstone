@@ -3487,3 +3487,124 @@ fn component_ime_utf16_commit_cancel_and_source_preservation(cx: &mut TestAppCon
         })
         .unwrap();
 }
+
+#[gpui::test]
+fn ime_rebases_markdown_overlays_through_preedit_commit_and_cancel(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = "文本😀
+
+* bullet
+
+> quote
+
+---
+
+- [ ] task
+";
+    let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+    let insertion = "文本😀".len();
+    handle
+        .update(cx, |p, _, cx| {
+            p.editor
+                .update(cx, |s, cx| s.set_selected_range(insertion..insertion, cx));
+            p.update_presentation(cx);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    for _ in 0..4 {
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+    }
+    let bullet = source.find('*').unwrap();
+    let quote = source.find('>').unwrap();
+    let rule = source.find("---").unwrap();
+    let task = source.find("- [ ]").unwrap();
+    let original_bounds: Vec<_> = [
+        format!("live-list-{bullet}"),
+        format!("live-quote-{quote}"),
+        format!("live-rule-{rule}"),
+        format!("live-task-{}", task + 3),
+    ]
+    .iter()
+    .map(|id| visual.debug_bounds(id.clone().leak()).unwrap())
+    .collect();
+    for preedit in ["n", "ni", "你", "你好😀", ""] {
+        handle
+            .update(&mut visual, |p, w, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.replace_and_mark_text_in_range(None, preedit, None, w, cx)
+                });
+                p.update_presentation(cx);
+                let shift = preedit.len();
+                assert_eq!(p.live_lists, vec![bullet + shift..bullet + shift + 1]);
+                assert_eq!(p.live_rules, vec![rule + shift..rule + shift + 3]);
+                assert_eq!(p.live_quotes[0].start, quote + shift);
+                assert_eq!(p.live_tasks[0].range, task + shift..task + shift + 5);
+            })
+            .unwrap();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        for (id, expected) in [
+            format!("live-list-{}", bullet + preedit.len()),
+            format!("live-quote-{}", quote + preedit.len()),
+            format!("live-rule-{}", rule + preedit.len()),
+            format!("live-task-{}", task + 3),
+        ]
+        .iter()
+        .zip(&original_bounds)
+        {
+            assert_eq!(
+                visual.debug_bounds(id.clone().leak()).unwrap(),
+                *expected,
+                "{id}: {preedit}"
+            );
+        }
+    }
+    handle
+        .update(&mut visual, |p, w, cx| {
+            assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            p.editor.update(cx, |s, cx| {
+                s.replace_and_mark_text_in_range(None, "ni", None, w, cx);
+                s.replace_text_in_range(None, "你", w, cx);
+            });
+            p.update_presentation(cx);
+            assert_eq!(p.live_lists[0].start, bullet + "你".len());
+            assert_eq!(p.live_tasks[0].range.start, task + "你".len());
+        })
+        .unwrap();
+}
+
+#[gpui::test]
+fn ime_inside_quote_rebases_border_after_batched_updates(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = "> 引用正文\n\n* 后续列表\n";
+    let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+    handle
+        .update(cx, |p, _, cx| {
+            p.editor.update(cx, |s, cx| s.set_selected_range(8..8, cx));
+            p.update_presentation(cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |p, w, cx| {
+            p.update_presentation(cx);
+            let quote = p.live_quotes[0].clone();
+            let bullet = p.live_lists[0].clone();
+            p.editor.update(cx, |s, cx| {
+                s.replace_and_mark_text_in_range(None, "n", None, w, cx);
+                s.replace_and_mark_text_in_range(None, "ni", None, w, cx);
+                s.replace_and_mark_text_in_range(None, "你好😀", None, w, cx);
+            });
+            p.update_presentation(cx);
+            let shift = "你好😀".len();
+            assert_eq!(p.live_quotes[0], quote.start..quote.end + shift);
+            assert_eq!(p.live_lists[0], bullet.start + shift..bullet.end + shift);
+            p.editor.update(cx, |s, cx| {
+                s.replace_and_mark_text_in_range(None, "n", None, w, cx)
+            });
+            p.update_presentation(cx);
+            assert_eq!(p.live_quotes[0], quote.start..quote.end + 1);
+            assert_eq!(p.live_lists[0], bullet.start + 1..bullet.end + 1);
+        })
+        .unwrap();
+}

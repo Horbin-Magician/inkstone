@@ -8,6 +8,8 @@ impl EditorPane {
         if state.is_composing() {
             // The component rebases prepared objects during preedit. Keep their
             // geometry and widget resources until the candidate is committed.
+            let text = state.value();
+            self.rebase_composing_overlays(&text);
             self.last_presentation = None;
             return;
         }
@@ -131,6 +133,7 @@ impl EditorPane {
             return;
         }
         self.last_presentation = Some(key);
+        self.overlay_source = text.clone();
         let mut decorations = Vec::new();
         let mut concealed = vec![];
         let mut concealed_lines = vec![];
@@ -491,5 +494,56 @@ impl EditorPane {
         {
             self.reveal_after_concealment = true;
         }
+    }
+}
+
+impl EditorPane {
+    fn rebase_composing_overlays(&mut self, text: &SharedString) {
+        let old = &self.overlay_source;
+        if old == text {
+            return;
+        }
+        // Preedit may change several times between frames. Compare against the
+        // last displayed text, using character boundaries for UTF-8 offsets.
+        let start: usize = old
+            .chars()
+            .zip(text.chars())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum();
+        let suffix: usize = old[start..]
+            .chars()
+            .rev()
+            .zip(text[start..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum();
+        let end = old.len() - suffix;
+        let new_end = text.len() - suffix;
+        let delta = new_end as isize - end as isize;
+        let rebase = |range: &mut std::ops::Range<usize>| {
+            if range.end <= start {
+                true
+            } else if range.start >= end {
+                *range = range.start.checked_add_signed(delta).unwrap()
+                    ..range.end.checked_add_signed(delta).unwrap();
+                true
+            } else {
+                false
+            }
+        };
+        self.live_lists.retain_mut(rebase);
+        self.live_rules.retain_mut(rebase);
+        self.live_tasks.retain_mut(|task| rebase(&mut task.range));
+        // Quote borders cover the whole line, including the composing text.
+        self.live_quotes.retain_mut(|range| {
+            if range.start <= start && end <= range.end {
+                range.end = range.end.checked_add_signed(delta).unwrap();
+                true
+            } else {
+                rebase(range)
+            }
+        });
+        self.overlay_source = text.clone();
     }
 }
