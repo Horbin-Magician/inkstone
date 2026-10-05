@@ -2082,6 +2082,7 @@ impl<M: InputModeKind> TextElement<M> {
                 LineLayout::new()
                     .inline_lines(lines)
                     .wrap_indent(indent)
+                    .with_left_padding(state.display_map.line_left_padding(row))
                     .with_background(background)
                     .with_row_height(last_layout.line_height * height_scale)
             })

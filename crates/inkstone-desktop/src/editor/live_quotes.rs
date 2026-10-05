@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn inset(font_size: f32) -> Pixels {
+    px((font_size * 0.75).clamp(8., 24.) + 2.)
+}
+
 pub(super) fn overlay(
     editor: Entity<EditorState>,
     lines: Vec<std::ops::Range<usize>>,
@@ -8,12 +12,7 @@ pub(super) fn overlay(
     canvas(
         move |_, window, cx| {
             let viewport = editor.read(cx).input_bounds();
-            // Keep the rail in the pane's left inset so soft-wrapped and lazy
-            // continuation lines have the same minimum gap as the first row.
-            let inset = px((font_size * 0.75).clamp(8., 24.) + 2.);
-            let mut clip = viewport;
-            clip.origin.x -= inset;
-            clip.size.width += inset;
+            let inset = inset(font_size);
             let borders: Vec<_> = lines
                 .iter()
                 .filter_map(|range| {
@@ -24,7 +23,7 @@ pub(super) fn overlay(
                 })
                 .collect();
             let mut elements = Vec::new();
-            window.with_content_mask(Some(ContentMask { bounds: clip }), |window| {
+            window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
                 for (offset, bounds) in borders {
                     let mut border = div()
                         .id(("live-quote", offset))
@@ -42,7 +41,7 @@ pub(super) fn overlay(
                     elements.push(border);
                 }
             });
-            (elements, clip)
+            (elements, viewport)
         },
         |_, (mut elements, viewport), window, cx| {
             window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
@@ -88,6 +87,8 @@ mod tests {
         let border = visual.debug_bounds("live-quote-0").unwrap();
         handle
             .update(&mut visual, |pane, _, cx| {
+                let viewport = pane.editor.read(cx).input_bounds();
+                assert!(border.left() >= viewport.left());
                 let text = pane.editor.read(cx).range_to_bounds(&(2..2)).unwrap();
                 assert!(text.left() - border.right() >= px(pane.font_size * 0.75));
                 pane.editor
@@ -140,10 +141,9 @@ mod tests {
         assert!(visual.debug_bounds("live-quote-8").is_none());
         handle
             .update(&mut visual, |p, _, cx| {
-                assert_eq!(
-                    p.editor.read(cx).range_to_bounds(&(8..8)).unwrap(),
-                    position
-                );
+                let actual = p.editor.read(cx).range_to_bounds(&(8..8)).unwrap();
+                assert_eq!(actual.origin.x, position.origin.x - inset(p.font_size));
+                assert_eq!(actual.origin.y, position.origin.y);
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
@@ -190,7 +190,7 @@ mod tests {
             .update(&mut visual, |p, _, cx| {
                 assert_eq!(
                     p.editor.read(cx).range_to_bounds(&(2..2)).unwrap().left(),
-                    text_x
+                    text_x - inset(p.font_size)
                 );
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);
             })
@@ -216,6 +216,8 @@ mod tests {
             .update(&mut visual, |p, _, cx| {
                 assert!(border.size.height > p.editor.read(cx).line_height().unwrap() * 2.);
                 let viewport = p.editor.read(cx).input_bounds();
+                assert!(border.left() >= viewport.left());
+                assert!(border.right() <= viewport.right());
                 for (offset, _) in source[..source.find('\n').unwrap()].char_indices() {
                     let glyph = p
                         .editor

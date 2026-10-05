@@ -309,9 +309,11 @@ impl TextWrapper {
             new_text,
             &mut |line_str, wrap_width, line_start| {
                 let row = current_text.offset_to_point(line_start).row;
-                let scale =
-                    crate::input::line_typography::for_line(&typography, &current_text, row)
-                        .map_or(1., |s| s.font_scale);
+                let style =
+                    crate::input::line_typography::for_line(&typography, &current_text, row);
+                let scale = style.map_or(1., |s| s.font_scale);
+                let wrap_width =
+                    (wrap_width - style.map_or(px(0.), |s| s.left_padding)).max(px(1.));
                 let line_wrapper = wrappers
                     .entry(scale.to_bits())
                     .or_insert_with(|| text_system.line_wrapper(font.clone(), font_size * scale));
@@ -368,12 +370,12 @@ impl TextWrapper {
         rows.sort_unstable();
         rows.dedup();
         // Rich display objects reserve row height without changing text width.
-        // Rewrap only rows whose font scale changes; DisplayMap rebuilds its
+        // Rewrap only rows whose font scale or padding changes; DisplayMap rebuilds its
         // height runs separately even when the wrap tree stays untouched.
         rows.retain(|&row| {
             let scale = |styles: &[crate::input::LineTypography]| {
                 crate::input::line_typography::for_line(styles, &text, row)
-                    .map_or(1., |s| s.font_scale)
+                    .map_or((1., px(0.)), |s| (s.font_scale, s.left_padding))
             };
             scale(&self.typography) != scale(&styles)
         });
@@ -394,6 +396,10 @@ impl TextWrapper {
             self.typography =
                 crate::input::line_typography::rebase(&self.typography, text, range, len);
         }
+    }
+    pub(super) fn line_left_padding(&self, row: usize) -> Pixels {
+        crate::input::line_typography::for_line(&self.typography, &self.text, row)
+            .map_or(px(0.), |s| s.left_padding)
     }
     pub(super) fn line_scales(&self, row: usize) -> (f32, f32) {
         crate::input::line_typography::for_line(&self.typography, &self.text, row)
@@ -733,6 +739,7 @@ pub(crate) struct LineLayout {
     /// Extra left offset applied to continuation wrapped lines, used to reserve the first line's
     /// indentation when [`WrappingIndent::Same`] is used.
     pub(crate) wrap_indent: Pixels,
+    left_padding: Pixels,
     pub(crate) longest_width: Pixels,
     pub(crate) whitespace_indicators: Option<WhitespaceIndicators>,
     /// Whitespace indicators: (line_index, x_position, is_tab)
@@ -751,6 +758,7 @@ impl LineLayout {
             longest_width: px(0.),
             wrapped_lines: SmallVec::new(),
             wrap_indent: px(0.),
+            left_padding: px(0.),
             whitespace_chars: Vec::new(),
             whitespace_indicators: None,
             has_background: false,
@@ -778,15 +786,20 @@ impl LineLayout {
         self
     }
 
-    /// The pixel indent applied to the given visual line, relative to the line's
-    /// leading text. Only continuation lines (index > 0) are indented.
+    pub(crate) fn with_left_padding(mut self, padding: Pixels) -> Self {
+        self.left_padding = padding;
+        self
+    }
+
+    /// Padding applies to every visual row; wrap indentation only to continuations.
     #[inline]
     fn line_indent(&self, line_index: usize) -> Pixels {
-        if line_index == 0 {
-            px(0.)
-        } else {
-            self.wrap_indent
-        }
+        self.left_padding
+            + if line_index == 0 {
+                px(0.)
+            } else {
+                self.wrap_indent
+            }
     }
 
     pub(crate) fn lines(mut self, wrapped_lines: SmallVec<[ShapedLine; 1]>) -> Self {
@@ -1180,6 +1193,15 @@ mod tests {
             );
             assert_ne!(wrapper.line(0).unwrap() as *const LineItem, baseline);
             assert!(wrapper.len() > count);
+            wrapper.set_line_typography(
+                vec![crate::input::LineTypography::new(0..6, 1., 1.).with_left_padding(px(100.))]
+                    .into(),
+                cx,
+            );
+            assert_eq!(wrapper.line_left_padding(0), px(100.));
+            assert!(wrapper.len() > count);
+            wrapper.set_line_typography(Rc::from([]), cx);
+            assert_eq!(wrapper.len(), count);
             drop(baseline_tree);
         });
     }
@@ -1874,6 +1896,20 @@ mod tests {
         assert_eq!(
             line_layout.position_for_index(6, &last_layout, false),
             Some(point(px(20.), px(20.))),
-        )
+        );
+        let line_layout = line_layout.with_left_padding(px(14.));
+        assert_eq!(
+            line_layout.position_for_index(0, &last_layout, false),
+            Some(point(px(14.), px(0.)))
+        );
+        assert_eq!(
+            line_layout.position_for_index(6, &last_layout, false),
+            Some(point(px(34.), px(20.)))
+        );
+        assert_eq!(
+            line_layout.wrapped_line_at(point(px(40.), px(25.)), &last_layout),
+            Some((1, 5, px(6.)))
+        );
+        assert_eq!(line_layout.size(px(20.)).width, px(34.));
     }
 }

@@ -57,6 +57,9 @@ impl DisplayMap {
         self.wrap_map.set_line_typography(styles, cx);
         self.rebuild_fold_projection();
     }
+    pub(crate) fn line_left_padding(&self, row: usize) -> Pixels {
+        self.wrap_map.wrapper().line_left_padding(row)
+    }
     pub(crate) fn line_scales(&self, row: usize) -> (f32, f32) {
         self.wrap_map.wrapper().line_scales(row)
     }

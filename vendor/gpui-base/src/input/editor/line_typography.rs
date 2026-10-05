@@ -1,6 +1,6 @@
 //! Source-anchored typography for individual editor lines.
 use crate::input::{EditorMode, InputBaseState, RopeExt};
-use gpui::Context;
+use gpui::{Context, Pixels, px};
 use ropey::Rope;
 use std::{ops::Range, rc::Rc};
 use sum_tree::Bias;
@@ -10,6 +10,7 @@ pub struct LineTypography {
     pub(crate) anchor: Range<usize>,
     pub(crate) font_scale: f32,
     pub(crate) height_scale: f32,
+    pub(crate) left_padding: Pixels,
 }
 impl LineTypography {
     /// Anchor a line's font and row height to a stable source prefix.
@@ -18,13 +19,25 @@ impl LineTypography {
             anchor,
             font_scale,
             height_scale,
+            left_padding: px(0.),
         }
+    }
+    /// Inset every visual row, including soft wraps, without changing source offsets.
+    pub fn with_left_padding(mut self, padding: Pixels) -> Self {
+        self.left_padding = padding;
+        self
+    }
+
+    pub fn source_anchor(&self) -> &Range<usize> {
+        &self.anchor
     }
 }
 fn valid(text: &Rope, style: &LineTypography) -> bool {
     let r = &style.anchor;
     r.start < r.end
         && r.end <= text.len()
+        && f32::from(style.left_padding).is_finite()
+        && style.left_padding >= px(0.)
         && style.font_scale.is_finite()
         && style.height_scale.is_finite()
         && (0.25..=4.).contains(&style.font_scale)
