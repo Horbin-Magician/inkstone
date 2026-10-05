@@ -4669,6 +4669,8 @@ fn missing_link_creation_backlinks_and_search(cx: &mut TestAppContext) {
         })
         .unwrap();
     cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_millis(150));
+    cx.run_until_parked();
     handle
         .update(cx, |workspace, _, _| {
             assert_eq!(workspace.search_results.len(), 1);

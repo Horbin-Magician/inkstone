@@ -120,6 +120,7 @@ pub struct Workspace {
     search: Entity<InputState>,
     search_results: Vec<SearchHit>,
     search_revision: u64,
+    search_jobs: search::Jobs,
     fulltext: bool,
     _search_subscription: Subscription,
     _name_subscription: Subscription,
