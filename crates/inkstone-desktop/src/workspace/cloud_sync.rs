@@ -461,7 +461,7 @@ impl Workspace {
         let state = &self.ui.cloud_sync;
         let disabled = self.cloud_settings_disabled();
         div().flex().flex_1().min_h_0().child(self.settings_nav(cx)).child(
-            self.settings_content().gap_3()
+            self.settings_content().gap_3().whitespace_normal()
                 .child("云同步 · WebDAV")
                 .when(self.vault.is_none(), |s| s.child("请先打开笔记库，再配置云同步。同步配置按笔记库分别保存。"))
                 .child("在各设备填写同一个已存在的 WebDAV 目录；不同笔记库请使用不同目录。")
@@ -478,15 +478,17 @@ impl Workspace {
                         .items_center()
                         .justify_between()
                         .gap_3()
+                        .flex_shrink_0()
+                        .min_w_0()
                         .child(
-                            div().flex_1().child("自动同步").child(
+                            div().flex_1().min_w_0().child("自动同步").child(
                                 div().text_size(px(MIN_UI_FONT_SIZE)).child(
                                     "打开笔记库，以及新建、保存或删除文件后自动同步。连续修改会稍等片刻再合并同步；关闭后仅在点击“立即同步”时同步。",
                                 ),
                             ),
                         )
                         .child(
-                            super::ui::setting_switch("webdav-auto")
+                            div().flex_shrink_0().child(super::ui::setting_switch("webdav-auto")
                                 .accessibility_label("自动同步")
                                 .checked(self.ui.prefs.webdav.auto)
                                 .disabled(disabled)
@@ -507,10 +509,10 @@ impl Workspace {
                                         }
                                     }
                                     cx.notify();
-                                })),
+                                }))),
                         ),
                 )
-                .child(div().flex().gap_2()
+                .child(div().flex().flex_wrap().flex_shrink_0().gap_2()
                     .child(Button::new("webdav-save").label("保存配置").disabled(disabled).on_click(cx.listener(|this, _, _, cx| {
                         if this.save_cloud_settings(cx) {
                             let message = if this.ui.cloud_sync.password.read(cx).value().is_empty() {
