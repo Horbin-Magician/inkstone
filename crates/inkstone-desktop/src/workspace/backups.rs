@@ -126,18 +126,20 @@ impl Workspace {
         if self.ui.backup.pending.is_none() {
             return;
         }
-        if self
-            .tabs
-            .iter()
-            .any(|t| t.save.conflict.get() || t.save.error.borrow().is_some())
-            || self.ui.persist_error.is_some()
+        if self.tabs.iter().any(|t| {
+            t.save.persistence.conflict.get() || t.save.persistence.error.borrow().is_some()
+        }) || self.ui.persist_error.is_some()
         {
             self.ui.backup.pending = None;
             let detail = self
                 .ui
                 .persist_error
                 .clone()
-                .or_else(|| self.tabs.iter().find_map(|t| t.save.error.borrow().clone()))
+                .or_else(|| {
+                    self.tabs
+                        .iter()
+                        .find_map(|t| t.save.persistence.error.borrow().clone())
+                })
                 .unwrap_or_else(|| "笔记存在外部修改冲突".into());
             self.backup_message(format!("备份未开始：请先处理保存错误。{detail}"), cx);
             return;
@@ -145,15 +147,14 @@ impl Workspace {
         if self.ui.file_operation
             || self.ui.pending_file_writes > 0
             || self.ui.persisting
-            || self
-                .tabs
-                .iter()
-                .any(|t| t.save.saving.get() || self.has_pending_input(t.id, window, cx))
+            || self.tabs.iter().any(|t| {
+                t.save.persistence.saving.get() || self.has_pending_input(t.id, window, cx)
+            })
         {
             return;
         }
         self.flush_document_views(window, cx);
-        if self.tabs.iter().any(|t| t.save.dirty.get()) {
+        if self.tabs.iter().any(|t| t.save.persistence.dirty.get()) {
             // Scheduled backups wait for the user to save their edits.
             return;
         }
@@ -411,7 +412,7 @@ mod tests {
                     w.ui.persist_error,
                     w.tabs
                         .iter()
-                        .map(|t| t.save.error.borrow().clone())
+                        .map(|t| t.save.persistence.error.borrow().clone())
                         .collect::<Vec<_>>()
                 );
                 assert!(
@@ -421,7 +422,7 @@ mod tests {
                     w.ui.persist_error,
                     w.tabs
                         .iter()
-                        .map(|t| t.save.error.borrow().clone())
+                        .map(|t| t.save.persistence.error.borrow().clone())
                         .collect::<Vec<_>>()
                 );
                 w.ui.backup.output.clone().unwrap()
@@ -505,7 +506,11 @@ mod tests {
             .update(cx, |w, window, cx| {
                 w.ui.prefs.backup.directory = Some(root.clone());
                 w.ui.prefs.backup.interval_hours = 24;
-                w.tabs[w.active.unwrap()].save.conflict.set(true);
+                w.tabs[w.active.unwrap()]
+                    .save
+                    .persistence
+                    .conflict
+                    .set(true);
                 w.tick_backups(window, cx);
                 assert!(w.ui.backup.pending.is_none() && !w.ui.backup.busy);
                 assert!(w.ui.backup.message.contains("保存错误"));

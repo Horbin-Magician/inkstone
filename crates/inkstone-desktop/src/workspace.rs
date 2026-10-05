@@ -3,6 +3,7 @@ mod links;
 mod note_files;
 mod note_open;
 mod save_coordinator;
+mod save_state;
 mod saving;
 mod search;
 mod session;

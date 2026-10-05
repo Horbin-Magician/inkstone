@@ -328,3 +328,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - DraftIo 随事务协调接口集中定义，草稿后台任务仍复用同一 Mutex/序号；实际存储与冲突检测仍调用 core Vault，没有另建存储实现。
 - 新增无 GPUI 测试覆盖排队即失效、外部冲突保留原文及恢复记录、成功另存副本后清理会话自身草稿、保留其他会话草稿。完整桌面 290 项单元测试和 8 项集成测试通过，2 项原有手动基准忽略；全工作区全目标 Clippy、格式与差异检查通过。
 - 架构文档记录 Workspace/UiState/DocumentState/草稿/后台事务的所有权及尚未拆分的转换。日志 `target/save-coordinator-full.log`、`target/save-coordinator-clippy.log`。未修改用户笔记。
+
+## 保存状态：普通保存转换（2026-10-05）
+
+- 将共享文档的 baseline、dirty/saving/conflict/error 和恢复日志标记归入无 GPUI 依赖的 `SaveState`，普通编辑、开始保存、成功/失败、手动重试和另存副本通过明确方法转换；其余模块本次仅调整字段路径，冲突/重载接口后续逐个收紧。
+- 新增独立状态回归，覆盖干净文档不启动保存、共享视图不重复启动、保存期间继续输入仍 dirty、普通错误允许显式重试、冲突不能被重试绕过、另存副本清除旧基线以及成功后恢复干净状态。
+- `cargo test --locked -p inkstone-desktop`：291 单元测试 + 8 集成测试通过，2 个既有测试忽略；现有多视图、保存冲突、草稿和同步用例通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/save-state-tests.log`、`target/save-state-clippy.log`。这是自动回归记录，未新增原生 UI 验收；未修改用户笔记。

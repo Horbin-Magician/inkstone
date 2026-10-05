@@ -59,10 +59,11 @@ impl Workspace {
             return;
         };
         if !trash
-            && self
-                .tabs
-                .iter()
-                .any(|t| t.save.dirty.get() || t.save.saving.get() || t.save.conflict.get())
+            && self.tabs.iter().any(|t| {
+                t.save.persistence.dirty.get()
+                    || t.save.persistence.saving.get()
+                    || t.save.persistence.conflict.get()
+            })
         {
             self.status = "请先保存打开的笔记，再重命名并更新内部链接。".into();
             self.save_all(window, cx);
@@ -71,12 +72,15 @@ impl Workspace {
         let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == id) else {
             return;
         };
-        if tab.save.dirty.get() || tab.save.saving.get() || tab.save.conflict.get() {
+        if tab.save.persistence.dirty.get()
+            || tab.save.persistence.saving.get()
+            || tab.save.persistence.conflict.get()
+        {
             self.status = "请先保存并处理冲突，再重命名或移入回收区。".into();
             cx.notify();
             return;
         }
-        let Some(baseline) = tab.save.baseline.borrow().clone() else {
+        let Some(baseline) = tab.save.persistence.baseline.borrow().clone() else {
             return;
         };
         let mut name = requested_name;
@@ -93,7 +97,7 @@ impl Workspace {
         let id = tab.id;
         let document = tab.save.clone();
         let generation = self.generation;
-        tab.save.saving.set(true);
+        tab.save.persistence.saving.set(true);
         self.ui.file_operation = true;
         self.ui.pending_file_writes += 1;
         let task = cx.background_executor().spawn(async move {
@@ -123,14 +127,14 @@ impl Workspace {
                 else {
                     return;
                 };
-                this.tabs[index].save.saving.set(false);
+                this.tabs[index].save.persistence.saving.set(false);
                 match result {
                     Ok((true, path, _)) => {
                         let removed = this.tabs[index].path.clone();
                         this.status = format!("已移入可恢复回收区：{}", path.display());
                         this.schedule_auto_sync(true);
-                        if this.tabs[index].save.dirty.get() {
-                            this.tabs[index].save.conflict.set(true);
+                        if this.tabs[index].save.persistence.dirty.get() {
+                            this.tabs[index].save.persistence.conflict.set(true);
                             this.status
                                 .push_str("；操作期间的新编辑已保留，可另存副本。");
                         } else {

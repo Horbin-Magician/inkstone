@@ -1,17 +1,12 @@
 use gpui::{Entity, Subscription};
 use gpui_component::input::EditorState;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 /// Shared contents, history and save state, independent of any one view.
 pub(super) struct DocumentState {
     pub path: RefCell<std::path::PathBuf>,
     pub editor: Entity<EditorState>,
-    pub baseline: RefCell<Option<String>>,
-    pub dirty: Cell<bool>,
-    pub saving: Cell<bool>,
-    pub conflict: Cell<bool>,
-    pub error: RefCell<Option<String>>,
-    pub recovery_text: RefCell<String>,
+    pub persistence: super::save_state::SaveState,
     pub draft: RefCell<Option<super::drafts::DraftState>>,
     _changes: Subscription,
 }
@@ -27,12 +22,7 @@ impl DocumentState {
         Self {
             path: RefCell::new(path),
             editor,
-            baseline: RefCell::new(baseline),
-            dirty: Cell::new(dirty),
-            saving: Cell::new(false),
-            conflict: Cell::new(false),
-            error: RefCell::new(None),
-            recovery_text: RefCell::new(String::new()),
+            persistence: super::save_state::SaveState::new(baseline, dirty),
             draft: RefCell::new(None),
             _changes: changes,
         }
@@ -86,9 +76,7 @@ impl Workspace {
             return;
         }
         let text = owner.read(cx).value();
-        document
-            .dirty
-            .set(document.baseline.borrow().as_deref() != Some(text.as_ref()));
+        document.persistence.edited(text.as_ref());
         let mut sources = Vec::new();
         for tab in self
             .tabs

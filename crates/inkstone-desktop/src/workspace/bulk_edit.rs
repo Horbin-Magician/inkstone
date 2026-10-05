@@ -115,9 +115,9 @@ impl Workspace {
         if self.ui.file_operation
             || self.ui.pending_file_writes > 0
             || self.tabs.iter().any(|t| {
-                t.save.dirty.get()
-                    || t.save.saving.get()
-                    || t.save.conflict.get()
+                t.save.persistence.dirty.get()
+                    || t.save.persistence.saving.get()
+                    || t.save.persistence.conflict.get()
                     || self.has_pending_input(t.id, window, cx)
             })
         {
@@ -241,11 +241,11 @@ impl Workspace {
         }
         let stale = edits.iter().any(|e| {
             self.tabs.iter().filter(|t| t.path == e.path).any(|t| {
-                t.save.saving.get()
-                    || t.save.conflict.get()
+                t.save.persistence.saving.get()
+                    || t.save.persistence.conflict.get()
                     || self.has_pending_input(t.id, window, cx)
                     || t.save.editor.read(cx).value().as_ref() != e.before
-                    || t.save.baseline.borrow().as_deref() != Some(e.before.as_str())
+                    || t.save.persistence.baseline.borrow().as_deref() != Some(e.before.as_str())
             })
         });
         if stale {
@@ -277,9 +277,9 @@ impl Workspace {
             for edit in &result.written {
                 if let Some(tab)=this.tabs.iter().find(|t|t.path==edit.path){
                     let document=tab.save.clone();let pending=this.has_pending_input(tab.id,w,cx);
-                    if pending||document.editor.read(cx).value().as_ref()!=edit.before||document.baseline.borrow().as_deref()!=Some(edit.before.as_str()){
-                        document.conflict.set(true);document.dirty.set(true);conflicts+=1;
-                    }else{document.baseline.replace(Some(edit.after.clone()));document.editor.update(cx,|s,cx|{let range=s.selected_range();s.replace_all(&edit.after,w,cx);s.set_selected_range(range,cx);});changed.push(document.editor.clone());}
+                    if pending||document.editor.read(cx).value().as_ref()!=edit.before||document.persistence.baseline.borrow().as_deref()!=Some(edit.before.as_str()){
+                        document.persistence.conflict.set(true);document.persistence.dirty.set(true);conflicts+=1;
+                    }else{document.persistence.baseline.replace(Some(edit.after.clone()));document.editor.update(cx,|s,cx|{let range=s.selected_range();s.replace_all(&edit.after,w,cx);s.set_selected_range(range,cx);});changed.push(document.editor.clone());}
                 }
             }
             for editor in changed{this.document_changed(editor,w,cx);}
@@ -382,7 +382,7 @@ mod tests {
                     w.tabs[0].save.editor.read(cx).value().as_ref(),
                     "typed while applying"
                 );
-                assert!(w.tabs[0].save.conflict.get());
+                assert!(w.tabs[0].save.persistence.conflict.get());
                 assert_eq!(w.ui.pending_file_writes, 0);
                 assert!(
                     w.ui.bulk_edit

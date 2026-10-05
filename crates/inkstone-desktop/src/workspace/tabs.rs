@@ -367,16 +367,16 @@ impl Workspace {
             return;
         }
         let tab = &self.tabs[index];
-        tab.save.dirty.set(
-            tab.save.baseline.borrow().as_deref()
+        tab.save.persistence.dirty.set(
+            tab.save.persistence.baseline.borrow().as_deref()
                 != Some(tab.save.editor.read(cx).value().as_ref()),
         );
-        if tab.save.conflict.get() || tab.save.error.borrow().is_some() {
+        if tab.save.persistence.conflict.get() || tab.save.persistence.error.borrow().is_some() {
             self.status = "请先处理保存错误或另存副本，再关闭标签。".into();
             cx.notify();
             return;
         }
-        if tab.save.dirty.get() || tab.save.saving.get() {
+        if tab.save.persistence.dirty.get() || tab.save.persistence.saving.get() {
             self.ui.close_pending.insert(tab.id);
             self.status = "正在保存，成功后关闭标签…".into();
             self.save_all(window, cx);
@@ -461,10 +461,10 @@ impl Workspace {
             .enumerate()
             .filter(|(_, t)| {
                 self.ui.close_pending.contains(&t.id)
-                    && !t.save.dirty.get()
-                    && !t.save.saving.get()
-                    && !t.save.conflict.get()
-                    && t.save.error.borrow().is_none()
+                    && !t.save.persistence.dirty.get()
+                    && !t.save.persistence.saving.get()
+                    && !t.save.persistence.conflict.get()
+                    && t.save.persistence.error.borrow().is_none()
                     && !t.pinned
                     && !self.has_pending_input(t.id, window, cx)
             })
