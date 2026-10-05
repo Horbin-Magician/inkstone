@@ -4786,7 +4786,13 @@ fn recovery_opens_exact_draft_as_new_note_without_overwriting_original(cx: &mut 
     handle
         .update(cx, |workspace, window, cx| {
             assert_eq!(workspace.recoveries.len(), 1);
-            workspace.restore_draft(0, window, cx);
+            workspace.review_draft(0, window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |workspace, window, cx| {
+            workspace.finish_draft_review(false, window, cx);
         })
         .unwrap();
     cx.run_until_parked();
@@ -4811,10 +4817,9 @@ fn recovery_opens_exact_draft_as_new_note_without_overwriting_original(cx: &mut 
         original
     );
     assert!(
-        journal.exists(),
-        "restoring must preserve the original recovery journal"
+        !journal.exists(),
+        "successful recovery retires only the selected draft"
     );
-    std::fs::remove_file(journal).unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
 

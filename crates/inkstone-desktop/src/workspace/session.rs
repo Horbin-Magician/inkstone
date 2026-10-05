@@ -359,6 +359,12 @@ impl Workspace {
                         this.tabs.clear();
                         this.active = None;
                         this.status = preference_warning.unwrap_or_default();
+                        if !this.recoveries.is_empty() {
+                            this.status.push_str(&format!(
+                                " 检测到 {} 条未保存草稿，可在命令面板的“查看回收站”中比较、恢复副本或放弃。",
+                                this.recoveries.len()
+                            ));
+                        }
                         this.loading = true;
                         let mut restored_active = None;
                         let saved_views = this.ui.prefs.views.clone();
