@@ -34,6 +34,12 @@ pub(super) fn preview_text(text: &str) -> String {
 }
 
 impl Workspace {
+    pub(super) fn reviewing_draft(&self) -> bool {
+        self.ui
+            .history
+            .as_ref()
+            .is_some_and(|b| b.draft_entry.is_some())
+    }
     pub(super) fn review_draft(
         &mut self,
         index: usize,
@@ -350,6 +356,7 @@ impl Workspace {
         .clone();
         let current = browser.current.clone();
         let difference = browser.difference;
+        let draft_review = browser.draft_entry.is_some();
         browser.loading = true;
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
@@ -357,7 +364,12 @@ impl Workspace {
         let task = cx.background_executor().spawn(async move {
             if difference {
                 if text.as_str() == current.as_ref() {
-                    return "与打开历史时的当前正文一致。".to_string();
+                    return if draft_review {
+                        "与打开比较时的磁盘正文一致。"
+                    } else {
+                        "与打开历史时的当前正文一致。"
+                    }
+                    .to_string();
                 }
                 let diff = similar::TextDiff::configure()
                     .timeout(Duration::from_millis(100))
@@ -366,7 +378,18 @@ impl Workspace {
                     &diff
                         .unified_diff()
                         .context_radius(3)
-                        .header("所选历史版本", "打开历史时的当前正文")
+                        .header(
+                            if draft_review {
+                                "所选草稿"
+                            } else {
+                                "所选历史版本"
+                            },
+                            if draft_review {
+                                "打开比较时的磁盘正文"
+                            } else {
+                                "打开历史时的当前正文"
+                            },
+                        )
                         .to_string(),
                 )
             } else {
