@@ -102,7 +102,7 @@ impl Workspace {
         }
         self.snapshot_views(cx);
         self.prepare_cloud_sync_for_close(window, cx);
-        let pending = self.ui.cloud_sync.pending
+        let pending = self.ui.cloud_sync.is_pending()
             || self.ui.backup.pending.is_some()
             || self.ui.pending_file_writes > usize::from(self.ui.cloud_sync.is_busy())
             || self.tabs.iter().any(|t| {

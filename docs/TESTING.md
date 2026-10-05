@@ -356,3 +356,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 既有 UI 测试中的人工故障注入迁移到 `#[cfg(test)]` 接口，生产构建不提供这些入口；不改变原测试的故障条件。本次没有新增仅重复访问器实现的测试。
 - `cargo test --locked -p inkstone-desktop`：295 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`，同时检查生产与测试目标）、格式及 diff 检查通过。
 - 日志：`target/save-private-tests.log`、`target/save-private-clippy.log`。未新增原生 UI 验收；未修改用户笔记。同步生命周期和设置/通知/UI 模块仍待后续拆分。
+
+## 同步调度：独立队列策略（2026-10-05）
+
+- 从 cloud_sync 提取无 GPUI 依赖的 `Schedule<W>`，集中自动/手动排队、合并、重试、运行中后续请求、等待取消及禁用自动同步的规则。窗口层创建泛型计时器句柄，策略返回等待/重排动作；切库/账户重置释放旧句柄。
+- 新增三项独立策略回归：计时器替换、手动覆盖和重置准确释放句柄；手动请求不被自动触发延迟；失败后新修改不缩短重试；运行中后续修改在完成后继续；取消排队不提前释放 busy。原有离线恢复、运行中取消、切库、未保存内容等待等桌面回归同时通过。
+- `cargo test --locked -p inkstone-desktop`：298 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/sync-policy-tests.log`、`target/sync-policy-clippy.log`。进度、取消令牌、后台任务和全局写入计数仍由窗口适配层协调，不将本提交描述为全部服务拆分完成。未新增原生验收，未修改用户笔记。
