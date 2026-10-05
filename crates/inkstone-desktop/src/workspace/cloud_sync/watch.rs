@@ -68,9 +68,9 @@ impl Workspace {
         let state = &mut self.ui.cloud_sync;
         if self.loading
             || self.ui.file_operation
-            || state.busy
-            || state.pending
-            || state.again
+            || state.schedule.busy
+            || state.schedule.pending
+            || state.schedule.again
             || state.watch.checking
             || state.watch.due.is_none_or(|due| now < due)
         {
@@ -120,7 +120,7 @@ impl Workspace {
                             cx,
                         );
                         this.schedule_auto_sync(false);
-                        this.ui.cloud_sync.defer_retry = true;
+                        this.ui.cloud_sync.schedule.defer_retry();
                     }
                 }
             });

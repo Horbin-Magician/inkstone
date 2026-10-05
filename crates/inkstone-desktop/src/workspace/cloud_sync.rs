@@ -1,3 +1,5 @@
+mod schedule;
+use schedule::{Pump, Schedule, WaitKind};
 mod watch;
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
@@ -13,12 +15,6 @@ type ProgressSlot = Arc<Mutex<Option<Progress>>>;
 const AUTO_SYNC_QUIET: Duration = Duration::from_secs(3);
 /// Back off after a failed automatic attempt. Manual sync is not delayed.
 const AUTO_SYNC_RETRY: Duration = Duration::from_secs(60);
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WaitKind {
-    Quiet,
-    Retry,
-}
 
 fn progress_message(progress: &Progress) -> String {
     let phase = match progress.phase {
@@ -59,17 +55,7 @@ pub(super) struct State {
     url: Entity<InputState>,
     username: Entity<InputState>,
     password: Entity<InputState>,
-    pub pending: bool,
-    /// Set when a sync was queued by opening the vault or a local file change.
-    automatic: bool,
-    /// Local files changed while a sync was running, or the last attempt failed.
-    again: bool,
-    /// A quiet or retry timer is waiting to be armed on the next workspace tick.
-    defer_quiet: bool,
-    defer_retry: bool,
-    /// Executor timer so tests can advance it and a burst of edits coalesces.
-    wait: Option<(WaitKind, Task<()>)>,
-    busy: bool,
+    schedule: Schedule<Task<()>>,
     cancellation: Option<Arc<sync::Cancellation>>,
     message: String,
     last_success: Option<u64>,
@@ -80,13 +66,6 @@ pub(super) struct State {
     watch: watch::Watch,
 }
 impl State {
-    fn retry_waiting(&self) -> bool {
-        self.defer_retry
-            || self
-                .wait
-                .as_ref()
-                .is_some_and(|(kind, _)| *kind == WaitKind::Retry)
-    }
     fn scheduling_label(&self) -> &'static str {
         if self
             .cancellation
@@ -94,17 +73,17 @@ impl State {
             .is_some_and(|token| token.is_requested())
         {
             "正在取消，等待已发出的请求结束"
-        } else if self.busy {
-            if self.again {
+        } else if self.schedule.busy {
+            if self.schedule.again {
                 "同步进行中；后续变更已排队"
             } else {
                 "正在处理同步请求"
             }
-        } else if self.retry_waiting() {
+        } else if self.schedule.retry_waiting() {
             "等待自动重试（间隔 60 秒）；可点击立即同步"
-        } else if self.defer_quiet || self.wait.is_some() {
+        } else if self.schedule.defer_quiet || self.schedule.wait.is_some() {
             "正在合并连续修改，稍后同步"
-        } else if self.pending || self.again {
+        } else if self.schedule.pending || self.schedule.again {
             "同步已排队，等待保存或文件操作完成"
         } else if self.watch.has_work() {
             "正在等待或检查外部文件变更"
@@ -112,8 +91,11 @@ impl State {
             "当前没有同步任务"
         }
     }
+    pub(super) fn is_pending(&self) -> bool {
+        self.schedule.pending
+    }
     pub(super) fn is_busy(&self) -> bool {
-        self.busy
+        self.schedule.busy
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
@@ -125,13 +107,7 @@ impl State {
                 input.set_masked(true, window, cx);
                 input
             }),
-            pending: false,
-            automatic: false,
-            again: false,
-            defer_quiet: false,
-            defer_retry: false,
-            wait: None,
-            busy: false,
+            schedule: Schedule::default(),
             cancellation: None,
             message: String::new(),
             last_success: None,
@@ -158,12 +134,7 @@ impl Workspace {
     /// Cancel only queued work; an active transfer keeps its lifetime/protection.
     pub(super) fn cancel_queued_sync(&mut self) {
         let state = &mut self.ui.cloud_sync;
-        state.pending = false;
-        state.automatic = false;
-        state.again = false;
-        state.defer_quiet = false;
-        state.defer_retry = false;
-        state.wait = None;
+        state.schedule.cancel_queued();
         state.remote_check = Default::default();
         state.watch.reset();
     }
@@ -175,9 +146,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.ui.cloud_sync.wait = None;
-        self.ui.cloud_sync.defer_quiet = false;
-        self.ui.cloud_sync.defer_retry = false;
+        self.ui.cloud_sync.schedule.force_ready();
         self.tick_cloud_sync(window, cx);
     }
 
@@ -185,7 +154,7 @@ impl Workspace {
         let state = &self.ui.cloud_sync;
         // An automatic attempt may wait for saves, a quiet period, or a retry.
         // Keep configuration and manual actions available during that wait.
-        self.vault.is_none() || self.loading || state.busy
+        self.vault.is_none() || self.loading || state.schedule.busy
     }
 
     pub(super) fn apply_cloud_secret(
@@ -197,13 +166,7 @@ impl Workspace {
         let state = &mut self.ui.cloud_sync;
         state.remote_check = Default::default();
         state.watch.reset();
-        state.pending = false;
-        state.automatic = false;
-        state.again = false;
-        state.defer_quiet = false;
-        state.defer_retry = false;
-        state.wait = None;
-        state.busy = false;
+        state.schedule = Schedule::default();
         state.cancellation = None;
         state.message.clear();
         state.progress = None;
@@ -242,7 +205,7 @@ impl Workspace {
             && self.ui.prefs.webdav.auto
             && !self.ui.prefs.webdav.url.trim().is_empty();
         let state = &mut self.ui.cloud_sync;
-        let queued = state.pending || state.busy || state.again || state.defer_retry;
+        let queued = state.schedule.queued();
         if state.remote_check.poll(
             now,
             enabled,
@@ -256,38 +219,28 @@ impl Workspace {
     /// Arm quiet and retry timers, then resume a sync deferred by an in-flight attempt.
     pub(super) fn pump_auto_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.poll_remote_checks(std::time::Instant::now(), window.is_window_active());
-        if self.ui.cloud_sync.defer_quiet {
-            self.ui.cloud_sync.defer_quiet = false;
-            self.ui.cloud_sync.defer_retry = false;
-            self.start_auto_wait(WaitKind::Quiet, window, cx);
-        } else if self.ui.cloud_sync.defer_retry && self.ui.cloud_sync.wait.is_none() {
-            self.ui.cloud_sync.defer_retry = false;
-            self.start_auto_wait(WaitKind::Retry, window, cx);
-        } else if self.ui.cloud_sync.again
-            && !self.ui.cloud_sync.busy
-            && self.ui.cloud_sync.wait.is_none()
-        {
-            self.ui.cloud_sync.again = false;
-            self.schedule_auto_sync(false);
+        match self.ui.cloud_sync.schedule.pump() {
+            Pump::Wait(kind) => self.start_auto_wait(kind, window, cx),
+            Pump::Reschedule => self.schedule_auto_sync(false),
+            Pump::Idle => {}
         }
     }
+
     fn start_auto_wait(&mut self, kind: WaitKind, window: &mut Window, cx: &mut Context<Self>) {
         // Replacing the previous task cancels it, so another edit extends the quiet period.
         let delay = match kind {
             WaitKind::Quiet => AUTO_SYNC_QUIET,
             WaitKind::Retry => AUTO_SYNC_RETRY,
         };
-        self.ui.cloud_sync.wait = Some((
-            kind,
-            cx.spawn_in(window, async move |this, cx| {
-                cx.background_executor().timer(delay).await;
-                let _ = this.update_in(cx, |this, window, cx| {
-                    this.ui.cloud_sync.wait = None;
-                    this.pump_auto_sync(window, cx);
-                    this.tick_cloud_sync(window, cx);
-                });
-            }),
-        ));
+        let handle = cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.ui.cloud_sync.schedule.elapsed();
+                this.pump_auto_sync(window, cx);
+                this.tick_cloud_sync(window, cx);
+            });
+        });
+        self.ui.cloud_sync.schedule.set_wait(kind, handle);
         cx.notify();
     }
     /// Queue a sync after the vault opens, or after a local create, save, or delete.
@@ -297,20 +250,9 @@ impl Workspace {
         if !self.ui.prefs.webdav.auto || self.ui.prefs.webdav.url.trim().is_empty() {
             return;
         }
-        let state = &mut self.ui.cloud_sync;
-        if state.busy {
-            state.again = true;
-            return;
-        }
-        if state.pending && !state.automatic {
-            return;
-        }
-        state.pending = true;
-        state.automatic = true;
-        if quiet && !state.retry_waiting() {
-            state.defer_quiet = true;
-        }
+        self.ui.cloud_sync.schedule.automatic(quiet);
     }
+
     fn cloud_message(&mut self, message: String, cx: &mut Context<Self>) {
         self.status = message.clone();
         self.ui.cloud_sync.message = message;
@@ -436,7 +378,7 @@ impl Workspace {
         let settings = self.ui.prefs.webdav.clone();
         let password = self.ui.cloud_sync.password.read(cx).value().to_string();
         self.ui.cloud_sync.watch.epoch = self.ui.cloud_sync.watch.epoch.wrapping_add(1);
-        self.ui.cloud_sync.busy = true;
+        self.ui.cloud_sync.schedule.start_connection_test();
         self.ui.pending_file_writes += 1;
         self.cloud_message("正在测试 WebDAV 连接……".into(), cx);
         let generation = self.generation;
@@ -451,7 +393,7 @@ impl Workspace {
                 if this.generation != generation {
                     return;
                 }
-                this.ui.cloud_sync.busy = false;
+                this.ui.cloud_sync.schedule.finish();
                 this.cloud_message(
                     match result {
                         Ok(()) => "WebDAV 连接成功。读写权限与并发保护将在同步时检查。".into(),
@@ -464,33 +406,21 @@ impl Workspace {
         .detach();
     }
     fn request_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.vault.is_none() || self.loading || self.ui.cloud_sync.busy {
+        if self.vault.is_none() || self.loading || self.ui.cloud_sync.schedule.busy {
             return;
         }
-        if self.ui.cloud_sync.pending && !self.ui.cloud_sync.automatic {
+        if self.ui.cloud_sync.schedule.pending && !self.ui.cloud_sync.schedule.automatic {
             return;
         }
         if !self.save_cloud_settings(cx) {
             return;
         }
-        self.ui.cloud_sync.pending = true;
-        self.ui.cloud_sync.automatic = false;
-        self.ui.cloud_sync.again = false;
-        self.ui.cloud_sync.defer_quiet = false;
-        self.ui.cloud_sync.defer_retry = false;
-        self.ui.cloud_sync.wait = None;
+        self.ui.cloud_sync.schedule.manual();
         self.cloud_message("等待笔记手动保存后开始同步……".into(), cx);
         self.tick_cloud_sync(window, cx);
     }
     pub(super) fn tick_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.ui.cloud_sync.pending || self.ui.cloud_sync.busy || self.loading {
-            return;
-        }
-        if self.ui.cloud_sync.automatic
-            && (self.ui.cloud_sync.wait.is_some()
-                || self.ui.cloud_sync.defer_quiet
-                || self.ui.cloud_sync.defer_retry)
-        {
+        if !self.ui.cloud_sync.schedule.ready() || self.loading {
             return;
         }
         if self
@@ -499,15 +429,10 @@ impl Workspace {
             .any(|t| t.save.persistence.has_conflict() || t.save.persistence.error().is_some())
             || self.ui.persist_error.is_some()
         {
-            self.ui.cloud_sync.pending = false;
-            self.ui.cloud_sync.automatic = false;
-            self.ui.cloud_sync.defer_quiet = false;
-            self.ui.cloud_sync.wait = None;
-            if self.ui.prefs.webdav.auto {
-                // Keep retrying after the conflict or save error is resolved.
-                self.ui.cloud_sync.again = true;
-                self.ui.cloud_sync.defer_retry = true;
-            }
+            self.ui
+                .cloud_sync
+                .schedule
+                .blocked(self.ui.prefs.webdav.auto);
             self.cloud_message("同步未开始：请先处理笔记冲突或保存错误。".into(), cx);
             return;
         }
@@ -546,20 +471,13 @@ impl Workspace {
             return;
         }
         let Some(vault) = self.vault.clone() else {
-            self.ui.cloud_sync.pending = false;
-            self.ui.cloud_sync.automatic = false;
+            self.ui.cloud_sync.schedule.clear_request();
             return;
         };
         let settings = self.ui.prefs.webdav.clone();
         let password = self.ui.cloud_sync.password.read(cx).value().to_string();
-        self.ui.cloud_sync.pending = false;
-        self.ui.cloud_sync.automatic = false;
-        self.ui.cloud_sync.again = false;
-        self.ui.cloud_sync.defer_quiet = false;
-        self.ui.cloud_sync.defer_retry = false;
-        self.ui.cloud_sync.wait = None;
+        self.ui.cloud_sync.schedule.start();
         self.ui.cloud_sync.watch.epoch = self.ui.cloud_sync.watch.epoch.wrapping_add(1);
-        self.ui.cloud_sync.busy = true;
         self.ui.file_operation = true;
         self.ui.pending_file_writes += 1;
         self.cloud_message("正在连接并准备云端目录……".into(), cx);
@@ -593,7 +511,7 @@ impl Workspace {
                 let running = this
                     .update(cx, |this, cx| {
                         if this.generation != generation
-                            || !this.ui.cloud_sync.busy
+                            || !this.ui.cloud_sync.schedule.busy
                             || !this
                                 .ui
                                 .cloud_sync
@@ -622,7 +540,7 @@ impl Workspace {
                     .is_some_and(|token| token.is_requested()) && result.is_err();
                 if cancelled { this.cancel_queued_sync(); }
                 this.ui.file_operation = false;
-                this.ui.cloud_sync.busy = false;
+                this.ui.cloud_sync.schedule.finish();
                 this.ui.cloud_sync.progress = None;
                 this.ui.cloud_sync.progress_slot = None;
                 let message = match &result {
@@ -638,16 +556,14 @@ impl Workspace {
                     Err(error) => format!("同步未完成：{error}。已完成的传输会保留，可重试。"),
                 };
                 if result.is_err() && !cancelled && this.ui.prefs.webdav.auto {
-                    this.ui.cloud_sync.again = true;
-                    this.ui.cloud_sync.defer_retry = true;
+                    this.ui.cloud_sync.schedule.retry();
                 }
                 this.cloud_message(message, cx);
                 // Even a partially completed sync can have changed files. Refresh open
                 // documents through the existing external-change/conflict mechanism.
                 this.rescan = true;
                 this.refresh_requested = true;
-                if this.ui.cloud_sync.again {
-                    this.ui.cloud_sync.again = false;
+                if this.ui.cloud_sync.schedule.take_again() {
                     this.schedule_auto_sync(false);
                     this.tick_cloud_sync(window, cx);
                 }
@@ -697,14 +613,7 @@ impl Workspace {
                                         this.schedule_auto_sync(false);
                                         this.tick_cloud_sync(window, cx);
                                     } else {
-                                        this.ui.cloud_sync.again = false;
-                                        this.ui.cloud_sync.defer_quiet = false;
-                                        this.ui.cloud_sync.defer_retry = false;
-                                        this.ui.cloud_sync.wait = None;
-                                        if this.ui.cloud_sync.automatic {
-                                            this.ui.cloud_sync.pending = false;
-                                            this.ui.cloud_sync.automatic = false;
-                                        }
+                                        this.ui.cloud_sync.schedule.disable_automatic();
                                     }
                                     cx.notify();
                                 }))),
@@ -722,13 +631,13 @@ impl Workspace {
                         }
                     })))
                     .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
-                    .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
+                    .child(Button::new("webdav-sync").primary().label(if state.schedule.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
                 .when(state.cancellation.is_some(), |s| s.child(
                     Button::new("webdav-cancel-running").label("取消本次同步")
                         .disabled(state.cancellation.as_ref().is_some_and(|token| token.is_requested()))
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_running_sync(cx)))
                 ))
-                .when(!state.busy && (state.pending || state.again || state.wait.is_some() || state.watch.has_work()), |s| s.child(
+                .when(!state.schedule.busy && (state.schedule.pending || state.schedule.again || state.schedule.wait.is_some() || state.watch.has_work()), |s| s.child(
                     Button::new("webdav-cancel-wait").label("取消本次同步等待")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.cancel_queued_sync();
@@ -813,13 +722,13 @@ mod tests {
         }
         handle
             .update(cx, |w, window, cx| {
-                w.ui.cloud_sync.pending = true;
-                w.ui.cloud_sync.automatic = true;
+                w.ui.cloud_sync.schedule.pending = true;
+                w.ui.cloud_sync.schedule.automatic = true;
                 w.tick_cloud_sync(window, cx);
                 assert!(!w.tabs[0].save.persistence.is_saving());
-                assert!(w.ui.cloud_sync.pending);
-                w.ui.cloud_sync.pending = false;
-                w.ui.cloud_sync.automatic = false;
+                assert!(w.ui.cloud_sync.schedule.pending);
+                w.ui.cloud_sync.schedule.pending = false;
+                w.ui.cloud_sync.schedule.automatic = false;
                 w.ui.backup.pending = Some(root.with_extension("backup"));
                 w.tick_backups(window, cx);
                 assert!(!w.tabs[0].save.persistence.is_saving());
@@ -864,9 +773,9 @@ mod tests {
         for waiting in [false, true] {
             handle
                 .update(&mut visual, |w, _, _| {
-                    w.ui.cloud_sync.pending = waiting;
-                    w.ui.cloud_sync.automatic = waiting;
-                    w.ui.cloud_sync.defer_quiet = waiting;
+                    w.ui.cloud_sync.schedule.pending = waiting;
+                    w.ui.cloud_sync.schedule.automatic = waiting;
+                    w.ui.cloud_sync.schedule.defer_quiet = waiting;
                 })
                 .unwrap();
             for (index, value) in [(4, "https://example.test/dav/"), (6, "user"), (8, "secret")] {
@@ -910,7 +819,7 @@ mod tests {
         handle
             .update(&mut visual, |w, _, _| {
                 assert!(!w.ui.prefs.webdav.auto);
-                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.schedule.pending);
             })
             .unwrap();
 
@@ -919,18 +828,18 @@ mod tests {
         handle
             .update(&mut visual, |w, window, cx| {
                 configured(w, &server.url, true, window, cx);
-                w.ui.cloud_sync.pending = true;
-                w.ui.cloud_sync.automatic = true;
-                w.ui.cloud_sync.defer_quiet = true;
+                w.ui.cloud_sync.schedule.pending = true;
+                w.ui.cloud_sync.schedule.automatic = true;
+                w.ui.cloud_sync.schedule.defer_quiet = true;
                 w.test_cloud_connection(cx);
-                assert!(w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.schedule.busy);
                 assert_eq!(w.ui.prefs.webdav.url, server.url);
             })
             .unwrap();
         visual.run_until_parked();
         handle
             .update(&mut visual, |w, _, _| {
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 assert!(w.ui.cloud_sync.message.starts_with("WebDAV 连接成功"));
             })
             .unwrap();
@@ -949,7 +858,7 @@ mod tests {
                     total: 8,
                     bytes: 2 * 1024 * 1024,
                 })));
-                w.ui.cloud_sync.busy = true;
+                w.ui.cloud_sync.schedule.busy = true;
                 w.ui.cloud_sync.progress_slot = Some(slot.clone());
                 w.poll_cloud_progress(cx);
                 assert!(w.ui.cloud_sync.message.contains("3/8"));
@@ -1139,8 +1048,8 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 w.tick_cloud_sync(window, cx);
-                assert!(w.ui.cloud_sync.pending);
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.schedule.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 assert!(w.ui.cloud_sync.message.contains("等待手动保存"));
                 assert_eq!(
                     std::fs::read_to_string(root.join("local/note.md")).unwrap(),
@@ -1159,7 +1068,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert!(
-                    !w.ui.cloud_sync.busy && !w.ui.cloud_sync.pending,
+                    !w.ui.cloud_sync.schedule.busy && !w.ui.cloud_sync.schedule.pending,
                     "{}",
                     w.ui.cloud_sync.message
                 );
@@ -1208,9 +1117,9 @@ mod tests {
                     .is_none()
                 );
                 w.ui.persist_error = Some("disk full".into());
-                w.ui.cloud_sync.pending = true;
+                w.ui.cloud_sync.schedule.pending = true;
                 w.tick_cloud_sync(window, cx);
-                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.schedule.pending);
                 assert!(w.ui.cloud_sync.message.starts_with("同步未开始"));
                 w.watcher = None;
             })
@@ -1292,8 +1201,8 @@ mod tests {
                     "{}",
                     w.ui.cloud_sync.message
                 );
-                assert!(!w.ui.cloud_sync.busy);
-                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
+                assert!(!w.ui.cloud_sync.schedule.pending);
                 w.watcher = None;
             })
             .unwrap();
@@ -1344,9 +1253,9 @@ mod tests {
                 configured(w, &server.url, true, window, cx);
                 w.schedule_auto_sync(true);
                 w.pump_auto_sync(window, cx);
-                assert!(w.ui.cloud_sync.pending);
-                assert!(w.ui.cloud_sync.wait.is_some());
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.schedule.pending);
+                assert!(w.ui.cloud_sync.schedule.wait.is_some());
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 w.tabs[0]
                     .save
                     .editor
@@ -1358,8 +1267,8 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, window, cx| {
-                assert!(w.ui.cloud_sync.pending);
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.schedule.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 w.manage_named_note(w.tabs[1].id, true, String::new(), window, cx);
             })
             .unwrap();
@@ -1381,9 +1290,12 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 w.tick_cloud_sync(window, cx);
-                assert!(w.ui.cloud_sync.pending, "quiet period should still hold");
-                assert!(w.ui.cloud_sync.wait.is_some());
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(
+                    w.ui.cloud_sync.schedule.pending,
+                    "quiet period should still hold"
+                );
+                assert!(w.ui.cloud_sync.schedule.wait.is_some());
+                assert!(!w.ui.cloud_sync.schedule.busy);
             })
             .unwrap();
         cx.executor().advance_clock(AUTO_SYNC_QUIET);
@@ -1402,8 +1314,8 @@ mod tests {
                     "{}",
                     w.ui.cloud_sync.message
                 );
-                assert!(!w.ui.cloud_sync.busy);
-                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
+                assert!(!w.ui.cloud_sync.schedule.pending);
                 w.watcher = None;
             })
             .unwrap();
@@ -1448,10 +1360,10 @@ mod tests {
                 w.ui.discard_workspace_on_close = true;
                 w.schedule_auto_sync(true);
                 w.pump_auto_sync(window, cx);
-                assert!(w.ui.cloud_sync.wait.is_some());
+                assert!(w.ui.cloud_sync.schedule.wait.is_some());
                 assert!(w.request_window_close(window, cx));
-                assert!(w.ui.cloud_sync.busy);
-                assert!(w.ui.cloud_sync.wait.is_none());
+                assert!(w.ui.cloud_sync.schedule.busy);
+                assert!(w.ui.cloud_sync.schedule.wait.is_none());
                 // Removing the native window must not cancel the detached collector.
                 window.remove_window();
             })
@@ -1475,7 +1387,7 @@ mod tests {
         let handle = cx.add_window(Workspace::new);
         handle
             .update(cx, |w, window, cx| {
-                w.ui.cloud_sync.busy = true;
+                w.ui.cloud_sync.schedule.busy = true;
                 w.ui.pending_file_writes = 1;
                 assert!(w.request_window_close(window, cx));
                 w.ui.pending_file_writes = 2;
@@ -1510,11 +1422,11 @@ mod tests {
                     ..Settings::default()
                 };
                 w.apply_cloud_secret(Some(Ok(Some("secret".into()))), window, cx);
-                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.schedule.pending);
                 w.schedule_auto_sync(true);
                 w.tick(window, cx);
-                assert!(!w.ui.cloud_sync.pending);
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.schedule.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 w.watcher = None;
             })
             .unwrap();
@@ -1554,9 +1466,9 @@ mod tests {
                 w.ui.prefs.webdav = settings.clone();
                 configured(w, &server.url, true, window, cx);
                 w.poll_remote_checks(now, false);
-                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.schedule.pending);
                 w.poll_remote_checks(now + Duration::from_secs(300), false);
-                assert!(w.ui.cloud_sync.pending);
+                assert!(w.ui.cloud_sync.schedule.pending);
                 w.tick_cloud_sync(window, cx);
             })
             .unwrap();
@@ -1570,7 +1482,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 w.poll_remote_checks(now + Duration::from_secs(321), true);
-                assert!(w.ui.cloud_sync.pending);
+                assert!(w.ui.cloud_sync.schedule.pending);
                 w.tick_cloud_sync(window, cx);
             })
             .unwrap();
@@ -1597,8 +1509,8 @@ mod tests {
                 w.flush_document_views(window, cx);
                 w.poll_remote_checks(now + Duration::from_secs(700), true);
                 w.tick_cloud_sync(window, cx);
-                assert!(w.ui.cloud_sync.pending);
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.schedule.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 assert!(w.tabs[w.active.unwrap()].save.persistence.is_dirty());
                 w.watcher = None;
             })
@@ -1629,10 +1541,10 @@ mod tests {
                 w.ui.prefs.webdav.url = "https://example.test/dav/".into();
                 w.schedule_auto_sync(true);
                 w.pump_auto_sync(window, cx);
-                assert!(w.ui.cloud_sync.wait.is_some());
+                assert!(w.ui.cloud_sync.schedule.wait.is_some());
                 w.cancel_queued_sync();
-                assert!(!w.ui.cloud_sync.pending);
-                assert!(w.ui.cloud_sync.wait.is_none());
+                assert!(!w.ui.cloud_sync.schedule.pending);
+                assert!(w.ui.cloud_sync.schedule.wait.is_none());
                 w.schedule_auto_sync(true);
                 w.pump_auto_sync(window, cx);
                 w.add_tab("note.md".into(), Some("original".into()), false, window, cx);
@@ -1645,15 +1557,15 @@ mod tests {
                     root.join("a").canonicalize().unwrap()
                 );
                 assert!(
-                    w.ui.cloud_sync.pending,
+                    w.ui.cloud_sync.schedule.pending,
                     "rejected switch must preserve the queue"
                 );
                 editor.update(cx, |s, cx| s.set_value("original", window, cx));
                 w.flush_document_views(window, cx);
                 w.load_vault(root.join("b"), window, cx);
                 assert!(w.loading);
-                assert!(!w.ui.cloud_sync.pending);
-                assert!(w.ui.cloud_sync.wait.is_none());
+                assert!(!w.ui.cloud_sync.schedule.pending);
+                assert!(w.ui.cloud_sync.schedule.wait.is_none());
             })
             .unwrap();
         cx.run_until_parked();
@@ -1666,8 +1578,8 @@ mod tests {
                     w.vault.as_ref().unwrap().root,
                     root.join("b").canonicalize().unwrap()
                 );
-                assert!(!w.ui.cloud_sync.pending);
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.schedule.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 w.watcher = None;
             })
             .unwrap();
@@ -1741,8 +1653,8 @@ mod tests {
         );
         handle
             .update(cx, |w, window, cx| {
-                assert!(!w.ui.cloud_sync.pending);
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.schedule.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 sender
                     .send(Ok(notify::Event::new(notify::EventKind::Modify(
                         notify::event::ModifyKind::Any,
@@ -1762,10 +1674,10 @@ mod tests {
         handle
             .update(cx, |w, _, _| {
                 assert!(
-                    !w.ui.cloud_sync.pending,
+                    !w.ui.cloud_sync.schedule.pending,
                     "unchanged sync output must not queue a new transfer"
                 );
-                assert!(!w.ui.cloud_sync.again);
+                assert!(!w.ui.cloud_sync.schedule.again);
             })
             .unwrap();
         let completed = handle
@@ -1809,8 +1721,8 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, _, _| {
-                assert!(!w.ui.cloud_sync.pending);
-                assert!(!w.ui.cloud_sync.again);
+                assert!(!w.ui.cloud_sync.schedule.pending);
+                assert!(!w.ui.cloud_sync.schedule.again);
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();
@@ -1846,16 +1758,16 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, window, cx| {
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 assert!(w.ui.cloud_sync.message.starts_with("同步未完成"));
                 assert!(w.ui.cloud_sync.last_success.is_none());
                 assert!(w.ui.cloud_sync.scheduling_label().contains("重试"));
                 w.pump_auto_sync(window, cx);
-                assert!(w.ui.cloud_sync.wait.is_some());
+                assert!(w.ui.cloud_sync.schedule.wait.is_some());
                 w.schedule_auto_sync(true);
                 w.pump_auto_sync(window, cx);
-                assert!(w.ui.cloud_sync.retry_waiting());
-                assert!(!w.ui.cloud_sync.defer_quiet);
+                assert!(w.ui.cloud_sync.schedule.retry_waiting());
+                assert!(!w.ui.cloud_sync.schedule.defer_quiet);
             })
             .unwrap();
         std::fs::write(root.join("local/note.md"), "latest while offline").unwrap();
@@ -1922,24 +1834,24 @@ mod tests {
                 w.schedule_auto_sync(false);
                 w.tick_cloud_sync(window, cx);
                 w.cancel_running_sync(cx);
-                assert!(w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.schedule.busy);
                 assert!(w.ui.file_operation);
                 assert!(w.ui.pending_file_writes > 0);
                 assert!(w.ui.cloud_sync.scheduling_label().contains("正在取消"));
-                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.schedule.pending);
             })
             .unwrap();
         cx.run_until_parked();
         handle
             .update(cx, |w, window, cx| {
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.schedule.busy);
                 assert!(!w.ui.file_operation);
                 assert_eq!(w.ui.pending_file_writes, 0);
                 assert!(w.ui.cloud_sync.message.starts_with("本次同步已取消"));
                 assert!(w.ui.cloud_sync.cancellation.is_none());
                 assert!(w.ui.cloud_sync.last_success.is_none());
                 w.pump_auto_sync(window, cx);
-                assert!(!w.ui.cloud_sync.retry_waiting());
+                assert!(!w.ui.cloud_sync.schedule.retry_waiting());
             })
             .unwrap();
         cx.executor().advance_clock(AUTO_SYNC_RETRY);
@@ -1969,7 +1881,7 @@ mod tests {
         handle
             .update(cx, |w, _, _| {
                 assert!(w.ui.cloud_sync.last_success.is_some());
-                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.schedule.busy);
             })
             .unwrap();
         assert!(
