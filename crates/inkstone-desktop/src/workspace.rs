@@ -1,4 +1,5 @@
 mod file_sync;
+mod left_sidebar;
 mod links;
 mod modal_ui;
 mod note_files;
