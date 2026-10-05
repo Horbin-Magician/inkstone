@@ -79,7 +79,7 @@ pub struct Vault {
     pub root: PathBuf,
     pub recovery_dir: PathBuf,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Recovery {
     pub root: PathBuf,
     pub relative: PathBuf,
@@ -407,8 +407,6 @@ impl Vault {
         }
         entries.sort_by_key(|e| fs::metadata(&e.journal).and_then(|m| m.modified()).ok());
         entries.reverse();
-        let mut seen = std::collections::BTreeSet::new();
-        entries.retain(|entry| seen.insert(entry.record.relative.clone()));
         Ok(entries)
     }
 
