@@ -1,4 +1,4 @@
-//! Metadata-only inventory of displaced local files retained by sync.
+//! Inventory and no-clobber recovery of displaced local files retained by sync.
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,6 +121,120 @@ pub fn inventory(vault: &Vault) -> Result<Inventory> {
     Ok(report)
 }
 
+#[derive(Clone, Debug)]
+pub struct Restored {
+    pub relative: PathBuf,
+    pub bytes: u64,
+    pub sha256: String,
+    /// False can indicate an external write preserved by the sync race guard.
+    pub matches_baseline: bool,
+}
+
+/// Restore the reviewed backup as a new sibling file, retaining both the backup
+/// and any current original. `reserved` includes unsaved/open editor paths.
+pub fn restore_copy(vault: &Vault, entry: &Entry, reserved: &[PathBuf]) -> Result<Restored> {
+    restore_with(vault, entry, reserved, || {})
+}
+fn restore_with(
+    vault: &Vault,
+    entry: &Entry,
+    reserved: &[PathBuf],
+    copied: impl FnOnce(),
+) -> Result<Restored> {
+    ensure!(
+        inspect(vault, &entry.metadata)? == *entry,
+        "备份记录已变化，请刷新后重试"
+    );
+    let backup = vault.regular_file_path(&entry.backup)?;
+    let mut source = SaveGuard::open(&backup)?;
+    let matches = |meta: &fs::Metadata| {
+        meta.len() == entry.bytes && meta.modified().ok() == Some(entry.modified)
+    };
+    ensure!(
+        matches(&source.0.metadata()?),
+        "备份内容已变化，请刷新后重试"
+    );
+    let parent = entry.original.parent().context("备份原路径无效")?;
+    let staged = vault
+        .regular_file_path(&parent.join(format!(".inkstone-sync-{}.restore-tmp", unique_id())))?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged)?;
+    let result = (|| -> Result<Restored> {
+        let mut digest = Sha256::new();
+        let mut total = 0u64;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let count = source.0.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            ensure!(
+                (count as u64) <= entry.bytes.saturating_sub(total),
+                "恢复期间备份大小增加，请刷新后重试"
+            );
+            output.write_all(&buffer[..count])?;
+            digest.update(&buffer[..count]);
+            total += count as u64;
+        }
+        #[cfg(unix)]
+        fs::set_permissions(&staged, source.0.metadata()?.permissions())?;
+        output.sync_all()?;
+        drop(output);
+        copied();
+        ensure!(
+            total == entry.bytes
+                && matches(&source.0.metadata()?)
+                && source.matches(&backup)?
+                && inspect(vault, &entry.metadata)? == *entry,
+            "恢复期间备份记录已变化，请刷新后重试"
+        );
+        let sha256 = format!("{:x}", digest.finalize());
+        let stem = entry
+            .original
+            .file_stem()
+            .context("备份原路径无效")?
+            .to_string_lossy();
+        let extension = entry
+            .original
+            .extension()
+            .map(|s| format!(".{}", s.to_string_lossy()))
+            .unwrap_or_default();
+        for serial in 1u64.. {
+            let suffix = if serial == 1 {
+                String::new()
+            } else {
+                format!(" {serial}")
+            };
+            let relative = parent.join(format!("{stem} 同步恢复{suffix}{extension}"));
+            if reserved.iter().any(|p| {
+                p.to_string_lossy().replace('\\', "/").to_lowercase()
+                    == relative.to_string_lossy().replace('\\', "/").to_lowercase()
+            }) {
+                continue;
+            }
+            let destination = vault.regular_file_path(&relative)?;
+            // Publish only complete content. Existing files and links are never replaced.
+            match fs::hard_link(&staged, &destination) {
+                Ok(()) => {
+                    return Ok(Restored {
+                        relative,
+                        bytes: total,
+                        matches_baseline: sha256 == entry.expected_sha256,
+                        sha256,
+                    });
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        unreachable!()
+    })();
+    let _ = fs::remove_file(&staged);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +320,75 @@ mod tests {
             assert_eq!(report.unreadable, 5);
             assert_eq!(fs::read(root.join("outside"))?, b"outside");
         }
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+    #[test]
+    fn restore_copy_preserves_binary_bytes_existing_files_and_reserved_paths() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("inkstone-sync-restore-{}", unique_id()));
+        fs::create_dir_all(root.join("vault"))?;
+        let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
+        let bytes = [0, 255, 1, 128];
+        fs::write(vault.root.join("image.bin"), bytes)?;
+        apply(&vault, "image.bin", Some(&hash(&bytes)), Some(b"current"))?;
+        let entry = inventory(&vault)?.entries.remove(0);
+        fs::write(vault.root.join("image 同步恢复.bin"), b"existing")?;
+        let restored = restore_copy(&vault, &entry, &[PathBuf::from("image 同步恢复 2.bin")])?;
+        assert_eq!(restored.relative, Path::new("image 同步恢复 3.bin"));
+        assert_eq!(restored.bytes, 4);
+        assert!(restored.matches_baseline);
+        assert_eq!(restored.sha256, hash(&bytes));
+        assert_eq!(fs::read(vault.root.join(&restored.relative))?, bytes);
+        assert_eq!(fs::read(vault.root.join("image.bin"))?, b"current");
+        assert_eq!(
+            fs::read(vault.root.join("image 同步恢复.bin"))?,
+            b"existing"
+        );
+        assert_eq!(fs::read(vault.root.join(&entry.backup))?, bytes);
+        assert!(vault.root.join(&entry.metadata).is_file());
+        // A retained concurrent write remains recoverable, explicitly reported as different.
+        fs::write(vault.root.join(&entry.backup), b"late external edit")?;
+        let changed = inventory(&vault)?.entries.remove(0);
+        let restored = restore_copy(&vault, &changed, &[])?;
+        assert!(!restored.matches_baseline);
+        assert_eq!(
+            fs::read(vault.root.join(restored.relative))?,
+            b"late external edit"
+        );
+        assert!(restore_copy(&vault, &entry, &[]).is_err());
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+    #[test]
+    fn changing_backup_during_copy_does_not_publish_partial_recovery() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("inkstone-sync-restore-race-{}", unique_id()));
+        fs::create_dir_all(root.join("vault"))?;
+        let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
+        fs::write(vault.root.join("note.md"), b"original")?;
+        apply(&vault, "note.md", Some(&hash(b"original")), None)?;
+        let entry = inventory(&vault)?.entries.remove(0);
+        assert!(
+            restore_with(&vault, &entry, &[], || {
+                fs::rename(
+                    vault.root.join(&entry.backup),
+                    vault.root.join("held.backup"),
+                )
+                .unwrap();
+                fs::write(vault.root.join(&entry.backup), b"changed while restoring").unwrap();
+            })
+            .is_err()
+        );
+        assert!(!vault.root.join("note 同步恢复.md").exists());
+        assert!(!fs::read_dir(&vault.root)?.any(|e| {
+            e.unwrap()
+                .path()
+                .extension()
+                .is_some_and(|e| e == "restore-tmp")
+        }));
+        assert_eq!(
+            fs::read(vault.root.join(&entry.backup))?,
+            b"changed while restoring"
+        );
         fs::remove_dir_all(root)?;
         Ok(())
     }
