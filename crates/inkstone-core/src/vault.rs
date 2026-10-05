@@ -727,6 +727,7 @@ impl Vault {
         };
         let bytes = serde_json::to_vec(&record).map_err(io::Error::other)?;
         write_new_synced(&path, &bytes)?;
+        history::cache_journal(self, &path, &record);
         Ok(path)
     }
     pub fn save(
@@ -1284,7 +1285,7 @@ mod tests {
             s.1.save(Path::new("absent/note.md"), None, "recover me")
                 .is_err()
         );
-        assert_eq!(fs::read_dir(&s.1.recovery_dir).unwrap().count(), 1);
+        assert_eq!(s.1.recoveries().unwrap().len(), 1);
         assert!(s.1.path(Path::new("../escape.md")).is_err());
         assert!(s.1.path(Path::new("x.txt")).is_err());
     }
@@ -1457,6 +1458,6 @@ mod tests {
             .unwrap();
         assert!(s.1.save(note, Some("old"), "draft").is_err());
         assert_eq!(s.1.read(note).unwrap().unwrap(), "old");
-        assert_eq!(fs::read_dir(&s.1.recovery_dir).unwrap().count(), 2);
+        assert_eq!(s.1.history(note).unwrap().len(), 2);
     }
 }

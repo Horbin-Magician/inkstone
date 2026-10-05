@@ -180,7 +180,7 @@ mod tests {
         session.clear().unwrap();
         session.clear().unwrap();
         assert!(unrelated.exists());
-        assert_eq!(fs::read_dir(&f.1.recovery_dir).unwrap().count(), 1);
+        assert_eq!(f.1.recoveries().unwrap().len(), 1);
         assert!(DraftSession::new(f.1.clone(), "../escape.md".into()).is_err());
     }
     #[test]

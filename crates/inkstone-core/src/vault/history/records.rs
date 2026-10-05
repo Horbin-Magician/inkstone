@@ -7,7 +7,7 @@ pub(super) struct Scope {
     pub root: PathBuf,
     pub relative: PathBuf,
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Record {
     version: u32,
     identity: PathBuf,
@@ -77,22 +77,49 @@ fn scope_with(
     {
         return None;
     }
+    let scope = Scope {
+        root: recovery.root,
+        relative: recovery.relative,
+    };
+    store(cache_path, identity, meta.len(), modified, scope.clone());
+    Some(scope)
+}
+
+/// Best effort: journal durability and saving never depend on this cache.
+pub(super) fn seed(vault: &Vault, path: &Path, recovery: &Recovery) {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if !meta.is_file() || is_reparse(&meta) {
+        return;
+    }
+    let Ok(modified) = meta.modified() else {
+        return;
+    };
+    let identity = path.with_extension("");
+    store(
+        cache_path(vault, &identity),
+        identity,
+        meta.len(),
+        modified,
+        Scope {
+            root: recovery.root.clone(),
+            relative: recovery.relative.clone(),
+        },
+    );
+}
+
+fn store(path: Option<PathBuf>, identity: PathBuf, bytes: u64, modified: SystemTime, scope: Scope) {
     let record = Record {
         version: 1,
         identity,
-        bytes: meta.len(),
+        bytes,
         modified,
-        scope: Scope {
-            root: recovery.root,
-            relative: recovery.relative,
-        },
+        scope,
     };
-    if let Some(path) = cache_path
+    if let Some(path) = path
         && let Some(checksum) = checksum(&record)
-        && let Ok(bytes) = serde_json::to_vec(&Cache {
-            record: record.clone(),
-            checksum,
-        })
+        && let Ok(bytes) = serde_json::to_vec(&Cache { record, checksum })
     {
         let temp = path.with_extension(format!("{}.tmp", unique_id()));
         if write_new_synced(&temp, &bytes).is_ok() {
@@ -100,7 +127,6 @@ fn scope_with(
         }
         let _ = fs::remove_file(temp);
     }
-    Some(record.scope)
 }
 
 #[cfg(test)]
@@ -113,6 +139,16 @@ mod tests {
         let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
         let note = Path::new("old.md");
         let journal = vault.journal(note, None, &"body".repeat(250_000)).unwrap();
+        // No history request has read or imported this journal yet.
+        assert!(
+            scope_with(
+                &vault,
+                &journal,
+                &fs::symlink_metadata(&journal).unwrap(),
+                || panic!("new journal metadata must already exist")
+            )
+            .is_some()
+        );
         assert_eq!(vault.history(note).unwrap().len(), 1);
         vault.journal(Path::new("new.md"), None, "new").unwrap();
         let meta = fs::symlink_metadata(&journal).unwrap();
@@ -159,7 +195,10 @@ mod tests {
         one.journal(note, None, "one").unwrap();
         two.journal(note, None, "two").unwrap();
         let directory = super::super::index::directory(&one).unwrap();
+        fs::remove_dir_all(directory.join("records")).unwrap();
         std::os::unix::fs::symlink(root.join("outside"), directory.join("records")).unwrap();
+        one.journal(Path::new("fallback.md"), None, "cache failure is harmless")
+            .unwrap();
         for vault in [&one, &two] {
             let entries = vault.history(note).unwrap();
             assert_eq!(entries.len(), 1);
