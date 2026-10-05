@@ -436,7 +436,11 @@ fn element(
         };
         let image = img(g.image.clone())
             .w(px(g.width * scale))
-            .h(px(g.height * scale));
+            .h(px(g.height * scale))
+            .when(
+                g.kind == inkstone_core::graphics::Kind::BlockMath,
+                |image| image.flex_shrink_0().mx_auto(),
+            );
         if !widget.block
             && let Some(baseline) = g.baseline
         {
@@ -469,6 +473,10 @@ fn element(
         .when(sprite.is_some() && widget.block, |view| {
             view.w_full().overflow_x_scroll()
         })
+        .when(
+            sprite.is_some_and(|g| g.kind == inkstone_core::graphics::Kind::BlockMath),
+            |view| view.flex(),
+        )
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(move |event, window, cx| {
             cx.stop_propagation();
