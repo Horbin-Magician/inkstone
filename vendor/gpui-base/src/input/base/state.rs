@@ -4703,6 +4703,34 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// Return the rendered bounds for a UTF-8 byte range in the current input contents.
     ///
     /// Returns `None` when the requested range is not currently laid out or visible.
+    /// The width reserved for line numbers and fold icons.
+    ///
+    /// The text column starts this far in, so a host can make the editor this
+    /// much wider and shift it left to line the column up with a view that has
+    /// no gutter. `font_size` is the editor's text size, used only to measure
+    /// line numbers.
+    #[doc(hidden)]
+    pub fn gutter_width(&self, font_size: Pixels, window: &mut Window) -> Pixels {
+        super::element::gutter_width(
+            self,
+            self.text.lines_len(),
+            font_size,
+            &window.text_style(),
+            window,
+        )
+    }
+
+    /// The width the last layout wrapped text at.
+    ///
+    /// `None` until the editor has laid out, or when soft wrap is off. A test
+    /// compares this with a reading view of the same text.
+    #[doc(hidden)]
+    pub fn wrap_width(&self) -> Option<Pixels> {
+        self.last_layout
+            .as_ref()
+            .and_then(|layout| layout.wrap_width)
+    }
+
     pub fn range_to_bounds(&self, range: &Range<usize>) -> Option<Bounds<Pixels>> {
         let Some(last_layout) = self.last_layout.as_ref() else {
             return None;

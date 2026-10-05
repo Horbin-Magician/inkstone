@@ -129,6 +129,8 @@ pub struct TextViewState {
     select_all: bool,
     pub(super) auto_scroll: AutoScroll,
     pub(super) selection_adapter: TextViewSelectionAdapter,
+    /// The width the last painted paragraph wrapped at, when it wrapped.
+    measured_wrap_width: Option<Pixels>,
 
     pub(super) parsed_content: ParsedContent,
     pub(super) stream_fade: StreamFadeTracker,
@@ -268,6 +270,7 @@ impl TextViewState {
             preserve_inline_selection: false,
             auto_scroll: AutoScroll::default(),
             selection_adapter,
+            measured_wrap_width: None,
             parsed_content: Default::default(),
             stream_fade: StreamFadeTracker::default(),
             fade_tick: None,
@@ -583,6 +586,19 @@ impl TextViewState {
         }
 
         _ = self.tx.try_send(update_options);
+    }
+
+    /// The width the last painted paragraph wrapped at.
+    ///
+    /// `None` until a paragraph has painted. A test compares this with the
+    /// editor column to see where each view breaks a line.
+    #[doc(hidden)]
+    pub fn measured_wrap_width(&self) -> Option<Pixels> {
+        self.measured_wrap_width
+    }
+
+    pub(super) fn record_wrap_width(&mut self, width: Pixels) {
+        self.measured_wrap_width = Some(width);
     }
 
     /// Whether the current text has completed parsing.

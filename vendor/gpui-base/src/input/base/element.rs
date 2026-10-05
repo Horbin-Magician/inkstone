@@ -51,7 +51,56 @@ const BOTTOM_MARGIN_ROWS: usize = 3;
 pub(super) const RIGHT_MARGIN: Pixels = px(10.);
 pub(super) const LINE_NUMBER_RIGHT_MARGIN: Pixels = px(6.);
 const FOLD_ICON_WIDTH: Pixels = px(14.);
-const FOLD_ICON_HITBOX_WIDTH: Pixels = px(18.);
+pub(super) const FOLD_ICON_HITBOX_WIDTH: Pixels = px(18.);
+
+/// The width reserved for line numbers and fold icons.
+///
+/// A host shifts the editor by this so the text column lines up with a view
+/// that has no gutter. It must match what [`InputBaseElement::layout_line_numbers`]
+/// reserves, since that is what the wrap width is reduced by.
+pub(super) fn gutter_width<M: InputModeKind>(
+    state: &InputBaseState<M>,
+    total_lines: usize,
+    font_size: Pixels,
+    style: &TextStyle,
+    window: &mut Window,
+) -> Pixels {
+    // Reserve three digits for small documents, then follow the actual
+    // line count up to seven digits.
+    let line_number_len = line_number_len(total_lines);
+    let number_font_size = state
+        .editor_style
+        .line_number_font_size
+        .unwrap_or(font_size);
+
+    let mut width = if state.mode.line_number() {
+        let empty_line_number = window.text_system().shape_line(
+            "0".repeat(line_number_len).into(),
+            number_font_size,
+            &[TextRun {
+                len: line_number_len,
+                font: style.font(),
+                color: gpui::black(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }],
+            None,
+        );
+
+        empty_line_number.width + LINE_NUMBER_RIGHT_MARGIN
+    } else if state.is_code_editor() {
+        LINE_NUMBER_RIGHT_MARGIN
+    } else {
+        px(0.)
+    };
+
+    if state.mode.is_folding() {
+        width += FOLD_ICON_HITBOX_WIDTH;
+    }
+
+    width
+}
 const MAX_HIGHLIGHT_LINE_LENGTH: usize = 10_000;
 const MIN_LINE_NUMBER_DIGITS: usize = 3;
 const MAX_LINE_NUMBER_DIGITS: usize = 7;
@@ -1129,43 +1178,11 @@ impl<M: InputModeKind> TextElement<M> {
         style: &TextStyle,
         window: &mut Window,
     ) -> (Pixels, usize) {
-        let total_lines = text.lines_len();
-        // Reserve three digits for small documents, then follow the actual
-        // line count up to seven digits.
-        let line_number_len = line_number_len(total_lines);
-        let number_font_size = state
-            .editor_style
-            .line_number_font_size
-            .unwrap_or(font_size);
-
-        let mut line_number_width = if state.mode.line_number() {
-            let empty_line_number = window.text_system().shape_line(
-                "0".repeat(line_number_len).into(),
-                number_font_size,
-                &[TextRun {
-                    len: line_number_len,
-                    font: style.font(),
-                    color: gpui::black(),
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                }],
-                None,
-            );
-
-            empty_line_number.width + LINE_NUMBER_RIGHT_MARGIN
-        } else if state.is_code_editor() {
-            LINE_NUMBER_RIGHT_MARGIN
-        } else {
-            px(0.)
-        };
-
-        if state.mode.is_folding() {
-            // Add extra space for fold icons
-            line_number_width += FOLD_ICON_HITBOX_WIDTH
-        }
-
-        (line_number_width, line_number_len)
+        let line_number_len = line_number_len(text.lines_len());
+        (
+            gutter_width(state, text.lines_len(), font_size, style, window),
+            line_number_len,
+        )
     }
 
     /// Layout shaped lines for whitespace indicators (space and tab).
