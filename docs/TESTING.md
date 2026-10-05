@@ -335,3 +335,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增独立状态回归，覆盖干净文档不启动保存、共享视图不重复启动、保存期间继续输入仍 dirty、普通错误允许显式重试、冲突不能被重试绕过、另存副本清除旧基线以及成功后恢复干净状态。
 - `cargo test --locked -p inkstone-desktop`：291 单元测试 + 8 集成测试通过，2 个既有测试忽略；现有多视图、保存冲突、草稿和同步用例通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/save-state-tests.log`、`target/save-state-clippy.log`。这是自动回归记录，未新增原生 UI 验收；未修改用户笔记。
+
+## 保存状态：冲突处理与外部重载（2026-10-05）
+
+- 冲突处理通过 SaveState 开始/结束操作并应用已确认的磁盘基线；处理期间出现新输入时维持 dirty/conflict，显式重试也不能跳过重新比较。读取错误和外部变化统一保留本地状态，外部结果明确区分无需处理、保留本地与重载。
+- 新增两个无 GPUI 的状态回归，覆盖未保存正文、待提交输入、外部删除、读取失败、相同磁盘内容、干净重载、处理期间新输入及再次处理成功。现有异步冲突与多视图外部重载测试同时通过。
+- `cargo test --locked -p inkstone-desktop`：293 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/save-resolution-tests.log`、`target/save-resolution-clippy.log`。未新增原生 UI 验收；未修改用户笔记。重命名和批量编辑的状态接口仍待后续迁移。
