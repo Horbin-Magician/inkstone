@@ -247,7 +247,7 @@ impl Workspace {
     }
 
     fn cloud_message(&mut self, message: String, cx: &mut Context<Self>) {
-        self.status = message.clone();
+        self.notifications.publish(message.clone());
         self.ui.cloud_sync.message = message;
         cx.notify();
     }
@@ -839,7 +839,7 @@ mod tests {
                 assert!(w.ui.cloud_sync.message.contains("3/8"));
                 assert!(w.ui.cloud_sync.message.contains("37%"));
                 assert!(w.ui.cloud_sync.message.contains("2.00 MiB"));
-                assert_eq!(w.status, w.ui.cloud_sync.message);
+                assert_eq!(w.notifications.text(), w.ui.cloud_sync.message);
                 assert!(run.take_progress().is_none());
                 assert_eq!(w.ui.cloud_sync.progress.as_ref().unwrap().completed, 3);
                 w.apply_cloud_secret(None, window, cx);

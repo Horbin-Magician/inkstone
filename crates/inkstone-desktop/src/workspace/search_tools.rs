@@ -34,7 +34,8 @@ impl Workspace {
         } else if self.ui.prefs.saved_searches.len() < 100 {
             self.ui.prefs.saved_searches.push(entry);
         } else {
-            self.status = "已保存 100 个搜索，请先取消不再使用的搜索。".into();
+            self.notifications
+                .publish("已保存 100 个搜索，请先取消不再使用的搜索。".into());
         }
         self.persist_workspace(cx);
         cx.notify();

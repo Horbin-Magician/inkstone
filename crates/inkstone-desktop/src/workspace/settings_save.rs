@@ -111,8 +111,9 @@ impl Workspace {
                 }
                 if let Some(error) = this.settings_save.error() {
                     this.ui.window_close_requested = false;
-                    this.status =
-                        format!("无法保存工作区设置：{error}。可重试或不保存布局并关闭。");
+                    this.notifications.publish(format!(
+                        "无法保存工作区设置：{error}。可重试或不保存布局并关闭。"
+                    ));
                     cx.notify();
                 } else {
                     this.persist_workspace(cx);

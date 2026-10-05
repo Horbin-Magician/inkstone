@@ -26,7 +26,8 @@ impl Workspace {
             return;
         };
         if self.has_pending_input(id, window, cx) || self.ui.file_operation {
-            self.status = "请完成当前编辑或文件操作后比较。".into();
+            self.notifications
+                .publish("请完成当前编辑或文件操作后比较。".into());
             cx.notify();
             return;
         }
@@ -200,7 +201,8 @@ impl Workspace {
                                 .editor
                                 .update(cx, |s, cx| s.replace_all(text, window, cx));
                             this.document_changed(document.editor.clone(), window, cx);
-                            this.status = "冲突已处理，处理前的本地草稿已保留在文件恢复中。".into();
+                            this.notifications
+                                .publish("冲突已处理，处理前的本地草稿已保留在文件恢复中。".into());
                             if this.ui.recovery_refresh == request {
                                 this.close_overlays(window, cx);
                             }
@@ -215,7 +217,7 @@ impl Workspace {
                     Err(error) => {
                         let message = format!("未完成处理：{error}。请重新比较或另存副本。");
                         document.persistence.failed(true, message.clone());
-                        this.status = message.clone();
+                        this.notifications.publish(message.clone());
                         if let Some(review) = &mut this.ui.conflict_review {
                             review.ready = false;
                             review.message = message;

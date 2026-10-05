@@ -161,7 +161,8 @@ impl Workspace {
             .iter()
             .any(|t| self.has_pending_input(t.id, window, cx))
         {
-            self.status = "请完成输入法组词或脚注编辑后再清理附件。".into();
+            self.notifications
+                .publish("请完成输入法组词或脚注编辑后再清理附件。".into());
             cx.notify();
             return;
         }
@@ -187,15 +188,16 @@ impl Workspace {
                 }
                 match result {
                     Ok(_) => {
-                        this.status = "附件已移入回收站，可从“查看回收站”恢复。".into();
+                        this.notifications
+                            .publish("附件已移入回收站，可从“查看回收站”恢复。".into());
                         this.schedule_auto_sync(true);
                         this.refresh_attachments(window, cx);
                     }
                     Err(error) => {
-                        this.status = format!("附件未清理：{error}");
+                        this.notifications.publish(format!("附件未清理：{error}"));
                         if let Some(m) = &mut this.ui.attachment_manager {
                             m.loading = false;
-                            m.message = this.status.clone();
+                            m.message = this.notifications.text().to_owned();
                         }
                     }
                 }
@@ -304,7 +306,7 @@ mod tests {
         assert!(root.join("vault/image.png").exists());
         handle
             .update(cx, |w, window, cx| {
-                assert!(w.status.contains("已被笔记引用"));
+                assert!(w.notifications.text().contains("已被笔记引用"));
                 w.tabs[0]
                     .save
                     .editor

@@ -10,7 +10,8 @@ impl Workspace {
             return;
         };
         if self.has_pending_input(tab.id, window, cx) {
-            self.status = "请完成输入法组词后复制笔记。".into();
+            self.notifications
+                .publish("请完成输入法组词后复制笔记。".into());
             cx.notify();
             return;
         }
@@ -37,11 +38,12 @@ impl Workspace {
                 }
                 match result {
                     Ok((path, receipt)) => {
-                        this.status = format!("已创建副本：{}", path.display());
+                        this.notifications
+                            .publish(format!("已创建副本：{}", path.display()));
                         this.note_indexed_change(path.clone(), receipt.text.clone(), cx);
                         this.add_tab(path, Some(receipt.text), false, window, cx);
                     }
-                    Err(error) => this.status = error.to_string(),
+                    Err(error) => this.notifications.publish(error.to_string()),
                 }
                 cx.notify();
             });
@@ -88,7 +90,8 @@ impl Workspace {
                 return;
             }
             if !note_exists && inkstone_core::rendering::attachment_target(&reference.target) {
-                self.status = format!("附件不存在：{}", reference.target);
+                self.notifications
+                    .publish(format!("附件不存在：{}", reference.target));
                 cx.notify();
                 return;
             }
@@ -119,14 +122,16 @@ impl Workspace {
             .map(|t| t.id)
             && self.has_pending_input(id, window, cx)
         {
-            self.status = "请完成输入法组词后更改任务。".into();
+            self.notifications
+                .publish("请完成输入法组词后更改任务。".into());
             cx.notify();
             return;
         }
         if let Some(tab) = self.tabs.iter().find(|t| t.path == target.path) {
             let editor = tab.save.editor.clone();
             if editor.read(cx).value().as_ref() != target.baseline.as_ref() {
-                self.status = "任务内容已改变，请等待预览更新后重试。".into();
+                self.notifications
+                    .publish("任务内容已改变，请等待预览更新后重试。".into());
                 cx.notify();
                 return;
             }
@@ -167,12 +172,12 @@ impl Workspace {
                             this.sync_index_ui(cx);
                             this.run_search(cx);
                         }
-                        this.status = "任务状态已保存".into();
+                        this.notifications.publish("任务状态已保存".into());
                         this.schedule_auto_sync(true);
                     }
                     Err(error) => {
                         this.ui.window_close_requested = false;
-                        this.status = error.to_string();
+                        this.notifications.publish(error.to_string());
                     }
                 }
                 this.refresh_requested = true;
@@ -200,7 +205,8 @@ impl Workspace {
                 || t.save.persistence.is_saving()
                 || t.save.persistence.has_conflict()
         }) {
-            self.status = "请先保存打开的笔记，再管理文件夹。".into();
+            self.notifications
+                .publish("请先保存打开的笔记，再管理文件夹。".into());
             self.save_all(window, cx);
             return;
         }
@@ -209,7 +215,8 @@ impl Workspace {
             .into_iter()
             .any(|id| self.has_pending_input(id, window, cx))
         {
-            self.status = "请完成输入法组词后管理文件夹。".into();
+            self.notifications
+                .publish("请完成输入法组词后管理文件夹。".into());
             cx.notify();
             return;
         }
@@ -287,11 +294,11 @@ impl Workspace {
                             .and_then(|id| this.tabs.iter().position(|t| t.id == id))
                             .or_else(|| (!this.tabs.is_empty()).then_some(0));
                         this.remove_missing_views();
-                        this.status = if new.is_some() {
+                        this.notifications.publish(if new.is_some() {
                             "文件夹已移动。".into()
                         } else {
                             "文件夹已移入可恢复回收站。".into()
-                        };
+                        });
                         this.schedule_auto_sync(true);
                         // The move is a rename. Reuse parsed notes instead of rebuilding the vault index.
                         this.apply_relocated_index(&old, new.as_deref(), true, cx);
@@ -301,7 +308,7 @@ impl Workspace {
                         this.persist_workspace(cx);
                         this.tick(w, cx);
                     }
-                    Err(e) => this.status = e.to_string(),
+                    Err(e) => this.notifications.publish(e.to_string()),
                 }
                 cx.notify();
             });
@@ -555,8 +562,9 @@ impl Workspace {
                     && baseline == text.as_ref()
             })
         {
-            self.status = "笔记已变更，请重新打开属性编辑。".into();
-            self.ui.property_error = self.status.clone();
+            self.notifications
+                .publish("笔记已变更，请重新打开属性编辑。".into());
+            self.ui.property_error = self.notifications.text().to_owned();
             cx.notify();
             return;
         }
@@ -603,16 +611,18 @@ impl Workspace {
                 self.ui.property_error.clear();
                 self.ui.property_baseline = None;
                 self.ui.property_original = None;
-                self.status = if delete {
-                    "属性已删除。"
-                } else {
-                    "属性已保存。"
-                }
-                .into();
+                self.notifications.publish(
+                    if delete {
+                        "属性已删除。"
+                    } else {
+                        "属性已保存。"
+                    }
+                    .into(),
+                );
             }
             Err(error) => {
                 self.ui.property_error = error.clone();
-                self.status = error;
+                self.notifications.publish(error);
             }
         }
         cx.notify();
@@ -620,7 +630,8 @@ impl Workspace {
 
     pub(super) fn choose_attachments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.active.is_none() {
-            self.status = "请先打开要插入附件的笔记。".into();
+            self.notifications
+                .publish("请先打开要插入附件的笔记。".into());
             cx.notify();
             return;
         }
@@ -674,14 +685,15 @@ impl Workspace {
             return;
         };
         if tab.path.as_os_str().is_empty() || self.has_pending_input(tab.id, window, cx) {
-            self.status = "请先打开笔记并完成输入法组词，再插入附件。".into();
+            self.notifications
+                .publish("请先打开笔记并完成输入法组词，再插入附件。".into());
             cx.notify();
             return;
         }
         let folder = match self.ui.prefs.locations.directory(Some(&tab.path), true) {
             Ok(folder) => folder,
             Err(error) => {
-                self.status = error.into();
+                self.notifications.publish(error.into());
                 cx.notify();
                 return;
             }
@@ -727,7 +739,8 @@ impl Workspace {
                     Arc::make_mut(&mut this.index).files = files;
                 }
                 let Some(tab) = this.tabs.iter().find(|t| t.id == id) else {
-                    this.status = "附件已导入，可从笔记库的附件文件夹查看。".into();
+                    this.notifications
+                        .publish("附件已导入，可从笔记库的附件文件夹查看。".into());
                     cx.notify();
                     return;
                 };
@@ -777,11 +790,11 @@ impl Workspace {
                         cx.notify();
                     });
                 }
-                this.status = if errors.is_empty() {
+                this.notifications.publish(if errors.is_empty() {
                     "附件已插入".into()
                 } else {
                     errors.join("；")
-                };
+                });
                 if !imported || !errors.is_empty() {
                     // A failed import can still have copied some files.
                     this.schedule_auto_sync(true);

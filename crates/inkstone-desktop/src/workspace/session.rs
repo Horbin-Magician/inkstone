@@ -90,7 +90,7 @@ impl Workspace {
             generation: 0,
             navigation_generation: 0,
             name,
-            status: String::new(),
+            notifications: Default::default(),
             loading: false,
             startup_pending: true,
             _timer: timer,
@@ -147,7 +147,8 @@ impl Workspace {
                 .iter()
                 .any(|t| t.save.persistence.is_dirty() || t.save.persistence.is_saving())
         {
-            self.status = "请先保存当前笔记，再切换笔记库。".into();
+            self.notifications
+                .publish("请先保存当前笔记，再切换笔记库。".into());
             cx.notify();
             return;
         }
@@ -180,7 +181,8 @@ impl Workspace {
                 .iter()
                 .any(|t| t.save.persistence.is_dirty() || t.save.persistence.is_saving())
         {
-            self.status = "当前仍有未保存内容，已取消切换笔记库。".into();
+            self.notifications
+                .publish("当前仍有未保存内容，已取消切换笔记库。".into());
             cx.notify();
             return;
         }
@@ -262,7 +264,7 @@ impl Workspace {
                         .iter()
                         .any(|t| t.save.persistence.is_dirty() || t.save.persistence.is_saving())
                 {
-                    this.status = "读取期间产生了新编辑，已保留当前笔记库。".into();
+                    this.notifications.publish("读取期间产生了新编辑，已保留当前笔记库。".into());
                     cx.notify();
                     return;
                 }
@@ -359,9 +361,9 @@ impl Workspace {
                         this.views = Default::default();
                         this.tabs.clear();
                         this.active = None;
-                        this.status = preference_warning.unwrap_or_default();
+                        this.notifications.publish(preference_warning.unwrap_or_default());
                         if !this.recoveries.is_empty() {
-                            this.status.push_str(&format!(
+                            this.notifications.append(&format!(
                                 " 检测到 {} 条未保存草稿，可在命令面板的“查看回收站”中比较、恢复副本或放弃。",
                                 this.recoveries.len()
                             ));
@@ -441,7 +443,7 @@ impl Workspace {
                             });
                         }
                     }
-                    Err(error) => this.status = error.to_string(),
+                    Err(error) => this.notifications.publish(error.to_string()),
                 }
                 cx.notify();
             });

@@ -345,9 +345,10 @@ impl Workspace {
             });
         }
         if !applied {
-            self.status =
+            self.notifications.publish(
                 "请在独立表格的单元格中操作，并完成输入法组词；结构编辑暂支持最多 10 万个单元格。"
-                    .into();
+                    .into(),
+            );
         }
     }
     pub(super) fn execute_command(

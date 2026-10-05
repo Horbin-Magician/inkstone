@@ -64,7 +64,8 @@ impl Workspace {
             .iter()
             .any(|t| self.has_pending_input(t.id, window, cx))
         {
-            self.status = "请先完成输入法组词或脚注编辑，再导出。".into();
+            self.notifications
+                .publish("请先完成输入法组词或脚注编辑，再导出。".into());
             cx.notify();
             return;
         }
@@ -76,7 +77,8 @@ impl Workspace {
             .collect();
         self.ui.exporting = true;
         self.ui.pending_file_writes += 1;
-        self.status = "正在导出当前编辑快照、关联笔记与附件……".into();
+        self.notifications
+            .publish("正在导出当前编辑快照、关联笔记与附件……".into());
         let generation = self.generation;
         let task = cx
             .background_executor()
@@ -91,7 +93,7 @@ impl Workspace {
                 this.ui.exporting = false;
                 match result {
                     Ok(report) => {
-                        this.status = format!(
+                        this.notifications.publish(format!(
                             "已导出 {} 篇笔记、{} 个附件；{} 条说明见“导出说明.txt”。{}",
                             report.notes,
                             report.attachments,
@@ -101,7 +103,7 @@ impl Workspace {
                             } else {
                                 "请携带整个导出目录。"
                             }
-                        );
+                        ));
                         #[cfg(not(test))]
                         cx.reveal_path(&report.entry);
                         #[cfg(not(test))]
@@ -132,7 +134,9 @@ impl Workspace {
                             cx.open_url(&url);
                         }
                     }
-                    Err(error) => this.status = format!("导出失败：{error}。现有文件未被覆盖。"),
+                    Err(error) => this
+                        .notifications
+                        .publish(format!("导出失败：{error}。现有文件未被覆盖。")),
                 }
                 cx.notify();
             });
@@ -209,7 +213,7 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, _, _| {
-                assert!(w.status.contains("导出失败"));
+                assert!(w.notifications.text().contains("导出失败"));
                 w.watcher = None;
             })
             .unwrap();

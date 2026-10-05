@@ -111,20 +111,20 @@ impl Workspace {
                                 Ok(disk) => disk,
                                 Err(error) => {
                                     tab.save.persistence.preserve_external_change();
-                                    this.status = format!("无法读取 {}：{error}。编辑内容已保留。", path.display());
+                                    this.notifications.publish(format!("无法读取 {}：{error}。编辑内容已保留。", path.display()));
                                     continue;
                                 }
                             };
                             match tab.save.persistence.external_change(disk, split_pending) {
                                 super::save_state::ExternalChange::Unchanged => {}
                                 super::save_state::ExternalChange::PreserveLocal => {
-                                    this.status = format!("{} 在外部发生变化。编辑内容已保留；可用“另存为副本”保存当前版本。", tab.path.display());
+                                    this.notifications.publish(format!("{} 在外部发生变化。编辑内容已保留；可用“另存为副本”保存当前版本。", tab.path.display()));
                                 }
                                 super::save_state::ExternalChange::Reload(text) => {
                                     let editor = tab.save.editor.clone();
                                     let selection = editor.read(cx).selected_range();
                                     editor.update(cx, |state, cx| { state.set_value(text, window, cx); state.set_selected_range(selection, cx); });
-                                    this.status = format!("已重新加载外部修改：{}", tab.path.display());
+                                    this.notifications.publish(format!("已重新加载外部修改：{}", tab.path.display()));
                                     this.document_changed(editor, window, cx);
                                 }
                             }
@@ -133,7 +133,7 @@ impl Workspace {
                             this.run_search(cx);
                         }
                     }
-                    Err(error) => this.status = error.to_string(),
+                    Err(error) => this.notifications.publish(error.to_string()),
                 }
                 cx.notify();
             });

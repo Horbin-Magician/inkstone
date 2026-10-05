@@ -19,7 +19,8 @@ impl Workspace {
         self.add_tab(path, None, true, window, cx);
         let editor = self.tabs.last().unwrap().pane.read(cx).editor.clone();
         editor.update(cx, |state, cx| state.set_value(text, window, cx));
-        self.status = "恢复内容已打开为新笔记，原文件与恢复记录均保留。".into();
+        self.notifications
+            .publish("恢复内容已打开为新笔记，原文件与恢复记录均保留。".into());
         self.save_all(window, cx);
         cx.notify();
     }
@@ -42,7 +43,8 @@ impl Workspace {
             return;
         }
         if self.has_pending_input(id, window, cx) {
-            self.status = "请完成当前编辑后再更改文件路径。".into();
+            self.notifications
+                .publish("请完成当前编辑后再更改文件路径。".into());
             cx.notify();
             return;
         }
@@ -65,7 +67,8 @@ impl Workspace {
                     || t.save.persistence.has_conflict()
             })
         {
-            self.status = "请先保存打开的笔记，再重命名并更新内部链接。".into();
+            self.notifications
+                .publish("请先保存打开的笔记，再重命名并更新内部链接。".into());
             self.save_all(window, cx);
             return;
         }
@@ -76,7 +79,8 @@ impl Workspace {
             || tab.save.persistence.is_saving()
             || tab.save.persistence.has_conflict()
         {
-            self.status = "请先保存并处理冲突，再重命名或移入回收区。".into();
+            self.notifications
+                .publish("请先保存并处理冲突，再重命名或移入回收区。".into());
             cx.notify();
             return;
         }
@@ -85,7 +89,8 @@ impl Workspace {
         };
         let mut name = requested_name;
         if !trash && name.is_empty() {
-            self.status = "请在名称框输入新文件名。".into();
+            self.notifications
+                .publish("请在名称框输入新文件名。".into());
             cx.notify();
             return;
         }
@@ -133,12 +138,13 @@ impl Workspace {
                 match result {
                     Ok((true, path, _)) => {
                         let removed = this.tabs[index].path.clone();
-                        this.status = format!("已移入可恢复回收区：{}", path.display());
+                        this.notifications
+                            .publish(format!("已移入可恢复回收区：{}", path.display()));
                         this.schedule_auto_sync(true);
                         if this.tabs[index].save.persistence.is_dirty() {
                             this.tabs[index].save.persistence.preserve_external_change();
-                            this.status
-                                .push_str("；操作期间的新编辑已保留，可另存副本。");
+                            this.notifications
+                                .append("；操作期间的新编辑已保留，可另存副本。");
                         } else {
                             this.tabs
                                 .retain(|tab| !std::rc::Rc::ptr_eq(&tab.save, &document));
@@ -187,11 +193,11 @@ impl Workspace {
                         if focus_after && let Some(pane) = this.current_pane() {
                             pane.update(cx, |p, cx| p.focus_view(window, cx));
                         }
-                        this.status = "已重命名。".into();
+                        this.notifications.publish("已重命名。".into());
                         this.offer_link_updates(edits, window, cx);
                     }
                     Err(error) => {
-                        this.status = error.to_string();
+                        this.notifications.publish(error.to_string());
                         this.ui.window_close_requested = false;
                     }
                 }
@@ -206,7 +212,7 @@ impl Workspace {
     }
     pub(super) fn create_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(vault) = self.vault.as_ref() else {
-            self.status = "请先打开笔记库。".into();
+            self.notifications.publish("请先打开笔记库。".into());
             cx.notify();
             return;
         };
@@ -219,12 +225,12 @@ impl Workspace {
         }
         let path = PathBuf::from(name);
         if let Err(error) = vault.path(&path) {
-            self.status = error.to_string();
+            self.notifications.publish(error.to_string());
             cx.notify();
             return;
         }
         if self.files.contains(&path) || self.tabs.iter().any(|t| t.path == path) {
-            self.status = "同名笔记已存在。".into();
+            self.notifications.publish("同名笔记已存在。".into());
             cx.notify();
             return;
         }
@@ -244,7 +250,7 @@ impl Workspace {
         let folder = match self.ui.prefs.locations.directory(current, false) {
             Ok(folder) => folder,
             Err(error) => {
-                self.status = error.into();
+                self.notifications.publish(error.into());
                 cx.notify();
                 return;
             }
@@ -272,7 +278,8 @@ impl Workspace {
     }
     pub(super) fn quick_capture(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(vault) = &self.vault else {
-            self.status = "请先打开笔记库，再开始快速记录。".into();
+            self.notifications
+                .publish("请先打开笔记库，再开始快速记录。".into());
             return;
         };
         let current = self
@@ -282,7 +289,7 @@ impl Workspace {
         let folder = match self.ui.prefs.locations.directory(current, false) {
             Ok(folder) => folder,
             Err(error) => {
-                self.status = error.into();
+                self.notifications.publish(error.into());
                 return;
             }
         };

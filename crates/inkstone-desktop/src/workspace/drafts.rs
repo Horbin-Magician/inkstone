@@ -47,7 +47,8 @@ impl Workspace {
                 let session = match DraftSession::new(vault.clone(), path.clone()) {
                     Ok(session) => session,
                     Err(error) => {
-                        self.status = format!("草稿保护无法启动：{error}");
+                        self.notifications
+                            .publish(format!("草稿保护无法启动：{error}"));
                         continue;
                     }
                 };
@@ -123,7 +124,8 @@ impl Workspace {
                         Err(error) => {
                             state.retry = Instant::now() + Duration::from_secs(5);
                             if this.generation == generation {
-                                this.status = format!("草稿保护写入失败，将重试：{error}");
+                                this.notifications
+                                    .publish(format!("草稿保护写入失败，将重试：{error}"));
                                 cx.notify();
                             }
                         }
@@ -300,7 +302,9 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         handle
-            .update(cx, |w, _, _| assert!(w.status.contains("草稿保护写入失败")))
+            .update(cx, |w, _, _| {
+                assert!(w.notifications.text().contains("草稿保护写入失败"))
+            })
             .unwrap();
         std::fs::remove_file(root.join("recovery")).unwrap();
         std::fs::create_dir(root.join("recovery")).unwrap();

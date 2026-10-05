@@ -4,6 +4,7 @@ mod links;
 mod modal_ui;
 mod note_files;
 mod note_open;
+mod notifications;
 mod right_sidebar;
 mod save_coordinator;
 mod save_state;
@@ -113,7 +114,7 @@ pub struct Workspace {
     generation: u64,
     navigation_generation: u64,
     name: Entity<InputState>,
-    status: String,
+    notifications: notifications::Notifications,
     loading: bool,
     startup_pending: bool,
     _timer: Task<()>,
@@ -220,7 +221,7 @@ impl Workspace {
                         }
                     }
                     Err(error) => {
-                        self.status = format!("文件监听错误：{error}");
+                        self.notifications.publish(format!("文件监听错误：{error}"));
                         cx.notify();
                     }
                     _ => (),

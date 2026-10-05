@@ -42,7 +42,8 @@ impl Workspace {
             return;
         }
         if self.has_pending_input(id, window, cx) {
-            self.status = "请完成当前编辑后再打开新标签。".into();
+            self.notifications
+                .publish("请完成当前编辑后再打开新标签。".into());
             cx.notify();
             return;
         }
@@ -80,7 +81,8 @@ impl Workspace {
             self.commit_inline_title(false, window, cx);
             if self.ui.inline_title.is_some() && !self.ui.file_operation {
                 self.ui.window_close_requested = false;
-                self.status = "请完成或取消标题修改后关闭窗口。".into();
+                self.notifications
+                    .publish("请完成或取消标题修改后关闭窗口。".into());
                 cx.notify();
                 return false;
             }
@@ -96,7 +98,8 @@ impl Workspace {
             .iter()
             .any(|t| t.save.persistence.has_conflict() || t.save.persistence.error().is_some())
         {
-            self.status = "请先处理保存冲突或另存副本，再关闭窗口。".into();
+            self.notifications
+                .publish("请先处理保存冲突或另存副本，再关闭窗口。".into());
             cx.notify();
             return false;
         }
@@ -112,7 +115,8 @@ impl Workspace {
             });
         if self.settings_save.error().is_some() && !self.ui.discard_workspace_on_close {
             self.ui.window_close_requested = false;
-            self.status = "工作区设置保存失败，请重试或选择“不保存布局并关闭”。".into();
+            self.notifications
+                .publish("工作区设置保存失败，请重试或选择“不保存布局并关闭”。".into());
             cx.notify();
             return false;
         }
@@ -128,7 +132,8 @@ impl Workspace {
         self.ui.window_close_requested = true;
         self.save_all(window, cx);
         self.persist_workspace(cx);
-        self.status = "正在保存笔记与工作区，完成后关闭窗口…".into();
+        self.notifications
+            .publish("正在保存笔记与工作区，完成后关闭窗口…".into());
         cx.notify();
         false
     }
@@ -409,7 +414,8 @@ impl Workspace {
             return;
         };
         if self.has_pending_input(self.tabs[index].id, window, cx) {
-            self.status = "请完成当前编辑后再操作分屏。".into();
+            self.notifications
+                .publish("请完成当前编辑后再操作分屏。".into());
             cx.notify();
             return;
         }
@@ -757,7 +763,8 @@ impl Workspace {
             .as_ref()
             .is_some_and(|s| self.has_pending_input(s.source, window, cx))
         {
-            self.status = "请完成输入法组词后关闭分屏。".into();
+            self.notifications
+                .publish("请完成输入法组词后关闭分屏。".into());
             cx.notify();
             return;
         }

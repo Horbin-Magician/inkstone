@@ -44,7 +44,8 @@ impl Workspace {
             self.open_note(entry.path.clone(), window, cx);
             self.apply_jump(window, cx);
         } else {
-            self.status = format!("书签目标不存在：{}", entry.label());
+            self.notifications
+                .publish(format!("书签目标不存在：{}", entry.label()));
         }
         cx.notify();
     }
@@ -310,7 +311,7 @@ mod tests {
                     },
                 };
                 w.open_anchor_bookmark(&missing, window, cx);
-                assert!(w.status.contains("书签目标不存在"));
+                assert!(w.notifications.text().contains("书签目标不存在"));
                 w.apply_relocated_index(
                     std::path::Path::new("a.md"),
                     Some(std::path::Path::new("folder/a.md")),

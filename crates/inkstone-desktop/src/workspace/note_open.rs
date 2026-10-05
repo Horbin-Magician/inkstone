@@ -48,7 +48,8 @@ impl Workspace {
         if let Some(view) = view {
             if self.has_pending_input(self.tabs[index].id, window, cx) {
                 self.ui.remember_closed(view.clone());
-                self.status = "请完成当前编辑后再重新打开标签。".into();
+                self.notifications
+                    .publish("请完成当前编辑后再重新打开标签。".into());
                 cx.notify();
                 return;
             }
@@ -58,7 +59,8 @@ impl Workspace {
         } else if force_new {
             if self.has_pending_input(self.tabs[index].id, window, cx) {
                 self.pending_jump = None;
-                self.status = "请完成当前编辑后再打开新标签。".into();
+                self.notifications
+                    .publish("请完成当前编辑后再打开新标签。".into());
                 cx.notify();
                 return;
             }
@@ -180,14 +182,15 @@ impl Workspace {
                         if let Some(view) = view {
                             this.ui.remember_closed(view);
                         }
-                        this.status = "文件已不存在，请刷新目录。".into();
+                        this.notifications
+                            .publish("文件已不存在，请刷新目录。".into());
                         cx.notify();
                     }
                     Err(error) => {
                         if let Some(view) = view {
                             this.ui.remember_closed(view);
                         }
-                        this.status = error.to_string();
+                        this.notifications.publish(error.to_string());
                         cx.notify();
                     }
                 }
