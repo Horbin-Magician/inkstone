@@ -444,15 +444,26 @@ fn element(
         if !widget.block
             && let Some(baseline) = g.baseline
         {
-            let font = window.text_system().resolve_font(&Font {
-                family: appearance.font_family.clone(),
-                ..Default::default()
-            });
+            // Match ShapedLine::paint: its descent is positive, unlike the
+            // signed FontMetrics used by TextSystem::baseline_offset.
+            let line = window.text_system().shape_line(
+                " ".into(),
+                px(appearance.font),
+                &[TextRun {
+                    len: 1,
+                    font: Font {
+                        family: appearance.font_family.clone(),
+                        ..Default::default()
+                    },
+                    color: window.text_style().color,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+                None,
+            );
             let base_height = px(appearance.font * 1.5);
-            let bias = window
-                .text_system()
-                .baseline_offset(font, px(appearance.font), base_height)
-                - base_height / 2.;
+            let bias = (line.ascent - line.descent) / 2.;
             let height =
                 inline_math_height(g.height, baseline, f32::from(base_height), f32::from(bias));
             let top = row_height.max(px(height)) / 2. + bias - px(baseline);
@@ -460,7 +471,13 @@ fn element(
                 .relative()
                 .w(px(g.width))
                 .h(px(height))
-                .child(image.absolute().top(top))
+                .child(
+                    image
+                        .id(("live-math-image", start))
+                        .debug_selector(move || format!("live-math-image-{start}"))
+                        .absolute()
+                        .top(top),
+                )
                 .into_any_element()
         } else {
             image.into_any_element()
@@ -981,39 +998,133 @@ mod tests {
             .unwrap();
     }
 
+    // GPUI's NoopTextSystem leaves shaped descent signed. Native backends
+    // normalize it positive; preserve that distinction in this regression test.
+    struct NativeDescentTextSystem;
+
+    impl PlatformTextSystem for NativeDescentTextSystem {
+        fn add_fonts(&self, fonts: Vec<std::borrow::Cow<'static, [u8]>>) -> anyhow::Result<()> {
+            NoopTextSystem.add_fonts(fonts)
+        }
+        fn all_font_names(&self) -> Vec<String> {
+            NoopTextSystem.all_font_names()
+        }
+        fn font_id(&self, font: &Font) -> anyhow::Result<FontId> {
+            NoopTextSystem.font_id(font)
+        }
+        fn font_metrics(&self, font: FontId) -> FontMetrics {
+            NoopTextSystem.font_metrics(font)
+        }
+        fn typographic_bounds(&self, font: FontId, glyph: GlyphId) -> anyhow::Result<Bounds<f32>> {
+            NoopTextSystem.typographic_bounds(font, glyph)
+        }
+        fn advance(&self, font: FontId, glyph: GlyphId) -> anyhow::Result<Size<f32>> {
+            NoopTextSystem.advance(font, glyph)
+        }
+        fn glyph_for_char(&self, font: FontId, ch: char) -> Option<GlyphId> {
+            NoopTextSystem.glyph_for_char(font, ch)
+        }
+        fn glyph_raster_bounds(
+            &self,
+            params: &RenderGlyphParams,
+        ) -> anyhow::Result<Bounds<DevicePixels>> {
+            NoopTextSystem.glyph_raster_bounds(params)
+        }
+        fn rasterize_glyph(
+            &self,
+            params: &RenderGlyphParams,
+            bounds: Bounds<DevicePixels>,
+        ) -> anyhow::Result<(Size<DevicePixels>, Vec<u8>)> {
+            NoopTextSystem.rasterize_glyph(params, bounds)
+        }
+        fn recommended_rendering_mode(&self, font: FontId, size: Pixels) -> TextRenderingMode {
+            NoopTextSystem.recommended_rendering_mode(font, size)
+        }
+        fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> LineLayout {
+            let mut line = NoopTextSystem.layout_line(text, font_size, runs);
+            line.descent = line.descent.abs();
+            line
+        }
+    }
+
     #[gpui::test]
     fn live_math_reserves_baseline_and_retains_measured_geometry_on_reparse(
         cx: &mut TestAppContext,
     ) {
+        let mut context = TestAppContext::build_with_text_system(
+            cx.dispatcher.clone(),
+            None,
+            Arc::new(NativeDescentTextSystem),
+        );
+        let cx = &mut context;
         cx.update(gpui_kit::init);
         let source = "top\n\n文字 $\\frac{1}{2}$ 和 $x_{i_j}$ 重复 $\\frac{1}{2}$ 后续\n\n```mermaid\nflowchart LR\nA --> B\n```\n\ntail";
-        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
-        let mut visual = VisualTestContext::from_window(handle.into(), cx);
-        for _ in 0..10 {
-            visual.run_until_parked();
-            visual.update(|w, cx| w.draw(cx).clear(cx));
-        }
-        handle
-            .update(&mut visual, |pane, window, cx| {
-                let font = window.text_system().resolve_font(&Font {
-                    family: pane.text_font.clone(),
-                    ..Default::default()
-                });
-                let bias = window.text_system().baseline_offset(
-                    font,
-                    px(pane.font_size),
-                    px(pane.font_size * 1.5),
-                ) - px(pane.font_size * 0.75);
-                for widget in pane.live_objects.iter().filter(|w| !w.block) {
-                    let graphic = widget.graphic.as_ref().unwrap().as_ref().as_ref().unwrap();
-                    let row = pane
-                        .editor
-                        .read(cx)
-                        .range_to_bounds(&(widget.source.start..widget.source.start))
-                        .unwrap();
+        for font_size in [14., 16., 24., 32.] {
+            let handle = cx.add_window(|w, cx| {
+                let mut pane = EditorPane::new(source, w, cx);
+                pane.font_size = font_size;
+                pane
+            });
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            for _ in 0..10 {
+                visual.run_until_parked();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+            }
+            let image_bounds: Vec<_> = source
+                .match_indices('$')
+                .step_by(2)
+                .map(|(start, _)| {
+                    (
+                        start,
+                        visual
+                            .debug_bounds(format!("live-math-image-{start}").leak())
+                            .unwrap(),
+                    )
+                })
+                .collect();
+            handle
+                .update(&mut visual, |pane, window, cx| {
+                    let line = window.text_system().shape_line(
+                        "文字".into(),
+                        px(pane.font_size),
+                        &[TextRun {
+                            len: "文字".len(),
+                            font: Font {
+                                family: pane.text_font.clone(),
+                                ..Default::default()
+                            },
+                            color: window.text_style().color,
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        }],
+                        None,
+                    );
+                    let bias = (line.ascent - line.descent) / 2.;
+                    for widget in pane.live_objects.iter().filter(|w| !w.block) {
+                        let graphic = widget.graphic.as_ref().unwrap().as_ref().as_ref().unwrap();
+                        let row = pane
+                            .editor
+                            .read(cx)
+                            .range_to_bounds(&(widget.source.start..widget.source.start))
+                            .unwrap();
+                    let image = image_bounds
+                        .iter()
+                        .find(|(start, _)| *start == widget.source.start)
+                        .unwrap()
+                        .1;
+                    let text_baseline = row.origin.y
+                        + (row.size.height - line.ascent - line.descent) / 2.
+                        + line.ascent;
+                    let image_baseline = image.origin.y + px(graphic.baseline.unwrap());
+                    assert!(
+                        f32::from(image_baseline - text_baseline).abs() <= 1.,
+                        "{font_size}px formula baseline {image_baseline:?}, text baseline {text_baseline:?}"
+                    );
                     let top = row.size.height / 2. + bias - px(graphic.baseline.unwrap());
-                    assert!(top >= px(-0.1));
-                    assert!(top + px(graphic.height) <= row.size.height + px(0.1));
+                    // Layout snaps the reserved height to device pixels.
+                    assert!(top >= px(-1.));
+                    assert!(top + px(graphic.height) <= row.size.height + px(1.));
                     assert!(widget.height >= graphic.height);
                 }
                 let old: Vec<_> = pane
@@ -1055,6 +1166,7 @@ mod tests {
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
+        }
     }
 
     #[gpui::test]
