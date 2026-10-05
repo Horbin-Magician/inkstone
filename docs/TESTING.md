@@ -377,3 +377,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 为设置保存加入任务序号：切库后的旧回调不能清除新任务的保存中标记、替换最新快照或注入旧错误；导航失败仍可释放旧任务自身，避免卡住。
 - 两项独立回归覆盖写入期间的新快照、重复快照去重、失败/重试，以及重置后旧成功/失败/放弃回调的隔离。既有设置保存失败后的重试与关闭、备份和同步等待回归通过。
 - `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志 `target/settings-save-tests.log`、`target/settings-save-clippy.log`。未新增原生验收，未修改用户笔记。
+
+## 设置视图：独立组装模块（2026-10-05）
+
+- 将设置分类导航、搜索结果、编辑器设置页和公共行/分组/滚动容器归到 settings_ui；主 UI 减少 472 行，快捷键模块只保留自身设置内容。外观、文件位置、云同步及属性复选框直接引用通用开关入口。
+- 对移动前后的导航、布局和设置处理函数正文逐段比较，确认保持原有控件 ID、布局参数与回调。未新增仅重复代码移动的测试。
+- `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；包含短窗口设置滚动、现有/新分屏编辑设置、默认编辑模式、字体、文件位置与云同步设置回归。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/settings-ui-tests.log`、`target/settings-ui-clippy.log`。本次是保持行为的模块迁移，不代表原生最小窗口/不同 DPI 验收已完成；未修改用户笔记。

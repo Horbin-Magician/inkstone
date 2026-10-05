@@ -330,7 +330,7 @@ impl Workspace {
                             .justify_between()
                             .child("使用双链语法")
                             .child(
-                                ui::setting_switch("use-wikilinks")
+                                super::settings_ui::setting_switch("use-wikilinks")
                                     .accessibility_label("使用双链语法")
                                     .checked(!self.ui.prefs.use_markdown_links)
                                     .on_click(cx.listener(|s, checked: &bool, _, cx| {
@@ -355,7 +355,7 @@ impl Workspace {
                                 ),
                             )
                             .child(
-                                ui::setting_switch("always-update-links")
+                                super::settings_ui::setting_switch("always-update-links")
                                     .accessibility_label("自动更新内部链接")
                                     .checked(self.ui.prefs.always_update_links)
                                     .on_click(cx.listener(|s, value: &bool, _, cx| {
