@@ -533,6 +533,7 @@ mod tests {
         assert_eq!(p.link_format, crate::locations::LinkFormat::Shortest);
         assert_eq!(p.font_size, 20.);
         assert!(!p.quick_font_size);
+        assert!(p.webdav.auto);
     }
     #[test]
     fn preferences_replace_existing_file_and_retain_previous_backup() {

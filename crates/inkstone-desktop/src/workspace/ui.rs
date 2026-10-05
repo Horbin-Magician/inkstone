@@ -1384,6 +1384,7 @@ impl Workspace {
                     } else {
                         this.changed_paths.insert(entry.original);
                     }
+                    this.schedule_auto_sync(true);
                 }
                 this.refresh_requested = true;
                 this.refresh_trash(cx);

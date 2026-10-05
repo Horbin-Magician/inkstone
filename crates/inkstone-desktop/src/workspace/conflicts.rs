@@ -188,6 +188,7 @@ impl Workspace {
                     Ok(text) => {
                         document.baseline.replace(Some(text.clone()));
                         this.note_indexed_change(changed.clone(), text.clone(), cx);
+                        this.schedule_auto_sync(true);
                         if still_current {
                             document.conflict.set(false);
                             document.error.replace(None);

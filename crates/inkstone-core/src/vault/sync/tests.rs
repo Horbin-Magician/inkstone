@@ -220,6 +220,7 @@ fn server(replies: Vec<&'static str>) -> (Settings, std::thread::JoinHandle<Vec<
     let settings = Settings {
         url: format!("http://{}/dav/", listener.local_addr().unwrap()),
         username: "user".into(),
+        auto: true,
     };
     let handle = std::thread::spawn(move || {
         let mut requests = vec![];
@@ -306,7 +307,8 @@ fn webdav_refuses_redirects_weak_etags_and_invalid_urls() -> Result<()> {
             WebDav::new(
                 &Settings {
                     url: url.into(),
-                    username: String::new()
+                    username: String::new(),
+                    auto: true,
                 },
                 ""
             )

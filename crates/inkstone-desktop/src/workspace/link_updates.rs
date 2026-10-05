@@ -113,6 +113,9 @@ impl Workspace {
                     this.changed_paths.insert(path.clone());
                 }
                 this.refresh_requested = true;
+                if !written.is_empty() {
+                    this.schedule_auto_sync(true);
+                }
                 this.tick(w, cx);
                 cx.notify();
             });

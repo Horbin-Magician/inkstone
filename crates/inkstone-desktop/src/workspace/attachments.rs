@@ -188,6 +188,7 @@ impl Workspace {
                 match result {
                     Ok(_) => {
                         this.status = "附件已移入回收站，可从“查看回收站”恢复。".into();
+                        this.schedule_auto_sync(true);
                         this.refresh_attachments(window, cx);
                     }
                     Err(error) => {
