@@ -4168,7 +4168,11 @@ impl Workspace {
                     } else if self.ui.table_editor.is_some() {
                         "可视化表格编辑"
                     } else if self.ui.history.is_some() {
-                        "笔记版本历史"
+                        if self.reviewing_draft() {
+                            "草稿恢复与比较"
+                        } else {
+                            "笔记版本历史"
+                        }
                     } else if self.ui.trash_open {
                         "文件恢复"
                     } else {
