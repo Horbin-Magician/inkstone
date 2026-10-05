@@ -468,6 +468,7 @@ impl Workspace {
             p.live = live;
             p.image_dir = image_dir;
             p.font_size = prefs.font_size;
+            p.line_spacing = prefs.line_spacing;
             p.quick_font_size = prefs.quick_font_size;
             p.text_font = text_font;
             p.light = prefs.light;

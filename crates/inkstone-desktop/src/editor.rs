@@ -47,6 +47,7 @@ struct PresentationSnapshot {
     light: bool,
     search: Option<String>,
     font_size: f32,
+    line_spacing: f32,
 }
 
 struct CountSnapshot {
@@ -81,6 +82,7 @@ pub struct EditorPane {
     pub parsed: ParsedNote,
     pub reading: bool,
     pub font_size: f32,
+    pub line_spacing: f32,
     pub quick_font_size: bool,
     font_zoom: font_zoom::WheelZoom,
     pub text_font: SharedString,
@@ -279,6 +281,7 @@ impl EditorPane {
             live_rules: vec![],
             live_lists: vec![],
             font_size: 16.,
+            line_spacing: 1.5,
             quick_font_size: false,
             font_zoom: Default::default(),
             text_font: "Microsoft YaHei UI".into(),

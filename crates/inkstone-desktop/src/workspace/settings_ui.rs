@@ -308,7 +308,7 @@ impl Workspace {
                 (
                     0,
                     "编辑器 · 显示",
-                    "可读行宽 严格换行 折叠标题 折叠缩进 行号 缩进参考线",
+                    "可读行宽 行间距 行距 倍数 line spacing 严格换行 折叠标题 折叠缩进 行号 缩进参考线",
                 ),
                 (
                     0,
@@ -478,7 +478,29 @@ impl Workspace {
                 }
                 menu
             });
-        let display = [
+        let spacing = self.ui.prefs.line_spacing;
+        let weak = cx.entity().downgrade();
+        let line_spacing = Button::new("line-spacing-setting")
+            .accessibility_label("行间距")
+            .h(px(32.))
+            .label(format!("{spacing} 倍"))
+            .dropdown_menu(move |mut menu, _, _| {
+                for value in [1., 1.25, 1.5, 1.75, 2., 2.5, 3.] {
+                    let weak = weak.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(format!("{value} 倍"))
+                            .checked(spacing == value)
+                            .on_click(move |_, window, cx| {
+                                let _ = weak.update(cx, |this, cx| {
+                                    this.ui.prefs.line_spacing = value;
+                                    this.apply_editor_preferences(window, cx);
+                                });
+                            }),
+                    );
+                }
+                menu
+            });
+        let mut display: Vec<_> = [
             EditorSetting::ReadableWidth,
             EditorSetting::StrictBreaks,
             EditorSetting::FoldHeadings,
@@ -490,6 +512,13 @@ impl Workspace {
         .enumerate()
         .map(|(i, setting)| self.editor_setting_row(setting, i > 0, cx))
         .collect();
+        display.push(self.settings_row(
+            "行间距",
+            "调整编辑与阅读视图的正文行距，默认为 1.5 倍。",
+            line_spacing,
+            true,
+            20.,
+        ));
         let mut behavior: Vec<_> = [
             EditorSetting::PairBrackets,
             EditorSetting::PairMarkdown,

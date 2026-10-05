@@ -124,6 +124,7 @@ pub struct Preferences {
     pub light: bool,
     pub theme: ThemeMode,
     pub font_size: f32,
+    pub line_spacing: f32,
     pub quick_font_size: bool,
     pub interface_font: String,
     pub text_font: String,
@@ -188,6 +189,7 @@ impl Default for Preferences {
             light: false,
             theme: ThemeMode::System,
             font_size: 16.,
+            line_spacing: 1.5,
             quick_font_size: false,
             interface_font: String::new(),
             text_font: String::new(),
@@ -276,6 +278,7 @@ impl Preferences {
             };
         }
         value.font_size = value.font_size.clamp(10., 30.);
+        value.line_spacing = value.line_spacing.clamp(1., 3.);
         value.tab_size = value.tab_size.clamp(2, 8);
         value.left_width = value.left_width.clamp(180., 500.);
         value.right_width = value.right_width.clamp(180., 500.);
@@ -575,6 +578,7 @@ mod tests {
         assert!(p.fold_headings && p.fold_indentation);
         assert_eq!(p.link_format, crate::locations::LinkFormat::Shortest);
         assert_eq!(p.font_size, 20.);
+        assert_eq!(p.line_spacing, 1.5);
         assert!(!p.quick_font_size);
         assert!(p.webdav.auto);
     }
@@ -585,6 +589,7 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.save(&path).unwrap();
         prefs.font_size = 10.;
+        prefs.line_spacing = 2.;
         prefs.quick_font_size = true;
         prefs.interface_font = "Segoe UI".into();
         prefs.text_font = "Microsoft YaHei UI".into();
@@ -637,6 +642,7 @@ mod tests {
         prefs.views[0].callout_states.insert(42, true);
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 10.);
+        assert_eq!(Preferences::load(&path).line_spacing, 2.);
         assert!(Preferences::load(&path).quick_font_size);
         assert_eq!(Preferences::load(&path).interface_font, "Segoe UI");
         assert_eq!(Preferences::load(&path).text_font, "Microsoft YaHei UI");

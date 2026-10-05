@@ -715,6 +715,7 @@ impl Workspace {
         for pane in panes {
             pane.update(cx, |pane, cx| {
                 pane.font_size = p.font_size;
+                pane.line_spacing = p.line_spacing;
                 pane.quick_font_size = p.quick_font_size;
                 pane.text_font = text_font.clone();
                 pane.readable_width = p.readable_width;

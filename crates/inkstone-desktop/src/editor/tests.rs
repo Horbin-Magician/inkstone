@@ -3666,3 +3666,34 @@ fn reference_refresh_reuses_source_syntax_and_keeps_projection_until_ready(
         })
         .unwrap();
 }
+
+#[gpui::test]
+fn line_spacing_updates_laid_out_rows_in_both_editing_modes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|w, cx| EditorPane::new("first\nsecond\nthird", w, cx));
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    for live in [false, true] {
+        for spacing in [1.5, 2., 1., 3., 1.5] {
+            handle
+                .update(&mut visual, |pane, _, cx| {
+                    pane.live = live;
+                    pane.line_spacing = spacing;
+                    cx.notify();
+                })
+                .unwrap();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |pane, _, cx| {
+                    assert_eq!(
+                        pane.editor.read(cx).line_height(),
+                        Some(px(pane.font_size * spacing))
+                    );
+                    assert_eq!(
+                        pane.editor.read(cx).value().as_ref(),
+                        "first\nsecond\nthird"
+                    );
+                })
+                .unwrap();
+        }
+    }
+}
