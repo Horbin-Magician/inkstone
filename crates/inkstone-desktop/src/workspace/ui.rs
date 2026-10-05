@@ -2098,40 +2098,7 @@ impl Workspace {
                     })
                     .child(self.search_list(false, cx))
             })
-            .when(self.ui.left_mode == 2, |s| {
-                s.child(
-                    div()
-                        .id("bookmark-list")
-                        .flex_1()
-                        .overflow_y_scroll()
-                        .p_2()
-                        .child(div().p_2().text_size(px(MIN_UI_FONT_SIZE)).child("书签"))
-                        .when(self.ui.prefs.bookmarks.is_empty(), |s| {
-                            s.child(
-                                div()
-                                    .p_2()
-                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                    .child("使用文件菜单添加书签"),
-                            )
-                        })
-                        .children(self.ui.prefs.bookmarks.iter().enumerate().map(|(i, p)| {
-                            let path = p.clone();
-                            div()
-                                .id(("bookmark", i))
-                                .p_2()
-                                .cursor_pointer()
-                                .child(
-                                    p.file_stem()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .to_string(),
-                                )
-                                .on_click(cx.listener(move |this, _, w, cx| {
-                                    this.open_note(path.clone(), w, cx)
-                                }))
-                        })),
-                )
-            })
+            .when(self.ui.left_mode == 2, |s| s.child(self.bookmark_panel(cx)))
             .into_any_element()
     }
     pub(super) fn rebuild_sorted_tree(&mut self, cx: &mut Context<Self>) {

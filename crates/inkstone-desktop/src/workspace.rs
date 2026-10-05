@@ -15,6 +15,7 @@ use file_sync::refresh_created_index;
 mod appearance;
 mod attachments;
 mod backups;
+mod bookmarks;
 mod bulk_edit;
 mod cloud_sync;
 mod commands;
