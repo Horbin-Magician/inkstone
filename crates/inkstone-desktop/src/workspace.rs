@@ -31,6 +31,7 @@ mod link_health;
 mod link_updates;
 mod navigation;
 mod recovery;
+mod remote_check;
 mod search_tools;
 mod table_editor;
 mod ui;

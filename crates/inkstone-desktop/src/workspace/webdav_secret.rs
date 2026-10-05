@@ -133,6 +133,7 @@ mod tests {
             url: url.into(),
             username: username.into(),
             auto: true,
+            ..Settings::default()
         }
     }
 
