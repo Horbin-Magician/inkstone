@@ -3,7 +3,45 @@ use gpui_component::{
     Disableable,
     button::{Button, ButtonVariants},
 };
-use inkstone_core::vault::sync::{self, Settings, WebDav};
+use inkstone_core::vault::sync::{self, Phase, Progress, Settings, WebDav};
+use std::sync::Mutex;
+
+type ProgressSlot = Arc<Mutex<Option<Progress>>>;
+
+fn progress_message(progress: &Progress) -> String {
+    let phase = match progress.phase {
+        Phase::Scanning => "正在扫描本地文件",
+        Phase::ReadingManifest => "正在读取云端清单",
+        Phase::Downloading => "正在下载",
+        Phase::Uploading => "正在上传",
+        Phase::Verifying => "正在校验本地文件",
+        Phase::Publishing => "正在更新云端清单",
+        Phase::Applying => "正在写入本地变更",
+        Phase::Complete => "正在完成同步",
+    };
+    if progress.total == 0 {
+        return format!("{phase}……");
+    }
+    let unit = if matches!(progress.phase, Phase::Uploading | Phase::Downloading) {
+        "个内容对象"
+    } else {
+        "个文件"
+    };
+    let bytes = if matches!(progress.phase, Phase::Uploading | Phase::Downloading) {
+        format!(
+            "，已传输 {:.2} MiB",
+            progress.bytes as f64 / (1024. * 1024.)
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "{phase}：{}/{} {unit}（本阶段 {}%）{bytes}",
+        progress.completed,
+        progress.total,
+        progress.completed * 100 / progress.total
+    )
+}
 
 pub(super) struct State {
     url: Entity<InputState>,
@@ -12,6 +50,8 @@ pub(super) struct State {
     pub pending: bool,
     busy: bool,
     message: String,
+    progress: Option<Progress>,
+    progress_slot: Option<ProgressSlot>,
 }
 impl State {
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
@@ -27,6 +67,8 @@ impl State {
             pending: false,
             busy: false,
             message: String::new(),
+            progress: None,
+            progress_slot: None,
         }
     }
 }
@@ -36,6 +78,8 @@ impl Workspace {
         state.pending = false;
         state.busy = false;
         state.message.clear();
+        state.progress = None;
+        state.progress_slot = None;
         state.url.update(cx, |input, cx| {
             input.set_value(self.ui.prefs.webdav.url.clone(), window, cx)
         });
@@ -50,6 +94,18 @@ impl Workspace {
         self.status = message.clone();
         self.ui.cloud_sync.message = message;
         cx.notify();
+    }
+    fn poll_cloud_progress(&mut self, cx: &mut Context<Self>) {
+        let progress = self
+            .ui
+            .cloud_sync
+            .progress_slot
+            .as_ref()
+            .and_then(|slot| slot.lock().unwrap().take());
+        if let Some(progress) = progress {
+            self.cloud_message(progress_message(&progress), cx);
+            self.ui.cloud_sync.progress = Some(progress);
+        }
     }
     fn cloud_settings(&self, cx: &App) -> Settings {
         Settings {
@@ -159,13 +215,48 @@ impl Workspace {
         self.ui.cloud_sync.busy = true;
         self.ui.file_operation = true;
         self.ui.pending_file_writes += 1;
-        self.cloud_message("正在同步笔记与附件……".into(), cx);
+        self.cloud_message("正在连接并准备云端目录……".into(), cx);
+        self.ui.cloud_sync.progress = None;
+        let progress_slot: ProgressSlot = Arc::new(Mutex::new(None));
+        self.ui.cloud_sync.progress_slot = Some(progress_slot.clone());
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {
             let remote = WebDav::new(&settings, &password)?;
             remote.prepare()?;
-            sync::synchronize(&vault, &remote, &remote.identity())
+            sync::synchronize_with_progress(&vault, &remote, &remote.identity(), |progress| {
+                // Coalesce events so large vaults cannot flood the UI queue.
+                *progress_slot.lock().unwrap() = Some(progress);
+            })
         });
+        let slot = self.ui.cloud_sync.progress_slot.clone().unwrap();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(100))
+                    .await;
+                let running = this
+                    .update(cx, |this, cx| {
+                        if this.generation != generation
+                            || !this.ui.cloud_sync.busy
+                            || !this
+                                .ui
+                                .cloud_sync
+                                .progress_slot
+                                .as_ref()
+                                .is_some_and(|current| Arc::ptr_eq(current, &slot))
+                        {
+                            return false;
+                        }
+                        this.poll_cloud_progress(cx);
+                        true
+                    })
+                    .unwrap_or(false);
+                if !running {
+                    break;
+                }
+            }
+        })
+        .detach();
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
@@ -173,6 +264,8 @@ impl Workspace {
                 if this.generation != generation { return; }
                 this.ui.file_operation = false;
                 this.ui.cloud_sync.busy = false;
+                this.ui.cloud_sync.progress = None;
+                this.ui.cloud_sync.progress_slot = None;
                 let message = match result {
                     Ok(report) => {
                         let conflicts = if report.conflicts.is_empty() { String::new() } else {
@@ -213,6 +306,14 @@ impl Workspace {
                     .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
                 .child("手动双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
                 .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB，一次下载上限 512 MiB。")
+                .when(state.progress_slot.is_some(), |s| {
+                    let progress = state.progress.as_ref().filter(|p| p.total > 0);
+                    s.child(gpui_component::progress::Progress::new("cloud-sync-progress")
+                        .w_full()
+                        .accessibility_label("当前同步阶段进度")
+                        .loading(progress.is_none())
+                        .value(progress.map_or(0., |p| p.completed as f32 * 100. / p.total as f32)))
+                })
                 .when(!state.message.is_empty(), |s| s.child(state.message.clone()))
         ).into_any_element()
     }
@@ -231,6 +332,42 @@ mod tests {
             atomic::{AtomicBool, Ordering},
         },
     };
+
+    #[gpui::test]
+    fn progress_updates_status_and_reset_discards_old_worker_events(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let slot = Arc::new(Mutex::new(Some(Progress {
+                    phase: Phase::Uploading,
+                    completed: 3,
+                    total: 8,
+                    bytes: 2 * 1024 * 1024,
+                })));
+                w.ui.cloud_sync.busy = true;
+                w.ui.cloud_sync.progress_slot = Some(slot.clone());
+                w.poll_cloud_progress(cx);
+                assert!(w.ui.cloud_sync.message.contains("3/8"));
+                assert!(w.ui.cloud_sync.message.contains("37%"));
+                assert!(w.ui.cloud_sync.message.contains("2.00 MiB"));
+                assert_eq!(w.status, w.ui.cloud_sync.message);
+                assert!(slot.lock().unwrap().is_none());
+                assert_eq!(w.ui.cloud_sync.progress.as_ref().unwrap().completed, 3);
+                w.reset_cloud_sync(window, cx);
+                *slot.lock().unwrap() = Some(Progress {
+                    phase: Phase::Downloading,
+                    completed: 1,
+                    total: 2,
+                    bytes: 128,
+                });
+                w.poll_cloud_progress(cx);
+                assert!(w.ui.cloud_sync.message.is_empty());
+                assert!(w.ui.cloud_sync.progress.is_none());
+                assert!(w.ui.cloud_sync.progress_slot.is_none());
+            })
+            .unwrap();
+    }
 
     struct Server {
         url: String,
@@ -254,6 +391,8 @@ mod tests {
                         std::thread::sleep(Duration::from_millis(2));
                         continue;
                     };
+                    // macOS can inherit the listener's nonblocking mode.
+                    socket.set_nonblocking(false).unwrap();
                     socket
                         .set_read_timeout(Some(Duration::from_secs(5)))
                         .unwrap();
@@ -400,6 +539,8 @@ mod tests {
                     "{}",
                     w.ui.cloud_sync.message
                 );
+                assert!(w.ui.cloud_sync.progress.is_none());
+                assert!(w.ui.cloud_sync.progress_slot.is_none());
                 assert_eq!(w.ui.pending_file_writes, 0);
                 assert!(!w.ui.file_operation);
                 assert!(w.files.contains(&PathBuf::from("remote.md")));
