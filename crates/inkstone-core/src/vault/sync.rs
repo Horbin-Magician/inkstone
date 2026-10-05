@@ -68,6 +68,14 @@ impl Default for Manifest {
 pub trait Remote: Sync {
     fn manifest(&self) -> Result<(Manifest, Option<String>)>;
     fn download(&self, hash: &str) -> Result<Vec<u8>>;
+    /// Receive an object into a caller-owned staging sink. Production transports
+    /// should override this compatibility fallback to avoid buffering the object.
+    fn download_to(&self, hash: &str, output: &mut dyn Write) -> Result<u64> {
+        let bytes = self.download(hash)?;
+        ensure!(bytes.len() as u64 <= MAX_FILE_BYTES, "云端文件超过大小限制");
+        output.write_all(&bytes)?;
+        Ok(bytes.len() as u64)
+    }
     fn upload(&self, hash: &str, bytes: &[u8]) -> Result<()>;
     fn publish(&self, manifest: &Manifest, revision: Option<&str>) -> Result<()>;
 }

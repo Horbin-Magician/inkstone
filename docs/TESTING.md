@@ -493,3 +493,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 界面并行加载基础列表/草稿与回收站大小，后者不阻塞条目出现；两个任务均按笔记库代次及请求号校验。列表显示来源、时间、大小、不自动清理及拒绝覆盖规则。
 - 核心回归覆盖嵌套二进制文件、链接目标排除、时间来源、缺失路径、空目录及原样恢复；核心全量 223 项通过、1 项忽略。桌面全量 310 项单元测试、8 项集成测试通过，2 项手动基准忽略；界面回归增加元数据回填和切库清空检查。并行用例曾出现目录消失，测试临时目录由单一时间戳改为进程号/原子序号/时间戳组合后全量通过。
 - 全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/trash-metadata-tests.log`、`target/trash-metadata-all-ui-tests.log`、`target/trash-metadata-clippy.log`、`target/trash-metadata-fmt.log`。原生窗口与大目录统计耗时仍待验收；未修改用户笔记。
+
+## 大库同步第一步：流式接收接口（2026-10-06）
+
+- 新增 Remote::download_to 接口，WebDAV 固定 64 KiB 缓冲写入调用方目标，保留单文件大小限制与网络错误行为；旧 Remote 实现有兼容回退。云端已存在对象的校验改为边接收边计算摘要，避免额外保留完整正文。
+- 新测试覆盖短写入、多缓冲传输、实际字节超限、目标写入失败，以及真实 HTTP 分块响应与截断响应。核心全量 225 项通过、1 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/sync-stream-api-tests.log`、`target/sync-stream-api-clippy.log`、`target/sync-stream-api-fmt.log`。同步主流程仍整批驻留内存，512 MiB 限制尚未移除；本提交不是大库首次同步验收，也未做峰值内存测量。未修改用户笔记。
