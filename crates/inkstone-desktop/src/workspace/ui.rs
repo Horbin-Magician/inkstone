@@ -144,6 +144,7 @@ pub(super) struct UiState {
     pub bulk_preview_revision: u64,
     pub recovery_refresh: u64,
     pub trash: Vec<inkstone_core::vault::TrashEntry>,
+    pub trash_metadata: std::collections::BTreeMap<PathBuf, inkstone_core::vault::TrashMetadata>,
     pub command: Entity<InputState>,
     pub selected: usize,
     pub modal_scroll: ScrollHandle,
@@ -478,6 +479,7 @@ impl UiState {
             bulk_preview_revision: 0,
             recovery_refresh: 0,
             trash: vec![],
+            trash_metadata: Default::default(),
             command,
             selected: 0,
             modal_scroll: ScrollHandle::new(),
@@ -1058,6 +1060,7 @@ impl Workspace {
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
         self.refresh_sync_recovery(cx);
+        self.refresh_trash_metadata(cx);
         let task = cx
             .background_executor()
             .spawn(async move { (vault.trash_entries(), vault.recoveries()) });

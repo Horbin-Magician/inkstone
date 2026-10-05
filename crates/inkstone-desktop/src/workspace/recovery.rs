@@ -33,6 +33,21 @@ pub(super) fn preview_text(text: &str) -> String {
     format!("{}\n\n……预览已截断，恢复副本仍包含完整正文。", &text[..end])
 }
 
+pub(super) fn trash_details(metadata: Option<&inkstone_core::vault::TrashMetadata>) -> String {
+    let time = metadata
+        .and_then(|m| m.modified)
+        .map(|t| {
+            let time: chrono::DateTime<chrono::Local> = t.into();
+            time.format("%Y-%m-%d %H:%M:%S").to_string()
+        })
+        .unwrap_or_else(|| "时间未知".into());
+    let size = metadata
+        .and_then(|m| m.bytes)
+        .map(|n| format!("{:.1} KiB", n as f64 / 1024.))
+        .unwrap_or_else(|| "大小未知".into());
+    format!("回收站 · {time} · {size}")
+}
+
 fn retention_label(policy: inkstone_core::vault::Retention) -> String {
     let age = if policy.days == 0 {
         "不限保留天数".into()
@@ -48,6 +63,34 @@ fn retention_label(policy: inkstone_core::vault::Retention) -> String {
 }
 
 impl Workspace {
+    pub(super) fn refresh_trash_metadata(&mut self, cx: &mut Context<Self>) {
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        self.ui.trash_metadata.clear();
+        let generation = self.generation;
+        let request = self.ui.recovery_refresh;
+        let task = cx
+            .background_executor()
+            .spawn(async move { vault.trash_inventory() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation || this.ui.recovery_refresh != request {
+                    return;
+                }
+                if let Ok(records) = result {
+                    this.ui.trash_metadata = records
+                        .into_iter()
+                        .map(|r| (r.entry.stored, r.metadata))
+                        .collect();
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn reviewing_draft(&self) -> bool {
         self.ui
             .history
@@ -630,6 +673,17 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn unknown_trash_size_is_not_reported_as_empty() {
+        assert!(trash_details(None).contains("大小未知"));
+        let empty = inkstone_core::vault::TrashMetadata {
+            modified: None,
+            bytes: Some(0),
+        };
+        assert!(trash_details(Some(&empty)).contains("0.0 KiB"));
+        assert!(trash_details(Some(&empty)).contains("时间未知"));
+    }
 
     #[test]
     fn retention_text_matches_configured_limits_including_unlimited() {

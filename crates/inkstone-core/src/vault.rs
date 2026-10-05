@@ -5,6 +5,7 @@ pub mod drafts;
 pub mod export;
 mod history;
 pub mod sync;
+mod trash_metadata;
 pub use history::{HistoryEntry, Retention};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,6 +15,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+pub use trash_metadata::{TrashMetadata, TrashRecord};
 
 static SERIAL: AtomicU64 = AtomicU64::new(0);
 fn unique_id() -> String {
