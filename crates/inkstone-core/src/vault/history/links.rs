@@ -61,7 +61,7 @@ impl Ownership {
 
 /// Stage metadata before moving. Publication failure rolls the note back.
 /// A process crash between the move and publication is not reconciled yet.
-pub(in crate::vault) fn rename_note(
+pub(in crate::vault) fn rename(
     vault: &Vault,
     old: &Path,
     new: &Path,
@@ -93,11 +93,45 @@ fn rename_with(
         .open(lock_path)?;
     lock.try_lock().map_err(io::Error::other)?;
     let mut ownership = Ownership::load(vault)?;
-    for entry in vault.history(old)? {
-        ownership
-            .0
-            .owners
-            .insert(entry.journal.with_extension(""), new.to_owned());
+    if source.is_dir() {
+        // Scan journals once, using current ownership so earlier note renames
+        // follow their containing folder. Deleted notes do not move with it.
+        for item in fs::read_dir(&vault.recovery_dir)? {
+            let journal = item?.path();
+            if !journal
+                .extension()
+                .is_some_and(|e| e == "json" || e == "saved")
+            {
+                continue;
+            }
+            let Ok(meta) = fs::symlink_metadata(&journal) else {
+                continue;
+            };
+            let Some(scope) = super::records::scope(vault, &journal, &meta) else {
+                continue;
+            };
+            if scope.root != vault.root {
+                continue;
+            }
+            let identity = journal.with_extension("");
+            let current = ownership.0.owners.get(&identity).unwrap_or(&scope.relative);
+            let Ok(suffix) = current.strip_prefix(old) else {
+                continue;
+            };
+            if !vault.path(current).is_ok_and(|p| p.is_file()) {
+                continue;
+            }
+            let destination = new.join(suffix);
+            Vault::validate_relative(&destination)?;
+            ownership.0.owners.insert(identity, destination);
+        }
+    } else {
+        for entry in vault.history(old)? {
+            ownership
+                .0
+                .owners
+                .insert(entry.journal.with_extension(""), new.to_owned());
+        }
     }
     let target = path(vault);
     let staged = target.with_extension(format!("{}.pending-links", unique_id()));
@@ -188,6 +222,95 @@ mod tests {
         assert_eq!(vault.read(old).unwrap().as_deref(), Some("external"));
         assert_eq!(vault.read(new).unwrap().as_deref(), Some("original"));
         assert!(vault.read_history(old, &record.recovery).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn folder_rename_transfers_nested_and_previously_renamed_notes_only() {
+        let root = std::env::temp_dir().join(format!("inkstone-folder-history-{}", unique_id()));
+        fs::create_dir_all(root.join("vault/old/nested")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let original = Path::new("old/nested/a.md");
+        let renamed = Path::new("old/nested/b.md");
+        let first = vault.save(original, None, "first").unwrap();
+        vault.rename_note(original, renamed, "first").unwrap();
+        let top = vault.save(Path::new("old/top.md"), None, "top").unwrap();
+        let deleted = vault
+            .save(Path::new("old/deleted.md"), None, "deleted")
+            .unwrap();
+        fs::remove_file(vault.path(Path::new("old/deleted.md")).unwrap()).unwrap();
+        fs::create_dir_all(vault.root.join("old-other")).unwrap();
+        let unrelated = vault
+            .save(Path::new("old-other/a.md"), None, "other")
+            .unwrap();
+        fs::write(vault.root.join("old/nested/asset.bin"), [0, 1, 255]).unwrap();
+        assert!(
+            rename_with(
+                &vault,
+                Path::new("old"),
+                Path::new("new"),
+                &vault.root.join("old"),
+                &vault.root.join("new"),
+                |_, _| Err(io::Error::other("mapping publication failed")),
+            )
+            .is_err()
+        );
+        assert!(vault.root.join("old/nested/asset.bin").is_file());
+        assert!(!vault.root.join("new").exists());
+        assert!(vault.read_history(renamed, &first.recovery).is_ok());
+        vault
+            .rename_folder(Path::new("old"), Path::new("new"))
+            .unwrap();
+        let vault = Vault::open(&vault.root, &vault.recovery_dir).unwrap();
+        assert_eq!(
+            vault.history(Path::new("new/nested/b.md")).unwrap().len(),
+            2
+        );
+        assert!(
+            vault
+                .read_history(Path::new("new/nested/b.md"), &first.recovery)
+                .is_ok()
+        );
+        assert!(
+            vault
+                .read_history(Path::new("new/top.md"), &top.recovery)
+                .is_ok()
+        );
+        assert!(vault.history(renamed).unwrap().is_empty());
+        assert!(
+            vault
+                .read_history(Path::new("old/deleted.md"), &deleted.recovery)
+                .is_ok()
+        );
+        assert!(
+            vault
+                .read_history(Path::new("old-other/a.md"), &unrelated.recovery)
+                .is_ok()
+        );
+        assert_eq!(
+            fs::read(vault.root.join("new/nested/asset.bin")).unwrap(),
+            [0, 1, 255]
+        );
+        fs::create_dir_all(vault.root.join("old/nested")).unwrap();
+        vault.save(renamed, None, "new identity").unwrap();
+        assert_eq!(vault.history(renamed).unwrap().len(), 1);
+        vault
+            .rename_folder(Path::new("new"), Path::new("again"))
+            .unwrap();
+        assert!(
+            vault
+                .read_history(Path::new("again/nested/b.md"), &first.recovery)
+                .is_ok()
+        );
+        assert!(
+            vault
+                .rename_folder(Path::new("again"), Path::new("old"))
+                .is_err()
+        );
+        assert!(
+            vault
+                .read_history(Path::new("again/nested/b.md"), &first.recovery)
+                .is_ok()
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

@@ -437,3 +437,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 单篇重命名持久化日志集合的归属映射，历史查询和正文读取使用一致的归属校验；连续重命名、重新启动以及旧路径创建新笔记均保持记录隔离。历史预览显示记录原路径，恢复副本仍使用当前笔记路径并保留现有文件。
 - 核心回归覆盖连续移动、路径复用、旧路径读取拒绝、目标冲突、损坏映射阻止移动、映射发布失败回滚，以及外部文件阻挡回滚时保留两侧文件。核心全量 212 项通过、1 项忽略；桌面恢复 4 项通过，包含重命名后预览并恢复 Unicode 旧版本为副本。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/history-links-tests.log`、`target/history-links-ui-tests.log`、`target/history-links-clippy.log`、`target/history-links-fmt.log`。未做原生窗口验收；目录/外部重命名、移动与映射发布之间的进程崩溃恢复、归属映射损坏后的重建仍待后续实现。映射为持久数据，不属于可删除缓存。未修改用户笔记；其他并行开发改动未混入提交。
+
+## 历史归属：目录重命名（2026-10-05）
+
+- 应用内目录重命名接入历史归属事务，单次扫描日志元数据并按当前归属匹配实际移动的笔记，复用文件锁、映射发布与失败回滚；记录正文及原路径保持不变。
+- 新增回归覆盖嵌套路径、先单篇改名再移动目录、连续目录移动、旧目录复用、相似目录名隔离、已删除笔记历史保留、二进制附件原样移动、目标冲突以及映射发布失败后整目录回滚。核心全量 213 项通过、1 项忽略，桌面恢复 4 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/folder-history-tests.log`、`target/folder-history-ui-tests.log`、`target/folder-history-clippy.log`、`target/folder-history-fmt.log`。本次未进行原生窗口验收；外部重命名、进程崩溃协调和归属映射损坏恢复仍待实现。未修改用户笔记。

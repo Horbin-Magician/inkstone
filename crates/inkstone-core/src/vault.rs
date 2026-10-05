@@ -189,7 +189,7 @@ impl Vault {
         let source = self.folder_path(old)?;
         let dest = self.folder_path(new)?;
         fs::create_dir_all(dest.parent().ok_or(VaultError::InvalidPath)?)?;
-        move_no_replace(&source, &dest)?;
+        history::links::rename(self, old, new, &source, &dest)?;
         Ok(())
     }
     pub fn trash_folder(&self, relative: &Path) -> Result<PathBuf, VaultError> {
@@ -553,7 +553,7 @@ impl Vault {
         if read_optional(&source)?.as_deref() != Some(baseline) {
             return Err(VaultError::Conflict { recovery });
         }
-        history::links::rename_note(self, old, new, &source, &dest)?;
+        history::links::rename(self, old, new, &source, &dest)?;
         let _ = fs::rename(&recovery, recovery.with_extension("saved"));
         Ok(())
     }
