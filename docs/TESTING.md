@@ -480,3 +480,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 同步清单在后台读取，使用笔记库代次与请求号拒绝过期结果。恢复任务纳入待完成写入计数，避让全部打开标签路径，重复点击受保护；成功后刷新索引、调度自动同步，报告副本路径及基线差异，保留原件和备份。
 - 桌面全量 308 项单元测试、8 项集成测试通过，2 项原手动基准忽略；新增回归验证统一命令入口、保留原件的恢复副本、重复点击、基线差异提示及切库后的扫描隔离。最后增加即时加载通知后，2 项专项再次通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/recovery-hub-all-tests.log`、`target/recovery-hub-sync-tests.log`、`target/recovery-hub-clippy.log`、`target/recovery-hub-fmt.log`。本次未做原生窗口、最小窗口/DPI 或读屏验收；恢复记录展示尚未完全统一为同一元数据模型。未修改用户笔记。
+
+## 恢复信息：草稿元数据与实际保留设置（2026-10-06）
+
+- 修复历史面板固定显示默认 30 天/128 MiB 的问题，改为显示当前设置；零值明确显示不限，并说明每篇最新成功版本保护与草稿不自动清理。草稿列表直接显示来源、原路径、记录时间、字节数和保留规则，长路径截断并提供完整路径提示。
+- 草稿枚举返回时间/大小元数据并按返回的时间排序，绘制时不查询文件；跳过非普通文件及链接。原 Unicode/CRLF 重启恢复回归新增元数据与日志实际大小/时间一致性断言，文案测试覆盖默认、自定义及不限策略。
+- 核心全量 222 项、桌面恢复 5 项通过；补充断言后草稿专项 4 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/recovery-metadata-tests.log`、`target/recovery-metadata-ui-tests.log`、`target/recovery-metadata-drafts-tests.log`、`target/recovery-metadata-clippy.log`、`target/recovery-metadata-fmt.log`。回收站详细元数据与原生窗口验收待后续补齐；未修改用户笔记。

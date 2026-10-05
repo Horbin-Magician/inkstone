@@ -96,6 +96,8 @@ pub struct SaveReceipt {
 pub struct RecoveryEntry {
     pub journal: PathBuf,
     pub record: Recovery,
+    pub modified: SystemTime,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -388,6 +390,12 @@ impl Vault {
             if path.extension().is_none_or(|e| e != "json") {
                 continue;
             }
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.is_file() && !is_reparse(&metadata) => metadata,
+                Ok(_) => continue,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
             let bytes = match fs::read(&path) {
                 Ok(bytes) => bytes,
                 // A completed save can rename a journal after enumeration.
@@ -402,10 +410,12 @@ impl Vault {
                 entries.push(RecoveryEntry {
                     journal: path,
                     record,
+                    modified: metadata.modified().unwrap_or(UNIX_EPOCH),
+                    bytes: bytes.len() as u64,
                 });
             }
         }
-        entries.sort_by_key(|e| fs::metadata(&e.journal).and_then(|m| m.modified()).ok());
+        entries.sort_by_key(|e| e.modified);
         entries.reverse();
         Ok(entries)
     }
