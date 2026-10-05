@@ -21,6 +21,7 @@ mod cloud_sync;
 mod commands;
 mod conflicts;
 mod document;
+mod drafts;
 mod exports;
 mod extras;
 mod file_settings;
@@ -217,6 +218,7 @@ impl Workspace {
         {
             self.save_pending(window, cx);
         }
+        self.tick_drafts(cx);
         if self.ui.search_drafts_changed {
             self.run_search(cx);
         }

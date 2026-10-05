@@ -74,15 +74,30 @@ impl Workspace {
             let baseline = tab.save.baseline.borrow().clone();
             let text = tab.save.editor.read(cx).value().to_string();
             let vault = vault.clone();
+            let draft = save.draft.borrow().as_ref().map(|state| state.io.clone());
+            if let Some(draft) = &draft {
+                draft
+                    .revision
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             let task = cx.background_executor().spawn(async move {
-                if baseline.is_none() {
+                // Serialize save and cleanup with recovery writes. Invalidated
+                // queued writes cannot resurrect a draft after a successful save.
+                let mut draft = draft.as_ref().map(|draft| draft.session.lock().unwrap());
+                let result = if baseline.is_none() {
                     vault.create(&path, &text)
                 } else {
                     vault.save(&path, baseline.as_deref(), &text)
-                }
+                };
+                let cleanup = if result.is_ok() {
+                    draft.as_mut().and_then(|draft| draft.clear().err())
+                } else {
+                    None
+                };
+                (result, cleanup)
             });
             cx.spawn_in(window, async move |this, cx| {
-                let result = task.await;
+                let (result, cleanup) = task.await;
                 let _ = this.update_in(cx, |this, window, cx| {
                     if this.generation != generation {
                         return;
@@ -98,6 +113,13 @@ impl Workspace {
                         tab.save.saving.set(false);
                         match result {
                             Ok(receipt) => {
+                                if let Some(draft) = tab.save.draft.borrow_mut().as_mut() {
+                                    draft.completed =
+                                        if cleanup.is_none() { Some(None) } else { None };
+                                }
+                                if let Some(error) = cleanup {
+                                    this.status = format!("正文已保存，草稿清理将重试：{error}");
+                                }
                                 tab.save.error.replace(None);
                                 let saved_path = tab.path.clone();
                                 let saved_text = receipt.text.clone();
