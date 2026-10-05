@@ -398,3 +398,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 比对迁移前后函数正文，除入口可见性与状态字段路径外保持一致；未新增重复验证代码移动的测试。
 - `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志 `target/right-sidebar-tests.log`、`target/right-sidebar-clippy.log`。
 - 检查期间另有 live_objects 编辑器测试的并行改动；其临时编译错误修正后 Clippy 重跑通过。本提交只包含侧栏迁移，完整测试记录对应启动测试时的工作区。未新增原生验收，未修改用户笔记。
+
+## 左侧栏：文件树与搜索结果边界（2026-10-05）
+
+- 左侧分类按钮、文件树/排序/定位、文件名与全文搜索结果、分组结果和连续树形引导线移入 left_sidebar；快速打开复用搜索结果接口，后台搜索调度保持原模块。
+- 比对完整迁移函数与引导线测试正文，仅调整 left_panel 入口可见性；控件 ID、菜单、跳转和搜索行为保持不变，未新增重复验证代码移动的测试。
+- `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；包含分组搜索、加载更多、快速切换隔离、文件定位/建目录及引导线回归。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/left-sidebar-tests.log`、`target/left-sidebar-clippy.log`。工作区有独立的 live_objects 并行修改，检查对应当时工作区；本提交不包含该文件。未新增原生验收，未修改用户笔记。
