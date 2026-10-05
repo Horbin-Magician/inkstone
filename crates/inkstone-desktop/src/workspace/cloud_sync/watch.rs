@@ -12,6 +12,9 @@ pub(super) struct Watch {
     pub epoch: u64,
 }
 impl Watch {
+    pub fn has_work(&self) -> bool {
+        self.checking || !self.paths.is_empty()
+    }
     pub fn reset(&mut self) {
         let revision = self.revision.wrapping_add(1);
         *self = Self {
