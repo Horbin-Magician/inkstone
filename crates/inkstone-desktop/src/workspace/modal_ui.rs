@@ -357,6 +357,31 @@ impl Workspace {
                             .overflow_y_scroll()
                             .child(
                                 div()
+                                    .flex()
+                                    .flex_wrap()
+                                    .gap_2()
+                                    .p_2()
+                                    .child(
+                                        Button::new("recovery-refresh")
+                                            .label("刷新恢复记录")
+                                            .on_click(
+                                                cx.listener(|this, _, _, cx| {
+                                                    this.refresh_trash(cx)
+                                                }),
+                                            ),
+                                    )
+                                    .child(
+                                        Button::new("recovery-history")
+                                            .label("当前笔记版本历史")
+                                            .disabled(self.active.is_none())
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.open_history(window, cx)
+                                            })),
+                                    ),
+                            )
+                            .child(self.sync_recovery_panel(cx))
+                            .child(
+                                div()
                                     .p_2()
                                     .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child("回收站 · 恢复到原目录"),

@@ -124,7 +124,7 @@ impl Workspace {
         }
         let generation = self.generation;
         let detail = format!(
-            "{}\n大小：{:.1} KiB\n\n扫描未找到直接引用，但其他文件、脚本或外部应用仍可能使用它。移入回收站后可通过“查看回收站”恢复。",
+            "{}\n大小：{:.1} KiB\n\n扫描未找到直接引用，但其他文件、脚本或外部应用仍可能使用它。移入回收站后可通过“文件恢复”恢复。",
             entry.path.display(),
             entry.bytes as f64 / 1024.
         );
@@ -189,7 +189,7 @@ impl Workspace {
                 match result {
                     Ok(_) => {
                         this.notifications
-                            .publish("附件已移入回收站，可从“查看回收站”恢复。".into());
+                            .publish("附件已移入回收站，可从“文件恢复”恢复。".into());
                         this.schedule_auto_sync(true);
                         this.refresh_attachments(window, cx);
                     }

@@ -131,6 +131,7 @@ pub(super) struct UiState {
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub trash_open: bool,
+    pub sync_recovery: super::sync_recovery::State,
     pub history: Option<super::recovery::Browser>,
     pub conflict_review: Option<super::conflicts::Review>,
     pub backup: super::backups::State,
@@ -464,6 +465,7 @@ impl UiState {
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             trash_open: false,
+            sync_recovery: Default::default(),
             history: None,
             conflict_review: None,
             backup: Default::default(),
@@ -1055,6 +1057,7 @@ impl Workspace {
         let generation = self.generation;
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
+        self.refresh_sync_recovery(cx);
         let task = cx
             .background_executor()
             .spawn(async move { (vault.trash_entries(), vault.recoveries()) });
