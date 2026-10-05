@@ -91,6 +91,13 @@ impl State {
     }
 }
 impl Workspace {
+    fn cloud_settings_disabled(&self) -> bool {
+        let state = &self.ui.cloud_sync;
+        // An automatic attempt may wait for saves, a quiet period, or a retry.
+        // Keep configuration and manual actions available during that wait.
+        self.vault.is_none() || self.loading || state.busy || (state.pending && !state.automatic)
+    }
+
     pub(super) fn apply_cloud_secret(
         &mut self,
         loaded: Option<Result<Option<String>, String>>,
@@ -236,7 +243,7 @@ impl Workspace {
         true
     }
     fn test_cloud_connection(&mut self, cx: &mut Context<Self>) {
-        if self.ui.cloud_sync.busy || self.ui.cloud_sync.pending || self.vault.is_none() {
+        if self.cloud_settings_disabled() {
             return;
         }
         if !self.save_cloud_settings(cx) {
@@ -431,10 +438,11 @@ impl Workspace {
     }
     pub(super) fn cloud_sync_settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let state = &self.ui.cloud_sync;
-        let disabled = self.vault.is_none() || self.loading || state.busy || state.pending;
+        let disabled = self.cloud_settings_disabled();
         div().flex().flex_1().min_h_0().child(self.settings_nav(cx)).child(
             self.settings_content().gap_3()
                 .child("云同步 · WebDAV")
+                .when(self.vault.is_none(), |s| s.child("请先打开笔记库，再配置云同步。同步配置按笔记库分别保存。"))
                 .child("在各设备填写同一个已存在的 WebDAV 目录；不同笔记库请使用不同目录。")
                 .child("服务器目录地址")
                 .child(Input::new(&state.url).disabled(disabled))
@@ -512,6 +520,7 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
     use std::{
         collections::BTreeMap,
@@ -522,6 +531,99 @@ mod tests {
             atomic::{AtomicBool, Ordering},
         },
     };
+
+    #[gpui::test]
+    fn settings_remain_usable_while_auto_sync_waits(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-sync-settings-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(root.join("vault"), root.join("recovery")).unwrap());
+                w.ui.settings = true;
+                w.ui.settings_tab = 8;
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1000.), px(720.)));
+        for waiting in [false, true] {
+            handle
+                .update(&mut visual, |w, _, _| {
+                    w.ui.cloud_sync.pending = waiting;
+                    w.ui.cloud_sync.automatic = waiting;
+                    w.ui.cloud_sync.defer_quiet = waiting;
+                })
+                .unwrap();
+            for (index, value) in [(4, "https://example.test/dav/"), (6, "user"), (8, "secret")] {
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+                let position = handle
+                    .update(&mut visual, |w, _, _| {
+                        w.ui.settings_scroll
+                            .bounds_for_item(index)
+                            .unwrap()
+                            .center()
+                    })
+                    .unwrap();
+                visual.simulate_click(position, Modifiers::default());
+                visual.simulate_platform_keystrokes("ctrl-a");
+                visual.simulate_input(value);
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        let input = match index {
+                            4 => &w.ui.cloud_sync.url,
+                            6 => &w.ui.cloud_sync.username,
+                            _ => &w.ui.cloud_sync.password,
+                        };
+                        assert!(
+                            input.read(cx).focus_handle(cx).is_focused(window),
+                            "input {index}, waiting={waiting}"
+                        );
+                        assert_eq!(input.read(cx).value().as_ref(), value);
+                    })
+                    .unwrap();
+            }
+        }
+        // The switch must remain clickable so a queued attempt can be cancelled.
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let switch = handle
+            .update(&mut visual, |w, _, _| {
+                let row = w.ui.settings_scroll.bounds_for_item(10).unwrap();
+                point(row.right() - px(16.), row.center().y)
+            })
+            .unwrap();
+        visual.simulate_click(switch, Modifiers::default());
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert!(!w.ui.prefs.webdav.auto);
+                assert!(!w.ui.cloud_sync.pending);
+            })
+            .unwrap();
+
+        // Testing a corrected configuration must also bypass an automatic wait.
+        let server = Server::new();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                configured(w, &server.url, true, window, cx);
+                w.ui.cloud_sync.pending = true;
+                w.ui.cloud_sync.automatic = true;
+                w.ui.cloud_sync.defer_quiet = true;
+                w.test_cloud_connection(cx);
+                assert!(w.ui.cloud_sync.busy);
+                assert_eq!(w.ui.prefs.webdav.url, server.url);
+            })
+            .unwrap();
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert!(!w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.message.starts_with("WebDAV 连接成功"));
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn progress_updates_status_and_reset_discards_old_worker_events(cx: &mut TestAppContext) {
