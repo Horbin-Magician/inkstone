@@ -1,6 +1,5 @@
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
-use gpui_component::Selectable;
 use gpui_component::button::*;
 
 impl Workspace {
@@ -248,78 +247,6 @@ impl Workspace {
             // Suppress superseded static/component bindings as well.
             cx.stop_propagation();
         }
-    }
-    pub(super) fn settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .id("settings-navigation")
-            .w(px(192.))
-            .flex_shrink_0()
-            .min_h_0()
-            .overflow_y_scrollbar()
-            .p_3()
-            .bg(self.side())
-            .border_r_1()
-            .border_color(self.border())
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(Input::new(&self.ui.settings_filter).w_full())
-            .child(
-                div()
-                    .px_2()
-                    .pt_3()
-                    .pb_2()
-                    .text_size(px(MIN_UI_FONT_SIZE))
-                    .text_color(rgb(0x777777))
-                    .child("选项"),
-            )
-            .children(
-                [
-                    (5, "外观", "palette"),
-                    (6, "界面", "monitor"),
-                    (0, "编辑器", "pencil"),
-                    (2, "文件与链接", "folder"),
-                    (7, "备份与恢复", "history"),
-                    (8, "云同步", "folder"),
-                    (1, "快捷键", "command"),
-                ]
-                .into_iter()
-                .map(|(i, title, symbol)| {
-                    Button::new(("settings-tab", i))
-                        .ghost()
-                        .h(px(36.))
-                        .w_full()
-                        .selected(self.ui.settings_tab == i)
-                        .toggled(self.ui.settings_tab == i)
-                        .when(self.ui.settings_tab == i, |button| {
-                            button.bg(crate::theme::palette(self.ui.prefs.light).selected)
-                        })
-                        .accessibility_label(title)
-                        .child(
-                            div()
-                                .w_full()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .text_size(px(MIN_UI_FONT_SIZE))
-                                .child(ui::icon(symbol).size(px(16.)))
-                                .child(title),
-                        )
-                        .on_click(cx.listener(move |this, _, w, cx| {
-                            this.ui
-                                .settings_filter
-                                .update(cx, |input, cx| input.set_value("", w, cx));
-                            this.ui.settings_tab = i;
-                            this.ui.settings_scroll.set_offset(Point::default());
-                            if i == 2 {
-                                this.prepare_file_settings(w, cx);
-                            }
-                            this.ui.hotkey_recording = None;
-                            cx.notify();
-                        }))
-                }),
-            )
-            .into_any_element()
     }
     pub(super) fn hotkey_settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let query = self.ui.hotkey_filter.read(cx).value().to_lowercase();

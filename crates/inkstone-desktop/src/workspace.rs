@@ -8,6 +8,7 @@ mod saving;
 mod search;
 mod session;
 mod settings_save;
+mod settings_ui;
 mod tabs;
 #[cfg(test)]
 mod tests;

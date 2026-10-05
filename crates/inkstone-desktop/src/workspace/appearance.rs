@@ -176,7 +176,7 @@ impl Workspace {
                         self.settings_row(
                             "显示标签页标题栏",
                             "在每个标签页顶部显示文件标题与导航控件。",
-                            ui::setting_switch("view-header-setting")
+                            super::settings_ui::setting_switch("view-header-setting")
                                 .accessibility_label("显示标签页标题栏")
                                 .checked(self.ui.prefs.show_view_header)
                                 .on_click(cx.listener(|this, enabled: &bool, _, cx| {
@@ -247,7 +247,7 @@ impl Workspace {
                         self.settings_row(
                             "快速调整字体大小",
                             "按住 Ctrl 并滚动鼠标滚轮，调整编辑和阅读视图的正文字号。",
-                            ui::setting_switch("quick-font-size")
+                            super::settings_ui::setting_switch("quick-font-size")
                                 .accessibility_label("快速调整字体大小")
                                 .checked(self.ui.prefs.quick_font_size)
                                 .on_click(cx.listener(|this, checked, window, cx| {

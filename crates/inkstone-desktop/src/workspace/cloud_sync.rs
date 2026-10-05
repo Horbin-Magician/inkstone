@@ -576,7 +576,7 @@ impl Workspace {
                             ),
                         )
                         .child(
-                            div().flex_shrink_0().child(super::ui::setting_switch("webdav-auto")
+                            div().flex_shrink_0().child(super::settings_ui::setting_switch("webdav-auto")
                                 .accessibility_label("自动同步")
                                 .checked(self.ui.prefs.webdav.auto)
                                 .disabled(disabled)
