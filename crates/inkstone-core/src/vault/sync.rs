@@ -16,11 +16,23 @@ const MAX_TOTAL_BYTES: usize = 512 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 type Files = BTreeMap<String, String>;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub url: String,
     pub username: String,
+    /// Sync after opening a vault and after local files are created, saved, or deleted.
+    /// Absent in older preference files, so those vaults keep syncing automatically.
+    pub auto: bool,
+}
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            username: String::new(),
+            auto: true,
+        }
+    }
 }
 
 impl Settings {

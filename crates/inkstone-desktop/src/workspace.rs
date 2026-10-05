@@ -216,6 +216,7 @@ impl Workspace {
         self.finish_pending_navigation(window, cx);
         self.finish_pending_closes(window, cx);
         self.persist_workspace(cx);
+        self.pump_auto_sync(window, cx);
         self.tick_cloud_sync(window, cx);
         self.tick_backups(window, cx);
         self.finish_window_close(window, cx);

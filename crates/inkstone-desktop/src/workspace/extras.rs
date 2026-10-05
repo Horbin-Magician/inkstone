@@ -168,6 +168,7 @@ impl Workspace {
                             this.run_search(cx);
                         }
                         this.status = "任务状态已保存".into();
+                        this.schedule_auto_sync(true);
                     }
                     Err(error) => {
                         this.ui.window_close_requested = false;
@@ -291,6 +292,7 @@ impl Workspace {
                         } else {
                             "文件夹已移入可恢复回收站。".into()
                         };
+                        this.schedule_auto_sync(true);
                         // The move is a rename. Reuse parsed notes instead of rebuilding the vault index.
                         this.apply_relocated_index(&old, new.as_deref(), true, cx);
                         this.offer_link_updates(edits, w, cx);
@@ -757,7 +759,8 @@ impl Workspace {
                         Err(e) => errors.push(e.to_string()),
                     }
                 }
-                if !markdown.is_empty() {
+                let imported = !markdown.is_empty();
+                if imported {
                     let pane = if secondary {
                         this.views
                             .split
@@ -779,6 +782,10 @@ impl Workspace {
                 } else {
                     errors.join("；")
                 };
+                if !imported || !errors.is_empty() {
+                    // A failed import can still have copied some files.
+                    this.schedule_auto_sync(true);
+                }
                 this.structure_changed = true;
                 this.refresh_requested = true;
                 this.sync_reference_contexts(cx);

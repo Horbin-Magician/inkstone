@@ -125,6 +125,7 @@ impl Workspace {
                     };
                     if let Some((path, text)) = saved {
                         this.note_indexed_change(path, text, cx);
+                        this.schedule_auto_sync(true);
                     }
                     this.finish_pending_closes(window, cx);
                     this.finish_pending_navigation(window, cx);

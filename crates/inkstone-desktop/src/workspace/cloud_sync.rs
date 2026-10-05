@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
     Disableable,
     button::{Button, ButtonVariants},
@@ -7,6 +8,10 @@ use inkstone_core::vault::sync::{self, Phase, Progress, Settings, WebDav};
 use std::sync::Mutex;
 
 type ProgressSlot = Arc<Mutex<Option<Progress>>>;
+/// Wait after a local change so a burst of saves becomes one sync.
+const AUTO_SYNC_QUIET: Duration = Duration::from_secs(3);
+/// Back off after a failed automatic attempt. Manual sync is not delayed.
+const AUTO_SYNC_RETRY: Duration = Duration::from_secs(60);
 
 fn progress_message(progress: &Progress) -> String {
     let phase = match progress.phase {
@@ -48,6 +53,15 @@ pub(super) struct State {
     username: Entity<InputState>,
     password: Entity<InputState>,
     pub pending: bool,
+    /// Set when a sync was queued by opening the vault or a local file change.
+    automatic: bool,
+    /// Local files changed while a sync was running, or the last attempt failed.
+    again: bool,
+    /// A quiet or retry timer is waiting to be armed on the next workspace tick.
+    defer_quiet: bool,
+    defer_retry: bool,
+    /// Executor timer so tests can advance it and a burst of edits coalesces.
+    wait: Option<Task<()>>,
     busy: bool,
     message: String,
     progress: Option<Progress>,
@@ -64,6 +78,11 @@ impl State {
                 input
             }),
             pending: false,
+            automatic: false,
+            again: false,
+            defer_quiet: false,
+            defer_retry: false,
+            wait: None,
             busy: false,
             message: String::new(),
             progress: None,
@@ -80,6 +99,11 @@ impl Workspace {
     ) {
         let state = &mut self.ui.cloud_sync;
         state.pending = false;
+        state.automatic = false;
+        state.again = false;
+        state.defer_quiet = false;
+        state.defer_retry = false;
+        state.wait = None;
         state.busy = false;
         state.message.clear();
         state.progress = None;
@@ -101,6 +125,56 @@ impl Workspace {
         state
             .password
             .update(cx, |input, cx| input.set_value(password, window, cx));
+        self.schedule_auto_sync(false);
+    }
+    /// Arm quiet and retry timers, then resume a sync deferred by an in-flight attempt.
+    pub(super) fn pump_auto_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ui.cloud_sync.defer_quiet {
+            self.ui.cloud_sync.defer_quiet = false;
+            self.ui.cloud_sync.defer_retry = false;
+            self.start_auto_wait(AUTO_SYNC_QUIET, window, cx);
+        } else if self.ui.cloud_sync.defer_retry && self.ui.cloud_sync.wait.is_none() {
+            self.ui.cloud_sync.defer_retry = false;
+            self.start_auto_wait(AUTO_SYNC_RETRY, window, cx);
+        } else if self.ui.cloud_sync.again
+            && !self.ui.cloud_sync.busy
+            && self.ui.cloud_sync.wait.is_none()
+        {
+            self.ui.cloud_sync.again = false;
+            self.schedule_auto_sync(false);
+        }
+    }
+    fn start_auto_wait(&mut self, delay: Duration, window: &mut Window, cx: &mut Context<Self>) {
+        // Replacing the previous task cancels it, so another edit extends the quiet period.
+        self.ui.cloud_sync.wait = Some(cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.ui.cloud_sync.wait = None;
+                this.pump_auto_sync(window, cx);
+                this.tick_cloud_sync(window, cx);
+            });
+        }));
+    }
+    /// Queue a sync after the vault opens, or after a local create, save, or delete.
+    /// File changes wait briefly so a burst coalesces; startup does not.
+    /// A manual sync already waiting is left immediate.
+    pub(super) fn schedule_auto_sync(&mut self, quiet: bool) {
+        if !self.ui.prefs.webdav.auto || self.ui.prefs.webdav.url.trim().is_empty() {
+            return;
+        }
+        let state = &mut self.ui.cloud_sync;
+        if state.busy {
+            state.again = true;
+            return;
+        }
+        if state.pending && !state.automatic {
+            return;
+        }
+        state.pending = true;
+        state.automatic = true;
+        if quiet {
+            state.defer_quiet = true;
+        }
     }
     fn cloud_message(&mut self, message: String, cx: &mut Context<Self>) {
         self.status = message.clone();
@@ -123,6 +197,7 @@ impl Workspace {
         Settings {
             url: self.ui.cloud_sync.url.read(cx).value().trim().to_owned(),
             username: self.ui.cloud_sync.username.read(cx).value().to_string(),
+            auto: self.ui.prefs.webdav.auto,
         }
     }
     fn save_cloud_settings(&mut self, cx: &mut Context<Self>) -> bool {
@@ -191,23 +266,34 @@ impl Workspace {
         .detach();
     }
     fn request_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.vault.is_none()
-            || self.loading
-            || self.ui.cloud_sync.busy
-            || self.ui.cloud_sync.pending
-        {
+        if self.vault.is_none() || self.loading || self.ui.cloud_sync.busy {
+            return;
+        }
+        if self.ui.cloud_sync.pending && !self.ui.cloud_sync.automatic {
             return;
         }
         if !self.save_cloud_settings(cx) {
             return;
         }
         self.ui.cloud_sync.pending = true;
+        self.ui.cloud_sync.automatic = false;
+        self.ui.cloud_sync.again = false;
+        self.ui.cloud_sync.defer_quiet = false;
+        self.ui.cloud_sync.defer_retry = false;
+        self.ui.cloud_sync.wait = None;
         self.save_all(window, cx);
         self.cloud_message("等待笔记保存后开始同步……".into(), cx);
         self.tick_cloud_sync(window, cx);
     }
     pub(super) fn tick_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.ui.cloud_sync.pending || self.ui.cloud_sync.busy || self.loading {
+            return;
+        }
+        if self.ui.cloud_sync.automatic
+            && (self.ui.cloud_sync.wait.is_some()
+                || self.ui.cloud_sync.defer_quiet
+                || self.ui.cloud_sync.defer_retry)
+        {
             return;
         }
         if self
@@ -217,6 +303,14 @@ impl Workspace {
             || self.ui.persist_error.is_some()
         {
             self.ui.cloud_sync.pending = false;
+            self.ui.cloud_sync.automatic = false;
+            self.ui.cloud_sync.defer_quiet = false;
+            self.ui.cloud_sync.wait = None;
+            if self.ui.prefs.webdav.auto {
+                // Keep retrying after the conflict or save error is resolved.
+                self.ui.cloud_sync.again = true;
+                self.ui.cloud_sync.defer_retry = true;
+            }
             self.cloud_message("同步未开始：请先处理笔记冲突或保存错误。".into(), cx);
             return;
         }
@@ -238,11 +332,17 @@ impl Workspace {
         }
         let Some(vault) = self.vault.clone() else {
             self.ui.cloud_sync.pending = false;
+            self.ui.cloud_sync.automatic = false;
             return;
         };
         let settings = self.ui.prefs.webdav.clone();
         let password = self.ui.cloud_sync.password.read(cx).value().to_string();
         self.ui.cloud_sync.pending = false;
+        self.ui.cloud_sync.automatic = false;
+        self.ui.cloud_sync.again = false;
+        self.ui.cloud_sync.defer_quiet = false;
+        self.ui.cloud_sync.defer_retry = false;
+        self.ui.cloud_sync.wait = None;
         self.ui.cloud_sync.busy = true;
         self.ui.file_operation = true;
         self.ui.pending_file_writes += 1;
@@ -297,7 +397,7 @@ impl Workspace {
                 this.ui.cloud_sync.busy = false;
                 this.ui.cloud_sync.progress = None;
                 this.ui.cloud_sync.progress_slot = None;
-                let message = match result {
+                let message = match &result {
                     Ok(report) => {
                         let conflicts = if report.conflicts.is_empty() { String::new() } else {
                             format!("；{} 项冲突已保留修改版本：{}", report.conflicts.len(), report.conflicts.join("、"))
@@ -306,11 +406,20 @@ impl Workspace {
                     }
                     Err(error) => format!("同步未完成：{error}。已完成的传输会保留，可重试。"),
                 };
+                if result.is_err() && this.ui.prefs.webdav.auto {
+                    this.ui.cloud_sync.again = true;
+                    this.ui.cloud_sync.defer_retry = true;
+                }
                 this.cloud_message(message, cx);
                 // Even a partially completed sync can have changed files. Refresh open
                 // documents through the existing external-change/conflict mechanism.
                 this.rescan = true;
                 this.refresh_requested = true;
+                if this.ui.cloud_sync.again {
+                    this.ui.cloud_sync.again = false;
+                    this.schedule_auto_sync(false);
+                    this.tick_cloud_sync(window, cx);
+                }
                 this.refresh(window, cx);
             });
         }).detach();
@@ -329,10 +438,48 @@ impl Workspace {
                 .child("密码 / 应用专用密码")
                 .child(Input::new(&state.password).disabled(disabled))
                 .child(if super::webdav_secret::supported() {
-                    "密码保存在本机系统钥匙串，不写入笔记库。重启或切换回来后会自动填回，仍需手动点击同步。建议使用 HTTPS。"
+                    "密码保存在本机系统钥匙串，不写入笔记库。重启或切换回来后会自动填回。建议使用 HTTPS。"
                 } else {
                     "当前系统尚未支持保存密码，重启后需重新输入。建议使用 HTTPS。"
                 })
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(
+                            div().flex_1().child("自动同步").child(
+                                div().text_size(px(MIN_UI_FONT_SIZE)).child(
+                                    "打开笔记库，以及新建、保存或删除文件后自动同步。连续修改会稍等片刻再合并同步；关闭后仅在点击“立即同步”时同步。",
+                                ),
+                            ),
+                        )
+                        .child(
+                            super::ui::setting_switch("webdav-auto")
+                                .accessibility_label("自动同步")
+                                .checked(self.ui.prefs.webdav.auto)
+                                .disabled(disabled)
+                                .on_click(cx.listener(|this, enabled: &bool, window, cx| {
+                                    this.ui.prefs.webdav.auto = *enabled;
+                                    this.persist_workspace(cx);
+                                    if *enabled {
+                                        this.schedule_auto_sync(false);
+                                        this.tick_cloud_sync(window, cx);
+                                    } else {
+                                        this.ui.cloud_sync.again = false;
+                                        this.ui.cloud_sync.defer_quiet = false;
+                                        this.ui.cloud_sync.defer_retry = false;
+                                        this.ui.cloud_sync.wait = None;
+                                        if this.ui.cloud_sync.automatic {
+                                            this.ui.cloud_sync.pending = false;
+                                            this.ui.cloud_sync.automatic = false;
+                                        }
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                )
                 .child(div().flex().gap_2()
                     .child(Button::new("webdav-save").label("保存配置").disabled(disabled).on_click(cx.listener(|this, _, _, cx| {
                         if this.save_cloud_settings(cx) {
@@ -350,7 +497,7 @@ impl Workspace {
                     })))
                     .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
                     .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
-                .child("手动双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
+                .child("双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
                 .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB，一次下载上限 512 MiB。")
                 .when(state.progress_slot.is_some(), |s| {
                     let progress = state.progress.as_ref().filter(|p| p.total > 0);
@@ -533,6 +680,7 @@ mod tests {
         let settings = Settings {
             url: server.url.clone(),
             username: "user".into(),
+            auto: false,
         };
         let remote = WebDav::new(&settings, "secret").unwrap();
         remote.prepare().unwrap();
@@ -639,6 +787,231 @@ mod tests {
                 .values()
                 .any(|v| v == b"latest draft")
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn configured(
+        w: &mut Workspace,
+        url: &str,
+        auto: bool,
+        window: &mut Window,
+        cx: &mut Context<Workspace>,
+    ) {
+        w.ui.prefs.webdav.auto = auto;
+        w.ui.cloud_sync
+            .url
+            .update(cx, |s, cx| s.set_value(url, window, cx));
+        w.ui.cloud_sync
+            .username
+            .update(cx, |s, cx| s.set_value("user", window, cx));
+        w.ui.cloud_sync
+            .password
+            .update(cx, |s, cx| s.set_value("secret", window, cx));
+    }
+
+    #[gpui::test]
+    fn opening_a_configured_vault_syncs_without_a_manual_click(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-auto-open-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("local")).unwrap();
+        std::fs::write(root.join("local/note.md"), "local").unwrap();
+        std::fs::write(
+            root.join("local/.inkstone-workspace.json"),
+            serde_json::json!({"webdav": {"url": server.url, "username": "user"}}).to_string(),
+        )
+        .unwrap();
+        crate::workspace::webdav_secret::tests::install();
+        let settings = Settings {
+            url: server.url.clone(),
+            username: "user".into(),
+            auto: true,
+        };
+        let account =
+            crate::workspace::webdav_secret::account(&settings, &root.join("local")).unwrap();
+        crate::workspace::webdav_secret::store(&account, "secret").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("local"), window, cx)
+            })
+            .unwrap();
+        for _ in 0..8 {
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, window, cx| w.tick(window, cx))
+                .unwrap();
+        }
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(
+                    w.ui.cloud_sync.message.starts_with("同步完成"),
+                    "{}",
+                    w.ui.cloud_sync.message
+                );
+                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.pending);
+                w.watcher = None;
+            })
+            .unwrap();
+        assert!(
+            server
+                .files
+                .lock()
+                .unwrap()
+                .values()
+                .any(|bytes| bytes == b"local")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn saving_and_deleting_queue_one_sync_after_the_quiet_period(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-auto-change-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("local")).unwrap();
+        std::fs::create_dir_all(root.join("recovery")).unwrap();
+        std::fs::write(root.join("local/keep.md"), "kept").unwrap();
+        std::fs::write(root.join("local/gone.md"), "gone").unwrap();
+        let vault = Vault::open(root.join("local"), root.join("recovery")).unwrap();
+        let settings = Settings {
+            url: server.url.clone(),
+            username: "user".into(),
+            auto: true,
+        };
+        let remote = WebDav::new(&settings, "secret").unwrap();
+        remote.prepare().unwrap();
+        sync::synchronize(&vault, &remote, &remote.identity()).unwrap();
+        crate::workspace::webdav_secret::tests::install();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault);
+                w.ui.prefs.webdav = settings;
+                w.files = vec!["gone.md".into(), "keep.md".into()];
+                w.add_tab("keep.md".into(), Some("kept".into()), false, window, cx);
+                w.add_tab("gone.md".into(), Some("gone".into()), false, window, cx);
+                configured(w, &server.url, true, window, cx);
+                w.schedule_auto_sync(true);
+                w.pump_auto_sync(window, cx);
+                assert!(w.ui.cloud_sync.pending);
+                assert!(w.ui.cloud_sync.wait.is_some());
+                assert!(!w.ui.cloud_sync.busy);
+                w.tabs[0]
+                    .save
+                    .editor
+                    .update(cx, |s, cx| s.replace_all("revised", window, cx));
+                w.tabs[0].save.dirty.set(true);
+                w.save_pending(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.busy);
+                w.manage_named_note(w.tabs[1].id, true, String::new(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(
+            !root.join("local/gone.md").exists(),
+            "trash did not remove the note"
+        );
+        let before = server.files.lock().unwrap().clone();
+        let before_manifest = before
+            .iter()
+            .find(|(path, _)| path.ends_with("manifest.json"))
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .unwrap_or_default();
+        assert!(
+            before_manifest.contains("gone.md"),
+            "quiet period synced too early: {before_manifest}"
+        );
+        handle
+            .update(cx, |w, window, cx| {
+                w.tick_cloud_sync(window, cx);
+                assert!(w.ui.cloud_sync.pending, "quiet period should still hold");
+                assert!(w.ui.cloud_sync.wait.is_some());
+                assert!(!w.ui.cloud_sync.busy);
+            })
+            .unwrap();
+        cx.executor().advance_clock(AUTO_SYNC_QUIET);
+        cx.run_until_parked();
+        for _ in 0..8 {
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, window, cx| w.tick(window, cx))
+                .unwrap();
+        }
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(
+                    w.ui.cloud_sync.message.starts_with("同步完成"),
+                    "{}",
+                    w.ui.cloud_sync.message
+                );
+                assert!(!w.ui.cloud_sync.busy);
+                assert!(!w.ui.cloud_sync.pending);
+                w.watcher = None;
+            })
+            .unwrap();
+        let files = server.files.lock().unwrap().clone();
+        assert!(files.values().any(|bytes| bytes == b"revised"));
+        let manifest = files
+            .iter()
+            .find(|(path, _)| path.ends_with("manifest.json"))
+            .map(|(_, bytes)| String::from_utf8(bytes.clone()).unwrap())
+            .unwrap_or_default();
+        assert!(manifest.contains("keep.md"), "{manifest}");
+        assert!(!manifest.contains("gone.md"), "{manifest}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn disabled_auto_sync_waits_for_a_manual_request(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-auto-off-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(root.join("vault"), root.join("recovery")).unwrap());
+                w.ui.prefs.webdav = Settings {
+                    url: "https://example.test/dav/".into(),
+                    username: "user".into(),
+                    auto: false,
+                };
+                w.apply_cloud_secret(Some(Ok(Some("secret".into()))), window, cx);
+                assert!(!w.ui.cloud_sync.pending);
+                w.schedule_auto_sync(true);
+                w.tick(window, cx);
+                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.busy);
+                w.watcher = None;
+            })
+            .unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 }

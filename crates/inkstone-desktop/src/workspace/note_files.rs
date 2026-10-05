@@ -139,6 +139,7 @@ impl Workspace {
                     Ok((true, path, _)) => {
                         let removed = this.tabs[index].path.clone();
                         this.status = format!("已移入可恢复回收区：{}", path.display());
+                        this.schedule_auto_sync(true);
                         if this.tabs[index].save.dirty.get() {
                             this.tabs[index].save.conflict.set(true);
                             this.status

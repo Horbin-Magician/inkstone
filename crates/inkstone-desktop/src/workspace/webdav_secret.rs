@@ -151,6 +151,7 @@ pub(crate) mod tests {
         Settings {
             url: url.into(),
             username: username.into(),
+            auto: true,
         }
     }
 
