@@ -548,3 +548,47 @@ fn older_settings_default_to_five_minute_remote_checks() {
         serde_json::from_slice(&serde_json::to_vec(&custom).unwrap()).unwrap();
     assert_eq!(roundtrip.poll_minutes, 15);
 }
+
+#[test]
+fn watcher_classification_ignores_sync_writes_but_detects_external_changes() {
+    let f = Fixture::new();
+    let remote = Memory::default();
+    let paths = BTreeSet::from([PathBuf::from("note.md"), PathBuf::from("asset.bin")]);
+    fs::write(f.a.root.join("note.md"), "first").unwrap();
+    fs::write(f.a.root.join("asset.bin"), [0, 1, 255]).unwrap();
+    synchronize(&f.a, &remote, "watch").unwrap();
+    synchronize(&f.b, &remote, "watch").unwrap();
+    assert!(!changed_since_sync(&f.b, "watch", &paths).unwrap());
+    fs::write(f.b.root.join("asset.bin"), [0, 2, 255]).unwrap();
+    assert!(changed_since_sync(&f.b, "watch", &paths).unwrap());
+    synchronize(&f.b, &remote, "watch").unwrap();
+    assert!(!changed_since_sync(&f.b, "watch", &paths).unwrap());
+    fs::remove_file(f.b.root.join("note.md")).unwrap();
+    assert!(changed_since_sync(&f.b, "watch", &paths).unwrap());
+    synchronize(&f.b, &remote, "watch").unwrap();
+    synchronize(&f.a, &remote, "watch").unwrap();
+    assert!(!changed_since_sync(&f.a, "watch", &paths).unwrap());
+    assert!(changed_since_sync(&f.a, "other-endpoint", &paths).unwrap());
+}
+
+#[test]
+fn watcher_classification_reconciles_directories_and_rejects_bad_state() {
+    let f = Fixture::new();
+    let remote = Memory::default();
+    fs::create_dir(f.a.root.join("folder")).unwrap();
+    fs::write(f.a.root.join("folder/note.md"), "body").unwrap();
+    synchronize(&f.a, &remote, "watch").unwrap();
+    let paths = BTreeSet::from([PathBuf::from("folder")]);
+    assert!(!changed_since_sync(&f.a, "watch", &paths).unwrap());
+    fs::rename(f.a.root.join("folder"), f.a.root.join("renamed")).unwrap();
+    assert!(changed_since_sync(&f.a, "watch", &paths).unwrap());
+    assert!(changed_since_sync(&f.a, "watch", &BTreeSet::from([PathBuf::new()])).unwrap());
+    assert!(
+        !changed_since_sync(&f.a, "watch", &BTreeSet::from([PathBuf::from(".hidden")])).unwrap()
+    );
+    assert!(
+        changed_since_sync(&f.a, "watch", &BTreeSet::from([PathBuf::from("../escape")])).is_err()
+    );
+    fs::write(baseline_path(&f.a, "watch"), "corrupt").unwrap();
+    assert!(changed_since_sync(&f.a, "watch", &paths).is_err());
+}
