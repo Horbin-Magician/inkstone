@@ -140,6 +140,10 @@ pub struct Input {
     /// An optional paste handler. If set, it is invoked with the clipboard item
     /// before the default text insertion. Return `true` if handled.
     paste_handler: Option<Rc<dyn Fn(&gpui::ClipboardItem, &mut Window, &mut App) -> bool>>,
+
+    /// Drop the default multi-line padding so a host can align the text column
+    /// with another view that draws its own inset.
+    flush: bool,
 }
 
 impl Sizable for Input {
@@ -238,6 +242,7 @@ impl Input {
             paste_handler: None,
             token_renderer: None,
             token_click_listener: None,
+            flush: false,
         }
     }
 
@@ -385,6 +390,12 @@ impl Input {
         handler: impl Fn(&gpui::ClipboardItem, &mut Window, &mut App) -> bool + 'static,
     ) -> Self {
         self.paste_handler = Some(Rc::new(handler));
+        self
+    }
+
+    /// Drop the default multi-line padding so the text starts at the frame edge.
+    pub(crate) fn flush(mut self, flush: bool) -> Self {
+        self.flush = flush;
         self
     }
 
@@ -584,7 +595,7 @@ impl RenderOnce for Input {
             cx,
         );
         state.set_editor_paddings(
-            if state.presentation(cx).is_multi_line() {
+            if state.presentation(cx).is_multi_line() && !self.flush {
                 Edges {
                     top: self.size.input_py(),
                     right: self.size.input_px(),
