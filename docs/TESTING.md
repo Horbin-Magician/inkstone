@@ -412,3 +412,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 保持原有单条覆盖语义与事件通知时机。比对所有既有工作区字符串字面量（排除字符字面量）一致；现有搜索错误不覆盖保存冲突、同步进度、文件操作失败与恢复提示断言迁移到只读接口。
 - `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志 `target/notifications-tests.log`、`target/notifications-clippy.log`。
 - 未新增只重复字符串访问器的测试，也未新增原生验收。工作区的独立 live_objects 并行改动不纳入本提交；未修改用户笔记。
+
+## 历史读取：按笔记缓存元数据（2026-10-05）
+
+- 新增按笔记库/笔记键组织的历史元数据缓存，命中时不扫描其他笔记、不读取正文；目录变化或本笔记记录的大小/时间/类型变化时失效，选中记录仍通过原 read_history 校验及读取。
+- 缓存带版本、范围和校验和，截断与合法 JSON 中的元数据损坏均回退重建。写入采用临时文件替换，缓存失败不影响原记录；缓存目录为符号链接时不向外部写入。
+- 新回归覆盖大正文对应小于 2 KiB 的元数据缓存、缓存命中、损坏重建、新增日志、json→saved 转换、正文损坏、笔记隔离及链接目录回退。核心全量 208 项通过、1 项忽略；桌面 recovery 3 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/history-index-tests.log`、`target/history-index-ui-tests.log`、`target/history-index-clippy.log`。缓存失效后的旧目录扫描/全文读取仍存在，未将本提交视为完整增量历史索引或重命名历史完成。未修改用户笔记。

@@ -1,4 +1,5 @@
 use super::*;
+mod index;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -17,7 +18,7 @@ impl Default for Retention {
 }
 
 /// Metadata only: selecting an entry loads its body on a background thread.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub journal: PathBuf,
     pub modified: SystemTime,
@@ -50,6 +51,10 @@ impl Vault {
 
     pub fn history(&self, relative: &Path) -> Result<Vec<HistoryEntry>, VaultError> {
         Self::validate_relative(relative)?;
+        if let Some(entries) = index::load(self, relative) {
+            return Ok(entries);
+        }
+        let directory_modified = index::stamp(self);
         let mut entries = Vec::new();
         for item in fs::read_dir(&self.recovery_dir)? {
             let path = item?.path();
@@ -77,6 +82,7 @@ impl Vault {
                 .cmp(&a.modified)
                 .then_with(|| b.journal.cmp(&a.journal))
         });
+        index::store(self, relative, directory_modified, &entries);
         Ok(entries)
     }
 
