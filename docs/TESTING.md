@@ -391,3 +391,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 对迁移前后的完整函数正文逐段比对，确认遮罩、尺寸、控件 ID、焦点、按键和业务回调保持一致；未新增重复验证代码移动的测试。
 - `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；覆盖属性类型/列表/日期/撤销/过期弹窗、设置滚动、草稿比较与冲突处理等现有回归。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/modal-ui-tests.log`、`target/modal-ui-clippy.log`。未新增原生焦点/DPI 验收，未修改用户笔记。
+
+## 右侧栏：视图与大纲状态边界（2026-10-05）
+
+- 将大纲、反向链接、出链、标签及属性面板和右侧分类按钮移入 right_sidebar；大纲折叠键与集合归为模块私有 OutlineState。标签导航和大纲层级回归随所属模块移动。
+- 比对迁移前后函数正文，除入口可见性与状态字段路径外保持一致；未新增重复验证代码移动的测试。
+- `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志 `target/right-sidebar-tests.log`、`target/right-sidebar-clippy.log`。
+- 检查期间另有 live_objects 编辑器测试的并行改动；其临时编译错误修正后 Clippy 重跑通过。本提交只包含侧栏迁移，完整测试记录对应启动测试时的工作区。未新增原生验收，未修改用户笔记。
