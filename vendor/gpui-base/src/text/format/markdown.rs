@@ -21,6 +21,9 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
     let options = cx.markdown_extensions.parse_options();
     let mut root =
         markdown::to_mdast(source, &options).map_err(|e| SharedString::from(e.to_string()))?;
+    if let Some(transform) = &cx.markdown_extensions.ast_transform {
+        transform(&mut root, source);
+    }
     fn link_definitions(node: &Node, cx: &mut NodeContext) {
         if let Node::Definition(d) = node {
             cx.add_ref(
@@ -231,6 +234,9 @@ pub(crate) fn parse(source: &str, cx: &mut NodeContext) -> Result<ParsedDocument
     if !cx.callouts.is_empty() {
         root = markdown::to_mdast(std::str::from_utf8(&masked).unwrap_or(source), &options)
             .map_err(|e| SharedString::from(e.to_string()))?;
+        if let Some(transform) = &cx.markdown_extensions.ast_transform {
+            transform(&mut root, source);
+        }
     }
     let mut prose = options;
     prose.constructs.math_text = false;
