@@ -196,9 +196,9 @@ impl Workspace {
             return;
         }
         if self.tabs.iter().any(|t| {
-            t.save.persistence.dirty.get()
-                || t.save.persistence.saving.get()
-                || t.save.persistence.conflict.get()
+            t.save.persistence.is_dirty()
+                || t.save.persistence.is_saving()
+                || t.save.persistence.has_conflict()
         }) {
             self.status = "请先保存打开的笔记，再管理文件夹。".into();
             self.save_all(window, cx);
@@ -247,7 +247,7 @@ impl Workspace {
                                 if let Some(new) = &new {
                                     tab.path = new.join(suffix);
                                     tab.save.path.replace(tab.path.clone());
-                                } else if tab.save.persistence.dirty.get() {
+                                } else if tab.save.persistence.is_dirty() {
                                     tab.save.persistence.preserve_external_change();
                                     return true;
                                 } else {

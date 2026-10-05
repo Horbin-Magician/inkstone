@@ -91,9 +91,11 @@ impl Workspace {
                 .persistence
                 .edited(tab.save.editor.read(cx).value().as_ref());
         }
-        if self.tabs.iter().any(|t| {
-            t.save.persistence.conflict.get() || t.save.persistence.error.borrow().is_some()
-        }) {
+        if self
+            .tabs
+            .iter()
+            .any(|t| t.save.persistence.has_conflict() || t.save.persistence.error().is_some())
+        {
             self.status = "请先处理保存冲突或另存副本，再关闭窗口。".into();
             cx.notify();
             return false;
@@ -104,8 +106,8 @@ impl Workspace {
             || self.ui.backup.pending.is_some()
             || self.ui.pending_file_writes > usize::from(self.ui.cloud_sync.is_busy())
             || self.tabs.iter().any(|t| {
-                t.save.persistence.dirty.get()
-                    || t.save.persistence.saving.get()
+                t.save.persistence.is_dirty()
+                    || t.save.persistence.is_saving()
                     || self.has_pending_input(t.id, window, cx)
             });
         if self.ui.persist_error.is_some() && !self.ui.discard_workspace_on_close {
@@ -138,9 +140,11 @@ impl Workspace {
             }
             return;
         }
-        if self.tabs.iter().any(|t| {
-            t.save.persistence.conflict.get() || t.save.persistence.error.borrow().is_some()
-        }) {
+        if self
+            .tabs
+            .iter()
+            .any(|t| t.save.persistence.has_conflict() || t.save.persistence.error().is_some())
+        {
             self.ui.window_close_requested = false;
             return;
         }

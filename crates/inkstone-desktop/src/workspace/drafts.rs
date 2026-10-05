@@ -33,12 +33,12 @@ impl Workspace {
         };
         for tab in &self.tabs {
             let document = tab.save.clone();
-            if document.persistence.saving.get() || document.editor.read(cx).is_composing() {
+            if document.persistence.is_saving() || document.editor.read(cx).is_composing() {
                 continue;
             }
             let text = document.editor.read(cx).value();
             let path = document.path.borrow().clone();
-            let target = document.persistence.dirty.get().then_some(text.clone());
+            let target = document.persistence.is_dirty().then_some(text.clone());
             let mut slot = document.draft.borrow_mut();
             if slot.as_ref().is_none_or(|s| s.path != path) {
                 if target.is_none() {
@@ -89,7 +89,7 @@ impl Workspace {
             state.busy = true;
             let io = state.io.clone();
             let revision = io.revision.load(Ordering::SeqCst);
-            let baseline = document.persistence.baseline.borrow().clone();
+            let baseline = document.persistence.baseline().clone();
             let snapshot = target.clone();
             let worker = io.clone();
             let task = cx.background_executor().spawn(async move {
@@ -195,7 +195,7 @@ mod tests {
         handle
             .update(cx, |w, _, _| {
                 assert!(w.vault.as_ref().unwrap().recoveries().unwrap().is_empty());
-                assert!(!w.tabs[0].save.persistence.dirty.get());
+                assert!(!w.tabs[0].save.persistence.is_dirty());
             })
             .unwrap();
         assert_eq!(
@@ -231,7 +231,7 @@ mod tests {
         handle
             .update(cx, |w, _, _| {
                 assert!(w.vault.as_ref().unwrap().recoveries().unwrap().is_empty());
-                assert!(!w.tabs[0].save.persistence.dirty.get());
+                assert!(!w.tabs[0].save.persistence.is_dirty());
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();

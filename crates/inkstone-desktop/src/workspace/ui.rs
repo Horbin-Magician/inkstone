@@ -1515,7 +1515,7 @@ impl Workspace {
                     tab.id,
                     format!(
                         "{name}{}",
-                        if tab.save.persistence.dirty.get() {
+                        if tab.save.persistence.is_dirty() {
                             " •"
                         } else {
                             ""
@@ -1664,11 +1664,11 @@ impl Workspace {
                                         } else {
                                             t.path.file_stem().unwrap_or_default().to_string_lossy()
                                         },
-                                        if t.save.persistence.conflict.get()
-                                            || t.save.persistence.error.borrow().is_some()
+                                        if t.save.persistence.has_conflict()
+                                            || t.save.persistence.error().is_some()
                                         {
                                             " ⚠"
-                                        } else if t.save.persistence.dirty.get() {
+                                        } else if t.save.persistence.is_dirty() {
                                             " •"
                                         } else {
                                             ""
@@ -2351,7 +2351,7 @@ impl Workspace {
                 if self
                     .tabs
                     .iter()
-                    .any(|t| t.path == path && t.save.persistence.dirty.get())
+                    .any(|t| t.path == path && t.save.persistence.is_dirty())
                 {
                     title.push_str(" · 未保存");
                 }
@@ -3585,37 +3585,31 @@ impl Render for Workspace {
                 format!("{} 个词  {} 个字符", counts.words, counts.characters)
             })
             .unwrap_or_default();
-        let error = active.and_then(|t| t.save.persistence.error.borrow().clone());
+        let error = active.and_then(|t| t.save.persistence.error().clone());
         let save_status = active.filter(|t| !t.path.as_os_str().is_empty()).map(|t| {
-            let label = if t.save.persistence.conflict.get() {
+            let label = if t.save.persistence.has_conflict() {
                 "外部修改冲突"
-            } else if t.save.persistence.error.borrow().is_some() {
+            } else if t.save.persistence.error().is_some() {
                 "保存失败"
-            } else if t.save.persistence.saving.get() {
+            } else if t.save.persistence.is_saving() {
                 "正在保存…"
-            } else if t.save.persistence.dirty.get() {
+            } else if t.save.persistence.is_dirty() {
                 "尚未保存"
             } else {
                 "已保存"
             };
-            let detail = t
-                .save
-                .persistence
-                .error
-                .borrow()
-                .clone()
-                .unwrap_or_else(|| {
-                    format!(
-                        "{}：{label}。{}",
-                        t.path.display(),
-                        if t.save.persistence.conflict.get() {
-                            "点击比较并处理外部修改。"
-                        } else {
-                            "点击保存当前更改。"
-                        }
-                    )
-                });
-            (label, detail, t.save.persistence.conflict.get())
+            let detail = t.save.persistence.error().clone().unwrap_or_else(|| {
+                format!(
+                    "{}：{label}。{}",
+                    t.path.display(),
+                    if t.save.persistence.has_conflict() {
+                        "点击比较并处理外部修改。"
+                    } else {
+                        "点击保存当前更改。"
+                    }
+                )
+            });
+            (label, detail, t.save.persistence.has_conflict())
         });
         _window.set_window_title(crate::product::name());
         let main_index = self.main_tab();

@@ -115,9 +115,9 @@ impl Workspace {
         if self.ui.file_operation
             || self.ui.pending_file_writes > 0
             || self.tabs.iter().any(|t| {
-                t.save.persistence.dirty.get()
-                    || t.save.persistence.saving.get()
-                    || t.save.persistence.conflict.get()
+                t.save.persistence.is_dirty()
+                    || t.save.persistence.is_saving()
+                    || t.save.persistence.has_conflict()
                     || self.has_pending_input(t.id, window, cx)
             })
         {
@@ -241,11 +241,11 @@ impl Workspace {
         }
         let stale = edits.iter().any(|e| {
             self.tabs.iter().filter(|t| t.path == e.path).any(|t| {
-                t.save.persistence.saving.get()
-                    || t.save.persistence.conflict.get()
+                t.save.persistence.is_saving()
+                    || t.save.persistence.has_conflict()
                     || self.has_pending_input(t.id, window, cx)
                     || t.save.editor.read(cx).value().as_ref() != e.before
-                    || t.save.persistence.baseline.borrow().as_deref() != Some(e.before.as_str())
+                    || t.save.persistence.baseline().as_deref() != Some(e.before.as_str())
             })
         });
         if stale {
@@ -382,7 +382,7 @@ mod tests {
                     w.tabs[0].save.editor.read(cx).value().as_ref(),
                     "typed while applying"
                 );
-                assert!(w.tabs[0].save.persistence.conflict.get());
+                assert!(w.tabs[0].save.persistence.has_conflict());
                 assert_eq!(w.ui.pending_file_writes, 0);
                 assert!(
                     w.ui.bulk_edit

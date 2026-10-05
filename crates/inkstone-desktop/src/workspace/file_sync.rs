@@ -32,13 +32,7 @@ impl Workspace {
         let requests: Vec<_> = self
             .tabs
             .iter()
-            .map(|t| {
-                (
-                    t.id,
-                    t.path.clone(),
-                    t.save.persistence.baseline.borrow().clone(),
-                )
-            })
+            .map(|t| (t.id, t.path.clone(), t.save.persistence.baseline().clone()))
             .collect();
         let task = cx.background_executor().spawn(async move {
             let (index, folders) = if rescan {
@@ -112,7 +106,7 @@ impl Workspace {
                         for (id, path, baseline, disk) in documents {
                             let split_pending=this.has_pending_input(id,window,cx);
                             let Some(tab) = this.tabs.iter_mut().find(|t|t.id == id) else { continue; };
-                            if tab.save.persistence.saving.get() || tab.path!=path || *tab.save.persistence.baseline.borrow() != baseline { this.refresh_requested = true; continue; }
+                            if tab.save.persistence.is_saving() || tab.path!=path || *tab.save.persistence.baseline() != baseline { this.refresh_requested = true; continue; }
                             let disk = match disk {
                                 Ok(disk) => disk,
                                 Err(error) => {
