@@ -3608,3 +3608,61 @@ fn ime_inside_quote_rebases_border_after_batched_updates(cx: &mut TestAppContext
         })
         .unwrap();
 }
+
+#[gpui::test]
+fn reference_refresh_reuses_source_syntax_and_keeps_projection_until_ready(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let source = "# Heading\n\n**bold** 中文\n\n![[child]]";
+    let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+    let mut index = index::Index::default();
+    index.update("child.md".into(), "OLD CHILD".into());
+    handle
+        .update(cx, |p, _, cx| {
+            p.update_presentation(cx);
+            assert!(
+                p.syntax_snapshot.is_none(),
+                "initial parse is still pending"
+            );
+            p.set_reference_context("note.md".into(), PathBuf::new(), Arc::new(index), cx);
+            p.update_presentation(cx);
+            assert!(
+                p.syntax_snapshot.is_some(),
+                "superseding initial parse must install syntax"
+            );
+            assert!(p.typography_ready);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let (snapshot, spans) = handle
+        .update(cx, |p, _, cx| {
+            assert!(p.rendered.markdown.contains("OLD CHILD"));
+            let snapshot = p.syntax_snapshot.clone().unwrap();
+            let spans = p.spans.as_ptr();
+            let old_projection = p.rendered.clone();
+            let mut index = index::Index::default();
+            index.update("child.md".into(), "NEW CHILD".into());
+            p.editor
+                .update(cx, |state, cx| state.set_selected_range(2..5, cx));
+            p.set_reference_context("note.md".into(), PathBuf::new(), Arc::new(index), cx);
+            assert!(Arc::ptr_eq(&p.rendered, &old_projection));
+            p.update_presentation(cx);
+            assert!(Arc::ptr_eq(p.syntax_snapshot.as_ref().unwrap(), &snapshot));
+            assert_eq!(p.spans.as_ptr(), spans);
+            assert!(Arc::ptr_eq(&p.rendered, &old_projection));
+            (snapshot, spans)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |p, _, cx| {
+            assert!(p.rendered.markdown.contains("NEW CHILD"));
+            assert!(!p.rendered.markdown.contains("OLD CHILD"));
+            assert!(Arc::ptr_eq(p.syntax_snapshot.as_ref().unwrap(), &snapshot));
+            assert_eq!(p.spans.as_ptr(), spans);
+            assert_eq!(p.editor.read(cx).selected_range(), 2..5);
+            assert_eq!(p.editor.read(cx).value().as_ref(), source);
+        })
+        .unwrap();
+}

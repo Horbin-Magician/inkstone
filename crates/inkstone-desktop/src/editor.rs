@@ -132,11 +132,13 @@ impl EditorPane {
             || self.vault_root != root
             || !Arc::ptr_eq(&self.reference_index, &index)
         {
+            if self.current_path != path || self.vault_root != root {
+                self.rendered = Arc::default();
+            }
             self.current_path = path;
             self.vault_root = root;
             self.reference_index = index;
             self.context_revision += 1;
-            self.rendered = Arc::default();
             cx.notify();
         }
     }

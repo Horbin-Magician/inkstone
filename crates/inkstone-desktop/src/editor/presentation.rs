@@ -29,7 +29,15 @@ impl EditorPane {
             // Keep the initial load asynchronous so opening a note retains its
             // existing layout/focus initialization order. Subsequent edits must
             // never pass through that unstyled loading state.
-            if !initial_parse {
+            // Reference/appearance changes need a new reading projection, but
+            // source-only syntax, spans and metadata remain valid. A pending
+            // initial parse still needs synchronous syntax when superseded.
+            if !initial_parse
+                && self
+                    .syntax_snapshot
+                    .as_ref()
+                    .is_none_or(|snapshot| snapshot.source.as_ref() != text.as_ref())
+            {
                 let snapshot = Arc::new(
                     self.syntax_snapshot
                         .as_ref()
