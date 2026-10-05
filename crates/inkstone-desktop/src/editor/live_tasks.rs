@@ -37,7 +37,7 @@ pub(super) fn overlay(
                     let label = task
                         .target
                         .baseline
-                        .get(task.range.end..)
+                        .get(task.target.marker.end + 1..)
                         .unwrap_or_default()
                         .lines()
                         .next()
