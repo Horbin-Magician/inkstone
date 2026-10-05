@@ -152,17 +152,14 @@ impl Workspace {
         }
         self.flush_document_views(window, cx);
         let save = self.tabs[index].save.clone();
-        if save.conflict.get() || save.error.borrow().is_some() {
-            self.status = "请先处理当前笔记的保存问题，再打开其他笔记。".into();
-            self.pending_jump = None;
-            cx.notify();
-            return;
-        }
-        if save.dirty.get() || save.saving.get() || self.ui.file_operation {
-            self.pending_navigation = Some(pending);
-            self.save_pending(window, cx);
-            return;
-        }
+        // Navigation must not drop the last owner of an unsaved document or
+        // a task's source tab. Keep it available for saves and conflict recovery
+        // while opening the requested document immediately.
+        let retain_document = save.dirty.get()
+            || save.saving.get()
+            || save.conflict.get()
+            || save.error.borrow().is_some()
+            || self.ui.file_operation;
         if let Some(target) = self.tabs.iter().find(|tab| tab.path == pending.path)
             && self.has_pending_input(target.id, window, cx)
         {
@@ -172,14 +169,15 @@ impl Workspace {
             return;
         }
         // Keep a backing tab when the other pane still displays this document.
-        let keep_source = if pending.secondary {
-            self.views.main == Some(pending.source)
-        } else {
-            self.views
-                .split
-                .as_ref()
-                .is_some_and(|split| split.source == pending.source)
-        };
+        let keep_source = retain_document
+            || if pending.secondary {
+                self.views.main == Some(pending.source)
+            } else {
+                self.views
+                    .split
+                    .as_ref()
+                    .is_some_and(|split| split.source == pending.source)
+            };
         let pinned = self.current_view_pinned();
         let reading = pending.pane.read(cx).reading;
         let live = pending.pane.read(cx).live;
@@ -226,6 +224,7 @@ impl Workspace {
         self.pending_jump = jump;
         self.apply_jump(window, cx);
         self.ui.close_pending.remove(&pending.source);
+        self.save_pending(window, cx);
         self.persist_workspace(cx);
         cx.notify();
     }
@@ -1055,15 +1054,16 @@ mod tests {
     }
 
     #[gpui::test]
-    fn replacement_waits_for_save_and_retains_source_on_conflict(cx: &mut TestAppContext) {
+    fn navigation_keeps_drafts_and_saves_without_waiting(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let root = fixture("save");
         let handle = cx.add_window(Workspace::new);
-        handle
+        let source = handle
             .update(cx, |w, window, cx| {
                 w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
                 w.add_tab("b.md".into(), Some("B".into()), false, window, cx);
                 w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                let source = w.tabs[1].id;
                 w.current_pane()
                     .unwrap()
                     .read(cx)
@@ -1071,16 +1071,19 @@ mod tests {
                     .clone()
                     .update(cx, |s, cx| s.set_value("改动", window, cx));
                 w.open_note("b.md".into(), window, cx);
-                assert_eq!(w.tabs[1].path, PathBuf::from("a.md"));
-                assert!(w.pending_navigation.is_some());
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("b.md"));
+                assert!(w.tabs.iter().any(|tab| tab.id == source));
+                assert!(w.pending_navigation.is_none());
+                source
             })
             .unwrap();
         cx.run_until_parked();
         assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "改动");
         handle
             .update(cx, |w, window, cx| {
-                assert_eq!(w.tabs[1].path, PathBuf::from("b.md"));
-                assert!(w.pending_navigation.is_none());
+                let source = w.tabs.iter().find(|tab| tab.id == source).unwrap();
+                assert!(!source.save.dirty.get());
+                assert!(!source.save.saving.get());
                 std::fs::write(root.join("b.md"), "外部改动").unwrap();
                 w.current_pane()
                     .unwrap()
@@ -1093,29 +1096,67 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         handle
-            .update(cx, |w, _, cx| {
-                assert_eq!(w.tabs[1].path, PathBuf::from("b.md"));
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("c.md"));
+                let index = w
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.path == PathBuf::from("b.md"))
+                    .unwrap();
+                assert!(w.tabs[index].save.conflict.get());
                 assert_eq!(
-                    w.current_pane()
-                        .unwrap()
-                        .read(cx)
-                        .editor
-                        .read(cx)
-                        .value()
-                        .as_ref(),
+                    w.tabs[index].save.editor.read(cx).value().as_ref(),
                     "本地改动"
                 );
-                assert!(w.tabs[1].save.conflict.get());
+                // Returning to a conflicted file and leaving it again is also safe.
+                w.focus_primary(index, window, cx);
+                w.open_note("a.md".into(), window, cx);
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("a.md"));
+                assert!(w.tabs.iter().any(|tab| tab.save.conflict.get()));
                 assert!(w.pending_navigation.is_none());
-                assert_eq!(
-                    w.current_pane().unwrap().read(cx).navigation.entries.len(),
-                    2
-                );
             })
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(root.join("b.md")).unwrap(),
             "外部改动"
         );
+        cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn navigation_during_save_sync_or_save_error_keeps_source(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("b.md".into(), Some("B".into()), false, window, cx);
+                for mode in 0..3 {
+                    w.add_tab(
+                        format!("source-{mode}.md").into(),
+                        Some("draft".into()),
+                        false,
+                        window,
+                        cx,
+                    );
+                    let source = w.tabs[w.active.unwrap()].id;
+                    let save = w.tabs[w.active.unwrap()].save.clone();
+                    match mode {
+                        0 => save.saving.set(true),
+                        1 => w.ui.file_operation = true,
+                        _ => {
+                            save.error.replace(Some("disk full".into()));
+                        }
+                    }
+                    w.open_note("b.md".into(), window, cx);
+                    assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("b.md"));
+                    assert!(w.tabs.iter().any(|tab| tab.id == source));
+                    assert_eq!(save.editor.read(cx).value().as_ref(), "draft");
+                    assert!(w.pending_navigation.is_none());
+                    save.saving.set(false);
+                    w.ui.file_operation = false;
+                }
+            })
+            .unwrap();
     }
 }
