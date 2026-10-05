@@ -309,6 +309,97 @@ fn transfer<I: Sync>(items: &[I], work: impl Fn(&I) -> Result<()> + Sync) -> Res
 }
 
 /// Blocking; run on a worker. `identity` identifies the endpoint/account, not its password.
+fn baseline_path(vault: &Vault, identity: &str) -> PathBuf {
+    vault.recovery_dir.join("webdav-sync").join(format!(
+        "{}-{}.json",
+        hash(vault.root.to_string_lossy().as_bytes()),
+        hash(identity.as_bytes())
+    ))
+}
+
+fn read_baseline(path: &Path) -> Result<Manifest> {
+    let base: Manifest = match fs::read(path) {
+        Ok(bytes) => {
+            serde_json::from_slice(&bytes).context("本地同步记录损坏，请保留记录并检查")?
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Manifest::default(),
+        Err(e) => return Err(e.into()),
+    };
+    validate_manifest(&base)?;
+    Ok(base)
+}
+
+/// Classify coalesced watcher events against the last completed sync. Run on a
+/// worker after active synchronization finishes, so its own writes match the
+/// committed baseline. Errors must remain visible/retryable, not mean unchanged.
+/// Empty paths mean an uncertain/root event and require a full reconciliation.
+pub fn changed_since_sync(
+    vault: &Vault,
+    identity: &str,
+    paths: &BTreeSet<PathBuf>,
+) -> Result<bool> {
+    let base = read_baseline(&baseline_path(vault, identity))?;
+    for relative in paths {
+        if relative
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        {
+            // Reject traversal even though ordinary hidden files are excluded.
+            ensure!(
+                !relative
+                    .components()
+                    .any(|c| matches!(c, Component::ParentDir)),
+                "同步路径无效"
+            );
+            continue;
+        }
+        if relative.as_os_str().is_empty() {
+            return Ok(snapshot_with_progress(vault, Phase::Scanning, &|_| {})? != base.files);
+        }
+        let path = vault.regular_file_path(relative)?;
+        let name = relative
+            .to_str()
+            .context("同步路径不是 UTF-8")?
+            .replace('\\', "/");
+        validate_path(&name)?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => Some(metadata),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.into()),
+        };
+        let prefix = format!("{name}/");
+        if metadata.as_ref().is_some_and(|m| m.is_dir())
+            || base.files.keys().any(|p| p.starts_with(&prefix))
+        {
+            // Directory creation/removal/rename may represent a whole subtree.
+            return Ok(snapshot_with_progress(vault, Phase::Scanning, &|_| {})? != base.files);
+        }
+        let digest = if metadata.is_some() {
+            let mut file = fs::File::open(path)?;
+            ensure!(file.metadata()?.is_file(), "同步目标不是普通文件");
+            let mut hasher = Sha256::new();
+            let mut buffer = [0u8; 64 * 1024];
+            let mut bytes = 0u64;
+            loop {
+                let read = file.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                bytes += read as u64;
+                ensure!(bytes <= MAX_FILE_BYTES, "单个同步文件超过 128 MiB");
+                hasher.update(&buffer[..read]);
+            }
+            Some(format!("{:x}", hasher.finalize()))
+        } else {
+            None
+        };
+        if digest.as_ref() != base.files.get(&name) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Result<Report> {
     synchronize_with_progress(vault, remote, identity, |_| {})
 }
@@ -329,15 +420,8 @@ pub fn synchronize_with_progress(
         .write(true)
         .open(device.join(format!("{vault_id}.lock")))?;
     lock.try_lock().context("该笔记库已有同步任务运行")?;
-    let state = device.join(format!("{}-{}.json", vault_id, hash(identity.as_bytes())));
-    let base: Manifest = match fs::read(&state) {
-        Ok(bytes) => {
-            serde_json::from_slice(&bytes).context("本地同步记录损坏，请保留记录并检查")?
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Manifest::default(),
-        Err(e) => return Err(e.into()),
-    };
-    validate_manifest(&base)?;
+    let state = baseline_path(vault, identity);
+    let base = read_baseline(&state)?;
     let local = snapshot_with_progress(vault, Phase::Scanning, &notify)?;
     notify(Progress::new(Phase::ReadingManifest, 0));
     let (previous, revision) = remote.manifest()?;
