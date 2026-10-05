@@ -21,13 +21,17 @@ fn checksum(index: &Index) -> Option<String> {
         Sha256::digest(serde_json::to_vec(index).ok()?)
     ))
 }
-fn cache_path(vault: &Vault, relative: &Path) -> Option<PathBuf> {
+pub(super) fn directory(vault: &Vault) -> Option<PathBuf> {
     let directory = vault.recovery_dir.join(".history-index");
     fs::create_dir_all(&directory).ok()?;
     let meta = fs::symlink_metadata(&directory).ok()?;
     if !meta.is_dir() || is_reparse(&meta) {
         return None;
     }
+    Some(directory)
+}
+fn cache_path(vault: &Vault, relative: &Path) -> Option<PathBuf> {
+    let directory = directory(vault)?;
     let key = serde_json::to_vec(&(&vault.root, relative)).ok()?;
     Some(directory.join(format!("{:x}.json", Sha256::digest(key))))
 }

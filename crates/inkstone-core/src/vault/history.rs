@@ -1,5 +1,6 @@
 use super::*;
 mod index;
+mod records;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -66,7 +67,9 @@ impl Vault {
                 Ok(m) if m.is_file() && !is_reparse(&m) => m,
                 _ => continue,
             };
-            if self.read_history(relative, &path).is_err() {
+            if records::scope(self, &path, &metadata)
+                .is_none_or(|scope| scope.root != self.root || scope.relative != relative)
+            {
                 // Partial journals and unrelated vaults are never modified.
                 continue;
             }
