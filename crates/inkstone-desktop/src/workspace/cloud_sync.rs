@@ -14,6 +14,12 @@ const AUTO_SYNC_QUIET: Duration = Duration::from_secs(3);
 /// Back off after a failed automatic attempt. Manual sync is not delayed.
 const AUTO_SYNC_RETRY: Duration = Duration::from_secs(60);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WaitKind {
+    Quiet,
+    Retry,
+}
+
 fn progress_message(progress: &Progress) -> String {
     let phase = match progress.phase {
         Phase::Scanning => "正在扫描本地文件",
@@ -62,7 +68,7 @@ pub(super) struct State {
     defer_quiet: bool,
     defer_retry: bool,
     /// Executor timer so tests can advance it and a burst of edits coalesces.
-    wait: Option<Task<()>>,
+    wait: Option<(WaitKind, Task<()>)>,
     busy: bool,
     message: String,
     last_success: Option<u64>,
@@ -73,6 +79,32 @@ pub(super) struct State {
     watch: watch::Watch,
 }
 impl State {
+    fn retry_waiting(&self) -> bool {
+        self.defer_retry
+            || self
+                .wait
+                .as_ref()
+                .is_some_and(|(kind, _)| *kind == WaitKind::Retry)
+    }
+    fn scheduling_label(&self) -> &'static str {
+        if self.busy {
+            if self.again {
+                "同步进行中；后续变更已排队"
+            } else {
+                "正在处理同步请求"
+            }
+        } else if self.retry_waiting() {
+            "等待自动重试（间隔 60 秒）；可点击立即同步"
+        } else if self.defer_quiet || self.wait.is_some() {
+            "正在合并连续修改，稍后同步"
+        } else if self.pending || self.again {
+            "同步已排队，等待保存或文件操作完成"
+        } else if self.watch.has_work() {
+            "正在等待或检查外部文件变更"
+        } else {
+            "当前没有同步任务"
+        }
+    }
     pub(super) fn is_busy(&self) -> bool {
         self.busy
     }
@@ -207,10 +239,10 @@ impl Workspace {
         if self.ui.cloud_sync.defer_quiet {
             self.ui.cloud_sync.defer_quiet = false;
             self.ui.cloud_sync.defer_retry = false;
-            self.start_auto_wait(AUTO_SYNC_QUIET, window, cx);
+            self.start_auto_wait(WaitKind::Quiet, window, cx);
         } else if self.ui.cloud_sync.defer_retry && self.ui.cloud_sync.wait.is_none() {
             self.ui.cloud_sync.defer_retry = false;
-            self.start_auto_wait(AUTO_SYNC_RETRY, window, cx);
+            self.start_auto_wait(WaitKind::Retry, window, cx);
         } else if self.ui.cloud_sync.again
             && !self.ui.cloud_sync.busy
             && self.ui.cloud_sync.wait.is_none()
@@ -219,16 +251,24 @@ impl Workspace {
             self.schedule_auto_sync(false);
         }
     }
-    fn start_auto_wait(&mut self, delay: Duration, window: &mut Window, cx: &mut Context<Self>) {
+    fn start_auto_wait(&mut self, kind: WaitKind, window: &mut Window, cx: &mut Context<Self>) {
         // Replacing the previous task cancels it, so another edit extends the quiet period.
-        self.ui.cloud_sync.wait = Some(cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor().timer(delay).await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.ui.cloud_sync.wait = None;
-                this.pump_auto_sync(window, cx);
-                this.tick_cloud_sync(window, cx);
-            });
-        }));
+        let delay = match kind {
+            WaitKind::Quiet => AUTO_SYNC_QUIET,
+            WaitKind::Retry => AUTO_SYNC_RETRY,
+        };
+        self.ui.cloud_sync.wait = Some((
+            kind,
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor().timer(delay).await;
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.ui.cloud_sync.wait = None;
+                    this.pump_auto_sync(window, cx);
+                    this.tick_cloud_sync(window, cx);
+                });
+            }),
+        ));
+        cx.notify();
     }
     /// Queue a sync after the vault opens, or after a local create, save, or delete.
     /// File changes wait briefly so a burst coalesces; startup does not.
@@ -247,7 +287,7 @@ impl Workspace {
         }
         state.pending = true;
         state.automatic = true;
-        if quiet {
+        if quiet && !state.retry_waiting() {
             state.defer_quiet = true;
         }
     }
@@ -642,7 +682,7 @@ impl Workspace {
                     })))
                     .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
                     .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
-                .when(!state.busy && (state.pending || state.again || state.wait.is_some()), |s| s.child(
+                .when(!state.busy && (state.pending || state.again || state.wait.is_some() || state.watch.has_work()), |s| s.child(
                     Button::new("webdav-cancel-wait").label("取消本次同步等待")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.cancel_queued_sync();
@@ -670,6 +710,7 @@ impl Workspace {
                         .loading(progress.is_none())
                         .value(progress.map_or(0., |p| p.completed as f32 * 100. / p.total as f32)))
                 })
+                .child(state.scheduling_label())
                 .child(self.sync_success_label())
                 .when(!state.message.is_empty(), |s| s.child(state.message.clone()))
         ).into_any_element()
@@ -890,6 +931,7 @@ mod tests {
         url: String,
         files: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
         stop: Arc<AtomicBool>,
+        offline: Arc<AtomicBool>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
     impl Server {
@@ -901,6 +943,8 @@ mod tests {
             let storage = files.clone();
             let stop = Arc::new(AtomicBool::new(false));
             let done = stop.clone();
+            let offline = Arc::new(AtomicBool::new(false));
+            let disconnected = offline.clone();
             let thread = std::thread::spawn(move || {
                 let mut revision = 0;
                 while !done.load(Ordering::Relaxed) {
@@ -934,6 +978,9 @@ mod tests {
                         .unwrap_or(0);
                     let mut body = vec![0; size];
                     reader.read_exact(&mut body).unwrap();
+                    if disconnected.load(Ordering::Relaxed) {
+                        continue;
+                    }
                     let mut files = storage.lock().unwrap();
                     let mut output = vec![];
                     let status = match method.as_str() {
@@ -972,6 +1019,7 @@ mod tests {
                 url,
                 files,
                 stop,
+                offline,
                 thread: Some(thread),
             }
         }
@@ -1719,6 +1767,87 @@ mod tests {
                 assert!(!w.ui.cloud_sync.again);
             })
             .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
+    fn offline_retry_preserves_backoff_and_converges_after_reconnection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        server.offline.store(true, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-offline-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("local")).unwrap();
+        std::fs::write(root.join("local/note.md"), "before").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(root.join("local"), root.join("recovery")).unwrap());
+                w.ui.prefs.webdav = Settings {
+                    url: server.url.clone(),
+                    username: "user".into(),
+                    ..Settings::default()
+                };
+                configured(w, &server.url, true, window, cx);
+                w.schedule_auto_sync(false);
+                w.tick_cloud_sync(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.ui.cloud_sync.busy);
+                assert!(w.ui.cloud_sync.message.starts_with("同步未完成"));
+                assert!(w.ui.cloud_sync.last_success.is_none());
+                assert!(w.ui.cloud_sync.scheduling_label().contains("重试"));
+                w.pump_auto_sync(window, cx);
+                assert!(w.ui.cloud_sync.wait.is_some());
+                w.schedule_auto_sync(true);
+                w.pump_auto_sync(window, cx);
+                assert!(w.ui.cloud_sync.retry_waiting());
+                assert!(!w.ui.cloud_sync.defer_quiet);
+            })
+            .unwrap();
+        std::fs::write(root.join("local/note.md"), "latest while offline").unwrap();
+        server.offline.store(false, Ordering::Relaxed);
+        cx.executor().advance_clock(AUTO_SYNC_QUIET);
+        cx.run_until_parked();
+        assert!(
+            server.files.lock().unwrap().is_empty(),
+            "local edits must not shorten retry backoff"
+        );
+        cx.executor()
+            .advance_clock(AUTO_SYNC_RETRY - AUTO_SYNC_QUIET);
+        cx.run_until_parked();
+        for _ in 0..4 {
+            handle
+                .update(cx, |w, window, cx| w.tick(window, cx))
+                .unwrap();
+            cx.run_until_parked();
+        }
+        handle
+            .update(cx, |w, _, _| {
+                assert!(
+                    w.ui.cloud_sync.message.starts_with("同步完成"),
+                    "{}",
+                    w.ui.cloud_sync.message
+                );
+                assert!(w.ui.cloud_sync.last_success.is_some());
+                assert_eq!(w.ui.cloud_sync.scheduling_label(), "当前没有同步任务");
+            })
+            .unwrap();
+        assert!(
+            server
+                .files
+                .lock()
+                .unwrap()
+                .values()
+                .any(|bytes| bytes == b"latest while offline")
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 }
