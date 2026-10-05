@@ -151,9 +151,11 @@ impl Workspace {
             cx.notify();
             return;
         }
+        if !document.persistence.begin_resolution() {
+            return;
+        }
         self.ui.file_operation = true;
         self.ui.pending_file_writes += 1;
-        document.persistence.saving.set(true);
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
         let expected_local = local.clone();
@@ -172,7 +174,7 @@ impl Workspace {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.ui.file_operation = false;
                 this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
-                document.persistence.saving.set(false);
+                document.persistence.end_resolution();
                 if this.generation != generation {
                     return;
                 }
@@ -186,12 +188,14 @@ impl Workspace {
                         .any(|t| this.has_pending_input(t.id, window, cx));
                 match result {
                     Ok(text) => {
-                        document.persistence.baseline.replace(Some(text.clone()));
+                        let newer_input_error = (!still_current)
+                            .then(|| "处理期间产生了新输入，已保留，请重新比较。".to_string());
+                        document
+                            .persistence
+                            .resolved(text.clone(), newer_input_error);
                         this.note_indexed_change(changed.clone(), text.clone(), cx);
                         this.schedule_auto_sync(true);
                         if still_current {
-                            document.persistence.conflict.set(false);
-                            document.persistence.error.replace(None);
                             document
                                 .editor
                                 .update(cx, |s, cx| s.replace_all(text, window, cx));
@@ -201,12 +205,6 @@ impl Workspace {
                                 this.close_overlays(window, cx);
                             }
                         } else {
-                            document.persistence.conflict.set(true);
-                            document.persistence.dirty.set(true);
-                            document
-                                .persistence
-                                .error
-                                .replace(Some("处理期间产生了新输入，已保留，请重新比较。".into()));
                             if let Some(review) = &mut this.ui.conflict_review {
                                 review.ready = false;
                                 review.message =
@@ -216,8 +214,7 @@ impl Workspace {
                     }
                     Err(error) => {
                         let message = format!("未完成处理：{error}。请重新比较或另存副本。");
-                        document.persistence.conflict.set(true);
-                        document.persistence.error.replace(Some(message.clone()));
+                        document.persistence.failed(true, message.clone());
                         this.status = message.clone();
                         if let Some(review) = &mut this.ui.conflict_review {
                             review.ready = false;

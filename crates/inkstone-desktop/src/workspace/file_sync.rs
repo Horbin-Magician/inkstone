@@ -116,23 +116,23 @@ impl Workspace {
                             let disk = match disk {
                                 Ok(disk) => disk,
                                 Err(error) => {
-                                    tab.save.persistence.conflict.set(true);
-                                    tab.save.persistence.dirty.set(true);
+                                    tab.save.persistence.preserve_external_change();
                                     this.status = format!("无法读取 {}：{error}。编辑内容已保留。", path.display());
                                     continue;
                                 }
                             };
-                            if disk == *tab.save.persistence.baseline.borrow() { continue; }
-                            if tab.save.persistence.dirty.get() || split_pending || disk.is_none() {
-                                tab.save.persistence.conflict.set(true); tab.save.persistence.dirty.set(true);
-                                this.status = format!("{} 在外部发生变化。编辑内容已保留；可用“另存为副本”保存当前版本。", tab.path.display());
-                            } else if let Some(text) = disk {
-                                let editor = tab.save.editor.clone();
-                                let selection = editor.read(cx).selected_range();
-                                tab.save.persistence.baseline.replace(Some(text.clone()));
-                                editor.update(cx, |state, cx| { state.set_value(text, window, cx); state.set_selected_range(selection, cx); });
-                                this.status = format!("已重新加载外部修改：{}", tab.path.display());
-                                this.document_changed(editor, window, cx);
+                            match tab.save.persistence.external_change(disk, split_pending) {
+                                super::save_state::ExternalChange::Unchanged => {}
+                                super::save_state::ExternalChange::PreserveLocal => {
+                                    this.status = format!("{} 在外部发生变化。编辑内容已保留；可用“另存为副本”保存当前版本。", tab.path.display());
+                                }
+                                super::save_state::ExternalChange::Reload(text) => {
+                                    let editor = tab.save.editor.clone();
+                                    let selection = editor.read(cx).selected_range();
+                                    editor.update(cx, |state, cx| { state.set_value(text, window, cx); state.set_selected_range(selection, cx); });
+                                    this.status = format!("已重新加载外部修改：{}", tab.path.display());
+                                    this.document_changed(editor, window, cx);
+                                }
                             }
                         }
                         if index_changed {
