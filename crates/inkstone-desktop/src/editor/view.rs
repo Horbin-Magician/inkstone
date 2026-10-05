@@ -336,43 +336,68 @@ impl Render for EditorPane {
                         .when(self.readable_width, |s| s.max_w(px(700.)))
                         .when(self.reading, |s| s.child(preview))
                         .when(!self.reading, |s| {
-                            s.child(
-                                Editor::new(&self.editor)
-                                    .on_paste(move |item, _, cx| {
-                                        for entry in &item.entries {
-                                            match entry {
-                                                ClipboardEntry::ExternalPaths(paths) => {
-                                                    let _ = paste_weak.update(cx, |_, cx| {
-                                                        cx.emit(EditorEvent::PasteFiles(
-                                                            paths.paths().to_vec(),
-                                                        ))
-                                                    });
-                                                    return true;
-                                                }
-                                                ClipboardEntry::Image(image) => {
-                                                    let _ = paste_weak.update(cx, |_, cx| {
-                                                        cx.emit(EditorEvent::PasteImage(
-                                                            format!(
-                                                                "粘贴图片.{}",
-                                                                image.format().extension()
-                                                            ),
-                                                            image.bytes().to_vec(),
-                                                        ))
-                                                    });
-                                                    return true;
-                                                }
-                                                _ => (),
-                                            }
-                                        }
-                                        false
-                                    })
-                                    .appearance(false)
-                                    .bordered(false)
-                                    .flush(true)
-                                    .trailing_margin(px(0.))
-                                    .font_family(self.text_font.clone())
+                            // The gutter narrows the wrap. Extend the editor by
+                            // the gutter and shift it left, so the text column
+                            // starts and wraps where the reading view's does,
+                            // while the gutter sits in the pane inset.
+                            let gutter = self
+                                .editor
+                                .read(cx)
+                                .gutter_width(px(self.font_size), _window);
+                            s.relative().child(div().size_full()).child(
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .left(-gutter)
+                                    .right_0()
                                     .h_full()
-                                    .text_size(px(self.font_size)),
+                                    .child(
+                                        Editor::new(&self.editor)
+                                            .w_full()
+                                            .on_paste(move |item, _, cx| {
+                                                for entry in &item.entries {
+                                                    match entry {
+                                                        ClipboardEntry::ExternalPaths(paths) => {
+                                                            let _ =
+                                                                paste_weak.update(cx, |_, cx| {
+                                                                    cx.emit(
+                                                                        EditorEvent::PasteFiles(
+                                                                            paths.paths().to_vec(),
+                                                                        ),
+                                                                    )
+                                                                });
+                                                            return true;
+                                                        }
+                                                        ClipboardEntry::Image(image) => {
+                                                            let _ =
+                                                                paste_weak.update(cx, |_, cx| {
+                                                                    cx.emit(
+                                                                        EditorEvent::PasteImage(
+                                                                            format!(
+                                                                                "粘贴图片.{}",
+                                                                                image
+                                                                                    .format()
+                                                                                    .extension()
+                                                                            ),
+                                                                            image.bytes().to_vec(),
+                                                                        ),
+                                                                    )
+                                                                });
+                                                            return true;
+                                                        }
+                                                        _ => (),
+                                                    }
+                                                }
+                                                false
+                                            })
+                                            .appearance(false)
+                                            .bordered(false)
+                                            .flush(true)
+                                            .trailing_margin(px(0.))
+                                            .font_family(self.text_font.clone())
+                                            .h_full()
+                                            .text_size(px(self.font_size)),
+                                    ),
                             )
                         }),
                 ),

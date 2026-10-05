@@ -39,23 +39,40 @@ fn plain_edits_keep_following_live_syntax_and_undo_coordinates(cx: &mut TestAppC
 #[gpui::test]
 fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    let source = "一行能容纳的字符数应当与阅读模式一致，不受编辑器内部留白影响。";
-    let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+    let source = "砚".repeat(400);
+    let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
     let mut visual = VisualTestContext::from_window(handle.into(), cx);
-    for (width, readable) in [(900., true), (900., false), (520., true)] {
+    for (width, readable, line_numbers) in [
+        (900., true, false),
+        (900., false, false),
+        (520., true, true),
+    ] {
         handle
-            .update(&mut visual, |pane, _, cx| {
+            .update(&mut visual, |pane, window, cx| {
                 pane.readable_width = readable;
                 pane.reading = false;
+                pane.fold_headings = false;
+                pane.set_fold_options(true, false, window, cx);
+                pane.editor.update(cx, |state, cx| {
+                    state.set_line_number(line_numbers, window, cx)
+                });
                 cx.notify();
             })
             .unwrap();
         visual.simulate_resize(size(px(width), px(600.)));
+        // The line-number font size is applied while drawing, so draw twice
+        // and read the settled column.
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        let editing = handle
-            .update(&mut visual, |pane, _, cx| pane.editor.read(cx).text_bounds())
-            .unwrap()
-            .expect("the editor must lay out");
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let (editing_wrap, editing_bounds) = handle
+            .update(&mut visual, |pane, _, cx| {
+                let editor = pane.editor.read(cx);
+                (
+                    editor.wrap_width().expect("the editor must lay out"),
+                    editor.text_bounds().expect("the editor must lay out"),
+                )
+            })
+            .unwrap();
         handle
             .update(&mut visual, |pane, _, cx| {
                 pane.reading = true;
@@ -64,12 +81,28 @@ fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
             .unwrap();
         visual.run_until_parked();
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        let reading = handle
-            .update(&mut visual, |pane, _, cx| pane.reading_bounds(cx))
+        let (reading_wrap, reading_bounds) = handle
+            .update(&mut visual, |pane, _, cx| {
+                (
+                    pane.preview
+                        .read(cx)
+                        .measured_wrap_width()
+                        .expect("the reading view must lay out"),
+                    pane.reading_bounds(cx),
+                )
+            })
             .unwrap();
         assert!(
-            (editing.size.width - reading.size.width).abs() <= px(1.),
-            "text column differs at {width}px, readable {readable}: editing {editing:?}, reading {reading:?}"
+            (editing_wrap - reading_wrap).abs() <= px(1.),
+            "text wraps differently at {width}px, readable {readable}, line numbers {line_numbers}: editing {editing_wrap:?}, reading {reading_wrap:?}"
+        );
+        let gutter = editing_bounds.left() + (editing_bounds.size.width - editing_wrap);
+        assert!(
+            (gutter - reading_bounds.left()).abs() <= px(1.)
+                && (gutter + editing_wrap - reading_bounds.right()).abs() <= px(1.),
+            "text column is misaligned at {width}px, readable {readable}, line numbers {line_numbers}: editing text {gutter:?}..{:?}, reading {:?}",
+            gutter + editing_wrap,
+            reading_bounds
         );
     }
 }
