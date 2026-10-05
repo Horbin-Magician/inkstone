@@ -1,3 +1,4 @@
+mod watch;
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
@@ -67,6 +68,7 @@ pub(super) struct State {
     progress: Option<Progress>,
     progress_slot: Option<ProgressSlot>,
     remote_check: super::remote_check::RemoteCheck,
+    watch: watch::Watch,
 }
 impl State {
     pub(super) fn is_busy(&self) -> bool {
@@ -93,6 +95,7 @@ impl State {
             progress: None,
             progress_slot: None,
             remote_check: Default::default(),
+            watch: Default::default(),
         }
     }
 }
@@ -107,6 +110,7 @@ impl Workspace {
         state.defer_retry = false;
         state.wait = None;
         state.remote_check = Default::default();
+        state.watch.reset();
     }
 
     /// Start queued work before releasing the window, without waiting for debounce
@@ -137,6 +141,7 @@ impl Workspace {
     ) {
         let state = &mut self.ui.cloud_sync;
         state.remote_check = Default::default();
+        state.watch.reset();
         state.pending = false;
         state.automatic = false;
         state.again = false;
@@ -302,6 +307,7 @@ impl Workspace {
         }
         let settings = self.ui.prefs.webdav.clone();
         let password = self.ui.cloud_sync.password.read(cx).value().to_string();
+        self.ui.cloud_sync.watch.epoch = self.ui.cloud_sync.watch.epoch.wrapping_add(1);
         self.ui.cloud_sync.busy = true;
         self.ui.pending_file_writes += 1;
         self.cloud_message("正在测试 WebDAV 连接……".into(), cx);
@@ -424,6 +430,7 @@ impl Workspace {
         self.ui.cloud_sync.defer_quiet = false;
         self.ui.cloud_sync.defer_retry = false;
         self.ui.cloud_sync.wait = None;
+        self.ui.cloud_sync.watch.epoch = self.ui.cloud_sync.watch.epoch.wrapping_add(1);
         self.ui.cloud_sync.busy = true;
         self.ui.file_operation = true;
         self.ui.pending_file_writes += 1;
@@ -532,7 +539,7 @@ impl Workspace {
                         .child(
                             div().flex_1().min_w_0().child("自动同步").child(
                                 div().text_size(px(MIN_UI_FONT_SIZE)).child(
-                                    "打开笔记库，以及新建、保存或删除文件后自动同步。连续修改会稍等片刻再合并同步；关闭后仅在点击“立即同步”时同步。",
+                                    "打开笔记库，以及新建、保存、删除或外部修改文件后自动同步。连续修改会稍等片刻再合并同步；关闭后仅在点击“立即同步”时同步。",
                                 ),
                             ),
                         )
@@ -1506,6 +1513,119 @@ mod tests {
                 assert!(!w.ui.cloud_sync.pending);
                 assert!(!w.ui.cloud_sync.busy);
                 w.watcher = None;
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
+    fn external_binary_events_upload_and_completed_sync_events_do_not_loop(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-watch-upload-{stamp}"));
+        std::fs::create_dir_all(root.join("local")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("local"), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let path = root
+            .join("local")
+            .canonicalize()
+            .unwrap()
+            .join("external.bin");
+        std::fs::write(&path, [0, 9, 255]).unwrap();
+        handle
+            .update(cx, |w, window, cx| {
+                w.watcher = None;
+                w.watch_events = Some(receiver);
+                w.ui.prefs.webdav = Settings {
+                    url: server.url.clone(),
+                    username: "user".into(),
+                    ..Settings::default()
+                };
+                configured(w, &server.url, true, window, cx);
+                sender
+                    .send(Ok(notify::Event::new(notify::EventKind::Modify(
+                        notify::event::ModifyKind::Any,
+                    ))
+                    .add_path(path.clone())))
+                    .unwrap();
+                w.tick(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.tick_sync_watch_at(std::time::Instant::now() + Duration::from_secs(6), cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        for _ in 0..4 {
+            handle
+                .update(cx, |w, window, cx| w.tick(window, cx))
+                .unwrap();
+            cx.run_until_parked();
+        }
+        assert!(
+            server
+                .files
+                .lock()
+                .unwrap()
+                .values()
+                .any(|bytes| bytes == &[0, 9, 255])
+        );
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.busy);
+                sender
+                    .send(Ok(notify::Event::new(notify::EventKind::Modify(
+                        notify::event::ModifyKind::Any,
+                    ))
+                    .add_path(path)))
+                    .unwrap();
+                w.tick(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.tick_sync_watch_at(std::time::Instant::now() + Duration::from_secs(6), cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(
+                    !w.ui.cloud_sync.pending,
+                    "unchanged sync output must not queue a new transfer"
+                );
+                assert!(!w.ui.cloud_sync.again);
+            })
+            .unwrap();
+        // Cancellation invalidates a classification already running in the background.
+        std::fs::write(root.join("local/external.bin"), [1, 2, 3]).unwrap();
+        handle
+            .update(cx, |w, _, cx| {
+                w.note_sync_watch_paths(vec![PathBuf::from("external.bin")]);
+                w.tick_sync_watch_at(std::time::Instant::now() + Duration::from_secs(6), cx);
+                w.cancel_queued_sync();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(!w.ui.cloud_sync.pending);
+                assert!(!w.ui.cloud_sync.again);
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();
