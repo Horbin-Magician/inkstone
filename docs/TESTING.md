@@ -467,3 +467,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 提供只读同步备份清单，返回原路径、备份/描述路径、时间、字节数及同步前预期哈希；容量仅统计有效备份正文，不包含描述和孤立文件。异常记录或不可读子目录单独计数，正文不参与清单读取。
 - 回归使用真实同步 apply 生成替换与删除备份，覆盖 Markdown、二进制附件、重复读取不改写、稀疏大文件元数据列出、损坏 JSON、原路径越界、父目录不符、正文名称不符及正文符号链接拒绝。核心全量 220 项通过、1 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/sync-recovery-inventory-tests.log`、`target/sync-recovery-inventory-clippy.log`、`target/sync-recovery-inventory-fmt.log`。本次是后端只读接口，统一 UI 与恢复副本尚未接入，未进行原生界面验收；未修改用户笔记。
+
+## 同步备份：流式恢复为副本（2026-10-05）
+
+- 增加恢复副本接口：重新校验清单记录，使用 64 KiB 缓冲复制并计算 SHA-256，复核源文件身份/大小/时间及描述后才发布；复制字节不超过选中记录大小。仅创建新文件并避让未保存路径，保留现有原件、备份及描述。实际正文不同于同步前基线时仍恢复保留内容，并在结果中明确报告不一致。
+- 回归覆盖二进制字节、实际哈希、已存在副本、未保存路径避让、原件保留、备份保留、基线不符的并发编辑恢复、过期记录拒绝，以及复制后备份被替换时不发布并清理暂存文件。核心全量 222 项通过、1 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/sync-recovery-copy-tests.log`、`target/sync-recovery-copy-clippy.log`、`target/sync-recovery-copy-fmt.log`。本次为后端恢复能力，统一界面尚未接入；没有原生窗口或 Windows 实机验收，未修改用户笔记。
