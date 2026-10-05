@@ -417,17 +417,34 @@ impl Workspace {
                                     .child("未保存草稿 · 点击比较、恢复或放弃"),
                             )
                             .children(self.recoveries.iter().enumerate().map(|(i, e)| {
-                                Button::new(("restore-draft", i))
-                                    .ghost()
-                                    .label(format!(
-                                        "{} · 草稿 {}",
-                                        e.record.relative.display(),
-                                        i + 1
-                                    ))
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.ui.trash_open = false;
-                                        this.review_draft(i, w, cx);
-                                    }))
+                                let time: chrono::DateTime<chrono::Local> = e.modified.into();
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .p_2()
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .child(e.record.relative.to_string_lossy().to_string()),
+                                    )
+                                    .child(div().text_sm().child(format!(
+                                        "草稿 · {} · {:.1} KiB · 恢复或放弃前保留",
+                                        time.format("%Y-%m-%d %H:%M:%S"),
+                                        e.bytes as f64 / 1024.
+                                    )))
+                                    .child(
+                                        Button::new(("restore-draft", i))
+                                            .ghost()
+                                            .label("比较、恢复或放弃")
+                                            .tooltip(
+                                                e.record.relative.to_string_lossy().to_string(),
+                                            )
+                                            .on_click(cx.listener(move |this, _, w, cx| {
+                                                this.ui.trash_open = false;
+                                                this.review_draft(i, w, cx);
+                                            })),
+                                    )
                             })),
                     )
                 },

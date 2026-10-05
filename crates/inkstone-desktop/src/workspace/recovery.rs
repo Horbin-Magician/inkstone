@@ -33,6 +33,20 @@ pub(super) fn preview_text(text: &str) -> String {
     format!("{}\n\n……预览已截断，恢复副本仍包含完整正文。", &text[..end])
 }
 
+fn retention_label(policy: inkstone_core::vault::Retention) -> String {
+    let age = if policy.days == 0 {
+        "不限保留天数".into()
+    } else {
+        format!("保留 {} 天", policy.days)
+    };
+    let capacity = if policy.max_mib == 0 {
+        "不限容量".into()
+    } else {
+        format!("每库 {} MiB 软上限", policy.max_mib)
+    };
+    format!("成功记录：{age} · {capacity}；每篇至少保留最新成功记录。未保存草稿不自动清理。")
+}
+
 impl Workspace {
     pub(super) fn reviewing_draft(&self) -> bool {
         self.ui
@@ -480,9 +494,10 @@ impl Workspace {
                 )
             } else {
                 format!(
-                    "{} 条记录 · {:.1} MiB · 成功记录默认保留 30 天（每库 128 MiB 软上限）",
+                    "{} 条记录 · {:.1} MiB · {}",
                     browser.entries.len(),
-                    bytes as f64 / 1048576.
+                    bytes as f64 / 1048576.,
+                    retention_label(self.ui.prefs.history)
                 )
             }))
             .when(browser.loading, |s| s.child("正在读取版本……"))
@@ -615,6 +630,25 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn retention_text_matches_configured_limits_including_unlimited() {
+        use inkstone_core::vault::Retention;
+        let default = retention_label(Retention::default());
+        assert!(default.contains("30 天") && default.contains("128 MiB"));
+        let custom = retention_label(Retention {
+            days: 90,
+            max_mib: 512,
+        });
+        assert!(custom.contains("90 天") && custom.contains("512 MiB"));
+        assert!(!custom.contains("30 天") && !custom.contains("128 MiB"));
+        let unlimited = retention_label(Retention {
+            days: 0,
+            max_mib: 0,
+        });
+        assert!(unlimited.contains("不限保留天数") && unlimited.contains("不限容量"));
+        assert!(unlimited.contains("未保存草稿不自动清理"));
+    }
 
     #[test]
     fn preview_limit_preserves_unicode_boundaries() {

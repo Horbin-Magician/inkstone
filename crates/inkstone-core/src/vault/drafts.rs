@@ -144,6 +144,9 @@ mod tests {
         let entries = reopened.recoveries().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].record.draft, "中文😀\r\nlatest");
+        let metadata = fs::metadata(&entries[0].journal).unwrap();
+        assert_eq!(entries[0].bytes, metadata.len());
+        assert_eq!(entries[0].modified, metadata.modified().unwrap());
         assert_eq!(entries[0].record.baseline.as_deref(), Some("original"));
         assert_eq!(fs::read_dir(&f.1.recovery_dir).unwrap().count(), 1);
         assert_eq!(
