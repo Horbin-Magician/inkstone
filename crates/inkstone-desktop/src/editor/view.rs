@@ -437,6 +437,7 @@ impl Render for EditorPane {
                 view.child(live_quotes::overlay(
                     self.editor.clone(),
                     self.live_quotes.clone(),
+                    self.font_size,
                 ))
             })
             .when(!self.reading && self.live, |view| {
