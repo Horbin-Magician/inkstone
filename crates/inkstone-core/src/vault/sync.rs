@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
 };
 pub use webdav::WebDav;
 
@@ -194,7 +194,16 @@ fn snapshot_with_progress(
     phase: Phase,
     notify: &impl Fn(Progress),
 ) -> Result<Files> {
+    snapshot_cancellable(vault, phase, notify, &Cancellation::default())
+}
+fn snapshot_cancellable(
+    vault: &Vault,
+    phase: Phase,
+    notify: &impl Fn(Progress),
+    cancellation: &Cancellation,
+) -> Result<Files> {
     notify(Progress::new(phase, 0));
+    cancellation.check()?;
     let paths: Vec<_> = vault
         .scan_files()?
         .into_iter()
@@ -208,6 +217,7 @@ fn snapshot_with_progress(
     notify(progress.clone());
     let mut files = Files::new();
     for path in paths {
+        cancellation.check()?;
         let name = path
             .to_str()
             .context("同步文件名必须是 UTF-8")?
@@ -424,6 +434,44 @@ pub fn changed_since_sync(
     Ok(false)
 }
 
+/// One token per attempt. Cancellation is cooperative before publication; once
+/// commit begins, publication, local apply and baseline commit finish together.
+#[derive(Default)]
+pub struct Cancellation(AtomicU8);
+impl Cancellation {
+    pub fn request(&self) -> bool {
+        self.0
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+    pub fn is_requested(&self) -> bool {
+        self.0.load(Ordering::Acquire) == 1
+    }
+    fn check(&self) -> Result<()> {
+        if self.is_requested() {
+            return Err(Cancelled.into());
+        }
+        Ok(())
+    }
+    fn begin_commit(&self) -> Result<()> {
+        self.0
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ())
+            .map_err(|_| Cancelled.into())
+    }
+}
+#[derive(Debug)]
+struct Cancelled;
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("同步已取消；未发布清单或修改本地文件")
+    }
+}
+impl std::error::Error for Cancelled {}
+pub fn is_cancelled(error: &anyhow::Error) -> bool {
+    error.is::<Cancelled>()
+}
+
 pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Result<Report> {
     synchronize_with_progress(vault, remote, identity, |_| {})
 }
@@ -435,6 +483,19 @@ pub fn synchronize_with_progress(
     identity: &str,
     notify: impl Fn(Progress) + Sync,
 ) -> Result<Report> {
+    synchronize_cancellable(vault, remote, identity, &Cancellation::default(), notify)
+}
+
+/// In-flight network calls finish before cancellation returns; no new transfers
+/// are started after observing cancellation. Use a fresh token for each attempt.
+pub fn synchronize_cancellable(
+    vault: &Vault,
+    remote: &impl Remote,
+    identity: &str,
+    cancellation: &Cancellation,
+    notify: impl Fn(Progress) + Sync,
+) -> Result<Report> {
+    cancellation.check()?;
     let device = vault.recovery_dir.join("webdav-sync");
     fs::create_dir_all(&device)?;
     let vault_id = hash(vault.root.to_string_lossy().as_bytes());
@@ -446,9 +507,11 @@ pub fn synchronize_with_progress(
     lock.try_lock().context("该笔记库已有同步任务运行")?;
     let state = baseline_path(vault, identity);
     let base = read_baseline(&state)?;
-    let local = snapshot_with_progress(vault, Phase::Scanning, &notify)?;
+    let local = snapshot_cancellable(vault, Phase::Scanning, &notify, cancellation)?;
     notify(Progress::new(Phase::ReadingManifest, 0));
+    cancellation.check()?;
     let (previous, revision) = remote.manifest()?;
+    cancellation.check()?;
     validate_manifest(&previous)?;
     // Losing a previously populated remote is not interpreted as deleting the whole vault.
     ensure!(
@@ -476,7 +539,9 @@ pub fn synchronize_with_progress(
     notify(Progress::new(Phase::Downloading, digests.len()));
     // Fetch each content object only once, even when several paths use it.
     transfer(&digests, |digest| {
+        cancellation.check()?;
         let bytes = remote.download(digest)?;
+        cancellation.check()?;
         ensure!(
             bytes.len() as u64 <= MAX_FILE_BYTES && hash(&bytes) == **digest,
             "云端文件校验失败：{digest}"
@@ -501,6 +566,7 @@ pub fn synchronize_with_progress(
     let mut total = 0;
     // Validate every target before publishing or changing local files.
     for (path, digest) in needed {
+        cancellation.check()?;
         let bytes = objects.get(digest).unwrap().clone();
         total += bytes.len();
         ensure!(
@@ -524,10 +590,13 @@ pub fn synchronize_with_progress(
     let upload_progress = Mutex::new(Progress::new(Phase::Uploading, uploads.len()));
     notify(upload_progress.lock().unwrap().clone());
     transfer(&uploads, |(path, digest)| {
+        cancellation.check()?;
         let bytes =
             read_file(&vault.regular_file_path(Path::new(path))?)?.context("上传期间文件被删除")?;
         ensure!(hash(&bytes) == **digest, "上传期间文件已变化：{path}");
+        cancellation.check()?;
         remote.upload(digest, &bytes)?;
+        cancellation.check()?;
         let mut progress = upload_progress.lock().unwrap();
         progress.completed += 1;
         progress.bytes += bytes.len() as u64;
@@ -536,10 +605,11 @@ pub fn synchronize_with_progress(
     })?;
     report.uploaded = uploads.len();
     ensure!(
-        snapshot_with_progress(vault, Phase::Verifying, &notify)? == local,
+        snapshot_cancellable(vault, Phase::Verifying, &notify, cancellation)? == local,
         "同步期间本地文件已变化，请重试"
     );
     notify(Progress::new(Phase::Publishing, 0));
+    cancellation.begin_commit()?;
     if manifest.files != previous.files || revision.is_none() {
         remote.publish(&manifest, revision.as_deref())?;
     }
