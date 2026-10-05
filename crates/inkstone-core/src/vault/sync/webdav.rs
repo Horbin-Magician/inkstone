@@ -88,9 +88,20 @@ impl WebDav {
         );
         Ok(())
     }
+    fn check_legacy_directory(&self) -> Result<()> {
+        let response = self.send(self.request(Method::GET, "inkstone-v1/manifest.json"))?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        Self::status(response)?;
+        bail!(
+            "检测到旧同步目录 inkstone-v1：请先更新所有设备，再将远端 inkstone-v1 文件夹重命名为 inkstone；若两个目录同时存在，请先备份并核对数据，不要直接覆盖"
+        )
+    }
     pub fn prepare(&self) -> Result<()> {
         self.test_connection()?;
-        for path in ["inkstone-v1/", "inkstone-v1/objects/"] {
+        self.check_legacy_directory()?;
+        for path in ["inkstone/", "inkstone/objects/"] {
             let response = self.send(self.request(Method::from_bytes(b"MKCOL")?, path))?;
             if response.status() != StatusCode::METHOD_NOT_ALLOWED {
                 Self::status(response)?;
@@ -114,8 +125,9 @@ impl WebDav {
 }
 impl Remote for WebDav {
     fn manifest(&self) -> Result<(Manifest, Option<String>)> {
+        self.check_legacy_directory()?;
         let response = self.send(
-            self.request(Method::GET, "inkstone-v1/manifest.json")
+            self.request(Method::GET, "inkstone/manifest.json")
                 .header(header::CACHE_CONTROL, "no-cache"),
         )?;
         if response.status() == StatusCode::NOT_FOUND {
@@ -138,7 +150,7 @@ impl Remote for WebDav {
         ensure!(valid_hash(digest), "无效的对象校验值");
         Self::body(
             Self::status(
-                self.send(self.request(Method::GET, &format!("inkstone-v1/objects/{digest}")))?,
+                self.send(self.request(Method::GET, &format!("inkstone/objects/{digest}")))?,
             )?,
             MAX_FILE_BYTES,
         )
@@ -149,7 +161,7 @@ impl Remote for WebDav {
             "上传内容校验失败"
         );
         let response = self.send(
-            self.request(Method::PUT, &format!("inkstone-v1/objects/{digest}"))
+            self.request(Method::PUT, &format!("inkstone/objects/{digest}"))
                 .header(header::IF_NONE_MATCH, "*")
                 .header(header::CONTENT_TYPE, "application/octet-stream")
                 .body(bytes.to_vec()),
@@ -172,7 +184,7 @@ impl Remote for WebDav {
             "同步清单超过大小限制"
         );
         let request = self
-            .request(Method::PUT, "inkstone-v1/manifest.json")
+            .request(Method::PUT, "inkstone/manifest.json")
             .header(header::CONTENT_TYPE, "application/json")
             .body(bytes);
         let request = match revision {
