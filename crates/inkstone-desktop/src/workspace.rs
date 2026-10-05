@@ -155,10 +155,12 @@ fn app_dir() -> PathBuf {
 }
 impl Workspace {
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut sync_paths = Vec::new();
         if let Some(receiver) = &self.watch_events {
             for event in receiver.try_iter() {
                 match event {
                     Ok(event) if event.need_rescan() => {
+                        sync_paths.push(PathBuf::new());
                         self.refresh_requested = true;
                         self.rescan = true;
                     }
@@ -172,6 +174,13 @@ impl Workspace {
                     {
                         self.refresh_requested = true;
                         for path in event.paths {
+                            if let Some(relative) = self
+                                .vault
+                                .as_ref()
+                                .and_then(|v| path.strip_prefix(&v.root).ok())
+                            {
+                                sync_paths.push(relative.to_path_buf());
+                            }
                             if path
                                 .components()
                                 .any(|c| c.as_os_str().to_string_lossy().starts_with(".inkstone-"))
@@ -209,6 +218,8 @@ impl Workspace {
                 }
             }
         }
+        self.note_sync_watch_paths(sync_paths);
+        self.tick_sync_watch(cx);
         if self.refresh_requested && !self.refreshing {
             self.refresh(window, cx);
         }
