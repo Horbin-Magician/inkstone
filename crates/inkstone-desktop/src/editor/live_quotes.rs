@@ -78,7 +78,7 @@ mod tests {
                         state.set_selected_range(caret..caret, cx);
                     });
                     pane.update_presentation(cx);
-                    assert!(pane.editor.read(cx).concealed_ranges().contains(&(0..1)));
+                    assert!(pane.editor.read(cx).concealed_ranges().contains(&(0..2)));
                     assert_eq!(pane.editor.read(cx).value().as_ref(), source);
                 })
                 .unwrap();
@@ -90,15 +90,15 @@ mod tests {
                 let viewport = pane.editor.read(cx).input_bounds();
                 assert!(border.left() >= viewport.left());
                 let text = pane.editor.read(cx).range_to_bounds(&(2..2)).unwrap();
-                assert!(text.left() - border.right() >= px(pane.font_size * 0.75));
+                assert_eq!(text.left() - border.left(), inset(pane.font_size));
                 pane.editor
                     .update(cx, |state, cx| state.set_selected_range(0..0, cx));
                 pane.update_presentation(cx);
-                assert!(!pane.editor.read(cx).concealed_ranges().contains(&(0..1)));
+                assert!(!pane.editor.read(cx).concealed_ranges().contains(&(0..2)));
                 pane.live = false;
                 pane.update_presentation(cx);
                 assert!(pane.live_quotes.is_empty());
-                assert!(!pane.editor.read(cx).concealed_ranges().contains(&(0..1)));
+                assert!(!pane.editor.read(cx).concealed_ranges().contains(&(0..2)));
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
@@ -188,9 +188,12 @@ mod tests {
         assert!(visual.debug_bounds("live-quote-0").is_none());
         handle
             .update(&mut visual, |p, _, cx| {
+                let state = p.editor.read(cx);
+                let prefix_width = state.range_to_bounds(&(2..2)).unwrap().left()
+                    - state.range_to_bounds(&(0..0)).unwrap().left();
                 assert_eq!(
-                    p.editor.read(cx).range_to_bounds(&(2..2)).unwrap().left(),
-                    text_x - inset(p.font_size)
+                    state.range_to_bounds(&(2..2)).unwrap().left(),
+                    text_x - inset(p.font_size) + prefix_width
                 );
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);
             })
