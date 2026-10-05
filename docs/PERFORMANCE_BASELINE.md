@@ -38,3 +38,16 @@
 复现：`cargo run --release --locked -p inkstone-core --example block_benchmark -- target/performance-v1/ordinary.md 重`，第二个场景将参数换成 `target/performance-v1/large-document.md '段落 1000'`。最终日志为 `target/block-benchmark-ordinary-final.log` 与 `target/block-benchmark-large-final.log`；较早带并行构建干扰的日志不纳入表格。
 
 此测量不包含原生输入、展示投影、布局或显示提交；不能用来宣布 50 ms 输入预算达标。局部更新仍克隆 AST 和更新后续坐标；跨行、嵌套容器和全局引用等仍回退完整解析。
+
+## 展示对象匹配实验（2026-10-05，未保留实现）
+
+在 `9ea9ab0` 基础上尝试哈希分组复用旧对象、二分查找语法候选。运行原有 `formula_frame_performance`（debug 无头，1200×820，5 次预热后 20 次采样）。前后测量期间没有并行执行编译/其他测试，但未控制机器其他进程负载；仅一次对照，不能确认差异原因。
+
+| 公式数量 | 编辑 p50 / p95，改前 → 实验 | 滚动 p50 / p95，改前 → 实验 |
+| --- | --- | --- |
+| 100 | 8.682 / 8.914 → 9.369 / 9.554 ms | 4.112 / 11.471 → 4.457 / 12.407 ms |
+| 1000 | 77.602 / 78.888 → 79.081 / 80.027 ms | 21.346 / 87.912 → 22.159 / 92.149 ms |
+
+开库稳定绘制阶段：100 公式 281.968 → 319.007 ms；1000 公式 1654.390 → 1752.176 ms。匹配理论复杂度改善没有体现为本轮整体耗时收益，故撤回生产实现，保留重复公式视图实体/几何复用回归。后续需定位解析、投影准备和绘制的主要成本，而非据此宣称该匹配算法必然更快或更慢。
+
+原始日志：`target/object-match-before.log`、`target/object-match-final-benchmark.log`；最初的候选哈希索引中间版本日志为 `target/object-match-after.log`。以上都不是原生输入/滚动延迟。
