@@ -216,6 +216,8 @@ impl Workspace {
                 inkstone_core::preferences::Preferences::load_with_warning(
                     &vault.root.join(".inkstone-workspace.json"),
                 );
+            let cloud_secret = crate::workspace::webdav_secret::load(&prefs.webdav, &vault.root)
+                .map_err(|error| error.to_string());
             inkstone_core::startup_trace::mark("preferences_read");
             let restored: Vec<_> = prefs
                 .open_paths
@@ -241,7 +243,7 @@ impl Workspace {
                 recoveries,
                 index,
                 folders,
-                (prefs, preference_warning),
+                (prefs, preference_warning, cloud_secret),
                 restored,
             ))
         });
@@ -275,12 +277,12 @@ impl Workspace {
                         prefs,
                         restored,
                     )) => {
-                        let (prefs, preference_warning) = prefs;
+                        let (prefs, preference_warning, cloud_secret) = prefs;
                         this.ui.folders = folders;
                         let restore_active = prefs.active_path.clone();
                         let restore_active_index = prefs.active_tab_index;
                         this.ui.prefs = prefs;
-                        this.reset_cloud_sync(window, cx);
+                        this.apply_cloud_secret(Some(cloud_secret), window, cx);
                         this.ui.font_size_slider.update(cx, |slider, cx| {
                             slider.set_value(this.ui.prefs.font_size, window, cx);
                         });

@@ -33,6 +33,7 @@ mod search_tools;
 mod table_editor;
 mod ui;
 mod views;
+mod webdav_secret;
 mod welcome;
 use crate::editor::{EditorEvent, EditorPane};
 use gpui::{prelude::*, *};
