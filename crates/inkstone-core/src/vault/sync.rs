@@ -5,6 +5,10 @@ use super::*;
 use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 pub use webdav::WebDav;
 
 pub const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
@@ -41,7 +45,7 @@ impl Default for Manifest {
 
 /// Implementations must atomically compare `revision` when publishing a manifest.
 /// None means create only if absent. A stale revision must fail, never overwrite.
-pub trait Remote {
+pub trait Remote: Sync {
     fn manifest(&self) -> Result<(Manifest, Option<String>)>;
     fn download(&self, hash: &str) -> Result<Vec<u8>>;
     fn upload(&self, hash: &str, bytes: &[u8]) -> Result<()>;
@@ -209,6 +213,33 @@ fn merge(base: &Files, local: &Files, remote: &Files) -> Result<(Files, Vec<Stri
     Ok((merged, conflicts))
 }
 
+// Bound network concurrency and stop claiming work after the first failure. All
+// in-flight requests finish before the caller can publish or return an error.
+fn transfer<I: Sync>(items: &[I], work: impl Fn(&I) -> Result<()> + Sync) -> Result<()> {
+    let next = AtomicUsize::new(0);
+    let stopped = AtomicBool::new(false);
+    let error = Mutex::new(None);
+    std::thread::scope(|scope| {
+        for _ in 0..items.len().min(4) {
+            scope.spawn(|| {
+                while !stopped.load(Ordering::Acquire) {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(item) = items.get(index) else { break };
+                    if let Err(e) = work(item) {
+                        stopped.store(true, Ordering::Release);
+                        error.lock().unwrap().get_or_insert(e);
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    match error.into_inner().unwrap() {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
 /// Blocking; run on a worker. `identity` identifies the endpoint/account, not its password.
 pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Result<Report> {
     let device = vault.recovery_dir.join("webdav-sync");
@@ -243,24 +274,45 @@ pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Resul
         conflicts,
         ..Default::default()
     };
-    let mut downloads = BTreeMap::new();
-    let mut total = 0;
-    // Validate all downloads before publishing or changing local files.
-    for (path, digest) in &manifest.files {
-        if local.get(path) == Some(digest) {
-            continue;
-        }
+    let needed: Vec<_> = manifest
+        .files
+        .iter()
+        .filter(|(path, digest)| local.get(*path) != Some(*digest))
+        .collect();
+    let digests: Vec<_> = needed
+        .iter()
+        .map(|(_, digest)| *digest)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let downloaded = Mutex::new((0usize, BTreeMap::new()));
+    // Fetch each content object only once, even when several paths use it.
+    transfer(&digests, |digest| {
         let bytes = remote.download(digest)?;
         ensure!(
-            bytes.len() as u64 <= MAX_FILE_BYTES && hash(&bytes) == *digest,
-            "云端文件校验失败：{path}"
+            bytes.len() as u64 <= MAX_FILE_BYTES && hash(&bytes) == **digest,
+            "云端文件校验失败：{digest}"
         );
+        let mut downloaded = downloaded.lock().unwrap();
+        ensure!(
+            downloaded.0 + bytes.len() <= MAX_TOTAL_BYTES,
+            "本次下载超过 512 MiB，当前版本暂不支持"
+        );
+        downloaded.0 += bytes.len();
+        downloaded.1.insert((*digest).clone(), Arc::new(bytes));
+        Ok(())
+    })?;
+    let (_, objects) = downloaded.into_inner().unwrap();
+    let mut downloads = BTreeMap::new();
+    let mut total = 0;
+    // Validate every target before publishing or changing local files.
+    for (path, digest) in needed {
+        let bytes = objects.get(digest).unwrap().clone();
         total += bytes.len();
         ensure!(
             total <= MAX_TOTAL_BYTES,
             "本次下载超过 512 MiB，当前版本暂不支持"
         );
-        // Reject symlinks, aliases and file/directory collisions before remote publication.
         let target = vault.regular_file_path(Path::new(path))?;
         ensure!(
             read_file(&target)?.as_ref().map(|b| hash(b)).as_ref() == local.get(path),
@@ -270,16 +322,18 @@ pub fn synchronize(vault: &Vault, remote: &impl Remote, identity: &str) -> Resul
     }
     let known: BTreeSet<_> = previous.files.values().collect();
     let mut uploaded = BTreeSet::new();
-    for (path, digest) in &manifest.files {
-        if known.contains(digest) || !uploaded.insert(digest) {
-            continue;
-        }
+    let uploads: Vec<_> = manifest
+        .files
+        .iter()
+        .filter(|(_, digest)| !known.contains(*digest) && uploaded.insert(*digest))
+        .collect();
+    transfer(&uploads, |(path, digest)| {
         let bytes =
             read_file(&vault.regular_file_path(Path::new(path))?)?.context("上传期间文件被删除")?;
-        ensure!(hash(&bytes) == *digest, "上传期间文件已变化：{path}");
-        remote.upload(digest, &bytes)?;
-        report.uploaded += 1;
-    }
+        ensure!(hash(&bytes) == **digest, "上传期间文件已变化：{path}");
+        remote.upload(digest, &bytes)
+    })?;
+    report.uploaded = uploads.len();
     ensure!(snapshot(vault)? == local, "同步期间本地文件已变化，请重试");
     if manifest.files != previous.files || revision.is_none() {
         remote.publish(&manifest, revision.as_deref())?;
