@@ -978,7 +978,7 @@ mod tests {
         cx: &mut TestAppContext,
     ) {
         cx.update(gpui_kit::init);
-        let source = "top\n\n文字 $\\frac{1}{2}$ 和 $x_{i_j}$ 后续\n\n```mermaid\nflowchart LR\nA --> B\n```\n\ntail";
+        let source = "top\n\n文字 $\\frac{1}{2}$ 和 $x_{i_j}$ 重复 $\\frac{1}{2}$ 后续\n\n```mermaid\nflowchart LR\nA --> B\n```\n\ntail";
         let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         for _ in 0..10 {
@@ -1011,7 +1011,7 @@ mod tests {
                 let old: Vec<_> = pane
                     .live_objects
                     .iter()
-                    .map(|w| (w.width, w.height))
+                    .map(|w| (w.view.entity_id(), w.width, w.height))
                     .collect();
                 let snapshot = Arc::new(inkstone_core::syntax::Snapshot::new(source));
                 let reading = inkstone_core::rendering::reading_snapshot(
@@ -1041,7 +1041,7 @@ mod tests {
                     old,
                     pane.live_objects
                         .iter()
-                        .map(|w| (w.width, w.height))
+                        .map(|w| (w.view.entity_id(), w.width, w.height))
                         .collect::<Vec<_>>()
                 );
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
