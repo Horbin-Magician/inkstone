@@ -52,7 +52,8 @@ impl Workspace {
             return;
         }
         if self.has_pending_input(self.tabs[index].id, window, cx) {
-            self.status = "请完成当前编辑后再打开其他笔记。".into();
+            self.notifications
+                .publish("请完成当前编辑后再打开其他笔记。".into());
             self.pending_jump = None;
             cx.notify();
             return;
@@ -103,12 +104,13 @@ impl Workspace {
                         this.finish_pending_navigation(window, cx);
                     }
                     Ok(None) => {
-                        this.status = "文件已不存在，请刷新目录。".into();
+                        this.notifications
+                            .publish("文件已不存在，请刷新目录。".into());
                         this.pending_jump = None;
                         cx.notify();
                     }
                     Err(error) => {
-                        this.status = error.to_string();
+                        this.notifications.publish(error.to_string());
                         this.pending_jump = None;
                         cx.notify();
                     }
@@ -136,7 +138,8 @@ impl Workspace {
             return;
         };
         if self.has_pending_input(pending.source, window, cx) {
-            self.status = "请完成当前编辑后再打开其他笔记。".into();
+            self.notifications
+                .publish("请完成当前编辑后再打开其他笔记。".into());
             self.pending_jump = None;
             cx.notify();
             return;
@@ -144,7 +147,8 @@ impl Workspace {
         if self.ui.inline_title.is_some() {
             self.commit_inline_title(false, window, cx);
             if self.ui.inline_title.is_some() {
-                self.status = "请完成或取消标题修改后再打开其他笔记。".into();
+                self.notifications
+                    .publish("请完成或取消标题修改后再打开其他笔记。".into());
                 self.pending_jump = None;
                 cx.notify();
                 return;
@@ -163,7 +167,8 @@ impl Workspace {
         if let Some(target) = self.tabs.iter().find(|tab| tab.path == pending.path)
             && self.has_pending_input(target.id, window, cx)
         {
-            self.status = "请完成目标笔记的编辑后再打开另一个视图。".into();
+            self.notifications
+                .publish("请完成目标笔记的编辑后再打开另一个视图。".into());
             self.pending_jump = None;
             cx.notify();
             return;

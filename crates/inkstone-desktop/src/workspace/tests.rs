@@ -1888,24 +1888,24 @@ fn search_validation_reports_inline_errors_without_overwriting_other_status(
                 .update(cx, |s, cx| s.set_value("/[bad/", window, cx));
             w.run_search(cx);
             assert!(!w.ui.search_error.is_empty());
-            assert_eq!(w.status, w.ui.search_error);
+            assert_eq!(w.notifications.text(), w.ui.search_error);
             assert!(!w.ui.search_loading);
             assert!(!w.ui.search_has_more);
             w.search
                 .update(cx, |s, cx| s.set_value("valid", window, cx));
             w.run_search(cx);
             assert!(w.ui.search_error.is_empty());
-            assert!(w.status.is_empty());
+            assert!(w.notifications.text().is_empty());
             w.search
                 .update(cx, |s, cx| s.set_value("(broken", window, cx));
             w.run_search(cx);
             assert!(!w.ui.search_error.is_empty());
-            w.status = "保存冲突待处理".into();
+            w.notifications.publish("保存冲突待处理".into());
             w.search
                 .update(cx, |s, cx| s.set_value("valid", window, cx));
             w.run_search(cx);
             assert!(w.ui.search_error.is_empty());
-            assert_eq!(w.status, "保存冲突待处理");
+            assert_eq!(w.notifications.text(), "保存冲突待处理");
         })
         .unwrap();
 }
@@ -2341,8 +2341,8 @@ fn property_rename_delete_undo_and_stale_dialog(cx: &mut TestAppContext) {
                 editor.read(cx).value().as_ref(),
                 format!("{source}外部变化")
             );
-            assert!(w.status.contains("笔记已变更"));
-            assert_eq!(w.ui.property_error, w.status);
+            assert!(w.notifications.text().contains("笔记已变更"));
+            assert_eq!(w.ui.property_error, w.notifications.text());
         })
         .unwrap();
 }
@@ -2423,7 +2423,7 @@ fn reading_quote_link_opens_its_source_relative_note(cx: &mut TestAppContext) {
                 w.tabs[w.active.unwrap()].path,
                 PathBuf::from("other.md"),
                 "bounds={bounds:?}; status={}",
-                w.status
+                w.notifications.text()
             )
         })
         .unwrap();
@@ -2508,7 +2508,7 @@ fn file_location_settings_control_note_and_attachment_writes(cx: &mut TestAppCon
             w.ui.prefs.locations.note_folder = "../outside".into();
             w.focus_new(window, cx);
             assert_eq!(w.tabs.len(), count);
-            assert!(w.status.contains("库内文件夹"));
+            assert!(w.notifications.text().contains("库内文件夹"));
         })
         .unwrap();
     std::fs::remove_dir_all(root).unwrap();
@@ -2693,7 +2693,7 @@ fn inline_title_renames_original_tab_and_preserves_failed_input(cx: &mut TestApp
             assert!(
                 root.join("folder/新名😀.md").is_file(),
                 "status={}, title={:?}, pending={}",
-                w.status,
+                w.notifications.text(),
                 w.ui.inline_title
                     .as_ref()
                     .map(|edit| edit.input.read(cx).value()),
@@ -2834,7 +2834,7 @@ fn rename_link_prompt_supports_skip_once_always_and_conflict(cx: &mut TestAppCon
     );
     handle
         .update(cx, |w, _, _| {
-            assert!(w.status.contains("未更新"));
+            assert!(w.notifications.text().contains("未更新"));
             assert!(!w.ui.file_operation);
         })
         .unwrap();
@@ -2970,7 +2970,7 @@ fn trashing_a_folder_updates_the_tree_without_rereading_other_notes(cx: &mut Tes
     cx.run_until_parked();
     handle
         .update(cx, |w, _, cx| {
-            assert_eq!(w.status, "文件夹已移入可恢复回收站。");
+            assert_eq!(w.notifications.text(), "文件夹已移入可恢复回收站。");
             assert!(!w.ui.file_operation);
             assert!(
                 w.tabs
@@ -3598,7 +3598,8 @@ fn restores_split_orientation_document_and_independent_modes(cx: &mut TestAppCon
             assert!(
                 w.views.vertical,
                 "status={} prefs={:?}",
-                w.status, w.ui.prefs
+                w.notifications.text(),
+                w.ui.prefs
             );
             assert!(w.views.secondary_focused);
             assert_eq!(w.tabs[w.main_tab().unwrap()].path, PathBuf::from("a.md"));
@@ -4380,7 +4381,7 @@ fn folder_creation_updates_tree_before_tick_and_reuses_index(cx: &mut TestAppCon
     cx.run_until_parked();
     handle
         .update(cx, |w, _, cx| {
-            assert_eq!(w.status, "文件夹已创建");
+            assert_eq!(w.notifications.text(), "文件夹已创建");
             assert_eq!(w.ui.pending_file_writes, 0);
             assert!(Arc::ptr_eq(&index, &w.index));
             assert!(!w.refreshing);
@@ -4412,7 +4413,7 @@ fn folder_creation_updates_tree_before_tick_and_reuses_index(cx: &mut TestAppCon
                 assert!(Arc::ptr_eq(&index, &w.index));
                 assert!(!w.refreshing);
                 assert!(!w.refresh_requested);
-                assert_eq!(w.status, "文件夹已创建");
+                assert_eq!(w.notifications.text(), "文件夹已创建");
             })
             .unwrap();
     }
@@ -4425,7 +4426,7 @@ fn folder_creation_updates_tree_before_tick_and_reuses_index(cx: &mut TestAppCon
     cx.run_until_parked();
     handle
         .update(cx, |w, window, cx| {
-            assert_ne!(w.status, "文件夹已创建");
+            assert_ne!(w.notifications.text(), "文件夹已创建");
             assert_eq!(w.ui.folders.len(), 2);
             assert_eq!(w.ui.pending_file_writes, 0);
             w.tick(window, cx);
@@ -4695,7 +4696,7 @@ fn missing_link_creation_backlinks_and_search(cx: &mut TestAppContext) {
     assert!(!root.join("不会创建.md").exists());
     handle
         .update(cx, |workspace, _, cx| {
-            assert!(workspace.status.contains("目标不存在"));
+            assert!(workspace.notifications.text().contains("目标不存在"));
             let pane = workspace.tabs[workspace.active.unwrap()].pane.clone();
             pane.update(cx, |_, cx| {
                 cx.emit(EditorEvent::FollowMarkdownLink(
@@ -4913,7 +4914,7 @@ fn gpui_create_edit_save_reopen_and_external_conflict(cx: &mut TestAppContext) {
                     .value()
                     .contains("本地修改")
             );
-            assert!(workspace.status.contains("外部版本"));
+            assert!(workspace.notifications.text().contains("外部版本"));
             workspace.watcher = None;
         })
         .unwrap();

@@ -405,3 +405,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 比对完整迁移函数与引导线测试正文，仅调整 left_panel 入口可见性；控件 ID、菜单、跳转和搜索行为保持不变，未新增重复验证代码移动的测试。
 - `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；包含分组搜索、加载更多、快速切换隔离、文件定位/建目录及引导线回归。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/left-sidebar-tests.log`、`target/left-sidebar-clippy.log`。工作区有独立的 live_objects 并行修改，检查对应当时工作区；本提交不包含该文件。未新增原生验收，未修改用户笔记。
+
+## 通知管理：集中发布与只读展示（2026-10-05）
+
+- Workspace 通知改由 notifications 模块私有持有，所有业务模块通过 publish/append 发布，UI/欢迎页只读 text；搜索通过 clear_matching 清理自身旧错误，不再直接更改通知缓冲。
+- 保持原有单条覆盖语义与事件通知时机。比对所有既有工作区字符串字面量（排除字符字面量）一致；现有搜索错误不覆盖保存冲突、同步进度、文件操作失败与恢复提示断言迁移到只读接口。
+- `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志 `target/notifications-tests.log`、`target/notifications-clippy.log`。
+- 未新增只重复字符串访问器的测试，也未新增原生验收。工作区的独立 live_objects 并行改动不纳入本提交；未修改用户笔记。

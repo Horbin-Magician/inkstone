@@ -65,8 +65,9 @@ impl Workspace {
         let original = editor.read(cx).value().to_string();
         let offset = editor.read(cx).selected_range().start;
         let Some(grid) = Grid::at(&original, offset) else {
-            self.status =
-                "请先将光标放入独立 Markdown 表格；可视化编辑支持最多 500 个单元格。".into();
+            self.notifications.publish(
+                "请先将光标放入独立 Markdown 表格；可视化编辑支持最多 500 个单元格。".into(),
+            );
             return;
         };
         let mut review = Review {
@@ -156,7 +157,8 @@ impl Workspace {
             s.focus(window, cx);
         });
         self.document_changed(editor, window, cx);
-        self.status = "表格已更新，可撤销本次修改。".into();
+        self.notifications
+            .publish("表格已更新，可撤销本次修改。".into());
         cx.notify();
     }
     pub(super) fn table_editor_panel(&self, cx: &mut Context<Self>) -> AnyElement {

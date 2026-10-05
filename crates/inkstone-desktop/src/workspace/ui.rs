@@ -819,7 +819,7 @@ impl Workspace {
                         if this.generation != generation {
                             return;
                         }
-                        this.status = match result {
+                        let message = match result {
                             Ok(()) => {
                                 for path in folder.ancestors().filter(|p| !p.as_os_str().is_empty())
                                 {
@@ -835,6 +835,7 @@ impl Workspace {
                             }
                             Err(e) => e.to_string(),
                         };
+                        this.notifications.publish(message);
                         // Reconcile even on failure: mkdir may have created some parents.
                         this.structure_changed = true;
                         this.refresh_requested = true;
@@ -1064,11 +1065,11 @@ impl Workspace {
                 }
                 match trash {
                     Ok(entries) => this.ui.trash = entries,
-                    Err(e) => this.status = e.to_string(),
+                    Err(e) => this.notifications.publish(e.to_string()),
                 }
                 match recoveries {
                     Ok(entries) => this.recoveries = entries,
-                    Err(e) => this.status = e.to_string(),
+                    Err(e) => this.notifications.publish(e.to_string()),
                 }
                 cx.notify();
             });
@@ -1098,10 +1099,10 @@ impl Workspace {
                 if this.generation != generation {
                     return;
                 }
-                this.status = match &result {
+                this.notifications.publish(match &result {
                     Ok(()) => "文件已恢复到原目录".into(),
                     Err(e) => e.to_string(),
-                };
+                });
                 if result.is_ok() {
                     if entry.directory {
                         this.structure_changed = true;
@@ -1119,7 +1120,8 @@ impl Workspace {
     }
     pub(super) fn close_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.ui.link_update.take().is_some() {
-            self.status = "文件已移动，链接保持原样。".into();
+            self.notifications
+                .publish("文件已移动，链接保持原样。".into());
             self.focus_after_link_update(window, cx);
             cx.notify();
             return;
@@ -2065,13 +2067,13 @@ impl Render for Workspace {
                                     .tooltip(detail),
                             )
                         })
-                        .when(!self.status.is_empty(), |bar| {
+                        .when(!self.notifications.text().is_empty(), |bar| {
                             bar.child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
                                     .truncate()
-                                    .child(self.status.clone()),
+                                    .child(self.notifications.text().to_owned()),
                             )
                         })
                         .when_some(status_mode, |bar, (symbol, mode)| {

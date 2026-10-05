@@ -49,7 +49,8 @@ impl Workspace {
                                 {
                                     tab.save.persistence.journal_failed();
                                 }
-                                this.status = format!("恢复副本写入失败：{error}");
+                                this.notifications
+                                    .publish(format!("恢复副本写入失败：{error}"));
                                 cx.notify();
                             });
                         }
@@ -93,7 +94,8 @@ impl Workspace {
                                         if cleanup.is_none() { Some(None) } else { None };
                                 }
                                 if let Some(error) = cleanup {
-                                    this.status = format!("正文已保存，草稿清理将重试：{error}");
+                                    this.notifications
+                                        .publish(format!("正文已保存，草稿清理将重试：{error}"));
                                 }
                                 let saved_path = tab.path.clone();
                                 let saved_text = receipt.text.clone();
@@ -107,14 +109,14 @@ impl Workspace {
                                 Some((saved_path, saved_text))
                             }
                             Err(error) => {
-                                this.status = error.to_string();
+                                this.notifications.publish(error.to_string());
                                 tab.save.persistence.failed(
                                     matches!(
                                         error,
                                         VaultError::Conflict { .. }
                                             | VaultError::RaceConflict { .. }
                                     ),
-                                    this.status.clone(),
+                                    this.notifications.text().to_owned(),
                                 );
                                 None
                             }
@@ -137,7 +139,8 @@ impl Workspace {
             return;
         };
         if self.has_pending_input(id, window, cx) {
-            self.status = "请完成当前编辑后再另存。".into();
+            self.notifications
+                .publish("请完成当前编辑后再另存。".into());
             cx.notify();
             return;
         }

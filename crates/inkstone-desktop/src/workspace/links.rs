@@ -56,7 +56,8 @@ impl Workspace {
                         return;
                     }
                     _ => {
-                        self.status = "附件不存在或超出笔记库。".into();
+                        self.notifications
+                            .publish("附件不存在或超出笔记库。".into());
                         cx.notify();
                         return;
                     }
@@ -74,13 +75,13 @@ impl Workspace {
                 self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
             }
-            Resolution::Missing(path) => {
-                self.status = format!(
-                    "本地 Markdown 链接目标不存在：{}。如需创建笔记，请使用双链。",
-                    path.display()
-                )
-            }
-            _ => self.status = "此本地链接不是有效的库内 Markdown 目标。".into(),
+            Resolution::Missing(path) => self.notifications.publish(format!(
+                "本地 Markdown 链接目标不存在：{}。如需创建笔记，请使用双链。",
+                path.display()
+            )),
+            _ => self
+                .notifications
+                .publish("此本地链接不是有效的库内 Markdown 目标。".into()),
         }
         cx.notify();
     }
@@ -114,17 +115,19 @@ impl Workspace {
                 }
             }
             Resolution::Ambiguous(paths) => {
-                self.status = format!(
+                self.notifications.publish(format!(
                     "同名笔记有 {} 个，请使用目录/笔记名，或在搜索结果中选择。",
                     paths.len()
-                );
+                ));
                 self.search.update(cx, |state, cx| {
                     state.set_value(target.split('#').next().unwrap_or(""), window, cx)
                 });
                 self.fulltext = false;
                 self.run_search(cx);
             }
-            Resolution::Invalid => self.status = "双链路径无效或超出笔记库。".into(),
+            Resolution::Invalid => self
+                .notifications
+                .publish("双链路径无效或超出笔记库。".into()),
         }
         cx.notify();
     }

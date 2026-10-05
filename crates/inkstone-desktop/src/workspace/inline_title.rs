@@ -109,7 +109,8 @@ impl Workspace {
             return;
         }
         if title.is_empty() || title.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
-            self.status = "文件名不能为空或包含路径保留字符。".into();
+            self.notifications
+                .publish("文件名不能为空或包含路径保留字符。".into());
             cx.notify();
             return;
         }

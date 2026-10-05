@@ -38,7 +38,8 @@ impl Workspace {
                 editor.marked_text_range(window, cx).is_some()
             })
         }) {
-            self.status = "请完成输入法组词后再打开另一个视图。".into();
+            self.notifications
+                .publish("请完成输入法组词后再打开另一个视图。".into());
             cx.notify();
             return;
         }
@@ -328,7 +329,8 @@ impl Workspace {
         {
             self.commit_inline_title(false, window, cx);
             if self.ui.inline_title.is_some() && !self.ui.file_operation {
-                self.status = "请完成或取消标题修改后关闭标签。".into();
+                self.notifications
+                    .publish("请完成或取消标题修改后关闭标签。".into());
                 cx.notify();
                 return;
             }
@@ -336,7 +338,8 @@ impl Workspace {
         if let Some(id) = self.tabs.get(index).map(|t| t.id)
             && self.has_pending_input(id, window, cx)
         {
-            self.status = "请完成输入法组词后关闭标签。".into();
+            self.notifications
+                .publish("请完成输入法组词后关闭标签。".into());
             cx.notify();
             return;
         }
@@ -371,13 +374,15 @@ impl Workspace {
             .persistence
             .edited(tab.save.editor.read(cx).value().as_ref());
         if tab.save.persistence.has_conflict() || tab.save.persistence.error().is_some() {
-            self.status = "请先处理保存错误或另存副本，再关闭标签。".into();
+            self.notifications
+                .publish("请先处理保存错误或另存副本，再关闭标签。".into());
             cx.notify();
             return;
         }
         if tab.save.persistence.is_dirty() || tab.save.persistence.is_saving() {
             self.ui.close_pending.insert(tab.id);
-            self.status = "正在保存，成功后关闭标签…".into();
+            self.notifications
+                .publish("正在保存，成功后关闭标签…".into());
             self.save_all(window, cx);
             cx.notify();
             return;

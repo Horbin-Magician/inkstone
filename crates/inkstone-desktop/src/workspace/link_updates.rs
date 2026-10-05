@@ -67,7 +67,8 @@ impl Workspace {
                 if this.generation != generation {
                     return;
                 }
-                this.status = format!("已更新 {} 篇笔记的内部链接。", written.len());
+                this.notifications
+                    .publish(format!("已更新 {} 篇笔记的内部链接。", written.len()));
                 let mut changed = vec![];
                 for (path, before, after) in &written {
                     let Some(id) = this.tabs.iter().find(|t| t.path == *path).map(|t| t.id) else {
@@ -82,8 +83,8 @@ impl Workspace {
                         editor.read(cx).value().as_ref(),
                         composing || tab.save.persistence.is_dirty(),
                     ) {
-                        this.status
-                            .push_str(&format!(" {} 的新编辑已保留，请处理冲突。", path.display()));
+                        this.notifications
+                            .append(&format!(" {} 的新编辑已保留，请处理冲突。", path.display()));
                     } else {
                         editor.update(cx, |s, cx| {
                             let selected = s.selected_range();
@@ -103,8 +104,8 @@ impl Workspace {
                 }
                 if !errors.is_empty() {
                     this.ui.window_close_requested = false;
-                    this.status
-                        .push_str(&format!(" 部分链接未更新：{}", errors.join("；")));
+                    this.notifications
+                        .append(&format!(" 部分链接未更新：{}", errors.join("；")));
                 }
                 this.sync_reference_contexts(cx);
                 for (path, _, _) in &written {

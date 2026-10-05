@@ -194,21 +194,23 @@ impl Workspace {
                             }
                             this.add_tab(path, Some(receipt.text), false, window, cx);
                             this.schedule_auto_sync(true);
-                            this.status = cleanup.map_or_else(
+                            this.notifications.publish(cleanup.map_or_else(
                                 || "草稿已恢复为独立副本，原文件保留，所选草稿已清理。".into(),
                                 |error| format!("副本已保存，原草稿清理失败：{error}"),
-                            );
+                            ));
                         } else {
-                            this.status = "已放弃所选草稿，原文件与其他记录保留。".into();
+                            this.notifications
+                                .publish("已放弃所选草稿，原文件与其他记录保留。".into());
                         }
                     }
                     Err(error) => {
-                        this.status = format!("草稿处理失败，恢复记录保留：{error}");
+                        this.notifications
+                            .publish(format!("草稿处理失败，恢复记录保留：{error}"));
                         if this.ui.recovery_refresh == request
                             && let Some(browser) = &mut this.ui.history
                         {
                             browser.loading = false;
-                            browser.message = this.status.clone();
+                            browser.message = this.notifications.text().to_owned();
                         }
                     }
                 }
@@ -231,7 +233,8 @@ impl Workspace {
             return;
         }
         if pane.read(cx).editor.read(cx).is_composing() {
-            self.status = "请完成输入法组词后查看历史。".into();
+            self.notifications
+                .publish("请完成输入法组词后查看历史。".into());
             cx.notify();
             return;
         }
@@ -775,7 +778,7 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, _, _| {
-                assert!(w.status.contains("草稿处理失败"));
+                assert!(w.notifications.text().contains("草稿处理失败"));
                 assert!(w.tabs.is_empty());
             })
             .unwrap();

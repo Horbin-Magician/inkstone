@@ -36,7 +36,7 @@ fn backup_name() -> String {
 
 impl Workspace {
     fn backup_message(&mut self, message: String, cx: &mut Context<Self>) {
-        self.status = message.clone();
+        self.notifications.publish(message.clone());
         self.ui.backup.message = message;
         cx.notify();
     }

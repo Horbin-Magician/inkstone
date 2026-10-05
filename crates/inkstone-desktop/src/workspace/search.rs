@@ -113,9 +113,7 @@ impl Workspace {
         self.search_jobs.cancel();
         self.ui.search_drafts_changed = false;
         let previous_error = std::mem::take(&mut self.ui.search_error);
-        if !previous_error.is_empty() && self.status == previous_error {
-            self.status.clear();
-        }
+        self.notifications.clear_matching(&previous_error);
         self.search_revision += 1;
         let revision = self.search_revision;
         let generation = self.generation;
@@ -164,7 +162,7 @@ impl Workspace {
             self.ui.search_loading = false;
             self.ui.search_has_more = false;
             self.ui.search_error = error.clone();
-            self.status = error;
+            self.notifications.publish(error);
             cx.notify();
             return;
         }
