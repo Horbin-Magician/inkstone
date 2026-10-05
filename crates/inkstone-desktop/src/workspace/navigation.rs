@@ -1101,7 +1101,7 @@ mod tests {
                 let index = w
                     .tabs
                     .iter()
-                    .position(|tab| tab.path == PathBuf::from("b.md"))
+                    .position(|tab| tab.path == std::path::Path::new("b.md"))
                     .unwrap();
                 assert!(w.tabs[index].save.conflict.get());
                 assert_eq!(

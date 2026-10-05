@@ -118,3 +118,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 工作区定时轮询不再保存正文；自动云同步与定时备份等待用户保存。手动保存及关闭、导航等显式操作前的保存保护保留。
 - 新增回归验证连续轮询、自动云同步、备份等待期间磁盘正文不变，以及手动保存正常落盘。
 - 桌面测试 278 项通过，2 项手动基准忽略；工作区格式与差异检查通过。全目标 Clippy 被既有 `workspace/navigation.rs:1104` 的 `cmp_owned` 警告阻止；本次未修改该文件。未进行原生窗口验收。
+
+## 分阶段完善：Clippy 检查恢复（2026-10-05）
+
+- 导航回归中的路径比较改用借用的 `std::path::Path`，消除 `cmp_owned`，不改变导航行为。
+- `cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo fmt --all --check`、`git diff --check` 通过；`navigation_keeps_drafts_and_saves_without_waiting` 回归通过。
+- 本次仅调整测试，未执行原生窗口验收，未修改用户笔记。第三方 `block 0.1.6` 的 future-incompatibility 提示仍存在，不影响本轮 Clippy 通过。
