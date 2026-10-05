@@ -25,7 +25,11 @@ pub struct Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<()> {
-        webdav::parse_url(self).map(|_| ())
+        self.canonical_url().map(|_| ())
+    }
+    /// Normalized directory URL. Passwords are never part of this value.
+    pub fn canonical_url(&self) -> Result<String> {
+        Ok(webdav::parse_url(self)?.to_string())
     }
 }
 

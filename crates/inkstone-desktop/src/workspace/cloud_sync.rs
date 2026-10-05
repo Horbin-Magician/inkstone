@@ -59,8 +59,7 @@ impl State {
             url: cx.new(|cx| InputState::new(window, cx).placeholder("https://服务器/dav/笔记库/")),
             username: cx.new(|cx| InputState::new(window, cx).placeholder("用户名")),
             password: cx.new(|cx| {
-                let mut input =
-                    InputState::new(window, cx).placeholder("密码或应用专用密码（仅本次会话）");
+                let mut input = InputState::new(window, cx).placeholder("密码或应用专用密码");
                 input.set_masked(true, window, cx);
                 input
             }),
@@ -73,7 +72,12 @@ impl State {
     }
 }
 impl Workspace {
-    pub(super) fn reset_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn apply_cloud_secret(
+        &mut self,
+        loaded: Option<Result<Option<String>, String>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let state = &mut self.ui.cloud_sync;
         state.pending = false;
         state.busy = false;
@@ -86,9 +90,17 @@ impl Workspace {
         state.username.update(cx, |input, cx| {
             input.set_value(self.ui.prefs.webdav.username.clone(), window, cx)
         });
+        let password = match loaded {
+            Some(Ok(password)) => password.unwrap_or_default(),
+            Some(Err(error)) => {
+                state.message = error;
+                String::new()
+            }
+            None => String::new(),
+        };
         state
             .password
-            .update(cx, |input, cx| input.set_value("", window, cx));
+            .update(cx, |input, cx| input.set_value(password, window, cx));
     }
     fn cloud_message(&mut self, message: String, cx: &mut Context<Self>) {
         self.status = message.clone();
@@ -122,6 +134,25 @@ impl Workspace {
         }
         self.ui.prefs.webdav = settings;
         self.persist_workspace(cx);
+        self.store_cloud_password(cx)
+    }
+    fn store_cloud_password(&mut self, cx: &mut Context<Self>) -> bool {
+        if !super::webdav_secret::supported() {
+            return true;
+        }
+        let Some(vault) = self.vault.clone() else {
+            self.cloud_message("请先打开笔记库，再保存同步密码。".into(), cx);
+            return false;
+        };
+        let password = self.ui.cloud_sync.password.read(cx).value().to_string();
+        let saved = match super::webdav_secret::account(&self.ui.prefs.webdav, &vault.root) {
+            Ok(account) => super::webdav_secret::store(&account, &password),
+            Err(error) => Err(error),
+        };
+        if let Err(error) = saved {
+            self.cloud_message(error.to_string(), cx);
+            return false;
+        }
         true
     }
     fn test_cloud_connection(&mut self, cx: &mut Context<Self>) {
@@ -297,10 +328,25 @@ impl Workspace {
                 .child(Input::new(&state.username).disabled(disabled))
                 .child("密码 / 应用专用密码")
                 .child(Input::new(&state.password).disabled(disabled))
-                .child("密码仅在本次会话中保留，切换笔记库或重启后需重新输入。建议使用 HTTPS。")
+                .child(if super::webdav_secret::supported() {
+                    "密码保存在本机系统钥匙串，不写入笔记库。重启或切换回来后会自动填回，仍需手动点击同步。建议使用 HTTPS。"
+                } else {
+                    "当前系统尚未支持保存密码，重启后需重新输入。建议使用 HTTPS。"
+                })
                 .child(div().flex().gap_2()
                     .child(Button::new("webdav-save").label("保存配置").disabled(disabled).on_click(cx.listener(|this, _, _, cx| {
-                        if this.save_cloud_settings(cx) { this.cloud_message("同步配置已更新；密码不会写入配置。".into(), cx); }
+                        if this.save_cloud_settings(cx) {
+                            let message = if super::webdav_secret::supported() {
+                                if this.ui.cloud_sync.password.read(cx).value().is_empty() {
+                                    "同步配置已更新，已清除保存的密码。"
+                                } else {
+                                    "同步配置已更新，密码已保存到系统钥匙串。"
+                                }
+                            } else {
+                                "同步配置已更新；当前系统不会保存密码。"
+                            };
+                            this.cloud_message(message.into(), cx);
+                        }
                     })))
                     .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
                     .child(Button::new("webdav-sync").primary().label(if state.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx)))))
@@ -354,7 +400,7 @@ mod tests {
                 assert_eq!(w.status, w.ui.cloud_sync.message);
                 assert!(slot.lock().unwrap().is_none());
                 assert_eq!(w.ui.cloud_sync.progress.as_ref().unwrap().completed, 3);
-                w.reset_cloud_sync(window, cx);
+                w.apply_cloud_secret(None, window, cx);
                 *slot.lock().unwrap() = Some(Progress {
                     phase: Phase::Downloading,
                     completed: 1,
@@ -467,7 +513,9 @@ mod tests {
     }
 
     #[gpui::test]
-    fn sync_saves_drafts_downloads_refreshes_and_never_persists_password(cx: &mut TestAppContext) {
+    fn sync_saves_drafts_downloads_refreshes_and_keeps_password_out_of_vault(
+        cx: &mut TestAppContext,
+    ) {
         cx.update(gpui_kit::init);
         let server = Server::new();
         let root = std::env::temp_dir().join(format!(
@@ -489,6 +537,7 @@ mod tests {
         let remote = WebDav::new(&settings, "secret").unwrap();
         remote.prepare().unwrap();
         sync::synchronize(&source, &remote, &remote.identity()).unwrap();
+        crate::workspace::webdav_secret::tests::install();
         let handle = cx.add_window(Workspace::new);
         handle
             .update(cx, |w, window, cx| {
@@ -556,8 +605,24 @@ mod tests {
                     std::fs::read_to_string(root.join("local/.inkstone-workspace.json")).unwrap();
                 assert!(saved.contains(&server.url));
                 assert!(!saved.contains("never-persist-this-secret"));
-                w.reset_cloud_sync(window, cx);
-                assert!(w.ui.cloud_sync.password.read(cx).value().is_empty());
+                let stored = crate::workspace::webdav_secret::load(
+                    &w.ui.prefs.webdav,
+                    w.vault.as_ref().unwrap().root.as_path(),
+                )
+                .unwrap();
+                assert_eq!(stored.as_deref(), Some("never-persist-this-secret"));
+                w.ui.cloud_sync
+                    .password
+                    .update(cx, |s, cx| s.set_value("", window, cx));
+                assert!(w.save_cloud_settings(cx));
+                assert!(
+                    crate::workspace::webdav_secret::load(
+                        &w.ui.prefs.webdav,
+                        w.vault.as_ref().unwrap().root.as_path(),
+                    )
+                    .unwrap()
+                    .is_none()
+                );
                 w.ui.persist_error = Some("disk full".into());
                 w.ui.cloud_sync.pending = true;
                 w.tick_cloud_sync(window, cx);
