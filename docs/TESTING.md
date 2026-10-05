@@ -384,3 +384,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 对移动前后的导航、布局和设置处理函数正文逐段比较，确认保持原有控件 ID、布局参数与回调。未新增仅重复代码移动的测试。
 - `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；包含短窗口设置滚动、现有/新分屏编辑设置、默认编辑模式、字体、文件位置与云同步设置回归。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/settings-ui-tests.log`、`target/settings-ui-clippy.log`。本次是保持行为的模块迁移，不代表原生最小窗口/不同 DPI 验收已完成；未修改用户笔记。
+
+## 弹窗视图：容器与属性控件边界（2026-10-05）
+
+- 通用弹窗容器、命令/快速打开选择器、属性类型与列表控件移入 modal_ui；主 UI 保留展示条件，业务弹窗继续调用各自模块。共享辅助接口仅放宽到 workspace 内部。
+- 对迁移前后的完整函数正文逐段比对，确认遮罩、尺寸、控件 ID、焦点、按键和业务回调保持一致；未新增重复验证代码移动的测试。
+- `cargo test --locked -p inkstone-desktop`：303 单元测试 + 8 集成测试通过，2 个既有测试忽略；覆盖属性类型/列表/日期/撤销/过期弹窗、设置滚动、草稿比较与冲突处理等现有回归。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/modal-ui-tests.log`、`target/modal-ui-clippy.log`。未新增原生焦点/DPI 验收，未修改用户笔记。

@@ -1,5 +1,6 @@
 mod file_sync;
 mod links;
+mod modal_ui;
 mod note_files;
 mod note_open;
 mod save_coordinator;
