@@ -592,3 +592,28 @@ fn watcher_classification_reconciles_directories_and_rejects_bad_state() {
     fs::write(baseline_path(&f.a, "watch"), "corrupt").unwrap();
     assert!(changed_since_sync(&f.a, "watch", &paths).is_err());
 }
+
+#[test]
+fn success_time_is_durable_scoped_and_not_advanced_by_failure() -> Result<()> {
+    let f = Fixture::new();
+    let r = Memory::default();
+    assert_eq!(last_success(&f.a, "server")?, None);
+    let report = synchronize(&f.a, &r, "server")?;
+    assert!(report.completed_at_ms > 0);
+    assert_eq!(last_success(&f.a, "server")?, Some(report.completed_at_ms));
+    assert_eq!(last_success(&f.b, "server")?, None);
+    assert_eq!(last_success(&f.a, "other")?, None);
+    fs::write(f.a.root.join("new.md"), "changed")?;
+    r.fail.store(true, Ordering::Relaxed);
+    assert!(synchronize(&f.a, &r, "server").is_err());
+    assert_eq!(last_success(&f.a, "server")?, Some(report.completed_at_ms));
+    // The previous format remains readable, without inventing a success date.
+    fs::write(
+        baseline_path(&f.a, "server"),
+        serde_json::to_vec(&Manifest::default())?,
+    )?;
+    assert_eq!(last_success(&f.a, "server")?, None);
+    fs::write(baseline_path(&f.a, "server"), "broken")?;
+    assert!(last_success(&f.a, "server").is_err());
+    Ok(())
+}
