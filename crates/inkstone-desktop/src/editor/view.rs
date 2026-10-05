@@ -369,6 +369,7 @@ impl Render for EditorPane {
                                     .appearance(false)
                                     .bordered(false)
                                     .flush(true)
+                                    .trailing_margin(px(0.))
                                     .font_family(self.text_font.clone())
                                     .h_full()
                                     .text_size(px(self.font_size)),

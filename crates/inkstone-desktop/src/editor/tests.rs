@@ -35,6 +35,45 @@ fn plain_edits_keep_following_live_syntax_and_undo_coordinates(cx: &mut TestAppC
         .unwrap();
 }
 
+/// Editing and reading wrap in the same column, so a line holds the same text.
+#[gpui::test]
+fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = "一行能容纳的字符数应当与阅读模式一致，不受编辑器内部留白影响。";
+    let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    for (width, readable) in [(900., true), (900., false), (520., true)] {
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                pane.readable_width = readable;
+                pane.reading = false;
+                cx.notify();
+            })
+            .unwrap();
+        visual.simulate_resize(size(px(width), px(600.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let editing = handle
+            .update(&mut visual, |pane, _, cx| pane.editor.read(cx).text_bounds())
+            .unwrap()
+            .expect("the editor must lay out");
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                pane.reading = true;
+                cx.notify();
+            })
+            .unwrap();
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let reading = handle
+            .update(&mut visual, |pane, _, cx| pane.reading_bounds(cx))
+            .unwrap();
+        assert!(
+            (editing.size.width - reading.size.width).abs() <= px(1.),
+            "text column differs at {width}px, readable {readable}: editing {editing:?}, reading {reading:?}"
+        );
+    }
+}
+
 #[gpui::test]
 fn reading_currency_preserves_dollars_links_and_footnote_numbering(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
