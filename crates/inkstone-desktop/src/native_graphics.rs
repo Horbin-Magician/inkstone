@@ -369,6 +369,9 @@ impl MarkdownPlugin for Plugin {
                 .child(div().child(node.as_markdown().to_string()))
                 .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(error.clone()));
         }
+        if formula.kind == Kind::BlockMath {
+            view = view.flex();
+        }
         self.ensure_raster(formula, window, cx);
         let measured = formula.measured.as_ref().as_ref().unwrap();
         let scale = scaled(formula.kind, self.font);
@@ -401,6 +404,9 @@ impl MarkdownPlugin for Plugin {
                 img(prepared.image.clone())
                     .w(px(prepared.width))
                     .h(px(prepared.height))
+                    .when(formula.kind == Kind::BlockMath, |image| {
+                        image.flex_shrink_0().mx_auto()
+                    })
                     .into_any_element()
             });
         } else if formula.kind == Kind::Mermaid {
@@ -412,7 +418,14 @@ impl MarkdownPlugin for Plugin {
                     .aspect_ratio(width / height.max(1.)),
             );
         } else {
-            view = view.child(div().w(px(width)).h(px(height)));
+            view = view.child(
+                div()
+                    .w(px(width))
+                    .h(px(height))
+                    .when(formula.kind == Kind::BlockMath, |placeholder| {
+                        placeholder.flex_shrink_0().mx_auto()
+                    }),
+            );
         }
         view
     }
