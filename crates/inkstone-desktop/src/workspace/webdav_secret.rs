@@ -1,15 +1,15 @@
-//! WebDAV passwords stay in the OS credential store, never in the vault.
+//! WebDAV passwords stay out of the vault. They are stored in plaintext in
+//! the app data directory so opening the app does not prompt for keychain access.
 use anyhow::{Context, Result, bail};
 use inkstone_core::vault::sync::Settings;
-use keyring::{Entry, Error};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
-const SERVICE: &str = "Inkstone WebDAV";
-
-pub(super) fn supported() -> bool {
-    cfg!(any(target_os = "macos", windows))
-}
+const FILE_NAME: &str = "webdav-secrets.json";
 
 /// Stable credential account. The raw URL, username, and vault path are not stored.
 pub(super) fn account(settings: &Settings, vault_root: &Path) -> Result<String> {
@@ -23,129 +23,110 @@ pub(super) fn account(settings: &Settings, vault_root: &Path) -> Result<String> 
 }
 
 pub(super) fn load(settings: &Settings, vault_root: &Path) -> Result<Option<String>> {
-    if !supported() || settings.username.trim().is_empty() || settings.url.trim().is_empty() {
+    if settings.username.trim().is_empty() || settings.url.trim().is_empty() {
         return Ok(None);
     }
     let account = account(settings, vault_root)?;
-    read(&account)
+    Ok(read()?.remove(&account))
 }
 
 pub(super) fn store(account: &str, password: &str) -> Result<()> {
+    let _guard = lock();
+    let mut secrets = read_unlocked()?;
     if password.is_empty() {
-        return forget(account);
+        secrets.remove(account);
+    } else {
+        secrets.insert(account.to_owned(), password.to_owned());
     }
-    write(account, password)
+    write(&secrets)
 }
 
-fn entry(account: &str) -> Result<Entry> {
-    Entry::new(SERVICE, account).context("无法打开系统钥匙串")
+fn secrets_path() -> PathBuf {
+    super::app_dir().join(FILE_NAME)
 }
 
-fn read(account: &str) -> Result<Option<String>> {
-    match entry(account)?.get_password() {
-        Ok(password) => Ok(Some(password)),
-        Err(Error::NoEntry) => Ok(None),
-        Err(error) => Err(store_error("无法读取已保存的 WebDAV 密码", error)),
-    }
+fn lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
-fn write(account: &str, password: &str) -> Result<()> {
-    entry(account)?
-        .set_password(password)
-        .map_err(|error| store_error("无法保存 WebDAV 密码", error))
+fn read() -> Result<BTreeMap<String, String>> {
+    let _guard = lock();
+    read_unlocked()
 }
 
-fn forget(account: &str) -> Result<()> {
-    match entry(account)?.delete_credential() {
-        Ok(()) | Err(Error::NoEntry) => Ok(()),
-        Err(error) => Err(store_error("无法清除已保存的 WebDAV 密码", error)),
-    }
-}
-
-fn store_error(action: &str, error: Error) -> anyhow::Error {
-    let detail = match error {
-        Error::NoStorageAccess(_) => "系统钥匙串当前不可用，请解锁后重试".to_owned(),
-        Error::Ambiguous(_) => "系统钥匙串中有多项匹配，请清理后重试".to_owned(),
-        Error::TooLong(_, _) => "密码超过系统钥匙串长度限制".to_owned(),
-        Error::BadEncoding(_) => "已保存的密码无法读取".to_owned(),
-        other => other.to_string(),
+fn read_unlocked() -> Result<BTreeMap<String, String>> {
+    let path = secrets_path();
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("无法读取已保存的 WebDAV 密码：{}", path.display()));
+        }
     };
-    anyhow::anyhow!("{action}：{detail}")
+    let value: Value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("已保存的 WebDAV 密码无法读取：{}", path.display()))?;
+    let Value::Object(object) = value else {
+        bail!("已保存的 WebDAV 密码无法读取：{}", path.display());
+    };
+    let mut secrets = BTreeMap::new();
+    for (account, password) in object {
+        let Some(password) = password.as_str() else {
+            bail!("已保存的 WebDAV 密码无法读取：{}", path.display());
+        };
+        secrets.insert(account, password.to_owned());
+    }
+    Ok(secrets)
+}
+
+fn write(secrets: &BTreeMap<String, String>) -> Result<()> {
+    let path = secrets_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("无法保存 WebDAV 密码：{}", parent.display()))?;
+    }
+    let bytes = serde_json::to_vec_pretty(secrets).context("无法保存 WebDAV 密码")?;
+    let temporary = path.with_extension("json.tmp");
+    let write_temporary = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&temporary)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        Ok(())
+    })()
+    .with_context(|| format!("无法保存 WebDAV 密码：{}", temporary.display()));
+    if let Err(error) = write_temporary {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    replace_file(&temporary, &path)
+}
+
+fn replace_file(temporary: &Path, path: &Path) -> Result<()> {
+    if std::fs::rename(temporary, path).is_ok() {
+        return Ok(());
+    }
+    if cfg!(windows) {
+        let _ = std::fs::remove_file(path);
+        if std::fs::rename(temporary, path).is_ok() {
+            return Ok(());
+        }
+    }
+    let error = std::io::Error::other(format!("无法替换 {}", path.display()));
+    let _ = std::fs::remove_file(temporary);
+    Err(error).with_context(|| format!("无法保存 WebDAV 密码：{}", path.display()))
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
-    use keyring::credential::{
-        Credential, CredentialApi, CredentialBuilderApi, CredentialPersistence,
-    };
-    use std::collections::HashMap;
-    use std::sync::{Mutex, Once, OnceLock};
-
-    fn memory() -> &'static Mutex<HashMap<String, String>> {
-        static MEMORY: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
-        MEMORY.get_or_init(|| Mutex::new(HashMap::new()))
-    }
-
-    #[derive(Debug)]
-    struct MemoryCredential {
-        key: String,
-    }
-    impl CredentialApi for MemoryCredential {
-        fn set_secret(&self, secret: &[u8]) -> keyring::Result<()> {
-            let password = String::from_utf8(secret.to_vec())
-                .map_err(|_| keyring::Error::BadEncoding(secret.to_vec()))?;
-            memory().lock().unwrap().insert(self.key.clone(), password);
-            Ok(())
-        }
-        fn get_secret(&self) -> keyring::Result<Vec<u8>> {
-            memory()
-                .lock()
-                .unwrap()
-                .get(&self.key)
-                .map(|password| password.as_bytes().to_vec())
-                .ok_or(keyring::Error::NoEntry)
-        }
-        fn delete_credential(&self) -> keyring::Result<()> {
-            memory()
-                .lock()
-                .unwrap()
-                .remove(&self.key)
-                .map(|_| ())
-                .ok_or(keyring::Error::NoEntry)
-        }
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
-    }
-
-    #[derive(Debug)]
-    struct MemoryBuilder;
-    impl CredentialBuilderApi for MemoryBuilder {
-        fn build(
-            &self,
-            _: Option<&str>,
-            service: &str,
-            user: &str,
-        ) -> keyring::Result<Box<Credential>> {
-            Ok(Box::new(MemoryCredential {
-                key: format!("{service}\n{user}"),
-            }))
-        }
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
-        fn persistence(&self) -> CredentialPersistence {
-            CredentialPersistence::ProcessOnly
-        }
-    }
-
-    pub(crate) fn install() {
-        static ONCE: Once = Once::new();
-        ONCE.call_once(|| {
-            keyring::set_default_credential_builder(Box::new(MemoryBuilder));
-        });
-    }
 
     fn settings(url: &str, username: &str) -> Settings {
         Settings {
@@ -157,7 +138,6 @@ pub(crate) mod tests {
 
     #[test]
     fn password_round_trip_is_scoped_to_vault_and_account() {
-        install();
         let root =
             std::env::temp_dir().join(format!("inkstone-webdav-secret-{}", std::process::id()));
         let other = root.join("other");
@@ -174,6 +154,20 @@ pub(crate) mod tests {
                 .unwrap()
                 .is_none()
         );
+        let stored = std::fs::read_to_string(secrets_path()).unwrap();
+        assert!(stored.contains("session-secret"));
+        assert!(!stored.contains("https://example.test"));
+        assert!(!stored.contains("alice"));
+        assert!(!root.join(FILE_NAME).exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(secrets_path())
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         store(&account, "").unwrap();
         assert!(load(&saved, &root).unwrap().is_none());
         store(&account, "").unwrap();
