@@ -419,3 +419,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 缓存带版本、范围和校验和，截断与合法 JSON 中的元数据损坏均回退重建。写入采用临时文件替换，缓存失败不影响原记录；缓存目录为符号链接时不向外部写入。
 - 新回归覆盖大正文对应小于 2 KiB 的元数据缓存、缓存命中、损坏重建、新增日志、json→saved 转换、正文损坏、笔记隔离及链接目录回退。核心全量 208 项通过、1 项忽略；桌面 recovery 3 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/history-index-tests.log`、`target/history-index-ui-tests.log`、`target/history-index-clippy.log`。缓存失效后的旧目录扫描/全文读取仍存在，未将本提交视为完整增量历史索引或重命名历史完成。未修改用户笔记。
+
+## 历史读取：复用单条日志元数据（2026-10-05）
+
+- 增加独立日志归属缓存；历史目录新增记录后，旧日志无需再次读取/反序列化正文，json→saved 发布复用相同缓存键。读取前后核对文件类型、大小与修改时间，损坏缓存回退原日志；选中历史仍读取并验证完整记录。
+- 新测试用禁止正文读取的回调验证已有日志和发布后的命中，覆盖缓存损坏重建、日志正文变化、共享恢复目录的库隔离及记录缓存目录符号链接回退。核心全量 210 项通过、1 项忽略；桌面 recovery 3 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。
+- 日志：`target/history-records-tests.log`、`target/history-records-ui-tests.log`、`target/history-records-clippy.log`、`target/history-records-fmt.log`。本次没有原生界面验收或耗时基准；首次导入旧日志仍读正文，目录变化仍扫描目录，过期缓存清理及重命名映射待完成。未修改用户笔记，工作区其他编辑器/vendor 改动不进入本次提交。
