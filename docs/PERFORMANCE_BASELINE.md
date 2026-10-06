@@ -197,3 +197,11 @@ CPU 中位数从 22.956% 降到 13.294%，减少约 42.1%，支持保留共享�
 第三轮正式采样结束后另采五秒调用栈，仍见 Taffy flex/block 布局、内存复制与样式处理，后续继续排查持续重绘和大纲布局；不将采样堆栈的出现次数当成精确 CPU 占比。随后原生点击根标题折叠，再用全部展开按钮恢复，截图核对均正确，不影响正式采样。
 
 原始记录 target/native-outline-shared-tnuca3_c 的 run.json、results.json、各轮 preparation.json/idle.json/pid，第三轮 idle-stack.txt/sample.log；构建日志 target/backup-cleanup-audit/outline-native-build.log。三进程 Cmd+Q 后均确认退出；三份库全部 16 个 Markdown 与固定 corpus 逐字节相同。仅提交测量记录，diff 检查通过；未触及用户笔记，未据此完成输入/滚动性能验收。
+
+## 大纲虚拟化后的显示异常诊断（2026-10-06，非性能验收）
+
+release b13a0ec，隔离记录 target/native-outline-virtual-va6psjgk。首个实例 PID 97675 的 AX 已有正文，但截图仍停留在“正在打开笔记库”占位；原 idle.json 已重命名为 1/idle-before-visible-unverified.json，约 0.10% CPU 明确排除，不作为优化结果。
+
+第二个实例 PID 97835 重现相同现象。通过原生窗口 zoom，再 zoom 恢复，截图确认 2400×1640 像素（1200×820 逻辑尺寸）的正文、展开大纲正常显示。点击 AX 编辑区后仍只报告窗口焦点，尚未证明编辑器获得实际键盘焦点。此后静置 30.015 秒、采样 30.015 秒，CPU 0.1333%、采样最大 RSS 319.422 MiB。仅为单轮诊断，不与之前 13.294% 作改善比例比较，不据此证明前台空闲预算或生命周期峰值预算通过。
+
+正常 Cmd+Q 后 PID 已消失；前两轮生成库的全部 16 个 Markdown 分别通过长度和 SHA-256 校验。原始 preparation.json、2/idle.json 和 visibility-audit.json 保留干预及证据边界。第三个准备实例未启动。显示异常尚未区分应用呈现与工具捕获；下一步需要验证启动后的真实可见性与编辑焦点，再做三轮受控对照。未触及用户笔记。
