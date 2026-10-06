@@ -422,6 +422,7 @@ impl Workspace {
                                             })),
                                     )),
                             )
+                            .child(self.history_catalog_panel(cx))
                             .child(self.sync_recovery_panel(cx))
                             .child(
                                 div()
