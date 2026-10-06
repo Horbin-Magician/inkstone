@@ -1258,3 +1258,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 共享快照后仍有 13.29% 原生空闲 CPU，调用栈出现大量布局计算；大纲原先为全部标题创建普通行。现用有界 uniform_list 仅布局可见标题，保留完整标题数据、层级缩进、折叠、筛选与原始源码 offset；筛选工具栏位于列表外，其他侧栏分类维持原布局。
 - 新 GUI 回归用 501 个标题、1200×820 窗口确认首屏不布局第 100/500 行，滚到末尾后最后一行可见且前部行退出布局；实际点击最后一行和筛选后的唯一行，均断言编辑器选区准确落在该标题的原始源码 offset。长列表过滤为一行、折叠根标题后滚动范围有效，正文保持不变。
 - 三项 outline 回归、workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/outline-virtual-final-tests.log、outline-virtual-clippy.log。原生滚动/折叠及三轮 CPU 对照待复验，不能据此声称 2% 预算已通过；无用户笔记进入提交。
+
+## 恢复文本、任务准入与历史缓存的两平台远端结果（2026-10-06）
+
+- [GitHub Actions run 37431589783](https://github.com/Horbin-Magician/inkstone/actions/runs/37431589783)，精确 HEAD dbe55e12b4c8ce67d23731ffcc9567e90e40f645，四项工作区/vendor jobs 全部 completed/success；已下载并核对日志 target/ci-all-37431589783.log。
+- macOS 核心 275 通过/3 既有忽略，桌面 347 通过/2 既有忽略；Windows 核心 265 通过/3 既有忽略，桌面 344 通过/2 既有忽略。两平台另各 8 项集成测试、格式和 Clippy 通过；vendor 各 1,808 项通过且无忽略。核心日志内另有子进程单测输出，不重复计入总数。
+- 覆盖恢复 AX 文本、FileWrites 独占准入和可重建历史缓存写入优化；不覆盖其后的大纲共享快照及虚拟化，也不替代原生 IME、DPI、真实同步服务商及性能验收。文档经 diff 检查，无用户笔记进入提交。
