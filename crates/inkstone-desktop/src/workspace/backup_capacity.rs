@@ -1,4 +1,5 @@
 //! Background metadata-only capacity for the configured backup destination.
+use super::settings_ui::SettingsFocusTarget;
 use super::*;
 use gpui_component::{Disableable, button::*};
 use inkstone_core::vault::backup::{
@@ -199,35 +200,35 @@ impl Workspace {
         let available = !self.ui.backup.busy && self.ui.backup.pending.is_none();
         div().flex().flex_col().gap_2()
             .child("整库备份容量")
-            .child(Button::new("backup-capacity-refresh").label("刷新备份容量")
+            .child(SettingsFocusTarget::new((ElementId::from("backup-capacity-refresh"), "focus"), &self.ui.settings_scroll, Button::new("backup-capacity-refresh").label("刷新备份容量")
                 .disabled(self.ui.prefs.backup.directory.is_none() || current && state.loading)
-                .on_click(cx.listener(|this, _, _, cx| this.refresh_backup_capacity(cx))))
+                .on_click(cx.listener(|this, _, _, cx| this.refresh_backup_capacity(cx)))))
             .child("统计此备份位置中的所有来源。仅统计可读取备份的正文和清单，不含异常项、额外文件及磁盘分配开销。容量列表不代表内容已校验；恢复前仍会完整校验。备份不会自动清理。")
             .child("清理预览：按来源保留最新份数，同一截止时间的记录全部保留。来源不明或读取异常时保护记录；候选尚未执行内容校验。预览本身不会删除备份；清理需要另行确认。")
             .child(div().flex().flex_wrap().gap_2().children([1usize, 3, 5, 10].into_iter().map(|keep| {
-                Button::new(("backup-retention-keep", keep)).label(format!("每个来源保留 {keep} 份"))
+                SettingsFocusTarget::new((ElementId::from(("backup-retention-keep", keep)), "focus"), &self.ui.settings_scroll, Button::new(("backup-retention-keep", keep)).label(format!("每个来源保留 {keep} 份"))
                     .when(state.keep == keep || state.keep == 0 && keep == 3, |b| b.primary())
                     .disabled(!available || self.ui.prefs.backup.directory.is_none())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.ui.backup.capacity.keep = keep;
                         this.refresh_backup_capacity(cx);
-                    }))
+                    })))
             })))
             .when(!available, |s| s.child("备份或恢复任务进行中，清理预览暂停。"))
             .when_some(state.preview.as_ref().filter(|_| current && available), |s, preview| s.child(format!("{} 份候选 · 正文与清单估算 {:.2} MiB（不等于实际释放空间）", preview.candidates, preview.candidate_bytes as f64 / 1048576.)))
             .when(current && state.local_storage == Some(false), |s| s.child("此位置是网络存储或无法确认的文件系统，已禁止清理；仍可查看、校验和恢复备份。"))
             .child("清理还要求此位置不被其他机器、用户或云盘同步工具同时修改；本地磁盘检测不代表这些条件已满足。")
-            .child(Button::new("backup-cleanup-review").label("清理预览中的候选备份……")
+            .child(SettingsFocusTarget::new((ElementId::from("backup-cleanup-review"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-review").label("清理预览中的候选备份……")
                 .disabled(!self.can_clean_backups())
-                .on_click(cx.listener(|this, _, _, cx| this.request_backup_cleanup(cx))))
+                .on_click(cx.listener(|this, _, _, cx| this.request_backup_cleanup(cx)))))
             .when_some(state.cleanup_confirmation.as_ref().filter(|_| current && available), |s, preview| s
                 .child(format!("将永久删除上述 {} 份候选备份，保留各来源最近 {} 份及受保护记录。无法撤销。位置：{}", preview.candidates, preview.keep_per_source, state.directory.as_ref().unwrap().display()))
                 .child("仅在已停止其他机器、用户及云盘工具对此目录的写入后确认。执行前将重新校验全部备份；预览过期或校验失败会拒绝清理。")
-                .child(Button::new("backup-cleanup-confirm").label("已停止外部写入，确认永久清理")
+                .child(SettingsFocusTarget::new((ElementId::from("backup-cleanup-confirm"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-confirm").label("已停止外部写入，确认永久清理")
                     .disabled(!self.can_clean_backups())
-                    .on_click(cx.listener(|this, _, _, cx| this.execute_backup_cleanup(cx))))
-                .child(Button::new("backup-cleanup-cancel").label("取消清理")
-                    .on_click(cx.listener(|this, _, _, cx| { this.ui.backup.capacity.cleanup_confirmation = None; cx.notify(); }))))
+                    .on_click(cx.listener(|this, _, _, cx| this.execute_backup_cleanup(cx)))))
+                .child(SettingsFocusTarget::new((ElementId::from("backup-cleanup-cancel"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-cancel").label("取消清理")
+                    .on_click(cx.listener(|this, _, _, cx| { this.ui.backup.capacity.cleanup_confirmation = None; cx.notify(); })))))
             .when(current && state.loading, |s| s.child("正在读取备份容量……"))
             .when(current && !state.message.is_empty(), |s| s.child(state.message.clone()))
             .when_some(state.inventory.as_ref().filter(|_| current), |panel, inventory| {
@@ -475,6 +476,112 @@ mod tests {
                 assert!(w.ui.backup.capacity.preview.is_none());
             })
             .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[gpui::test]
+    fn backup_settings_tab_navigation_reveals_controls_without_starting_operations(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-backup-focus-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::create_dir_all(root.join("backups")).unwrap();
+        std::fs::write(root.join("vault/note.md"), "keep").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                w.vault = Some(Vault::open(root.join("vault"), root.join("recovery")).unwrap());
+                w.ui.settings = true;
+                w.ui.settings_tab = 7;
+                w.ui.prefs.backup.directory = Some(root.join("backups"));
+                // A UI-only preview enables the review/confirmation controls. No
+                // backup data or deletion candidates are created by this fixture.
+                let preview = Preview {
+                    records: vec![],
+                    candidates: 1,
+                    candidate_bytes: 0,
+                    keep_per_source: 3,
+                };
+                w.ui.backup.capacity = State {
+                    directory: Some(root.join("backups")),
+                    local_storage: Some(true),
+                    preview: Some(preview.clone()),
+                    cleanup_confirmation: Some(preview),
+                    ..Default::default()
+                };
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(800.), px(500.)));
+        for rem in [16., 24.] {
+            visual.update(|window, _| window.set_rem_size(px(rem)));
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    w.ui.settings_scroll.set_offset(Point::default());
+                    window.focus(&w.ui.modal_focus, cx);
+                })
+                .unwrap();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            for key in ["tab", "shift-tab"] {
+                let mut controls = Vec::new();
+                for _ in 0..45 {
+                    let keystroke = Keystroke::parse(key).unwrap();
+                    visual.simulate_event(KeyDownEvent {
+                        keystroke: keystroke.clone(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    });
+                    visual.simulate_event(KeyUpEvent { keystroke });
+                    for _ in 0..2 {
+                        visual.update(|window, cx| window.draw(cx).clear(cx));
+                    }
+                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                        handle
+                            .update(&mut visual, |w, window, cx| {
+                                let viewport = w.ui.settings_scroll.bounds();
+                                assert!(
+                                    target.top() >= viewport.top()
+                                        && target.bottom() <= viewport.bottom(),
+                                    "rem={rem} {key}: {target:?} outside {viewport:?}"
+                                );
+                                let focus = window.focused(cx).unwrap();
+                                if !controls.contains(&focus) {
+                                    controls.push(focus);
+                                }
+                            })
+                            .unwrap();
+                    }
+                }
+                assert!(
+                    controls.len() >= 22,
+                    "rem={rem} {key}: only {} controls reached",
+                    controls.len()
+                );
+            }
+        }
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert!(!w.ui.backup.busy);
+                assert!(!w.ui.backup.picker_open);
+                assert!(w.ui.backup.pending.is_none());
+                assert!(!w.ui.backup.capacity.loading);
+                assert!(w.ui.backup.capacity.cleanup_confirmation.is_some());
+                assert_eq!(w.ui.pending_file_writes, 0);
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("vault/note.md")).unwrap(),
+            "keep"
+        );
+        assert_eq!(std::fs::read_dir(root.join("backups")).unwrap().count(), 0);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
