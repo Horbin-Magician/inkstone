@@ -1138,3 +1138,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 本次已观测两种失败位置：较早的 cleanup_execution_rejects_replaced_directories_and_keeps_protected_backups 与本轮 fixed-core-19.log 的 cleanup_preflight_protects_retained_content_stale_plans_and_readers，均为操作后读取保留备份的旧布尔断言。现有日志不足以确认是锁竞争还是内容错误；子进程继承描述符只是待验证假设，不作为缺陷根因。
 - 补齐诊断后的 30 轮核心全量均通过，每轮 268 通过 / 3 既有入口忽略，记录 target/backup-cleanup-audit/diagnostic-core-01.log 至 diagnostic-core-30.log。工作区 all-targets Clippy -D warnings、格式、diff 检查通过。重复通过不视为原始问题已修复，保留后续复现待办；本提交仅提供更准确失败证据。
 - 未执行新的原生验收或远端 Windows CI，未纳入用户笔记。
+
+
+## 备份锁在子进程 exec 前释放（2026-10-06）
+
+- 新增 macOS 确定性回归：持有备份排他锁时，由另一线程启动子进程，在 pre_exec 中用 Unix socket 握手暂停；主线程结束备份锁所有权，要求子进程 exec 前能够再次获取排他锁。子进程暂停区仅调用 read/write 系统调用，使用 5 秒超时，并在最终断言前解除暂停和回收进程。
+- 原实现仅靠 File 析构关闭句柄，回归稳定得到 WouldBlock（target/backup-cleanup-audit/fork-before.log）：子进程继承的描述符使锁延续至 exec。改为私有、不可克隆的 Lock 守卫，在 Drop 中显式 unlock，再关闭文件；清理预检持有同一守卫，成功、失败和提前退出都沿用作用域释放，不添加等待或重试。
+- 修复后备份定向 18 项通过，含跨进程互斥、共享读者、失败清理保护、隔离回滚与进程中断恢复；核心全量 269 通过 / 3 既有入口忽略（3.46 秒）。工作区 all-targets Clippy -D warnings、格式及 diff 检查通过。日志 fork-after-backup.log、fork-after-core.log、fork-after-clippy.log 位于 target/backup-cleanup-audit。
+- 该实验确认并修复一个实际释放缺陷，但此前布尔断言日志没有具体错误，不能证明每次历史偶发失败都源于此；保留增强后的错误输出继续观察。新回归仅限 macOS，Windows 生产路径使用相同标准库守卫，远端验证尚待执行；无 Linux 适配，无用户笔记。
