@@ -22,6 +22,7 @@ use file_sync::make_tree;
 use file_sync::refresh_created_index;
 mod appearance;
 mod attachments;
+mod backup_capacity;
 mod backups;
 mod bookmarks;
 mod bulk_edit;

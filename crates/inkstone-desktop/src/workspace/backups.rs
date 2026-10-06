@@ -7,6 +7,7 @@ use inkstone_core::vault::backup;
 
 #[derive(Default)]
 pub(super) struct State {
+    pub capacity: super::backup_capacity::State,
     pub pending: Option<PathBuf>,
     pub busy: bool,
     picker_open: bool,
@@ -91,6 +92,7 @@ impl Workspace {
                         Ok(path) if !path.starts_with(&vault.root) => {
                             this.ui.prefs.backup.directory = Some(path);
                             this.ui.prefs.backup.last_success = 0;
+                            this.refresh_backup_capacity(cx);
                             this.persist_workspace(cx);
                             if start {
                                 this.request_backup(window, cx);
@@ -182,6 +184,7 @@ impl Workspace {
                     Ok(manifest) => {
                         this.ui.prefs.backup.last_success = now();
                         this.ui.backup.output = Some(destination.clone());
+                        this.refresh_backup_capacity(cx);
                         this.backup_message(
                             format!(
                                 "备份完成并通过校验：{} 个文件 · {}",
@@ -349,6 +352,7 @@ impl Workspace {
                 .when_some(self.ui.backup.output.clone(), |s, path| s.child(Button::new("backup-reveal").label("在文件管理器中显示结果")
                     .on_click(move |_, _, cx| cx.reveal_path(&path))))
                 .child("备份使用普通目录与校验清单。保留数量由你管理；符号链接或复制期间检测到文件变化时会拒绝完成备份。")
+                .child(self.backup_capacity_panel(cx))
                 .child("笔记版本历史保留策略（与整库备份独立）")
                 .child("仅清理成功保存的旧历史，始终保留每篇最新记录；未完成草稿与受保护的冲突记录不清理。设置保存后，在后续笔记保存维护时生效。")
                 .child(div().flex().flex_wrap().gap_2().children([(30, "30 天"), (90, "90 天"), (365, "一年"), (0, "不限时间")].into_iter().map(|(days, label)| {
