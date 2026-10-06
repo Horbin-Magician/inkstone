@@ -522,3 +522,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新回归注入目标部分写入失败，并在 Applying 阶段把已校验的暂存正文替换为同长度错误内容：均验证原件保留、临时文件清空；后者还验证基线不前进、再次同步重新下载并收敛。原备份/删除/权限测试继续通过。核心全量 229 项通过、2 项忽略；桌面同步相关 27 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 同机、同 release 576 MiB 样本通过，构建及其他测试结束后执行 `/usr/bin/time -l`：峰值 RSS 8,880,128 字节（约 8.47 MiB），相对上一步 615,481,344 字节降低约 98.6%；测试内部耗时 4.44 秒、进程 4.92 秒。保留生成、同步及全库哈希验证，不宣称耗时改善。该结果证明此下载测试不再随整批正文驻留内存，尚不代表真实 WebDAV 或上传峰值。
 - 日志：`target/sync-apply-tests.log`、`target/sync-apply-desktop-tests.log`、`target/sync-apply-clippy.log`、`target/sync-apply-fmt.log`、`target/sync-apply-large-tests.log`。上传仍最多四个逐文件 Vec；真实远端验证、部分对象续传、遗留暂存容量治理及清理待后续。未修改用户笔记。
+
+## 同步下载：真实进程终止与重启复用（2026-10-06）
+
+- 新增子进程回归：并发下载两个对象，等待一个已校验发布、另一个只写入部分内容的明确标记，再由父进程直接 kill 并等待退出。确认没有本地文件或成功基线产生；已完成缓存正文完整、未完成对象只存在 `.partial` 文件。
+- 重新打开笔记库后继续同步：远端拒绝重新下载已完成对象，仅允许重新下载被中断对象；验证实际下载调用为一次、两个目标正文完整且成功基线生成，同时证明进程退出后同步锁可重新获取。没有把普通返回错误或丢弃对象当作强退验收。
+- 核心全量 230 项通过、2 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/sync-process-kill-tests.log`、`target/sync-process-kill-clippy.log`、`target/sync-process-kill-fmt.log`。本次仅新增回归，无桌面实现变更。测试使用生成远端而非 WebDAV，不覆盖物理断电、原生 UI 退出或真实网络恢复；强退遗留 `.partial` 不会用于应用，但容量清理仍待实现。未修改用户笔记。
