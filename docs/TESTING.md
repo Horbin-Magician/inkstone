@@ -1066,3 +1066,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 重新读取提交 check runs 和 master 分支保护，四项 required checks 的名称及 GitHub Actions app id 15368 均对应 completed/success；strict 和管理员保护配置仍保留。此证据确认成功检查与门槛匹配，不通过实际合并或改写 master 测试保护。
 - 证据：`target/ci-run-37421293815.json`、`target/ci-macos-workspace-37421293815.log`、`target/ci-windows-workspace-37421293815.log`、`target/ci-macos-vendor-37421293815.log`、`target/ci-windows-vendor-37421293815.log`、`target/ci-sync-regression-comparison.json`、`target/ci-db042e8-checks.json`、`target/ci-master-protection-final.json`。观察进程已以退出码 0 结束，没有取消或重启这次运行。
 - 此后本地仅新增文档及 CI 的 45 分钟执行上限；远端成功结果严格归属于 db042e8，不宣称该后续配置已经运行。未新增原生 IME、性能或交互验收，整体 1–8 项待办仍在继续；真实用户笔记未修改。本提交为验收记录，diff 检查通过。
+
+
+## 平台剩余事项范围校正（2026-10-06）
+
+- 按用户“不需要 Linux 适配”的要求，清除 STATUS 已知限制中残留的 Linux 桌面/同步验收待办，使其与 macOS/Windows CI 和当前实施范围一致。历史证据不改写。
+- 检查 STATUS 的 Linux 引用仅说明排除范围，diff 检查通过；仅修改文档，未修改产品代码或用户笔记。
