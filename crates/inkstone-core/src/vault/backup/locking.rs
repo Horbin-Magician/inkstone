@@ -1,7 +1,19 @@
 //! Local-user coordination, stored outside backup media so read-only backups work.
 use super::*;
 
-pub(super) fn acquire(directory: &Path, exclusive: bool) -> io::Result<fs::File> {
+/// Owns the operation's lock; the underlying handle must not escape or be cloned.
+#[derive(Debug)]
+pub(super) struct Lock(fs::File);
+
+impl Drop for Lock {
+    fn drop(&mut self) {
+        // Closing alone can leave the lock held by an unrelated forked child
+        // until it execs. End ownership explicitly; close remains the fallback.
+        let _ = self.0.unlock();
+    }
+}
+
+pub(super) fn acquire(directory: &Path, exclusive: bool) -> io::Result<Lock> {
     let directory = fs::canonicalize(directory)?;
     let mut digest = Sha256::new();
     digest.update(directory.as_os_str().as_encoded_bytes());
@@ -57,5 +69,61 @@ pub(super) fn acquire(directory: &Path, exclusive: bool) -> io::Result<fs::File>
         ),
         fs::TryLockError::Error(error) => error,
     })?;
-    Ok(file)
+    Ok(Lock(file))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        os::{
+            fd::AsRawFd,
+            unix::{net::UnixStream, process::CommandExt},
+        },
+        process::Command,
+        time::Duration,
+    };
+
+    #[test]
+    fn operation_release_does_not_wait_for_an_unrelated_child_to_exec() {
+        let directory = std::env::temp_dir().join(format!("inkstone-lock-exec-{}", unique_id()));
+        fs::create_dir(&directory).unwrap();
+        let owner = acquire(&directory, true).unwrap();
+        let (mut parent, child) = UnixStream::pair().unwrap();
+        parent
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        child
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let process = std::thread::spawn(move || {
+            let mut command = Command::new("/usr/bin/true");
+            // Force the fork/exec interval to remain open while the operation ends.
+            // Only async-signal-safe syscalls run in the child before exec.
+            unsafe {
+                command.pre_exec(move || {
+                    let mut byte = 1_u8;
+                    if libc::write(child.as_raw_fd(), (&byte as *const u8).cast(), 1) != 1
+                        || libc::read(child.as_raw_fd(), (&mut byte as *mut u8).cast(), 1) != 1
+                    {
+                        return Err(io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            command.status()
+        });
+        let ready = parent.read_exact(&mut [0]);
+        drop(owner);
+        let next = acquire(&directory, true);
+        // Unblock and reap even if the assertion will fail.
+        let released = parent.write_all(&[1]);
+        let status = process.join().unwrap();
+        fs::remove_dir(&directory).unwrap();
+        ready.unwrap();
+        released.unwrap();
+        assert!(status.unwrap().success());
+        next.expect("a completed operation must release its lock before an unrelated child execs");
+    }
 }

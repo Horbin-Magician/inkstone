@@ -8,7 +8,7 @@ use super::{
 /// persistent authorization: external file edits still require rechecking at use.
 pub struct Checked {
     preview: Preview,
-    _lock: fs::File,
+    _lock: locking::Lock,
     directory: PathBuf,
     in_use: BTreeSet<PathBuf>,
     snapshots: Vec<(Manifest, Option<String>)>,
