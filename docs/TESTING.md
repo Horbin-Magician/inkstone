@@ -606,3 +606,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新真实子进程回归在隔离后直接 exit(74)，父进程确认记录可枚举、新清理候选为零、预检拒绝；完整隔离备份仍能校验并恢复到新库，移除清单后残留继续显示且正文保留，最新备份仍有效。GPUI 回归新增遗留记录回填及全部保护状态检查。
 - 核心全量 244 项通过、3 项忽略；桌面备份相关 4 项、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/backup-cleanup-interrupted-tests.log`、`target/backup-cleanup-interrupted-ui-tests.log`、`target/backup-cleanup-interrupted-clippy.log`、`target/backup-cleanup-interrupted-fmt.log`。
 - 本次覆盖隔离后、移除前进程退出，未模拟正在递归移除时的断电；部分残留不承诺可完整恢复。原路径映射、专门处理流程、原生界面确认与共享目录保护仍待继续。测试仅使用临时夹具，未修改用户笔记。
+
+## 清理中断：保留为受保护备份（2026-10-06）
+
+- 新增独占锁内的完整校验和保留操作，以新名称不覆盖地返回备份列表，并持久化保护标记；复核目录身份/正文后才改名。预览明确显示 Protected 原因，不把受保护记录作为清理候选。残缺记录保留原位；无效标记作为清单异常处理。
+- 设置页增加“校验并保留为备份”按钮，后台执行、计入待完成写入并防止重复触发，完成后按代次检查、刷新列表和提示结果。该操作只保留数据，不开启删除执行。
+- 核心回归覆盖锁冲突、不覆盖保留、原有最新备份不变、旧记录超出保留数仍保护、非隔离路径拒绝及残缺记录保留；核心全量 245 项通过、3 项忽略。GPUI 回归验证重复点击只产生一个写入任务、完整中断记录移回列表并显示保护原因；桌面备份相关 4 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/backup-retain-interrupted-tests.log`、`target/backup-retain-interrupted-ui-tests.log`、`target/backup-retain-interrupted-clippy.log`、`target/backup-retain-interrupted-fmt.log`。没有取消保护或自动丢弃残缺记录的功能，未做原生窗口/Windows/共享目录验收；未修改用户笔记。

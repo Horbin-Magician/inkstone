@@ -67,6 +67,60 @@ impl Workspace {
         })
         .detach();
     }
+    fn retain_interrupted_backup(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.ui.backup.busy
+            || self.ui.backup.pending.is_some()
+            || self.ui.backup.capacity.loading
+            || self.ui.backup.capacity.directory != self.ui.prefs.backup.directory
+        {
+            return;
+        }
+        let Some(directory) = self.ui.prefs.backup.directory.clone() else {
+            return;
+        };
+        let Some(path) = self
+            .ui
+            .backup
+            .capacity
+            .inventory
+            .as_ref()
+            .and_then(|i| i.interrupted.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        self.ui.backup.busy = true;
+        self.ui.pending_file_writes += 1;
+        self.ui.backup.capacity.message = "正在完整校验并保留中断备份……".into();
+        let generation = self.generation;
+        let task = cx.background_executor().spawn(async move {
+            inkstone_core::vault::backup::cleanup::retain_interrupted(&directory, &path)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                if this.generation != generation {
+                    return;
+                }
+                this.ui.backup.busy = false;
+                this.refresh_backup_capacity(cx);
+                let message = match result {
+                    Ok(path) => {
+                        format!("已保留为受保护备份：{}。不会作为清理候选。", path.display())
+                    }
+                    Err(error) => {
+                        format!("无法保留中断备份：{error}。残留内容未删除，请检查目录。")
+                    }
+                };
+                this.ui.backup.capacity.message = message.clone();
+                this.notifications.publish(message);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
     pub(super) fn backup_capacity_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let state = &self.ui.backup.capacity;
         let current = state.directory == self.ui.prefs.backup.directory;
@@ -94,15 +148,16 @@ impl Workspace {
             .when_some(state.inventory.as_ref().filter(|_| current), |panel, inventory| {
                 panel.when(!inventory.interrupted.is_empty(), |panel| panel
                     .child(format!("发现 {} 项清理中断记录；内容可能不完整，已暂停生成清理候选。请先检查，完整备份仍可恢复为新笔记库。", inventory.interrupted.len()))
-                    .child(uniform_list("backup-cleanup-interrupted", inventory.interrupted.len(), cx.processor(|this, range: std::ops::Range<usize>, _, _| {
+                    .child(uniform_list("backup-cleanup-interrupted", inventory.interrupted.len(), cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
                         let Some(inventory) = &this.ui.backup.capacity.inventory else { return Vec::new(); };
                         range.filter_map(|i| inventory.interrupted.get(i).map(|path| {
                             let path = path.clone();
-                            div().h(px(56.)).overflow_hidden()
+                            div().h(px(84.)).flex().flex_col().gap_1().overflow_hidden()
+                                .child(Button::new(("backup-cleanup-interrupted-retain", i)).label("校验并保留为备份").disabled(this.ui.backup.busy || this.ui.backup.pending.is_some() || this.ui.backup.capacity.loading).on_click(cx.listener(move |this, _, _, cx| this.retain_interrupted_backup(i, cx))))
                                 .child(Button::new(("backup-cleanup-interrupted-reveal", i)).label("检查清理中断记录").tooltip(path.to_string_lossy().to_string()).on_click(move |_, _, cx| cx.reveal_path(&path)))
                                 .into_any_element()
                         })).collect()
-                    })).h(px(112.))))
+                    })).h(px(168.))))
                     .child(format!("{} 份备份 · 正文 {:.2} MiB · 清单 {:.2} KiB · {} 项异常未计入", inventory.entries.len(), inventory.payload_bytes as f64 / 1048576., inventory.manifest_bytes as f64 / 1024., inventory.unreadable))
                     .when(!inventory.entries.is_empty(), |panel| panel.child(uniform_list(
                         "backup-capacity-list", inventory.entries.len(), cx.processor(|this, range: std::ops::Range<usize>, _, _| {
@@ -128,6 +183,7 @@ fn decision_label(decision: Decision) -> &'static str {
         Decision::Candidate => "清理候选：超过保留份数，尚待完整校验",
         Decision::Recent => "保留：近期备份或截止时间并列",
         Decision::InUse => "保护：备份正在使用",
+        Decision::Protected => "保护：从清理中断中保留的备份",
         Decision::UnknownSource => "保护：无法确认来源",
         Decision::IncompleteInventory => "保护：清单异常或存在未处理的清理中断记录",
     }
@@ -201,7 +257,11 @@ mod tests {
             .update(cx, |w, _, cx| {
                 let preview = w.ui.backup.capacity.preview.as_ref().unwrap();
                 assert_eq!((preview.keep_per_source, preview.candidates), (5, 0));
-                std::fs::create_dir(root.join("backups/.inkstone-backup-cleanup-test")).unwrap();
+                inkstone_core::vault::backup::create(
+                    &vault,
+                    &root.join("backups/.inkstone-backup-cleanup-test"),
+                )
+                .unwrap();
                 w.refresh_backup_capacity(cx);
             })
             .unwrap();
@@ -225,6 +285,29 @@ mod tests {
                         .records
                         .iter()
                         .all(|r| r.decision == Decision::IncompleteInventory)
+                );
+                w.retain_interrupted_backup(0, cx);
+                w.retain_interrupted_backup(0, cx);
+                assert_eq!(w.ui.pending_file_writes, 1);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert!(!w.ui.backup.busy);
+                assert_eq!(w.ui.pending_file_writes, 0);
+                let inventory = w.ui.backup.capacity.inventory.as_ref().unwrap();
+                assert!(inventory.interrupted.is_empty());
+                assert_eq!(inventory.entries.iter().filter(|e| e.protected).count(), 1);
+                assert!(
+                    w.ui.backup
+                        .capacity
+                        .preview
+                        .as_ref()
+                        .unwrap()
+                        .records
+                        .iter()
+                        .any(|r| r.decision == Decision::Protected)
                 );
                 // The earlier request completes after a new directory is selected.
                 w.refresh_backup_capacity(cx);

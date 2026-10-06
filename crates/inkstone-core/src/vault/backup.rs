@@ -729,6 +729,50 @@ mod tests {
     }
 
     #[test]
+    fn interrupted_backup_retention_is_no_clobber_and_protected_from_cleanup() {
+        let f = Fixture::new();
+        let parent = f.0.join("backups");
+        fs::create_dir(&parent).unwrap();
+        let isolated = parent.join(".inkstone-backup-cleanup-old");
+        let newest = parent.join("newest");
+        for (path, created) in [(&isolated, 1), (&newest, 2)] {
+            let mut manifest = create(&f.1, path).unwrap();
+            manifest.created = created;
+            manifest.source_id = Some("a".repeat(64));
+            fs::write(
+                path.join("manifest.json"),
+                serde_json::to_vec(&manifest).unwrap(),
+            )
+            .unwrap();
+        }
+        let reader = locking::acquire(&parent, false).unwrap();
+        assert!(cleanup::retain_interrupted(&parent, &isolated).is_err());
+        drop(reader);
+        let retained = cleanup::retain_interrupted(&parent, &isolated).unwrap();
+        assert!(!isolated.exists());
+        assert_eq!(retained.parent(), Some(parent.as_path()));
+        assert!(capacity::summarize(&retained).unwrap().protected);
+        assert!(inspect(&retained).is_ok());
+        assert!(inspect(&newest).is_ok());
+        let inventory = capacity::list(&parent).unwrap();
+        assert!(inventory.interrupted.is_empty());
+        let preview = retention::preview(&inventory, 1, &BTreeSet::new()).unwrap();
+        assert_eq!(preview.candidates, 0);
+        assert!(
+            preview
+                .records
+                .iter()
+                .any(|r| r.decision == retention::Decision::Protected)
+        );
+        assert!(cleanup::retain_interrupted(&parent, &newest).is_err());
+        create(&f.1, &isolated).unwrap();
+        fs::remove_file(isolated.join("files/image.bin")).unwrap();
+        assert!(cleanup::retain_interrupted(&parent, &isolated).is_err());
+        assert!(isolated.join("manifest.json").exists());
+        assert!(!cleanup::is_protected(&isolated).unwrap());
+    }
+
+    #[test]
     fn backup_roundtrip_preserves_notes_binary_assets_config_and_empty_directories() {
         let f = Fixture::new();
         let backup = f.0.join("backup");
