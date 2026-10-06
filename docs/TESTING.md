@@ -694,3 +694,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 GPUI 原生按键事件回归，分别聚焦设置搜索、快捷键搜索、同步地址、用户名和密码，逐项派发 Tab / Shift+Tab，验证焦点离开输入框且仍在设置弹窗内，中文混合文本不被修改；关闭设置后正文 Tab 仍缩进，并可一次撤销。仅设置临时表单值，不保存连接配置或发起网络请求。
 - 1 项回归（五类字段、两个方向及正文缩进/撤销）通过；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/settings-input-tab-tests.log`、`target/settings-input-tab-clippy.log`、`target/settings-input-tab-fmt.log`。现有单行输入会传播未消费 Tab，因此本次只补回归，没有更改产品行为或扩大字段可见性。
 - 测试库与恢复目录独立放在临时目录，结束后删除。未修改真实用户笔记。GPUI 事件测试不代表 macOS 原生窗口、读屏或全部弹窗的键盘验收；全键盘流程仍须继续验证。
+
+
+## 云同步设置：焦点控件滚入可见范围（2026-10-06）
+
+- 云同步地址、用户名、密码、自动同步开关、操作按钮、取消按钮及检查间隔接入独立的焦点可见性容器。进入控件或切换到其中另一个焦点时，按控件实际边界调整设置页垂直偏移；焦点不变时保留用户手动滚动。包装容器不参与 Tab 停靠，不修改表单值或触发操作。
+- 新增 GPUI 回归：800×500 逻辑窗口、rem 24，先确认密码框处于视口外，再从地址框正向导航经过密码、开关、三个操作按钮至检查间隔，反向返回地址框，逐次核对目标边界完整可见，并核对三个输入框实际焦点；手动滚到底部后连续重绘不拉回。使用独立临时库，不保存配置或发起网络请求。默认 rem 下密码框原本可见，因此测试采用实际越界夹具，不以“必须发生滚动”代替可见性判断。
+- 原生窗口与读屏验收尚未进行；rem 压力场景不等同于系统字体/DPI 验收。其他设置页的焦点自动滚动尚未接入；取消按钮已复用同一处理，本轮导航回归不包含同步运行中临时出现的取消按钮。未修改真实用户笔记。
+- 桌面全量单元测试 320 项通过、2 项忽略，集成测试 8 项通过；包含六类设置页 36 个布局组合及既有输入框 Tab/正文缩进回归。全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/settings-focus-reveal-tests.log`、`target/settings-focus-reveal-desktop-tests.log`、`target/settings-focus-reveal-clippy.log`、`target/settings-focus-reveal-fmt.log`。
