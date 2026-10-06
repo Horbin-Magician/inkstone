@@ -1341,3 +1341,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 
 - e1f8710 locked release 构建通过；同协议三轮大文档实时预览 CPU 4.3982%/4.4317%/4.4981%，中位数 4.4317%，未达 2% 预算。原生输入与撤销、活动状态、进程退出和生成库散列核验通过；记录在 PERFORMANCE_BASELINE.md 与 target/native-text-revision-e4pxewzh。
 - run 37439067537 最近核对为 macOS 两项及 Windows vendor 成功，Windows 工作区仍运行，覆盖范围仍仅到 0a12ad6。此次测量不替代 Windows 修订号回归或五场景性能验收。文档 diff 检查通过，无真实笔记进入提交。
+
+## 大纲缓存与键盘跳转的两平台 CI（2026-10-06）
+
+- GitHub Actions run 37439067537，精确 HEAD 0a12ad66bf3933de4864a9c5e27c9d308c4410ff，四项工作区/vendor jobs 全部 completed/success，完整日志 target/ci-all-37439067537.log 已下载核对。
+- macOS 核心 275 通过/3 既有忽略、桌面 351 通过/2 既有忽略；Windows 核心 265 通过/3 既有忽略、桌面 348 通过/2 既有忽略。两平台各 8 项集成测试、格式及 Clippy 通过；vendor 两平台各 1,808 项通过，无忽略。子进程回归单独输出不重复计数。
+- 覆盖隐藏侧栏惰性准备、活动诊断、展示源码复用、大纲键盘跳转及大纲结果缓存；不覆盖随后 e9a7e7b/e1f8710 正文修订号改动。自动通过不替代原生性能/IME/真实服务商验收。文档 diff 检查通过。
