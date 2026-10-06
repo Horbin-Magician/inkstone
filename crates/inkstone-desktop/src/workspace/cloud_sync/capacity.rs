@@ -107,7 +107,7 @@ impl Workspace {
         let current = state.key == Some(self.cloud_capacity_key(cx));
         div().flex().flex_col().gap_2().min_w_0().whitespace_normal()
             .child("云端对象容量")
-            .child(super::super::settings_ui::SettingsFocusTarget::new("cloud-capacity-focus", &self.ui.settings_scroll,
+            .child(super::super::focus_reveal::FocusReveal::new("cloud-capacity-focus", &self.ui.settings_scroll,
                 div().debug_selector(|| "cloud-capacity-control".into()).child(Button::new("cloud-capacity-refresh").label("刷新云端容量")
                     .disabled(self.cloud_settings_disabled() || current && state.busy)
                     .on_click(cx.listener(|this, _, _, cx| this.refresh_cloud_capacity(cx))))))

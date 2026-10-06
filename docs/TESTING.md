@@ -854,3 +854,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 GPUI 按键回归：两类各十二条合成记录，800×500、rem 16/24，逐一用 Tab/Shift+Tab 遍历。每种组合验证全部二十四条记录及两个入口控件可达，焦点目标完整处于滚动视口，视口处于窗口内；记录数量/草稿正文不变，无待写文件、文件操作或比较弹窗被启动。夹具仅为内存元数据，不创建或删除文件。
 - 新按键回归与恢复相关 17 项回归通过，全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/recovery-controls-tests.log`、`target/recovery-controls-regressions.log`、`target/recovery-controls-clippy.log`、`target/recovery-controls-fmt.log`。
 - 本轮不等同于原生窗口或 VoiceOver 验收，也未改变草稿/回收站列表一次渲染全部记录的成本。实际恢复保护沿用已有独立回归，新增测试只验证导航；未修改真实用户笔记。
+
+
+## 共用焦点滚动组件：从设置视图提取（2026-10-06）
+
+- 将设置模块中的焦点滚动实现移动到 `workspace/focus_reveal.rs`，类型更名为 `FocusReveal`，设置、同步、备份、历史及恢复首页直接依赖此模块。组件只依赖 GPUI，接口限于稳定元素 ID、调用方滚动句柄和子控件；不访问 Workspace、UiState、后台任务或持久化。测试定位名称统一为 `focus-revealed-control`。
+- 对照提交前实现，归一化类型名及测试定位名称后，组件实现逐字一致；保留焦点变化才滚动、普通重绘/手动滚动不抢视口、不增加 Tab 停靠点的行为。本次不增加镜像实现的测试，使用既有跨设置页、备份分页、同步恢复、历史选择及草稿/回收站键盘回归检查提取边界。
+- 恢复相关 17 项回归通过；完整桌面单元测试 332 项通过、2 项既有性能基准忽略（85.28 秒），全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/focus-reveal-recovery-tests.log`、`target/focus-reveal-desktop-tests.log`、`target/focus-reveal-clippy.log`、`target/focus-reveal-fmt.log`。原生验收范围沿用此前记录，本次模块提取不声称新增原生平台覆盖；未修改真实用户笔记。

@@ -1,5 +1,5 @@
 //! Modal container, keyboard navigation, pickers and property controls.
-use super::settings_ui::SettingsFocusTarget;
+use super::focus_reveal::FocusReveal;
 use super::ui::{NameMode, icon, tool};
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
@@ -400,7 +400,7 @@ impl Workspace {
                                     .flex_wrap()
                                     .gap_2()
                                     .p_2()
-                                    .child(SettingsFocusTarget::new(
+                                    .child(FocusReveal::new(
                                         "recovery-refresh-focus",
                                         &self.ui.recovery_scroll,
                                         Button::new("recovery-refresh")
@@ -411,7 +411,7 @@ impl Workspace {
                                                 }),
                                             ),
                                     ))
-                                    .child(SettingsFocusTarget::new(
+                                    .child(FocusReveal::new(
                                         "recovery-history-focus",
                                         &self.ui.recovery_scroll,
                                         Button::new("recovery-history")
@@ -456,7 +456,7 @@ impl Workspace {
                                                 ),
                                             )),
                                     )
-                                    .child(SettingsFocusTarget::new(
+                                    .child(FocusReveal::new(
                                         (ElementId::from(("restore-trash", i)), "focus"),
                                         &self.ui.recovery_scroll,
                                         Button::new(("restore-trash", i))
@@ -495,7 +495,7 @@ impl Workspace {
                                         time.format("%Y-%m-%d %H:%M:%S"),
                                         e.bytes as f64 / 1024.
                                     )))
-                                    .child(SettingsFocusTarget::new(
+                                    .child(FocusReveal::new(
                                         (ElementId::from(("restore-draft", i)), "focus"),
                                         &self.ui.recovery_scroll,
                                         Button::new(("restore-draft", i))
@@ -779,7 +779,7 @@ mod tests {
                     for _ in 0..2 {
                         visual.update(|w, cx| w.draw(cx).clear(cx));
                     }
-                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                    if let Some(target) = visual.debug_bounds("focus-revealed-control") {
                         handle
                             .update(&mut visual, |w, window, cx| {
                                 let viewport = w.ui.recovery_scroll.bounds();

@@ -1,4 +1,4 @@
-use super::settings_ui::SettingsFocusTarget;
+use super::focus_reveal::FocusReveal;
 use super::*;
 use gpui_component::{
     Disableable,
@@ -340,12 +340,12 @@ impl Workspace {
             self.settings_content().gap_3()
                 .child("备份与恢复")
                 .child(format!("存放位置：{destination}"))
-                .child(SettingsFocusTarget::new((ElementId::from("backup-directory"), "focus"), &self.ui.settings_scroll, Button::new("backup-directory").label("选择备份位置").disabled(self.ui.backup.busy || self.vault.is_none())
+                .child(FocusReveal::new((ElementId::from("backup-directory"), "focus"), &self.ui.settings_scroll, Button::new("backup-directory").label("选择备份位置").disabled(self.ui.backup.busy || self.vault.is_none())
                     .on_click(cx.listener(|this, _, w, cx| this.choose_backup_directory(false, w, cx)))))
                 .child(format!("最近成功：{last}"))
                 .child("自动备份仅在本应用打开时运行；失败后至少间隔一小时再尝试。备份覆盖库内文件、附件、配置和空目录，不包含库外的应用恢复历史。")
                 .children([(0, "仅手动"), (24, "每天"), (168, "每周")].into_iter().map(|(hours, label)| {
-                    SettingsFocusTarget::new((ElementId::from(("backup-interval", hours as usize)), "focus"), &self.ui.settings_scroll, Button::new(("backup-interval", hours as usize)).label(label)
+                    FocusReveal::new((ElementId::from(("backup-interval", hours as usize)), "focus"), &self.ui.settings_scroll, Button::new(("backup-interval", hours as usize)).label(label)
                         .when(prefs.interval_hours == hours, |b| b.primary())
                         .disabled(self.ui.backup.busy || prefs.directory.is_none() && hours > 0)
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -354,25 +354,25 @@ impl Workspace {
                             cx.notify();
                         })))
                 }))
-                .child(SettingsFocusTarget::new((ElementId::from("backup-now"), "focus"), &self.ui.settings_scroll, Button::new("backup-now").primary().label("立即备份并校验")
+                .child(FocusReveal::new((ElementId::from("backup-now"), "focus"), &self.ui.settings_scroll, Button::new("backup-now").primary().label("立即备份并校验")
                     .disabled(self.ui.backup.busy || self.ui.backup.pending.is_some() || self.vault.is_none())
                     .on_click(cx.listener(|this, _, w, cx| this.request_backup(w, cx)))))
-                .child(SettingsFocusTarget::new((ElementId::from("backup-restore"), "focus"), &self.ui.settings_scroll, Button::new("backup-restore").label("从备份恢复为新笔记库").disabled(self.ui.backup.busy)
+                .child(FocusReveal::new((ElementId::from("backup-restore"), "focus"), &self.ui.settings_scroll, Button::new("backup-restore").label("从备份恢复为新笔记库").disabled(self.ui.backup.busy)
                     .on_click(cx.listener(|this, _, w, cx| this.choose_backup_restore(w, cx)))))
                 .when(!self.ui.backup.message.is_empty(), |s| s.child(self.ui.backup.message.clone()))
-                .when_some(self.ui.backup.output.clone(), |s, path| s.child(SettingsFocusTarget::new((ElementId::from("backup-reveal"), "focus"), &self.ui.settings_scroll, Button::new("backup-reveal").label("在文件管理器中显示结果")
+                .when_some(self.ui.backup.output.clone(), |s, path| s.child(FocusReveal::new((ElementId::from("backup-reveal"), "focus"), &self.ui.settings_scroll, Button::new("backup-reveal").label("在文件管理器中显示结果")
                     .on_click(move |_, _, cx| cx.reveal_path(&path)))))
                 .child("备份使用普通目录与校验清单。保留数量由你管理；符号链接或复制期间检测到文件变化时会拒绝完成备份。")
                 .child(self.backup_capacity_panel(cx))
                 .child("笔记版本历史保留策略（与整库备份独立）")
                 .child("仅清理成功保存的旧历史，始终保留每篇最新记录；未完成草稿与受保护的冲突记录不清理。设置保存后，在后续笔记保存维护时生效。")
                 .child(div().flex().flex_wrap().gap_2().children([(30, "30 天"), (90, "90 天"), (365, "一年"), (0, "不限时间")].into_iter().map(|(days, label)| {
-                    SettingsFocusTarget::new((ElementId::from(("history-retention-days", days as usize)), "focus"), &self.ui.settings_scroll, Button::new(("history-retention-days", days as usize)).label(label)
+                    FocusReveal::new((ElementId::from(("history-retention-days", days as usize)), "focus"), &self.ui.settings_scroll, Button::new(("history-retention-days", days as usize)).label(label)
                         .when(self.ui.prefs.history.days == days, |b| b.primary())
                         .on_click(cx.listener(move |this, _, _, cx| { this.ui.prefs.history.days = days; this.persist_workspace(cx); cx.notify(); })))
                 })))
                 .child(div().flex().flex_wrap().gap_2().children([(128, "128 MiB"), (512, "512 MiB"), (2048, "2 GiB"), (0, "不限容量")].into_iter().map(|(max_mib, label)| {
-                    SettingsFocusTarget::new((ElementId::from(("history-retention-size", max_mib as usize)), "focus"), &self.ui.settings_scroll, Button::new(("history-retention-size", max_mib as usize)).label(label)
+                    FocusReveal::new((ElementId::from(("history-retention-size", max_mib as usize)), "focus"), &self.ui.settings_scroll, Button::new(("history-retention-size", max_mib as usize)).label(label)
                         .when(self.ui.prefs.history.max_mib == max_mib, |b| b.primary())
                         .on_click(cx.listener(move |this, _, _, cx| { this.ui.prefs.history.max_mib = max_mib; this.persist_workspace(cx); cx.notify(); })))
                 })))
