@@ -1314,3 +1314,8 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 大纲虚拟化后，right_panel 仍在每次工作区重绘复制完整标题列表、构造回调快照并重新生成筛选行。新增仅保留当前结果的缓存，以路径、完整标题内容、筛选词及有效折叠集合验证；命中后共享标题快照和行列表，保留虚拟列表及原有折叠语义。隐藏分类不触发缓存重建。
 - 新回归验证重复调用复用同一快照、折叠/筛选/恢复、切换路径不继承其他笔记折叠、相同数量与长度的标题改名、源码位置变化、级别变化和清空。既有 501 标题滚动、筛选、Enter/Space 跳转及折叠回归继续通过。
 - outline 筛选共 4 项通过（含 1 项原生图形测试），全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/outline-cache-tests.log、outline-cache-clippy.log。命中仍需内容比较，不宣称减少重绘或已经达到 CPU 预算；release 原生对照待完成。未涉及用户笔记。
+
+## 最近改动的 CI 与原生复测启动（2026-10-06）
+
+- 0a12ad66bf3933de4864a9c5e27c9d308c4410ff 已推送现有验证分支 codex/quality-and-recovery-ci；GitHub Actions run 37439067537 的 macOS/Windows 工作区与 vendor 四项任务已确认运行中，尚未确认成功。不变更远端 master。
+- 同提交 locked release 构建通过。大纲缓存首轮原生 CPU 4.5982%，活动状态及生成笔记不变检查通过；详细边界见 PERFORMANCE_BASELINE.md，第二、三轮仍待测，不能据此宣布性能完成。
