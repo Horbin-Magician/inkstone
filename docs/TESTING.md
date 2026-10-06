@@ -1278,3 +1278,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 无条件 begin_operation 现仅在 cfg(test) 下可用，供凭据拥有者/旧代次回归构造重叠任务；生产操作统一走独占准入。后台保存的原有 before 基线校验及打开编辑器的新输入保护保持不变。
 - 扩展 rename_link_prompt_supports_skip_once_always_and_conflict，验证普通文件任务拒绝启动、审阅/偏好保留、自动更新不提前落盘及释放后成功重试；原有跳过、单次、总是、外部冲突路径通过。另 4 项 FileWrites 回归、workspace all-targets Clippy -D warnings、格式和 diff 检查通过。日志 target/backup-cleanup-audit/link-admission-tests.log、link-admission-accounting.log、link-admission-clippy.log。首次定向测试有旧无条件方法 dead_code 警告，限制为测试入口后最终 Clippy 通过。
 - 尚未替代真实同步/保存并发的原生综合验收。无用户笔记进入提交。
+
+## 隐藏侧栏分类不准备正文数据（2026-10-06）
+
+- right_panel 之前无论选择哪个分类，都会复制标题、链接和调用 properties；后者每次先通过 value 将全文转成字符串，即使当前只显示大纲。现在只在大纲模式读取标题/筛选文本，在出链模式复制链接，在属性模式读取属性，切换分类后的正常渲染仍读取当前编辑器内容。
+- 保留大纲折叠状态的原键和值；隐藏分类不重置状态。3 项大纲回归、6 项属性回归、workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/sidebar-lazy-outline.log、sidebar-lazy-properties.log、sidebar-lazy-clippy.log。没有新增仅复述分类条件的测试；原生分类切换和性能对照仍待补齐。
+- 启动加载成功与失败路径已经调用 cx.notify，单凭当前截图证据不足以认定缺少重绘通知，未加入猜测性刷新。此前改动已推送既有验证分支，run 37435652092 的精确 HEAD 为 2b832587b70dc8903a32b1185f5b51fe6fa336be，启动时处于 in_progress；不覆盖本次惰性分类改动，也不提前计为通过。无用户笔记进入提交。
