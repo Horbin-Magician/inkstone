@@ -312,6 +312,9 @@ mod tests {
                             Err(error) => panic!("missing request {index}: {error}"),
                         }
                     };
+                    // Accepted sockets can inherit the listener's nonblocking mode on macOS.
+                    // Poll only accept; request reads use the bounded blocking timeout below.
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(Duration::from_secs(5)))
                         .unwrap();
