@@ -132,6 +132,7 @@ pub(super) struct UiState {
     pub trash_open: bool,
     pub sync_recovery: super::sync_recovery::State,
     pub history: Option<super::recovery::Browser>,
+    pub history_catalog: super::history_catalog::State,
     pub conflict_review: Option<super::conflicts::Review>,
     pub backup: super::backups::State,
     pub cloud_sync: super::cloud_sync::State,
@@ -468,6 +469,7 @@ impl UiState {
             trash_open: false,
             sync_recovery: Default::default(),
             history: None,
+            history_catalog: Default::default(),
             conflict_review: None,
             backup: Default::default(),
             cloud_sync: super::cloud_sync::State::new(window, cx),
@@ -1063,6 +1065,7 @@ impl Workspace {
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
         self.refresh_sync_recovery(cx);
+        self.refresh_history_catalog(cx);
         self.refresh_trash_metadata(cx);
         let task = cx
             .background_executor()
@@ -1148,6 +1151,7 @@ impl Workspace {
         self.ui.property_original = None;
         self.ui.trash_open = false;
         self.ui.history = None;
+        self.ui.history_catalog = Default::default();
         self.ui.attachment_manager = None;
         self.ui.link_health = None;
         self.ui.bulk_edit = None;

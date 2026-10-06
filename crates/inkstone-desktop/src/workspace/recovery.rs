@@ -15,6 +15,7 @@ pub(super) struct Browser {
     pager_focus: FocusHandle,
     path: PathBuf,
     current: SharedString,
+    current_available: bool,
     entries: Vec<HistoryEntry>,
     selected: Option<usize>,
     record: Option<Recovery>,
@@ -125,6 +126,7 @@ impl Workspace {
             pager_focus: cx.focus_handle(),
             path: entry.relative.clone(),
             current: "".into(),
+            current_available: true,
             entries: vec![],
             selected: None,
             record: None,
@@ -288,9 +290,6 @@ impl Workspace {
     }
 
     pub(super) fn open_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(vault) = self.vault.clone() else {
-            return;
-        };
         let Some(pane) = self.current_pane() else {
             return;
         };
@@ -304,7 +303,31 @@ impl Workspace {
             cx.notify();
             return;
         }
-        let current = pane.read(cx).editor.read(cx).value();
+        self.open_history_path(path, window, cx);
+    }
+
+    pub(super) fn open_history_path(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        let pane = self
+            .current_pane()
+            .filter(|p| p.read(cx).current_path == path);
+        if pane
+            .as_ref()
+            .is_some_and(|p| p.read(cx).editor.read(cx).is_composing())
+        {
+            self.notifications
+                .publish("请完成输入法组词后查看历史。".into());
+            cx.notify();
+            return;
+        }
+        let current = pane.map(|p| p.read(cx).editor.read(cx).value());
         self.close_overlays(window, cx);
         let preview = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx).rows(12);
@@ -316,7 +339,8 @@ impl Workspace {
             scroll: ScrollHandle::new(),
             pager_focus: cx.focus_handle(),
             path: path.clone(),
-            current,
+            current: current.clone().unwrap_or_default(),
+            current_available: current.is_some(),
             entries: vec![],
             selected: None,
             record: None,
@@ -333,11 +357,13 @@ impl Workspace {
         window.focus(&self.ui.modal_focus, cx);
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
-        let task = cx
-            .background_executor()
-            .spawn(async move { vault.history(&path) });
+        let task = cx.background_executor().spawn(async move {
+            let current =
+                current.or_else(|| vault.read(&path).ok().flatten().map(SharedString::from));
+            (vault.history(&path), current)
+        });
         cx.spawn_in(window, async move |this, cx| {
-            let result = task.await;
+            let (result, current) = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if this.generation != generation || this.ui.recovery_refresh != request {
                     return;
@@ -345,6 +371,8 @@ impl Workspace {
                 let Some(browser) = &mut this.ui.history else {
                     return;
                 };
+                browser.current_available = current.is_some();
+                browser.current = current.unwrap_or_default();
                 browser.loading = false;
                 match result {
                     Ok(entries) => browser.entries = entries,
@@ -565,6 +593,7 @@ impl Workspace {
             .child(div().text_sm().whitespace_normal().child(
                 "容量按记录文件长度统计，包含正文、元数据及可能的保存前正文，不等于当前笔记大小或磁盘实际分配空间。"
             ))
+            .when(!browser.current_available && !browser.loading, |s| s.child("原路径没有可读取的当前正文；可查看历史并恢复为副本。"))
             .when(browser.loading, |s| s.child("正在读取版本……"))
             .when(!browser.message.is_empty(), |s| {
                 s.child(browser.message.clone())
@@ -639,7 +668,7 @@ impl Workspace {
                             })
                             .when(browser.difference, |b| b.primary())
                             .selected(browser.difference)
-                            .disabled(browser.record.is_none())
+                            .disabled(browser.record.is_none() || !browser.current_available)
                             .on_click(cx.listener(|this, _, w, cx| {
                                 if let Some(browser) = &mut this.ui.history {
                                     browser.difference = !browser.difference;
@@ -722,6 +751,69 @@ mod tests {
         assert!(shown.len() <= 128 * 1024);
         assert!(preview.contains("恢复副本仍包含完整正文"));
         assert_eq!(preview_text("a\r\n😀"), "a\r\n😀");
+    }
+
+    #[gpui::test]
+    fn catalog_history_restores_missing_path_without_saving_other_edits(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-missing-history-ui-{stamp}"));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let old = PathBuf::from("旧名字.md");
+        let moved = PathBuf::from("外部重命名.md");
+        let other = PathBuf::from("其他未保存.md");
+        vault.save(&old, None, "历史正文 👩‍💻").unwrap();
+        std::fs::rename(vault.root.join(&old), vault.root.join(&moved)).unwrap();
+        vault.save(&other, None, "磁盘正文").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.add_tab(other.clone(), Some("磁盘正文".into()), false, window, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                editor.update(cx, |s, cx| s.set_value("保留未保存编辑", window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.open_history_path(old.clone(), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let browser = w.ui.history.as_ref().unwrap();
+                assert!(!browser.current_available);
+                assert!(!browser.loading);
+                assert_eq!(browser.preview.read(cx).value().as_ref(), "历史正文 👩‍💻");
+                w.restore_history(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let copy = handle
+            .update(cx, |w, _, cx| {
+                let original = w.tabs.iter().find(|t| t.path == other).unwrap();
+                assert!(original.save.persistence.is_dirty());
+                assert_eq!(
+                    original.pane.read(cx).editor.read(cx).value().as_ref(),
+                    "保留未保存编辑"
+                );
+                assert_eq!(w.file_writes.pending(), 0);
+                w.tabs[w.active.unwrap()].path.clone()
+            })
+            .unwrap();
+        assert_ne!(copy, old);
+        assert_eq!(vault.read(&copy).unwrap().as_deref(), Some("历史正文 👩‍💻"));
+        assert_eq!(vault.read(&other).unwrap().as_deref(), Some("磁盘正文"));
+        assert_eq!(vault.read(&moved).unwrap().as_deref(), Some("历史正文 👩‍💻"));
+        assert_eq!(vault.read(&old).unwrap(), None);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[gpui::test]

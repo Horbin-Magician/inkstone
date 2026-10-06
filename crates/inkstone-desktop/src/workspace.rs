@@ -1,6 +1,7 @@
 mod file_sync;
 mod file_writes;
 mod focus_reveal;
+mod history_catalog;
 mod left_sidebar;
 mod links;
 mod modal_ui;

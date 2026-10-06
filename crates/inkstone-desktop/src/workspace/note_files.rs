@@ -21,7 +21,8 @@ impl Workspace {
         editor.update(cx, |state, cx| state.set_value(text, window, cx));
         self.notifications
             .publish("恢复内容已打开为新笔记，原文件与恢复记录均保留。".into());
-        self.save_all(window, cx);
+        let id = self.tabs.last().unwrap().id;
+        self.save_restored_copy(id, window, cx);
         cx.notify();
     }
     pub(super) fn manage_note(&mut self, trash: bool, window: &mut Window, cx: &mut Context<Self>) {

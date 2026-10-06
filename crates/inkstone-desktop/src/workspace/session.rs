@@ -308,6 +308,7 @@ impl Workspace {
                         });
                         this.ui.link_update = None;
                         this.ui.history = None;
+                        this.ui.history_catalog = Default::default();
                         this.ui.conflict_review = None;
                         this.ui.backup = Default::default();
                         this.ui.exporting = false;

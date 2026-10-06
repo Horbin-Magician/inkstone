@@ -14,13 +14,34 @@ impl Workspace {
         self.save_pending(window, cx);
     }
     pub(super) fn save_pending(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_pending_note(None, window, cx);
+    }
+    pub(super) fn save_restored_copy(
+        &mut self,
+        id: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.flush_document_views(window, cx);
+        self.save_pending_note(Some(id), window, cx);
+    }
+    fn save_pending_note(
+        &mut self,
+        only: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.file_writes.operation_active() {
             return;
         }
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        for tab in &mut self.tabs {
+        for tab in self
+            .tabs
+            .iter_mut()
+            .filter(|tab| only.is_none_or(|id| tab.id == id))
+        {
             let editor = tab.save.editor.clone();
             if editor.update(cx, |state, cx| {
                 state.marked_text_range(window, cx).is_some()
