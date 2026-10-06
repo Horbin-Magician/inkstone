@@ -62,6 +62,64 @@ pub(in crate::vault) fn forget(vault: &Vault, journal: &Path) {
     }
 }
 
+/// Best-effort maintenance of old caches left by manual deletion or old versions.
+/// Only validated metadata for this vault and two definitely missing journal names
+/// is eligible. This never reads, removes, or authorizes restoration of a journal.
+pub(in crate::vault) fn prune_orphans(vault: &Vault) {
+    let index = vault.recovery_dir.join(".history-index");
+    let directory = index.join("records");
+    for path in [&index, &directory] {
+        if !fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && !is_reparse(&m)) {
+            return;
+        }
+    }
+    let Ok(entries) = fs::read_dir(&directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(cache) = orphan_candidate(vault, &path) else {
+            continue;
+        };
+        let missing = ["json", "saved"].into_iter().all(|extension| {
+            let mut journal = cache.record.identity.as_os_str().to_os_string();
+            journal.push(format!(".{extension}"));
+            fs::symlink_metadata(PathBuf::from(journal))
+                .is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+        });
+        if missing {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn orphan_candidate(vault: &Vault, path: &Path) -> Option<Cache> {
+    const MAX_METADATA_BYTES: u64 = 64 * 1024;
+    if path.extension().is_none_or(|extension| extension != "json") {
+        return None;
+    }
+    let metadata = fs::symlink_metadata(path).ok()?;
+    if !metadata.is_file() || is_reparse(&metadata) || metadata.len() > MAX_METADATA_BYTES {
+        return None;
+    }
+    let file = fs::File::open(path).ok()?;
+    let cache: Cache =
+        serde_json::from_reader(io::BufReader::new(file.take(MAX_METADATA_BYTES + 1))).ok()?;
+    if cache.record.version != 1
+        || cache.record.scope.root != vault.root
+        || cache.record.identity.parent() != Some(vault.recovery_dir.as_path())
+        || cache.record.identity.file_name().is_none()
+        || checksum(&cache.record).as_deref() != Some(cache.checksum.as_str())
+    {
+        return None;
+    }
+    let key = serde_json::to_vec(&cache.record.identity).ok()?;
+    if path.file_name()? != std::ffi::OsStr::new(&format!("{:x}.json", Sha256::digest(key))) {
+        return None;
+    }
+    Some(cache)
+}
+
 pub(in crate::vault) fn scope(vault: &Vault, path: &Path, meta: &fs::Metadata) -> Option<Scope> {
     scope_with(vault, path, meta, || {
         // Validate the complete legacy record, but retain only its ownership.
@@ -165,6 +223,89 @@ fn store(path: Option<PathBuf>, identity: PathBuf, bytes: u64, modified: SystemT
 mod tests {
     use super::*;
     use crate::vault::drafts::DraftSession;
+    #[test]
+    fn maintenance_removes_legacy_orphans_without_crossing_vaults_or_publication() {
+        let root = std::env::temp_dir().join(format!("inkstone-orphan-metadata-{}", unique_id()));
+        fs::create_dir_all(root.join("one")).unwrap();
+        fs::create_dir_all(root.join("two")).unwrap();
+        let one = Vault::open(root.join("one"), root.join("recovery")).unwrap();
+        let two = Vault::open(root.join("two"), root.join("recovery")).unwrap();
+        let orphan = one.journal(Path::new("old.md"), None, "old").unwrap();
+        let orphan_cache = cache_path(&one, &orphan.with_extension("")).unwrap();
+        fs::remove_file(&orphan).unwrap(); // Legacy/manual deletion bypassed retirement.
+        let foreign = two.journal(Path::new("other.md"), None, "other").unwrap();
+        let foreign_cache = cache_path(&two, &foreign.with_extension("")).unwrap();
+        fs::remove_file(&foreign).unwrap();
+        let pending = one
+            .journal(Path::new("pending.md"), None, "pending")
+            .unwrap();
+        let pending_cache = cache_path(&one, &pending.with_extension("")).unwrap();
+        // Old journal names may contain dots/Unicode; append the publication suffix.
+        let published = one.recovery_dir.join("旧记录.v1.saved");
+        let record = Recovery {
+            root: one.root.clone(),
+            relative: "saved.md".into(),
+            baseline: None,
+            draft: "saved".into(),
+        };
+        fs::write(&published, serde_json::to_vec(&record).unwrap()).unwrap();
+        seed(&one, &published, &record);
+        let published_cache = cache_path(&one, &published.with_extension("")).unwrap();
+        one.cleanup_history().unwrap();
+        assert!(!orphan_cache.exists());
+        assert!(foreign_cache.is_file());
+        assert!(pending.is_file() && pending_cache.is_file());
+        assert!(published.is_file() && published_cache.is_file());
+        fs::remove_file(&published).unwrap();
+        one.cleanup_history().unwrap();
+        assert!(!published_cache.exists());
+        assert!(foreign_cache.is_file());
+        two.cleanup_history().unwrap();
+        assert!(!foreign_cache.exists());
+        assert!(pending_cache.is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn orphan_cleanup_preserves_unknown_metadata_and_unexpected_journal_entries() {
+        let root = std::env::temp_dir().join(format!("inkstone-orphan-unknown-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let journal = vault.journal(Path::new("note.md"), None, "draft").unwrap();
+        let cache = cache_path(&vault, &journal.with_extension("")).unwrap();
+        let original = fs::read(&cache).unwrap();
+        fs::remove_file(&journal).unwrap();
+        // An unexpected directory or dangling link is not evidence of absence.
+        fs::create_dir(&journal).unwrap();
+        prune_orphans(&vault);
+        assert!(cache.is_file());
+        fs::remove_dir(&journal).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("missing"), &journal).unwrap();
+            prune_orphans(&vault);
+            assert!(cache.is_file());
+            fs::remove_file(&journal).unwrap();
+        }
+        let alias = cache.with_file_name("not-a-cache-key.json");
+        fs::write(&alias, &original).unwrap();
+        for bytes in [b"broken".to_vec(), vec![b' '; 65 * 1024], {
+            let mut damaged: serde_json::Value = serde_json::from_slice(&original).unwrap();
+            damaged["record"]["scope"]["root"] = serde_json::json!("/changed");
+            serde_json::to_vec(&damaged).unwrap()
+        }] {
+            fs::write(&cache, &bytes).unwrap();
+            prune_orphans(&vault);
+            assert_eq!(fs::read(&cache).unwrap(), bytes);
+            assert_eq!(fs::read(&alias).unwrap(), original);
+        }
+        fs::write(&cache, &original).unwrap();
+        prune_orphans(&vault);
+        assert!(!cache.exists());
+        assert!(alias.is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn draft_retirement_and_discard_remove_only_owned_metadata() {
         let root = std::env::temp_dir().join(format!("inkstone-retired-metadata-{}", unique_id()));
@@ -276,6 +417,7 @@ mod tests {
         fs::rename(records, &outside).unwrap();
         std::os::unix::fs::symlink(&outside, records).unwrap();
         forget(&vault, &journal);
+        prune_orphans(&vault);
         assert_eq!(
             fs::read(outside.join(cache.file_name().unwrap())).unwrap(),
             original
@@ -287,6 +429,7 @@ mod tests {
         fs::rename(index, &outside_index).unwrap();
         std::os::unix::fs::symlink(&outside_index, index).unwrap();
         forget(&vault, &journal);
+        prune_orphans(&vault);
         assert_eq!(
             fs::read(
                 outside_index

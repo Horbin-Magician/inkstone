@@ -550,6 +550,7 @@ impl Vault {
             }
             history::records::forget(self, &journal);
         }
+        history::records::prune_orphans(self);
         Ok(())
     }
     fn cleanup_history_if_due(&self) {
