@@ -113,14 +113,27 @@ impl Workspace {
             .gap_2()
             .p_2()
             .child("同步备份 · 恢复为副本")
-            .child(div().text_sm().child(format!(
-                "{} 条 · {:.1} MiB · 不自动清理；恢复后保留备份",
+            .child(div().text_sm().whitespace_normal().child(format!(
+                "{} 条可恢复记录 · 正文 {:.1} MiB · 备份及描述文件共 {} 字节 · 不自动清理；恢复后保留备份",
                 state.inventory.entries.len(),
-                state.inventory.bytes as f64 / 1048576.
+                state.inventory.bytes as f64 / 1048576.,
+                state.inventory.stored_bytes
             )))
+            .when(state.inventory.unindexed_files > 0, |s| {
+                s.child(div().whitespace_normal().child(format!(
+                    "另有 {} 个备份文件缺少可用恢复记录（{} 字节），已计入占用并保留；不代表可安全清理。",
+                    state.inventory.unindexed_files, state.inventory.unindexed_bytes
+                )))
+            })
+            .when(state.inventory.unmeasured_files > 0, |s| {
+                s.child(div().whitespace_normal().child(format!(
+                    "{} 个备份或描述路径无法安全统计，显示的文件字节数不完整。",
+                    state.inventory.unmeasured_files
+                )))
+            })
             .when(state.loading, |s| s.child("正在读取同步备份……"))
             .when(!state.loading && state.inventory.entries.is_empty(), |s| {
-                s.child("暂无同步备份")
+                s.child("暂无可直接恢复的同步备份记录")
             })
             .when(state.inventory.unreadable > 0, |s| {
                 s.child(format!(

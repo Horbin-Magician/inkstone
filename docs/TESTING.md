@@ -1438,3 +1438,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 覆盖设置筛选、快捷键筛选、WebDAV 地址/用户名/密码五类输入：Tab 与 Shift+Tab 离开输入框且留在弹窗内，Unicode 文本保持不变。Escape 关闭后确认没有活动焦点限制、焦点回到正文且正文未变；随后 Tab 缩进与撤销恢复原文。
 - 这是自动回归，不能替代原生 IME、Windows 和读屏验收；使用临时生成的笔记库，未读取或提交用户笔记。日志见 target/backup-cleanup-audit/settings-root-tab-{tests,clippy}.log。
 - 本轮定向测试、全工作区 all-targets Clippy -D warnings、格式及 diff 检查均通过。
+
+## 同步备份完整文件字节统计（2026-10-06）
+
+- inventory 的可恢复正文 bytes 保持原含义，另计入同步范围内常规备份正文与描述文件总长度。缺少或损坏描述文件的正文单列数量/字节数并保留；链接、非普通文件或无法安全读取的匹配路径单列为未计量，不跟随链接、不将其显示为零占用。
+- 新增 capacity_counts_unindexed_backups_without_reading_or_removing_them：覆盖有效记录、64 MiB 稀疏无记录正文、损坏描述文件、普通非同步文件排除，以及 Unix 链接不跟随；验证字节总和、恢复记录不变、异常正文/描述内容保留。原有替换、删除、二进制恢复及写入竞争回归一起执行。
+- UI 显示有效正文和备份/描述总字节、无可用记录备份及统计不完整提示；没有有效记录时改为“暂无可直接恢复的同步备份记录”，避免把异常备份误报为不存在。无清理操作新增。日志：target/backup-cleanup-audit/sync-backup-accounting-{tests,ui-tests,clippy}.log。原生新文案布局尚待复验。
+- 验证结果：5 项后端恢复测试、3 项桌面同步备份测试、全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。

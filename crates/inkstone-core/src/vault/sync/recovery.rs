@@ -20,6 +20,13 @@ pub struct Inventory {
     pub unreadable: usize,
     /// Sum of validated backup file sizes, excluding descriptors and orphan files.
     pub bytes: u64,
+    /// Sum of regular backup payload and descriptor lengths; not allocated disk blocks.
+    pub stored_bytes: u64,
+    /// Regular payloads without a usable recovery record. Never cleanup candidates.
+    pub unindexed_files: usize,
+    pub unindexed_bytes: u64,
+    /// Matching paths whose size could not be measured safely (including links).
+    pub unmeasured_files: usize,
 }
 #[derive(Deserialize)]
 struct Descriptor {
@@ -73,7 +80,12 @@ fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
 /// Enumerate metadata without reading payloads or changing notes/backups.
 /// Hidden directories are excluded consistently with the sync file scope.
 pub fn inventory(vault: &Vault) -> Result<Inventory> {
-    fn walk(vault: &Vault, directory: &Path, report: &mut Inventory) -> io::Result<()> {
+    fn walk(
+        vault: &Vault,
+        directory: &Path,
+        report: &mut Inventory,
+        payloads: &mut BTreeMap<PathBuf, u64>,
+    ) -> io::Result<()> {
         for item in fs::read_dir(directory)? {
             let item = match item {
                 Ok(item) => item,
@@ -85,7 +97,23 @@ pub fn inventory(vault: &Vault) -> Result<Inventory> {
             let name = item.file_name();
             let name = name.to_string_lossy();
             let path = item.path();
-            if is_descriptor(&name) {
+            let descriptor = is_descriptor(&name);
+            let payload = name.starts_with(".inkstone-sync-") && name.ends_with(".backup");
+            if descriptor || payload {
+                match fs::symlink_metadata(&path) {
+                    Ok(meta) if meta.is_file() && !is_reparse(&meta) => {
+                        report.stored_bytes = report.stored_bytes.saturating_add(meta.len());
+                        if payload {
+                            payloads.insert(
+                                path.strip_prefix(&vault.root).unwrap().to_owned(),
+                                meta.len(),
+                            );
+                        }
+                    }
+                    _ => report.unmeasured_files += 1,
+                }
+            }
+            if descriptor {
                 match path
                     .strip_prefix(&vault.root)
                     .ok()
@@ -100,7 +128,7 @@ pub fn inventory(vault: &Vault) -> Result<Inventory> {
             } else if !name.starts_with('.') {
                 match fs::symlink_metadata(&path) {
                     Ok(meta) if meta.is_dir() && !is_reparse(&meta) => {
-                        if walk(vault, &path, report).is_err() {
+                        if walk(vault, &path, report, payloads).is_err() {
                             report.unreadable += 1;
                         }
                     }
@@ -112,7 +140,15 @@ pub fn inventory(vault: &Vault) -> Result<Inventory> {
         Ok(())
     }
     let mut report = Inventory::default();
-    walk(vault, &vault.root, &mut report)?;
+    let mut payloads = BTreeMap::new();
+    walk(vault, &vault.root, &mut report, &mut payloads)?;
+    for entry in &report.entries {
+        payloads.remove(&entry.backup);
+    }
+    report.unindexed_files = payloads.len();
+    report.unindexed_bytes = payloads
+        .values()
+        .fold(0u64, |sum, bytes| sum.saturating_add(*bytes));
     report.entries.sort_by(|a, b| {
         b.modified
             .cmp(&a.modified)
@@ -278,6 +314,59 @@ mod tests {
         fs::remove_dir_all(root)?;
         Ok(())
     }
+    #[test]
+    fn capacity_counts_unindexed_backups_without_reading_or_removing_them() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("inkstone-sync-capacity-{}", unique_id()));
+        fs::create_dir_all(root.join("vault/nested"))?;
+        let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
+        fs::write(vault.root.join("note.md"), b"old")?;
+        apply_bytes(&vault, "note.md", Some(&hash(b"old")), Some(b"new"))?;
+        let initial = inventory(&vault)?;
+        let entry = &initial.entries[0];
+        let descriptor_bytes = fs::metadata(vault.root.join(&entry.metadata))?.len();
+        assert_eq!(initial.stored_bytes, 3 + descriptor_bytes);
+        assert_eq!(initial.unindexed_files, 0);
+        let orphan = vault.root.join("nested/.inkstone-sync-orphan.backup");
+        fs::write(&orphan, b"orphan")?;
+        let broken = vault.root.join(".inkstone-sync-broken.backup");
+        fs::write(&broken, b"protected")?;
+        let descriptor = vault.root.join(".inkstone-sync-broken.backup.json");
+        fs::write(&descriptor, b"invalid")?;
+        // A large sparse payload ensures accounting needs metadata, not a valid body.
+        OpenOptions::new()
+            .write(true)
+            .open(&orphan)?
+            .set_len(64 * 1024 * 1024)?;
+        fs::write(vault.root.join("ordinary.backup"), b"not a sync backup")?;
+        let report = inventory(&vault)?;
+        assert_eq!(report.entries, initial.entries);
+        assert_eq!(report.bytes, 3);
+        assert_eq!(report.unindexed_files, 2);
+        assert_eq!(report.unindexed_bytes, 64 * 1024 * 1024 + 9);
+        assert_eq!(
+            report.stored_bytes,
+            initial.stored_bytes + report.unindexed_bytes + 7
+        );
+        assert_eq!(report.unreadable, 1);
+        assert_eq!(report.unmeasured_files, 0);
+        assert_eq!(fs::read(&broken)?, b"protected");
+        assert_eq!(fs::read(&descriptor)?, b"invalid");
+        assert_eq!(fs::metadata(&orphan)?.len(), 64 * 1024 * 1024);
+        #[cfg(unix)]
+        {
+            let outside = root.join("outside");
+            fs::write(&outside, b"outside")?;
+            std::os::unix::fs::symlink(&outside, vault.root.join(".inkstone-sync-link.backup"))?;
+            let with_link = inventory(&vault)?;
+            assert_eq!(with_link.stored_bytes, report.stored_bytes);
+            assert_eq!(with_link.unindexed_files, 2);
+            assert_eq!(with_link.unmeasured_files, 1);
+            assert_eq!(fs::read(outside)?, b"outside");
+        }
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
     #[test]
     fn malformed_and_out_of_scope_descriptors_do_not_hide_valid_records() -> Result<()> {
         let root =
