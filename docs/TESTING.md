@@ -674,3 +674,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 初始 max_offset.x 断言观测到 56px，但定位为覆盖式滚动条占满容器后与 padding 叠加的范围计算，直接内容边界正常；回归改验实际子项边界，不将该计算值视为裁切证据。
 - 同步说明删除已过时的整批 512 MiB 限制，保留单文件 128 MiB，并说明本地暂存及已校验下载复用。
 - 矩阵回归 1 项通过，全工作区 all-targets Clippy、格式/diff 检查通过。日志：`target/settings-scale-matrix-tests.log`、`target/settings-scale-matrix-clippy.log`、`target/settings-scale-matrix-fmt.log`。rem 压力不会放大显式 px 文本，不能当作所有界面文字放大验收；真实多 DPI、字体/读屏和键盘操作仍需原生检查。未修改用户笔记。
+
+## 欢迎页：Tab 导航与原生按键事件回归（2026-10-06）
+
+- 工作区新增未消费 Tab/Shift+Tab 的冒泡导航，根元素建立 Tab 顺序；Ctrl/Alt/Cmd 组合不进入该处理。保持输入控件先处理 Tab 的机会，不在捕获阶段抢走缩进/补全按键。
+- 新回归用 KeyDown/KeyUp（prefer_character_input=false）逐帧操作，验证标题设置后依次到达创建新库和打开已有库；Enter 打开对应路径选择器，取消后不产生文件；Shift+Tab 返回创建入口。模拟 IME 的 Enter 路径不适合按钮激活，因此不把普通文本模拟替代原生按键事件。
+- 桌面全量单元测试 317 项通过、2 项忽略，集成测试 8 项通过；全工作区 all-targets Clippy、格式和 diff 检查通过。日志：`target/welcome-keyboard-tests.log`、`target/keyboard-navigation-tests.log`、`target/keyboard-navigation-clippy.log`、`target/keyboard-navigation-fmt.log`。
+- 本轮为 GPUI 测试平台，未新增真实 OS 键盘验收；空标签页完整顺序、输入框退出及弹窗内焦点约束仍待继续，不能视为完整键盘可访问性达标。未修改用户笔记。
