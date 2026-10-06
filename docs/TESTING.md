@@ -1633,3 +1633,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 `CloudCleanupReport`、`CloudCleanupFailure` 及取消识别 API，保留已确认完成前缀，区分一个未确认请求、取消及释放失败。已开始的删除在取消后仍完成确认，随后停止后续对象；不回滚维护代次。
 - 5 项新增 HTTP 回归覆盖只删除候选/保留引用、失效锁、过期快照、执行前和已删除一个后的取消、第二个请求丢失响应/202/207/412/423/500、HEAD 未确认及释放失败。脚本服务验证条件头和路径，不替代真实多客户端条件执行或服务商验收；界面尚未接入。
 - WebDAV 子集 23 项通过；核心全量 316 项通过、3 个既有手动入口忽略；全工作区 all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-cleanup-execute-{tests,core-tests,clippy}.log`。仅使用生成数据，未访问或删除真实云端对象，未修改用户笔记，未做性能测量。
+
+## 云端清理的有状态多客户端回归（2026-10-06）
+
+- 新增有状态 HTTP 测试服务，真实保存清单/对象，清单 ETag 基于正文哈希，服务端串行检查条件与锁再修改对象；不是预先安排成功响应的脚本。同步线程使用有超时的通道暂停在指定阶段。
+- 5 项回归覆盖：上传已完成而发布被清理代次隔离，失败后本地编辑/基线保留并可双库收敛；旧维护句柄不能删除或释放新会话锁；续期后 DELETE 前锁被撤销；实际删除后响应丢失并从新预览继续；旧快照读者下载失败保留本地状态再同步最新版本。各场景检查当前清单引用对象的存在和正文哈希。
+- 核心全量 321 项通过、3 个既有手动入口忽略；核心 all-targets Clippy `-D warnings`、工作区格式及 diff 检查通过。最终日志 `target/backup-cleanup-audit/cloud-cleanup-stateful-{core-tests,clippy}.log`；`cloud-cleanup-stateful-tests.log` 为添加第五场景前的四项定向结果。
+- 只新增测试和记录，没有修改产品行为、用户笔记或真实云端。模型假设服务端条件变更正确串行化，不替代真实服务商、原生界面、跨进程强退和物理断电验收；没有性能测量或 Linux 适配。

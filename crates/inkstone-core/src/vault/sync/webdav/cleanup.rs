@@ -327,3 +327,6 @@ fn preview(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod stateful_tests;
