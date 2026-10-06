@@ -1013,3 +1013,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 用户明确不需要 Linux 适配。移除独立 Ubuntu core job 和刚增加的 Linux 字体安装/环境变量，后续目标平台限定为 macOS、Windows。上文 Linux 执行与失败记录保留为历史证据，不再作为待修复项或合入门槛。
 - 两个平台均保留固定工具链、全工作区格式/Clippy/测试及独立 vendor 全量检查；核心测试包含在 workspace 中，不因移除 Linux job 而跳过核心回归。未改通用产品实现或弱化测试断言。
 - YAML 解析确认只保留 check/vendor 两个双平台矩阵，共四项检查；diff 检查通过。远端验证分支随后更新，新运行结果另行记录。
+
+
+## 主分支必需检查门槛（2026-10-06）
+
+- 对 `b5fca64` 的实际 GitHub check runs 读取确认四个名称及 GitHub Actions app id 15368，再为 master 配置 `check (macos-latest)`、`check (windows-latest)`、`Vendor regression (macos-latest)`、`Vendor regression (windows-latest)` 四项必需检查。设置 strict=true、enforce_admins=true；没有添加 Linux 检查或额外人工审批门槛，没有推送或合并 master。
+- 配置前读取经典保护为 Branch not protected、有效规则为空。配置后重新 GET 保护 API，核对四个 checks/context 及 app id 完全一致、strict/admins 均启用、强制推送和删除均禁用。门槛在检查仍运行时先建立，失败和缺失检查不能正常合入；这不构成当前代码测试全通过或实际合并验收。管理员主动修改仓库设置仍是独立管理行为。
+- 证据：`target/ci-required-contexts.json`、`target/ci-master-protection-before.json`、`target/ci-master-rules-before.json`、`target/ci-master-protection-request.json`、`target/ci-master-protection-applied.json`、`target/ci-master-protection-verified.json`。核验过程中没有用尝试合并或推送 master 来验证阻断，避免改动主分支。
+- 运行 37420330322 的 macOS/Windows 格式及全工作区 Clippy 已通过；四个任务仍在运行，完整测试结果继续跟进。本提交只更新远端配置验收记录，diff 检查通过，未修改产品代码或真实用户笔记。
