@@ -574,7 +574,8 @@ pub fn synchronize_cancellable(
         .truncate(false)
         .write(true)
         .open(device.join(format!("{vault_id}.lock")))?;
-    lock.try_lock().context("该笔记库已有同步任务运行")?;
+    let _lock =
+        super::file_lock::FileLock::acquire(lock, true).context("该笔记库已有同步任务运行")?;
     let state = baseline_path(vault, identity);
     let cache = downloads::Cache::new(&state)?;
     cache.discard_partial(cancellation)?;
