@@ -181,3 +181,19 @@ CPU 中位数 22.956%，超过原定 2% 空闲预算，不能通过验收。RSS 
 第三轮正式采样结束后另以系统 sample 采集五秒调用栈；栈中可见 Workspace 渲染、outline_rows/Heading 与 String 克隆、Taffy 布局及 text_counts 的正文转字符串。下一步针对重复渲染与大纲/文本复制排查，不能把这些样本直接当成各项耗时百分比或唯一根因。
 
 原始记录 target/native-large-idle-cfwnybki 的 run.json、results.json、每轮 preparation.json（签名后构建散列）、idle.json 与 pid，第三轮 idle-stack.txt/sample.log；构建日志 target/backup-cleanup-audit/large-native-build.log。三进程均 Cmd+Q 后确认 PID 消失；三份库的全部 16 个 Markdown 均与 corpus 逐字节相同，未触及用户笔记。文档更新通过 diff 检查。
+
+## 大纲共享快照后的大文档空闲对照（2026-10-06）
+
+release 20202a9，机器、corpus v1、窗口/字体/实时预览、两侧栏展开与前述 dbe55e1 基线一致。三次全新隔离实例，每轮确认正文画面、点击相同编辑区域后静置 30 秒再采样 30 秒；没有通过折叠大纲降低工作量，采样期间无本地编译/测试。仍未持续记录系统前台/焦点，也未控制其他用户程序或清理 OS 缓存，前后为顺序批次而非随机交错。
+
+| 轮次 / PID | 单核 CPU 区间均值 | 采样最大 RSS |
+| --- | ---: | ---: |
+| 1 / 96473 | 13.093% | 376.609 MiB |
+| 2 / 96628 | 13.294% | 370.641 MiB |
+| 3 / 96789 | 13.360% | 374.656 MiB |
+
+CPU 中位数从 22.956% 降到 13.294%，减少约 42.1%，支持保留共享快照改动，但仍超过 2% 预算。RSS 中位数从 366.984 增至 374.656 MiB（约 2.1%），没有内存改善证据，且采样值不能代替生命周期峰值。
+
+第三轮正式采样结束后另采五秒调用栈，仍见 Taffy flex/block 布局、内存复制与样式处理，后续继续排查持续重绘和大纲布局；不将采样堆栈的出现次数当成精确 CPU 占比。随后原生点击根标题折叠，再用全部展开按钮恢复，截图核对均正确，不影响正式采样。
+
+原始记录 target/native-outline-shared-tnuca3_c 的 run.json、results.json、各轮 preparation.json/idle.json/pid，第三轮 idle-stack.txt/sample.log；构建日志 target/backup-cleanup-audit/outline-native-build.log。三进程 Cmd+Q 后均确认退出；三份库全部 16 个 Markdown 与固定 corpus 逐字节相同。仅提交测量记录，diff 检查通过；未触及用户笔记，未据此完成输入/滚动性能验收。
