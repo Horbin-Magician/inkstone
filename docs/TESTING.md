@@ -1579,3 +1579,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生显示问题的现有复现线索：独立生成应用在后台启动；加载占位曾被截图捕获；随后 AX 能看到正文、未保存状态和恢复弹窗，并可完成编辑，但画面仍保持占位；执行窗口 zoom 后画面恢复。之前 native-sync-cleanup-3bd4717 正常，native-sync-cleanup-stop 遇到此现象，因此不能宣称稳定复现或将大备份认定为原因。
 - 代码核对：session::load_vault 的成功回调清除 loading 并 cx.notify，Workspace 根据 loading 渲染；gpui-pre 0.3.7 的窗口激活路径调用 bounds_changed/refresh，绘制请求会 draw/present。gpui-pre-apple 的 Metal draw 存在 drawable 或渲染失败后提前返回路径，但本轮没有相应运行日志，不能将其判为根因。未修改注册表依赖或加入周期性重绘补丁。
 - 后续需在隔离复现中取得原生呈现失败日志/状态，并区分后台启动、前台启动及窗口变形前后；保持此项未解决。此排查针对画面正确性，未重启性能预算或测量工作。
+
+
+## 同步清理动态控件移除后的焦点修复（2026-10-06）
+
+- 新增带实际 gpui_component::Root 的键盘回归：用生成库提供候选与确认，逐次 Tab 定位取消按钮，Enter 取消后断言焦点仍在恢复弹窗内，再由实际 Escape 绑定关闭弹窗。修改前稳定失败于“cancelled control left focus outside recovery”。
+- 取消确认、启动清理以及请求停止的点击/键盘执行回调，均将焦点交给稳定存在的 modal_focus；防止当前按钮被移除或禁用后焦点滞留于失效控件。新增测试同时确认没有启动文件任务、旧备份仍存在。
+- 9 项同步恢复桌面回归通过，全工作区 all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/sync-cleanup-focus-{before,tests,clippy}.log。此修改的原生 release 验收尚待执行，不宣称修复首次加载画面停滞。
+- 远端 37455366426（24517f9）的 Windows 工作区检查已通过，其余三个作业在本轮检查时仍运行；不覆盖本提交。

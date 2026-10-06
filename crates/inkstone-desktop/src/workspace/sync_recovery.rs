@@ -257,7 +257,10 @@ impl Workspace {
                         "正在停止清理……"
                     } else { "停止后续清理" })
                     .disabled(state.cancellation.as_ref().is_none_or(|c| c.is_requested()))
-                    .on_click(cx.listener(|this, _, _, cx| this.stop_sync_cleanup(cx))),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.stop_sync_cleanup(cx);
+                        window.focus(&this.ui.modal_focus, cx);
+                    })),
             )))
             .child(FocusReveal::new(
                 "sync-retention-preview-focus",
@@ -286,12 +289,18 @@ impl Workspace {
                 .child(FocusReveal::new("sync-cleanup-confirm-focus", &self.ui.recovery_scroll,
                     Button::new("sync-cleanup-confirm").label("确认清理旧同步备份")
                         .disabled(!self.can_clean_sync_backups())
-                        .on_click(cx.listener(|this, _, _, cx| this.execute_sync_cleanup(cx)))))
-                .child(FocusReveal::new("sync-cleanup-cancel-focus", &self.ui.recovery_scroll,
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.execute_sync_cleanup(cx);
+                            window.focus(&this.ui.modal_focus, cx);
+                        }))))
+                .child(div().debug_selector(|| "sync-cleanup-cancel-row".into()).child(FocusReveal::new("sync-cleanup-cancel-focus", &self.ui.recovery_scroll,
                     Button::new("sync-cleanup-cancel").label("取消清理")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.ui.sync_recovery.cleanup_confirmation = None; cx.notify();
-                        })))))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.ui.sync_recovery.cleanup_confirmation = None;
+                            // The focused button is removed by this action.
+                            window.focus(&this.ui.modal_focus, cx);
+                            cx.notify();
+                        }))))))
             .when(!state.inventory.entries.is_empty(), |panel| {
                 let focus = state.pager_focus.get_or_init(|| cx.focus_handle()).clone();
                 let pages = state.inventory.entries.len().div_ceil(RECORDS_PER_PAGE);
@@ -454,6 +463,75 @@ mod tests {
             .unwrap();
         }
         (root, vault)
+    }
+
+    #[gpui::test]
+    fn cancelling_confirmation_keeps_keyboard_focus_in_recovery(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        cx.update(|cx| cx.bind_keys([KeyBinding::new("escape", ClosePalette, None)]));
+        let (root, vault) = cleanup_fixture();
+        let mut workspace = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Workspace::new(window, cx));
+            workspace = Some(view.clone());
+            gpui_component::Root::new(view, window, cx)
+        });
+        let workspace = workspace.unwrap();
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            workspace.update(cx, |w, cx| {
+                w.vault = Some(vault.clone());
+                w.ui.trash_open = true;
+                w.ui.sync_recovery.generation = w.generation;
+                w.ui.sync_recovery.inventory = recovery::inventory(&vault).unwrap();
+                w.ui.sync_recovery.preview = Some(
+                    retention::preview(&w.ui.sync_recovery.inventory, 1, &Default::default())
+                        .unwrap(),
+                );
+                w.request_sync_cleanup(cx);
+                window.focus(&w.ui.modal_focus, cx);
+            })
+        });
+        fn key(visual: &mut VisualTestContext, value: &str) {
+            let keystroke = Keystroke::parse(value).unwrap();
+            visual.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(KeyUpEvent { keystroke });
+            for _ in 0..2 {
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+        }
+        let mut reached = false;
+        for _ in 0..20 {
+            key(visual, "tab");
+            if let (Some(row), Some(target)) = (
+                visual.debug_bounds("sync-cleanup-cancel-row"),
+                visual.debug_bounds("focus-revealed-control"),
+            ) && target.top() >= row.top()
+                && target.bottom() <= row.bottom()
+            {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached);
+        key(visual, "enter");
+        visual.update(|window, cx| {
+            let w = workspace.read(cx);
+            assert!(w.ui.sync_recovery.cleanup_confirmation.is_none());
+            assert!(
+                w.ui.modal_focus.contains_focused(window, cx),
+                "cancelled control left focus outside recovery"
+            );
+            assert_eq!(w.file_writes.pending(), 0);
+        });
+        key(visual, "escape");
+        visual.update(|_, cx| assert!(!workspace.read(cx).ui.trash_open));
+        assert!(vault.root.join(".inkstone-sync-old.backup").exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[gpui::test]
