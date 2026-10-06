@@ -670,6 +670,65 @@ mod tests {
     }
 
     #[test]
+    fn interrupted_cleanup_is_visible_protected_and_restorable_after_process_exit() {
+        const CHILD: &str = "INKSTONE_BACKUP_CLEANUP_EXIT";
+        if let Some(root) = std::env::var_os(CHILD) {
+            let parent = PathBuf::from(root).join("backups");
+            let plan =
+                retention::preview(&capacity::list(&parent).unwrap(), 1, &BTreeSet::new()).unwrap();
+            cleanup::prepare(&parent, &plan, &BTreeSet::new())
+                .unwrap()
+                .execute_with(|_, _| std::process::exit(74))
+                .unwrap();
+            unreachable!();
+        }
+        let f = Fixture::new();
+        let parent = f.0.join("backups");
+        fs::create_dir(&parent).unwrap();
+        for created in 1..=3 {
+            let path = parent.join(created.to_string());
+            let mut manifest = create(&f.1, &path).unwrap();
+            manifest.created = created;
+            manifest.source_id = Some("a".repeat(64));
+            fs::write(
+                path.join("manifest.json"),
+                serde_json::to_vec(&manifest).unwrap(),
+            )
+            .unwrap();
+        }
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "vault::backup::tests::interrupted_cleanup_is_visible_protected_and_restorable_after_process_exit"])
+            .env(CHILD, &f.0).stdout(std::process::Stdio::null()).status().unwrap();
+        assert_eq!(status.code(), Some(74));
+        let inventory = capacity::list(&parent).unwrap();
+        assert_eq!(inventory.interrupted.len(), 1);
+        assert_eq!(inventory.entries.len(), 2);
+        let plan = retention::preview(&inventory, 1, &BTreeSet::new()).unwrap();
+        assert_eq!(plan.candidates, 0);
+        assert!(
+            plan.records
+                .iter()
+                .all(|r| r.decision == retention::Decision::IncompleteInventory)
+        );
+        assert!(cleanup::prepare(&parent, &plan, &BTreeSet::new()).is_err());
+        let isolated = &inventory.interrupted[0];
+        let manifest = inspect(isolated).unwrap();
+        restore(isolated, &f.0.join("restored-interrupted"), &manifest).unwrap();
+        assert_eq!(
+            fs::read(f.0.join("restored-interrupted/image.bin")).unwrap(),
+            [0, 255, 128, 3]
+        );
+        fs::remove_file(isolated.join("manifest.json")).unwrap();
+        assert!(inspect(isolated).is_err());
+        assert_eq!(
+            capacity::list(&parent).unwrap().interrupted,
+            inventory.interrupted
+        );
+        assert!(isolated.join("files/image.bin").exists());
+        assert!(inspect(&parent.join("3")).is_ok());
+    }
+
+    #[test]
     fn backup_roundtrip_preserves_notes_binary_assets_config_and_empty_directories() {
         let f = Fixture::new();
         let backup = f.0.join("backup");

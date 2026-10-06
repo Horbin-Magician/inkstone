@@ -44,6 +44,11 @@ fn validate(
     in_use: &BTreeSet<PathBuf>,
 ) -> io::Result<Vec<(Manifest, Option<String>)>> {
     let inventory = capacity::list(directory)?;
+    if !inventory.interrupted.is_empty() {
+        return Err(invalid(
+            "存在未处理的清理隔离记录，请先检查并恢复需要的内容",
+        ));
+    }
     if inventory.unreadable != 0 {
         return Err(invalid("备份清单存在异常，请先检查异常记录"));
     }

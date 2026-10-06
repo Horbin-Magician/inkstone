@@ -55,7 +55,7 @@ pub fn preview(
         keep_per_source: keep,
     };
     for backup in &inventory.entries {
-        let decision = if inventory.unreadable > 0 {
+        let decision = if inventory.unreadable > 0 || !inventory.interrupted.is_empty() {
             Decision::IncompleteInventory
         } else if in_use.contains(&backup.directory) {
             Decision::InUse
