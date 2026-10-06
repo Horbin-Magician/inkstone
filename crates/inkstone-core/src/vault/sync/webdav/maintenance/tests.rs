@@ -234,3 +234,42 @@ fn first_manifest_is_fenced_with_create_only_precondition() -> Result<()> {
     assert!(requests[3].to_lowercase().contains("if-none-match: *\r\n"));
     Ok(())
 }
+
+#[test]
+fn manifest_rejects_ambiguous_etags_before_they_can_become_publish_conditions() -> Result<()> {
+    for headers in [
+        "ETag: \"one\", \"two\"\r\n",
+        "ETag: \"one\"\r\nETag: \"two\"\r\n",
+        "ETag: W/\"weak\"\r\n",
+        "ETag: \"space inside\"\r\n",
+        "ETag: *\r\n",
+    ] {
+        let (remote, task) = server(vec![
+            reply(404),
+            (
+                200,
+                headers.into(),
+                serde_json::to_string(&Manifest::default())?,
+            ),
+        ]);
+        assert!(remote.manifest().unwrap_err().to_string().contains("ETag"));
+        assert_eq!(task.join().unwrap().len(), 2);
+    }
+    for etag in ["\"\"", "\"comma,inside\"", "\"back\\slash\""] {
+        let (remote, task) = server(vec![
+            reply(404),
+            (
+                200,
+                format!("ETag: {etag}\r\n"),
+                serde_json::to_string(&Manifest::default())?,
+            ),
+            reply(204),
+        ]);
+        let (manifest, revision) = remote.manifest()?;
+        assert_eq!(revision.as_deref(), Some(etag));
+        remote.publish(&manifest, revision.as_deref())?;
+        let requests = task.join().unwrap();
+        assert!(requests[2].contains(&format!("if-match: {etag}\r\n")));
+    }
+    Ok(())
+}

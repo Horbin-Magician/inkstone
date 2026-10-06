@@ -1620,3 +1620,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 复用对象列表读取，并保守拒绝未知资源类型、重复类型/状态、同时出现响应状态与属性状态等歧义记录。缺失引用或异常大小不能生成清理预览。容量统计仍保留未知记录计数。
 - 5 项新增回归覆盖只读预览、重复正文去重、全部正文先验证再发布、错远端与过期快照、候选/保留正文损坏、中途取消和推进代次后取消、异常列表。HTTP 测试辅助服务共用有界等待及确定性观察钩子；只使用生成数据。
 - WebDAV 子集 17 项通过；核心全量 310 项通过、3 个既有手动入口忽略；全工作区 all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-cleanup-preview-{tests,core-tests,clippy}.log`。没有性能测量、Linux 适配或真实服务商删除验收。
+
+## 条件发布的 ETag 歧义保护（2026-10-06）
+
+- 收紧清单响应为单一强 ETag：拒绝重复字段、标签列表、弱标签和引号内空白；发布前也校验修订。此前仅检查首尾引号，会把标签列表用作 If-Match，扩大可接受修订。合法空标签、标签内逗号/反斜线保持原样，不自行转义或拆分。
+- HTTP 回归使用有效清单正文，覆盖拒绝分支和合法标签的读回/条件 PUT；WebDAV 子集 18 项通过，核心 all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志 `target/backup-cleanup-audit/cloud-etag-{tests,clippy}.log`。语法依据 [RFC 9110 §8.8.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.3)。
+- [CI 37465343868](https://github.com/Horbin-Magician/inkstone/actions/runs/37465343868) 对应 d867396，macOS/Windows 工作区及两平台 vendor 四项全部通过；不覆盖之后的清理预览和本次 ETag 修复。

@@ -144,13 +144,14 @@ impl Remote for WebDav {
             return Ok((Manifest::default(), None));
         }
         let response = Self::status(response)?;
-        let etag = response
-            .headers()
-            .get(header::ETAG)
-            .and_then(|v| v.to_str().ok())
-            .filter(|v| v.starts_with('"') && v.ends_with('"'))
-            .context("WebDAV 服务器未提供强 ETag，无法安全同步")?
+        let mut tags = response.headers().get_all(header::ETAG).iter();
+        let etag = tags
+            .next()
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| strong_etag(value))
+            .context("WebDAV 服务器未提供单一有效强 ETag，无法安全同步")?
             .to_owned();
+        ensure!(tags.next().is_none(), "WebDAV 返回多个 ETag，无法安全同步");
         let manifest: Manifest = serde_json::from_slice(&Self::body(response, MAX_MANIFEST_BYTES)?)
             .context("云端同步清单损坏或格式不兼容")?;
         validate_manifest(&manifest)?;
@@ -216,7 +217,10 @@ impl WebDav {
             .header(header::CONTENT_TYPE, "application/json")
             .body(bytes);
         let request = match revision {
-            Some(etag) => request.header(header::IF_MATCH, etag),
+            Some(etag) => {
+                ensure!(strong_etag(etag), "清单发布修订不是单一强 ETag");
+                request.header(header::IF_MATCH, etag)
+            }
             None => request.header(header::IF_NONE_MATCH, "*"),
         };
         let request = if let Some(condition) = lock_condition {
@@ -258,6 +262,18 @@ impl WebDav {
         }
         Ok(())
     }
+}
+
+// RFC 9110 §8.8.3: one opaque entity-tag, not an If-Match list. Keep its
+// bytes unchanged; commas/backslashes inside the quoted tag are opaque data.
+fn strong_etag(value: &str) -> bool {
+    value
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .is_some_and(|tag| {
+            tag.bytes()
+                .all(|byte| matches!(byte, 0x21 | 0x23..=0x7e | 0x80..=0xff))
+        })
 }
 
 fn copy_limited(mut input: impl Read, output: &mut dyn Write, limit: u64) -> Result<u64> {
