@@ -200,6 +200,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 本地 `rustup show active-toolchain` 确认由该文件覆盖，`rustc --version` 为 `1.97.0 (2d8144b78 2026-07-07)`，与此前验收编译器相同。格式、全工作区全目标 Clippy、差异检查通过；无依赖或业务代码变更，因此没有重复行为全量测试。
 - 已说明单独升级、必要回归和跨平台 CI 门槛。远程 CI 与全新机器安装尚未运行，不把本地 override 结果当作远程平台通过。
 
+## Linux 核心检查的字体依赖
+
+核心公式回归要求中文也输出 SVG 字形轮廓。Ubuntu 开发/CI 环境需安装 `fonts-noto-cjk`，并设置 `RATEX_UNICODE_FONT='/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc#Noto Sans CJK SC'`。只有 DejaVu 时中文会退回 `<text>`，不能满足该断言。CI 安装包后验证字体文件存在，不跳过或放宽测试；本项不要求 GPUI 或桌面窗口环境。
+
 ## 独立 vendor 回归与 CI（2026-10-05）
 
 - 对比两个 0.7.0 原始发布包，建立完整源码清单：Base 修改 36 文件、新增 6 文件，Component 修改 11 文件。上游提交、路径、目的、验证层次及升级方式见 `VENDOR_REGRESSION.md`。
@@ -998,3 +1002,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新回归验证共享恢复目录中的两个库分别只整理自己的孤立缓存，仍存在的草稿/已保存记录受到保护，含点号及 Unicode 的旧日志名不会因错误替换扩展名被误判为缺失。验证意外正文目录/悬空链接、错误校验和、错误缓存文件名、损坏及过大文件不删除；既有两级缓存目录链接回归同时覆盖整理入口。
 - 核心全量 266 项通过、3 项既有手动入口忽略（3.67 秒）；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/orphan-metadata-tests.log`、`target/orphan-metadata-clippy.log`、`target/orphan-metadata-fmt.log`。本次仅改核心维护流程，未新增原生或性能验收，未修改真实用户笔记。
 - 新整理只读取小型元数据，现有历史保留策略自身的正文读取行为不在此次改动内。并发列表在本轮整理之后重新发布的孤立缓存可由下次维护处理；无法验证归属的损坏缓存仍保留，不宣称已删除所有未知缓存。
+
+
+## 首次远端跨平台运行与 Linux 字体依赖修复（2026-10-06）
+
+- 核对并 fetch 远端后，将本地 `f4c8738` 的 140 个待验证提交推到独立分支 `codex/quality-and-recovery-ci`；master 未推送或合并。历史 144 条文件路径均在 crates/vendor/tools/docs/demo-vault/.github 和 Cargo/工具链清单范围，示例改动为首次使用与验收说明，没有真实用户笔记。范围记录：`target/ci-publication-scope.json`。
+- 实际触发 [运行 37419921824](https://github.com/Horbin-Magician/inkstone/actions/runs/37419921824)，五个任务均完成初始化并安装固定 Rust 工具链；之前 Swatin action 无法解析的初始化阻断已消除。Linux 核心 Clippy 通过；核心测试 264 项通过、1 项失败、3 项忽略，失败为中文公式输出轮廓回归。失败输出明确只有 DejaVu 字体，中文返回 `<text>`。Linux 比本机少一项 macOS 专用测试，不能直接比较总数。
+- 新增 Linux job 的 fonts-noto-cjk 安装、文件存在检查及 RATEX_UNICODE_FONT 指向 Noto Sans CJK SC。依据当前锁定 ratex-unicode-font 0.1.14 的实际字体配置/选择代码，保留原轮廓断言。YAML 解析和 diff 检查通过；修复尚待新的 Linux 远端运行证明，其他平台结果仍在收集中，不将任务已启动记作检查通过。
+- 日志：`target/ci-core-linux-37419921824.log`、`target/ci-run-37419921824-watch.log` 和对应 jobs JSON。本提交只修改 CI 环境及说明，未改产品代码；必需合入门槛尚未建立。
