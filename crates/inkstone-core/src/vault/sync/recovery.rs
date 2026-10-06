@@ -178,6 +178,7 @@ fn restore_with(
     reserved: &[PathBuf],
     copied: impl FnOnce(),
 ) -> Result<Restored> {
+    let _operation = super::lock_operation(vault)?;
     ensure!(
         inspect(vault, &entry.metadata)? == *entry,
         "备份记录已变化，请刷新后重试"
@@ -364,6 +365,36 @@ mod tests {
             assert_eq!(with_link.unmeasured_files, 1);
             assert_eq!(fs::read(outside)?, b"outside");
         }
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn restore_holds_sync_operation_lock_until_publication_and_releases_afterward() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("inkstone-sync-restore-lock-{}", unique_id()));
+        fs::create_dir_all(root.join("vault"))?;
+        let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
+        fs::write(vault.root.join("note.md"), b"old")?;
+        apply_bytes(&vault, "note.md", Some(&hash(b"old")), Some(b"new"))?;
+        let entry = inventory(&vault)?.entries.remove(0);
+        let lock = super::super::lock_operation(&vault)?;
+        assert!(restore_copy(&vault, &entry, &[]).is_err());
+        assert!(!vault.root.join("note 同步恢复.md").exists());
+        drop(lock);
+        let restored = restore_with(&vault, &entry, &[], || {
+            assert!(super::super::lock_operation(&vault).is_err());
+            assert!(!vault.root.join("note 同步恢复.md").exists());
+        })?;
+        let next = super::super::lock_operation(&vault)?;
+        assert_eq!(fs::read(vault.root.join(restored.relative))?, b"old");
+        assert_eq!(fs::read(vault.root.join("note.md"))?, b"new");
+        assert_eq!(fs::read(vault.root.join(&entry.backup))?, b"old");
+        drop(next);
+        // An error before copying must also release ownership.
+        let mut stale = entry;
+        stale.bytes += 1;
+        assert!(restore_copy(&vault, &stale, &[]).is_err());
+        drop(super::super::lock_operation(&vault)?);
         fs::remove_dir_all(root)?;
         Ok(())
     }

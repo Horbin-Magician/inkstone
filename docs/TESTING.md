@@ -1467,3 +1467,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 增加独立请求编号；同库普通刷新和后续预览可使早期结果失效，切库还校验工作区代次与恢复请求身份。普通刷新和恢复开始会清除旧预览。
 - 新增 retention_preview_refreshes_inventory_and_never_saves_dirty_notes：验证写任务准入、旧备份候选、dirty 正文不变、同库刷新覆盖在途预览、加入无记录备份后全部保护，磁盘原件与备份逐字节不变。切库回归增加在途预览覆盖；既有分页键盘与副本恢复回归一起执行。日志 target/backup-cleanup-audit/sync-retention-ui-{tests,clippy}.log。原生新增预览界面验收待完成。
 - 验证结果：4 项桌面同步恢复回归、全工作区 all-targets Clippy -D warnings、格式和 diff 检查通过。
+
+## 同步与备份副本恢复共用操作锁（2026-10-06）
+
+- 提取 sync::lock_operation，保留既有恢复目录 webdav-sync/<vault-hash>.lock 路径；同步和 restore_copy 均持有同一独占 FileLock。恢复在检查元数据前取得锁，复制与发布结束/报错后释放。UI 的 FileWrites 准入仍保留。
+- 新增 restore_holds_sync_operation_lock_until_publication_and_releases_afterward：已有锁拒绝恢复且不创建副本；复制完成但尚未发布时再次取得锁失败；恢复完成或过期记录报错后可重新取得锁；原文件和备份正文不变。既有同步被锁阻止及锁释放后继续的用例同时复验。
+- 核心同步测试 46 通过、2 个既有手动大库/成本入口忽略（不重新进行性能测量）；全工作区 all-targets Clippy -D warnings 通过。日志 target/backup-cleanup-audit/sync-recovery-lock-{tests,clippy,ui-tests}.log。
+- 边界：只协调同一设备恢复目录及库路径。不同恢复目录、不同用户或共享存储的统一协调尚未完成；此提交不能授权同步备份删除，仍无删除入口。
+- 桌面 4 项同步恢复回归、格式与 diff 检查通过；没有改动真实用户笔记。
