@@ -69,7 +69,7 @@ impl MaintenanceLock<'_> {
         self.seconds
     }
 
-    fn condition(&self) -> Result<HeaderValue> {
+    pub(super) fn condition(&self) -> Result<HeaderValue> {
         ensure!(self.valid && !self.released, "云端维护锁已失效，请重新开始");
         // Tag the lock root, so descendant mutations also test the root's state.
         HeaderValue::from_str(&format!(

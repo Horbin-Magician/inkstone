@@ -77,6 +77,10 @@ pub(super) fn server_with_observer(
             request.push_str(std::str::from_utf8(&bytes).unwrap());
             observer(requests.len(), &request);
             requests.push(request);
+            if code == 0 {
+                // Deterministic lost response after the server receives a request.
+                continue;
+            }
             let body = body.replace("$ROOT", &format!("{url}inkstone/"));
             write!(stream, "HTTP/1.1 {code} Test\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
         }
