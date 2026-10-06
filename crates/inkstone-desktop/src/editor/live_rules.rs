@@ -9,7 +9,7 @@ pub(super) fn overlay(
         move |_, window, cx| {
             let viewport = editor.read(cx).input_bounds();
             let text_bounds = editor.read(cx).text_bounds().unwrap_or(viewport);
-            let baseline = editor.read(cx).value();
+            let revision = editor.read(cx).text_revision();
             let visible: Vec<_> = rules
                 .iter()
                 .filter_map(|range| {
@@ -25,7 +25,6 @@ pub(super) fn overlay(
                 for (range, bounds) in visible {
                     let offset = range.start;
                     let editor = editor.clone();
-                    let baseline = baseline.clone();
                     let width = text_bounds.right() - bounds.left();
                     let mut element = div()
                         .id(("live-rule", offset))
@@ -39,9 +38,10 @@ pub(super) fn overlay(
                         .on_click(move |_, window, cx| {
                             cx.stop_propagation();
                             editor.update(cx, |state, cx| {
-                                if state.value() != baseline {
+                                if state.text_revision() != revision {
                                     return;
                                 }
+                                let baseline = state.value();
                                 let start = baseline[..offset].rfind('\n').map_or(0, |i| i + 1);
                                 let end = baseline[offset..]
                                     .find(['\r', '\n'])
