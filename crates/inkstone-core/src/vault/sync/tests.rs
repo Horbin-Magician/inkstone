@@ -830,3 +830,26 @@ fn cancelled_stream_removes_partial_and_preserves_verified_objects() -> Result<(
     assert!(object.read().is_err());
     Ok(())
 }
+
+#[test]
+fn streaming_fingerprint_preserves_digest_limits_and_cancellation() -> Result<()> {
+    let f = Fixture::new();
+    let path = f.b.root.join("binary.bin");
+    let cancellation = Cancellation::default();
+    assert!(fingerprint(&path, &cancellation)?.is_none());
+    for bytes in [Vec::new(), (0..200_003).map(|n| (n % 251) as u8).collect()] {
+        fs::write(&path, &bytes)?;
+        assert_eq!(
+            fingerprint(&path, &cancellation)?,
+            Some((hash(&bytes), bytes.len() as u64))
+        );
+    }
+    assert!(fingerprint(&f.b.root, &cancellation).is_err());
+    assert!(cancellation.request());
+    assert!(is_cancelled(
+        &fingerprint(&path, &cancellation).unwrap_err()
+    ));
+    fs::File::create(&path)?.set_len(MAX_FILE_BYTES + 1)?;
+    assert!(fingerprint(&path, &Cancellation::default()).is_err());
+    Ok(())
+}
