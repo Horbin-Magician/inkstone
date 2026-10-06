@@ -1,6 +1,24 @@
 //! Locked preflight; a checked preview is not a persistent deletion authorization.
 use super::{retention, *};
 
+#[derive(Debug)]
+struct CleanupCancelled;
+impl std::fmt::Display for CleanupCancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("同步备份清理已停止；此前已完成的删除不会撤销")
+    }
+}
+impl std::error::Error for CleanupCancelled {}
+pub fn is_cancelled(error: &anyhow::Error) -> bool {
+    error.is::<CleanupCancelled>()
+}
+fn check_cancellation(cancellation: &Cancellation) -> Result<()> {
+    if cancellation.is_requested() {
+        return Err(CleanupCancelled.into());
+    }
+    Ok(())
+}
+
 pub struct Checked {
     preview: retention::Preview,
     vault: Vault,
@@ -23,7 +41,7 @@ pub fn prepare(
     in_use: &BTreeSet<PathBuf>,
     cancellation: &Cancellation,
 ) -> Result<Checked> {
-    cancellation.check()?;
+    check_cancellation(cancellation)?;
     crate::vault::backup::storage::require_local(&vault.root)?;
     let operation = super::super::lock_operation(vault)?;
     validate(vault, expected, in_use, cancellation)?;
@@ -36,7 +54,7 @@ pub fn prepare(
 }
 
 fn verify_entry(vault: &Vault, entry: &Entry, cancellation: &Cancellation) -> Result<()> {
-    cancellation.check()?;
+    check_cancellation(cancellation)?;
     ensure!(inspect(vault, &entry.metadata)? == *entry, "备份记录已变化");
     let descriptor = read_descriptor(vault, &entry.metadata)?;
     ensure!(
@@ -50,7 +68,7 @@ fn verify_entry(vault: &Vault, entry: &Entry, cancellation: &Cancellation) -> Re
     let mut bytes = 0u64;
     let mut buffer = [0u8; 64 * 1024];
     loop {
-        cancellation.check()?;
+        check_cancellation(cancellation)?;
         let count = source.0.read(&mut buffer)?;
         if count == 0 {
             break;
@@ -75,7 +93,7 @@ fn verify_entry(vault: &Vault, entry: &Entry, cancellation: &Cancellation) -> Re
 }
 
 fn verify_inventory(vault: &Vault, expected: &[Entry], cancellation: &Cancellation) -> Result<()> {
-    cancellation.check()?;
+    check_cancellation(cancellation)?;
     crate::vault::backup::storage::require_local(&vault.root)?;
     let fresh = inventory(vault)?;
     ensure!(
@@ -99,7 +117,7 @@ fn verify_inventory(vault: &Vault, expected: &[Entry], cancellation: &Cancellati
             && after.entries == fresh.entries,
         "核验期间同步备份清单发生变化，请重新预览"
     );
-    cancellation.check()?;
+    check_cancellation(cancellation)?;
     Ok(())
 }
 
@@ -291,18 +309,21 @@ mod tests {
             let (root, vault, preview) = fixture();
             let cancellation = Cancellation::default();
             let checked = prepare(&vault, &preview, &BTreeSet::new(), &cancellation).unwrap();
-            assert!(
-                checked
-                    .execute_with(&cancellation, |_| {
-                        if cancel {
-                            cancellation.request();
-                            Ok(())
-                        } else {
-                            anyhow::bail!("injected interruption")
-                        }
-                    })
-                    .is_err()
-            );
+            let error = checked
+                .execute_with(&cancellation, |_| {
+                    if cancel {
+                        cancellation.request();
+                        Ok(())
+                    } else {
+                        anyhow::bail!("injected interruption")
+                    }
+                })
+                .unwrap_err();
+            assert_eq!(is_cancelled(&error), cancel);
+            if cancel {
+                assert!(error.to_string().contains("已完成的删除不会撤销"));
+                assert!(!error.to_string().contains("未发布清单或修改本地文件"));
+            }
             let fresh = inventory(&vault).unwrap();
             assert_eq!(fresh.entries.len(), 2);
             assert_eq!(
