@@ -285,3 +285,17 @@ release cbb5372，沿用 627d780 同机、corpus v1 large-document/live、1200×
 CPU 中位数 3.7984%，低于上一组 4.0661%，仍未达到 2% 预算；该小幅差异不能单独证明精确收益。采样最大 RSS 中位数 348.8281 MiB，是生命周期峰值的下界，不含 GPU/辅助进程。全部正式活动记录均为激活、编辑器获焦、加载完成，三轮最大相邻间隔均 2,101 ms；间隔记录不替代连续追踪。采样期间无本地编译或测试，未退出其他用户应用、未清空 OS 缓存。
 
 证据保存在 target/native-font-projection-srkzmhop：run.json、results.json、各轮 preparation.json/idle.json/activity.jsonl/audit.json/pid。三进程 Cmd+Q 后均已退出，三份生成库各 16 个 Markdown 长度与 SHA-256 均不变。第三轮正式计量后另取五秒调用栈至 3/idle-stack.txt（sample.log），不混入 CPU 计量。构建日志 target/backup-cleanup-audit/font-projection-release.log。继续按未达标处理，完整五场景原生性能验收仍未完成。
+
+## 辅助功能正文缓存的三轮原生复测（2026-10-06）
+
+release 721b1f2，沿用 cbb5372 同机、corpus v1 large-document/live、1200×820 逻辑窗口、字号 16、左右栏开启、活动诊断、zoom 往返及 x/Cmd+Z 预热。三轮截图确认完整正文可见，原生 AX 值均出现插入的 x，撤销后 x 消失并回到“已保存”；不是中文 IME 验收。每轮稳定 30 秒、正式采样 30 秒。
+
+| 轮次 | PID | 单核 CPU | 采样最大 RSS | 正式活动样本数 |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 6856 | 3.6649% | 344.1563 MiB | 14 |
+| 2 | 7008 | 3.8316% | 365.2031 MiB | 14 |
+| 3 | 7157 | 3.5982% | 353.3906 MiB | 15 |
+
+CPU 中位数 3.6649%，相比上一组 3.7984% 略低，仍未达到 2% 预算；轮次波动不能排除，不能将此差值认定为精确收益。采样最大 RSS 中位数 353.3906 MiB，仍仅为真实生命周期峰值的下界，不含 GPU/辅助进程。全部正式活动记录为激活/获焦/加载完成，最大相邻间隔 2,101/2,100/2,100 ms，间隔记录不替代连续追踪。采样期间无本地编译/测试，未退出其他用户应用、未清空 OS 缓存。
+
+原始目录 target/native-a11y-cache-guw31erk，含 run.json、results.json 和各轮 preparation.json/idle.json/activity.jsonl/audit.json/pid。三进程均正常退出，三份生成库各 16 个 Markdown 长度与 SHA-256 不变。release 构建日志 target/backup-cleanup-audit/a11y-value-cache-release.log。完整输入延迟、滚动、打开和五场景验收仍待完成；后续检查 Workspace 定时草稿扫描的正文读取。

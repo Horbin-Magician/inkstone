@@ -1377,3 +1377,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新缓存测试覆盖 60 次未变化读取、等长度文本更换及隐藏后清理；既有 AX 写入测试补充实际输出在编辑、撤销后更新的断言，并保留遮罩不暴露正文的断言。
 - vendor Base 1,238 + Component 573 项全量通过，无忽略；补充 AX 断言后 Component 573 项再次全量通过。editor:: 117 项通过、2 项既有手工性能基准忽略；workspace all-targets Clippy -D warnings、workspace 与修改的 vendor 文件格式、diff 检查通过。日志 target/backup-cleanup-audit/a11y-value-cache-{vendor,component-final,editor,clippy}.log。
 - 原生收益待测，不据缓存回归宣布 2% CPU 预算达标。GitHub run 37443802450 正在验证 0aa54f2（含字体投影改动），尚不覆盖本次缓存。无用户笔记进入提交。
+
+## 辅助功能缓存的原生复测（2026-10-06）
+
+- 721b1f2 locked release 构建成功；三轮原生 AX 输入/撤销更新、活动状态、退出及生成库散列核验通过。CPU 中位数 3.6649%，未达 2% 预算，详见 PERFORMANCE_BASELINE.md 与 target/native-a11y-cache-guw31erk。
+- run 37443802450 覆盖 0aa54f2（字体投影），本次核对 macOS vendor 已通过，其余三项仍运行，不覆盖辅助功能缓存。本次未取消或重启该运行。
+- 文档 diff 检查通过，未包含真实用户笔记。
