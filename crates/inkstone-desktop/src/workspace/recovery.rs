@@ -65,6 +65,20 @@ fn retention_label(policy: inkstone_core::vault::Retention) -> String {
 }
 
 impl Workspace {
+    pub(super) fn show_recovery_hub(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.ui.bulk_edit = None;
+        self.ui.link_health = None;
+        self.ui.attachment_manager = None;
+        self.ui.history = None;
+        self.ui.conflict_review = None;
+        self.ui.trash_open = true;
+        self.ui.recovery_scroll.set_offset(point(px(0.), px(0.)));
+        window.focus(&self.ui.modal_focus, cx);
+        // Refresh advances the request identity, invalidating any old preview.
+        self.refresh_trash(cx);
+        cx.notify();
+    }
+
     pub(super) fn refresh_trash_metadata(&mut self, cx: &mut Context<Self>) {
         let Some(vault) = self.vault.clone() else {
             return;
@@ -550,9 +564,18 @@ impl Workspace {
             .flex_col()
             .gap_2()
             .min_h_0()
+            .child(FocusReveal::new(
+                "history-back-focus",
+                &browser.scroll,
+                Button::new("history-back-to-recovery")
+                    .label("返回文件恢复")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.show_recovery_hub(window, cx);
+                    })),
+            ))
             .child(
                 div()
-                    .truncate()
+                    .whitespace_normal()
                     .child(browser.path.to_string_lossy().to_string()),
             )
             .when_some(browser.record.as_ref(), |s, record| {
@@ -747,6 +770,80 @@ mod tests {
         assert!(shown.len() <= 128 * 1024);
         assert!(preview.contains("恢复副本仍包含完整正文"));
         assert_eq!(preview_text("a\r\n😀"), "a\r\n😀");
+    }
+
+    #[gpui::test]
+    fn recovery_hub_return_invalidates_preview_and_preserves_dirty_document(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-recovery-return-{stamp}"));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let path = PathBuf::from("note.md");
+        vault.save(&path, None, "disk").unwrap();
+        let journal = vault.journal(&path, Some("disk"), "recoverable").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.add_tab(path.clone(), Some("disk".into()), false, window, cx);
+                w.tabs[0]
+                    .save
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.set_value("unsaved", window, cx));
+                w.flush_document_views(window, cx);
+            })
+            .unwrap();
+        for draft in [false, true] {
+            for wait_for_preview in [false, true] {
+                handle
+                    .update(cx, |w, window, cx| {
+                        if draft {
+                            w.recoveries = vault.recovery_summaries().unwrap();
+                            let index = w
+                                .recoveries
+                                .iter()
+                                .position(|e| e.journal == journal)
+                                .unwrap();
+                            w.review_draft(index, window, cx);
+                        } else {
+                            w.open_history_path(path.clone(), window, cx);
+                        }
+                    })
+                    .unwrap();
+                if wait_for_preview {
+                    cx.run_until_parked();
+                }
+                handle
+                    .update(cx, |w, window, cx| {
+                        let previous_request = w.ui.recovery_refresh;
+                        w.show_recovery_hub(window, cx);
+                        assert_ne!(w.ui.recovery_refresh, previous_request);
+                        assert!(w.ui.modal_focus.is_focused(window));
+                    })
+                    .unwrap();
+                cx.run_until_parked();
+                handle
+                    .update(cx, |w, _, cx| {
+                        assert!(w.ui.history.is_none());
+                        assert!(w.ui.trash_open);
+                        assert!(w.recoveries.iter().any(|e| e.journal == journal));
+                        assert_eq!(w.tabs[0].save.editor.read(cx).value().as_ref(), "unsaved");
+                        assert!(w.tabs[0].save.persistence.is_dirty());
+                        assert_eq!(w.file_writes.pending(), 0);
+                    })
+                    .unwrap();
+                assert_eq!(vault.read(&path).unwrap().as_deref(), Some("disk"));
+                assert!(journal.exists());
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[gpui::test]

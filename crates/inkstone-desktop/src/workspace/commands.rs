@@ -412,16 +412,7 @@ impl Workspace {
                     }
                 }
             }
-            16 => {
-                self.ui.bulk_edit = None;
-                self.ui.link_health = None;
-                self.ui.attachment_manager = None;
-                self.ui.history = None;
-                self.ui.conflict_review = None;
-                self.ui.trash_open = true;
-                window.focus(&self.ui.modal_focus, cx);
-                self.refresh_trash(cx);
-            }
+            16 => self.show_recovery_hub(window, cx),
             99 => self.open_history(window, cx),
             100 => self.open_conflict_review(window, cx),
             101 => self.request_backup(window, cx),
