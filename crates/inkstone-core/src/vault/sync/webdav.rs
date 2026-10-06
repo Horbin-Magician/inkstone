@@ -1,6 +1,8 @@
 mod capacity;
+mod maintenance;
 use super::*;
 pub use capacity::CloudCapacity;
+pub use maintenance::MaintenanceLock;
 use reqwest::{
     Method, StatusCode, Url,
     blocking::{Body, Client, Response},
