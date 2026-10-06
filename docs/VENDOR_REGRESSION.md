@@ -12,7 +12,7 @@ python3 tools/vendor-regression/run.py
 
 2026-10-06 在 macOS 独立源码目录、空 Cargo 依赖缓存及构建目录执行上述正式入口：Base 1,236 项、Component 572 项全部通过，无忽略项。暂存源码与归档的 vendor 源码一致，两份独立锁均未变化；仍复用本机工具链和 SDK，不能替代 Windows、远端 CI 或原生交互验收。详见 [验收记录](TESTING.md)。
 
-CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令；合入规则应要求这两个 job 与 Workspace checks 通过。2026-10-06 核对远端：master 经典分支保护 API 返回 Branch not protected，有效分支规则列表为空，当前尚不能保证失败检查阻止合入。必须在更新后的工作流实际成功执行、检查名称稳定后配置必需检查并复核；本地 YAML 不会自动建立该门槛。
+CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10-06 已从实际 GitHub check runs 核实四个检查名称，并为 master 配置必需检查：`check (macos-latest)`、`check (windows-latest)`、`Vendor regression (macos-latest)`、`Vendor regression (windows-latest)`，均限定 GitHub Actions app（15368）。严格要求分支最新，管理员也受约束；远端读取复核与配置一致。待完成或失败的检查不能正常合入，配置门槛不等于测试已经通过；实际运行结果独立记录。修改 job 名称时必须同步更新远端配置，本地 YAML 不会自动更新门槛。
 
 工作流不依赖第三方 Rust 缓存 action。最近远端运行在准备阶段无法解析 `Swatin/rust-cache`，因此移除这一可选依赖；后续 CI 构建可能更慢，工作区和 vendor 检查命令保持不变，核心回归包含在工作区测试中。支持 push、pull_request 和手动 workflow_dispatch；新工作流在独立分支触发运行 37419921824 后已通过初始化。用户随后明确不需要 Linux 适配，现仅保留 macOS/Windows 的工作区及 vendor 四项检查；完整结果仍在收集中。
 
