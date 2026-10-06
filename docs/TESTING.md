@@ -931,3 +931,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 检查完成路径发现笔记和文件夹移动在 generation 不匹配时会先返回，漏释放任务。新增 GPUI 故障注入回归在任务启动后改变代次并登记替代任务，修复前实际得到 pending=2（应为 1），见 `target/file-operation-stale-before.log`。调整为实际完成后先释放自身凭据；笔记路径还结束捕获的原 DocumentState 操作状态，再检查是否更新 UI。正常切库仍等待未完成任务，回归的代次变化是显式注入，不代表正常 UI 允许强行切库。
 - 修复后回归覆盖笔记和文件夹两种移动，验证磁盘操作已完成、旧路径/通知不应用到当前界面、原文档 saving 已结束、新任务保护仍在，结束新任务后无残余保护。独立状态测试覆盖普通任务与两个保护任务混合、乱序/重复完成；旧同步 Run 替换测试也要求替代任务保护保留。
 - 最终桌面单元测试 339 项通过、2 项既有手动性能基准忽略（101.47 秒），全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/file-operation-tests-final.log`、`target/file-operation-clippy.log`、`target/file-operation-fmt.log`。本轮未修改 core/vendor，也未新增原生操作验收；各操作的启动策略及完整服务拆分仍待继续推进，真实用户笔记未改动。
+
+
+## 当前 release 草稿强退恢复复验与 IME 验收边界（2026-10-06）
+
+- 构建 `cdb4ed7` 的 macOS release，测试 bundle ID `app.inkstone.ime-test`，独立 XDG_DATA_HOME 和显式临时笔记库均位于 `target/native-ime-lf2aaq8x`。二进制 SHA-256 `b5853d7a69f554703105bb13e62b847929b7236ead88d8d44951c0da05ca6497`；构建日志 `target/native-ime-build.log`，环境、路径和原文件散列保存在 `run.json`。只操作测试实例和生成笔记。
+- 原生编辑追加“已提交检查点。”及按键输入 `nihao` 后，库外 JSON 已持久化完整新增内容；Markdown 保持原始散列 `0844ffe9e04c85b68a855685be8d70847e40897da2df3d077e144f419530cadf`。核对进程命令行后仅对测试 PID 60894 发送 SIGKILL；重新以同一隔离目录启动 PID 61088，界面提示检测到一条草稿，原文仍未改变。
+- 经命令面板“文件恢复”进入草稿比较，AX 内容与可见差异确认新增检查点和 `nihao`。执行恢复副本后，`ime 副本.md` 与崩溃前记录的 draft 逐字一致，SHA-256 `1f2704f334c93350a24cffa8012cd09797758288b48b551510a4301c789c4c79`，原件未变，待恢复 JSON 为零。正常退出后再次核对文件与进程；测试实例已退出。原始证据 `persisted-before-crash.json`、`acceptance.json`、两次进程日志。原生观察中 AX 与截图偶有不同步，坐标点击曾返回 noWindowsAvailable；不据此宣称完整鼠标/帧刷新矩阵通过。
+- **IME 未通过验收，也未据此判定产品失败**：只读查看系统设置确认已有 ABC/简体拼音，Ctrl+Space 和 Ctrl+Alt+Space 快捷键启用；在测试实例尝试这两组按键后仅观察到已提交的拉丁字母，未看到可确认的候选或预编辑态。`nihao` 被持久化属于普通已提交输入，不能当作预编辑泄漏。未安装输入法或更改系统配置，系统设置已退出。需要能可靠进入真实组合态的后续原生检查；不得把本记录或既有模拟 marked-text 测试改记为原生 IME 通过。
+- 本次仅提交验收记录，不改产品代码；release 构建、实际草稿/原文/副本内容核对及 diff 检查完成，不重复上一代码提交的全套测试。总体 1–8 项目标仍未完成。
