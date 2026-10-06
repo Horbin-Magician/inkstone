@@ -709,3 +709,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 通用设置行的控件复用焦点滚动容器，编辑器末尾“管理文件恢复”按钮同样接入。每行显式提供固定标识，字号/制表符宽度等动态标题变化不改变容器身份。保留原有按钮、开关、选择器及焦点顺序，不调整业务设置值。
 - 新增 GPUI 回归覆盖 800×500 逻辑窗口、rem 16/24、编辑器/外观/界面三个页面，每种组合分别派发 40 次 Tab 与 40 次 Shift+Tab，检查焦点控件在设置视口内完整可见；每方向至少覆盖编辑器 14 个、外观 5 个和界面 1 个不同焦点控件。设置相关 11 项回归通过，包括此前云同步表单、输入框文字保护及六类页面 36 个布局组合。全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/settings-rows-focus-tests.log`、`target/settings-rows-focus-regressions.log`、`target/settings-rows-focus-clippy.log`、`target/settings-rows-focus-fmt.log`。
 - 本轮只验证现有可聚焦控件的导航与可见性，不代表弹出选择菜单或修改选项流程已验证；当前滑块没有键盘焦点处理，须继续补齐。文件、备份与快捷键页的其他布局结构尚未全部接入焦点滚动；原生窗口及读屏验收仍待进行。未修改用户笔记。
+
+
+## 设置滑块：键盘调整、焦点与用户事件（2026-10-06）
+
+- 启用的单值滑块加入 Tab 顺序；无修饰方向键按 step 增减，Home/End 到边界，PageUp/PageDown 调整十个 step。数值夹紧，边界无变化不重复发事件；修饰组合和 Tab 继续传播。键盘和可访问性增减共同发出 Change/Release，让应用订阅者实际应用设置；程序设置数值仍不发用户事件。可访问性调整范围值时保留起点，禁用时不注册增减动作。本应用仅使用单值滑块，范围双滑块的键盘导航未扩展。
+- Component 增加可访问名称透传与不影响布局的键盘焦点描边。应用为制表符宽度、字体大小设置名称；新增 GPUI 真实按键事件回归，从 Tab 导航找到两个滑块，使用 Home/方向/End 修改设置，验证已打开编辑器接收对应值、值变化后焦点保留、Shift+Tab 可离开及正文不变。无打开的实际笔记库，不持久化用户配置。
+- Base 滑块相关 7 项通过，新增检查覆盖小数 step、四方向、首尾及翻页键、边界/修饰键不产生额外事件、Change/Release 顺序、禁用无 Tab 停靠、范围起点保留。应用设置相关 12 项通过，包括滚动矩阵和既有表单导航。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/slider-keyboard-vendor-tests.log`、`target/slider-keyboard-desktop-tests.log`、`target/slider-keyboard-settings-tests.log`、`target/slider-keyboard-clippy.log`、`target/slider-keyboard-fmt.log`。
+- 当前为 GPUI 自动回归；原生焦点描边、可访问名称读出及辅助技术增减动作还未实机验收，不能以内部用户调整方法测试替代读屏结果。未修改真实用户笔记。
+- Vendor 全量合计 1,808 项通过：Base 1,236 项（`target/slider-keyboard-vendor-full.log`）；中断前 Component 构建未完成，确认进程已结束后单独续跑 Component 572 项（`target/slider-keyboard-component-full.log`）。补丁清单已更新，现有独立 vendor CI 运行两包完整 library tests，新增 Base 滑块回归包含在其中。

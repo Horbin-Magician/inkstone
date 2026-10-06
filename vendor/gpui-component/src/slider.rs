@@ -89,6 +89,7 @@ pub struct Slider {
     style: StyleRefinement,
     disabled: bool,
     reverse: bool,
+    accessibility_label: Option<gpui::SharedString>,
 }
 
 impl Slider {
@@ -100,7 +101,14 @@ impl Slider {
             style: StyleRefinement::default(),
             disabled: false,
             reverse: false,
+            accessibility_label: None,
         }
+    }
+
+    /// Set the accessible name of the slider.
+    pub fn accessibility_label(mut self, label: impl Into<gpui::SharedString>) -> Self {
+        self.accessibility_label = Some(label.into());
+        self
     }
 
     /// As a horizontal slider.
@@ -259,6 +267,14 @@ impl RenderOnce for Slider {
         };
 
         BaseSlider::new(&self.state)
+            .when_some(self.accessibility_label, |slider, label| {
+                slider.aria_label(label)
+            })
+            .focus_visible(|style| {
+                style.shadow(vec![
+                    gpui::BoxShadow::new(px(0.), px(0.), ring_color).spread_radius(px(2.)),
+                ])
+            })
             .axis(axis)
             .disabled(self.disabled)
             .flex()
@@ -324,10 +340,11 @@ mod tests {
 
     impl Render for Harness {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            div()
-                .w(px(100.))
-                .h(px(24.))
-                .child(Slider::new(&self.state).disabled(self.disabled))
+            div().w(px(100.)).h(px(24.)).child(
+                Slider::new(&self.state)
+                    .disabled(self.disabled)
+                    .accessibility_label("测试滑块"),
+            )
         }
     }
 
