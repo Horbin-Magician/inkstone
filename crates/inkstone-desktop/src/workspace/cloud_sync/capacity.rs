@@ -2,7 +2,7 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
-type Key = (u64, [u8; 32]);
+pub(super) type Key = (u64, [u8; 32]);
 #[derive(Default)]
 pub(super) struct State {
     request: u64,
@@ -54,7 +54,7 @@ impl State {
     }
 }
 impl Workspace {
-    fn cloud_capacity_key(&self, cx: &App) -> Key {
+    pub(super) fn cloud_capacity_key(&self, cx: &App) -> Key {
         let settings = self.cloud_settings(cx);
         // Retain no extra plaintext password in the capacity state or messages.
         let value = serde_json::to_vec(&(
@@ -117,7 +117,7 @@ impl Workspace {
                 .child(format!("当前清单引用：{} 个对象 · {:.2} MiB", report.referenced_objects, report.referenced_bytes as f64 / 1048576.))
                 .child(format!("当前清单未引用：{} 个对象 · {:.2} MiB", report.unreferenced_objects, report.unreferenced_bytes as f64 / 1048576.))
                 .child(format!("缺失或大小未知的引用：{} 个；无法识别的列表项：{} 条", report.missing_or_unknown_objects, report.unrecognized_entries)))
-            .child("未引用对象可能属于其他设备尚未完成的同步，不等于可释放空间。这里只提供统计，不提供云端清理。")
+            .child("未引用对象可能属于其他设备尚未完成的同步，不等于可释放空间。清理前还需使用下方预览并完成核验。")
             .into_any_element()
     }
 }

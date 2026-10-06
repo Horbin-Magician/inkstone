@@ -1640,3 +1640,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 5 项回归覆盖：上传已完成而发布被清理代次隔离，失败后本地编辑/基线保留并可双库收敛；旧维护句柄不能删除或释放新会话锁；续期后 DELETE 前锁被撤销；实际删除后响应丢失并从新预览继续；旧快照读者下载失败保留本地状态再同步最新版本。各场景检查当前清单引用对象的存在和正文哈希。
 - 核心全量 321 项通过、3 个既有手动入口忽略；核心 all-targets Clippy `-D warnings`、工作区格式及 diff 检查通过。最终日志 `target/backup-cleanup-audit/cloud-cleanup-stateful-{core-tests,clippy}.log`；`cloud-cleanup-stateful-tests.log` 为添加第五场景前的四项定向结果。
 - 只新增测试和记录，没有修改产品行为、用户笔记或真实云端。模型假设服务端条件变更正确串行化，不替代真实服务商、原生界面、跨进程强退和物理断电验收；没有性能测量或 Linux 适配。
+
+## 云端清理设置界面（2026-10-06）
+
+- 接入只读预览、升级说明及确认、后台执行、停止与部分结果提示。输入变化和切库使结果失效；任务结束前保持协调票据，旧回调只释放自己的票据。清理不自动保存正文或表单，允许用户明确手动保存本地笔记。
+- 5 项定向回归通过：状态失效与取消、HTTP 成功及未保存保护、取消后等待任务退出、过期回调、执行期间显式保存。另扩展小窗口 Tab 路径至清理预览。
+- 工作区全量（最终调整任务票据前）：core 321 通过 / 3 忽略，desktop 366 通过 / 2 忽略，集成 display_objects 5、grapheme_cursor 1、grapheme_wrap 2 通过。最终普通任务票据及手动保存用例加入后，5 项定向回归和全工作区 all-targets Clippy `-D warnings` 通过；格式与 diff 检查通过。日志 `target/backup-cleanup-audit/cloud-cleanup-ui-{workspace-tests,tests,clippy}.log`。
+- [CI 37468452148](https://github.com/Horbin-Magician/inkstone/actions/runs/37468452148) 对应 28866bb，macOS/Windows 工作区及 vendor 四项全部成功；不覆盖其后的有状态测试和本次界面。
+- 仅使用生成数据；未操作真实云端或用户笔记。原生视觉、服务商兼容性及云端进程强退未验收；未进行性能测量或 Linux 适配。
