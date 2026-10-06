@@ -1,5 +1,6 @@
 //! Inventory and no-clobber recovery of displaced local files retained by sync.
 pub mod cleanup;
+pub mod residue;
 pub mod retention;
 use super::*;
 
@@ -26,12 +27,15 @@ pub struct MissingPayload {
     pub original: PathBuf,
     pub metadata_bytes: u64,
     pub modified: SystemTime,
+    descriptor_sha256: String,
 }
 #[derive(Clone, Debug, Default)]
 pub struct Inventory {
     pub entries: Vec<Entry>,
     /// Also counted in unreadable so existing cleanup continues to fail closed.
     pub missing_payloads: Vec<MissingPayload>,
+    /// Preserved descriptor-only records, still included in stored_bytes.
+    pub retained_descriptors: Vec<residue::RetainedDescriptor>,
     /// Invalid/unreadable descriptors and directories; valid entries remain usable.
     pub unreadable: usize,
     /// Sum of validated backup file sizes, excluding descriptors and orphan files.
@@ -59,7 +63,7 @@ struct Descriptor {
 fn is_descriptor(name: &str) -> bool {
     name.starts_with(".inkstone-sync-") && name.ends_with(".backup.json")
 }
-fn read_descriptor(vault: &Vault, relative: &Path) -> Result<Descriptor> {
+fn read_descriptor_bytes(vault: &Vault, relative: &Path) -> Result<Vec<u8>> {
     let path = vault.regular_file_path(relative)?;
     let descriptor_meta = fs::symlink_metadata(&path)?;
     ensure!(
@@ -71,7 +75,7 @@ fn read_descriptor(vault: &Vault, relative: &Path) -> Result<Descriptor> {
         relative
             .file_name()
             .and_then(|s| s.to_str())
-            .is_some_and(is_descriptor),
+            .is_some_and(|name| is_descriptor(name) || residue::is_retained(name)),
         "备份描述文件名称无效"
     );
     let mut bytes = Vec::new();
@@ -79,7 +83,12 @@ fn read_descriptor(vault: &Vault, relative: &Path) -> Result<Descriptor> {
         .take(16 * 1024 + 1)
         .read_to_end(&mut bytes)?;
     ensure!(bytes.len() <= 16 * 1024, "备份描述文件过大");
-    Ok(serde_json::from_slice(&bytes)?)
+    Ok(bytes)
+}
+fn read_descriptor(vault: &Vault, relative: &Path) -> Result<Descriptor> {
+    Ok(serde_json::from_slice(&read_descriptor_bytes(
+        vault, relative,
+    )?)?)
 }
 fn descriptor_paths(relative: &Path, descriptor: &Descriptor) -> Result<(PathBuf, PathBuf)> {
     validate_path(&descriptor.original)?;
@@ -96,7 +105,8 @@ fn descriptor_paths(relative: &Path, descriptor: &Descriptor) -> Result<(PathBuf
     Ok((original, backup))
 }
 fn missing_payload(vault: &Vault, relative: &Path) -> Result<MissingPayload> {
-    let descriptor = read_descriptor(vault, relative)?;
+    let bytes = read_descriptor_bytes(vault, relative)?;
+    let descriptor: Descriptor = serde_json::from_slice(&bytes)?;
     ensure!(
         descriptor.unknown.is_empty(),
         "未知格式记录不能分类为正文缺失"
@@ -115,6 +125,7 @@ fn missing_payload(vault: &Vault, relative: &Path) -> Result<MissingPayload> {
         original,
         metadata_bytes: metadata.len(),
         modified: metadata.modified()?,
+        descriptor_sha256: hash(&bytes),
     })
 }
 fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
@@ -155,8 +166,9 @@ pub fn inventory(vault: &Vault) -> Result<Inventory> {
             let name = name.to_string_lossy();
             let path = item.path();
             let descriptor = is_descriptor(&name);
+            let retained = residue::is_retained(&name);
             let payload = name.starts_with(".inkstone-sync-") && name.ends_with(".backup");
-            if descriptor || payload {
+            if descriptor || payload || retained {
                 match fs::symlink_metadata(&path) {
                     Ok(meta) if meta.is_file() && !is_reparse(&meta) => {
                         report.stored_bytes = report.stored_bytes.saturating_add(meta.len());
@@ -188,6 +200,15 @@ pub fn inventory(vault: &Vault) -> Result<Inventory> {
                             report.missing_payloads.push(missing);
                         }
                     }
+                }
+            } else if retained {
+                match path
+                    .strip_prefix(&vault.root)
+                    .ok()
+                    .and_then(|relative| residue::inspect(vault, relative).ok())
+                {
+                    Some(record) => report.retained_descriptors.push(record),
+                    None => report.unreadable += 1,
                 }
             } else if !name.starts_with('.') {
                 match fs::symlink_metadata(&path) {
