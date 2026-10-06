@@ -1336,3 +1336,8 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - text_counts 使用 (EntityId, text_revision) 与有效选区判断缓存命中，避免工作区重绘时逐字比较两个 Rope；CountSnapshot 只保留修订标识、选区和计数，不再持有正文。需要重算时仍克隆共享 Rope，大文档保持 200 ms 防抖、后台展平/计算及过期结果拒绝。
 - counts 筛选 5 项通过（3 项编辑器计数、1 项分屏计数、1 项同名筛选的容量测试），覆盖未变化内容不重启防抖、同长度静默替换、选区/阅读模式、过期任务与非活动分屏；workspace all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/count-revision-tests.log、count-revision-clippy.log。
 - 本次依赖 e9a7e7b 已完成 vendor 全量验证的修订号契约；未改变 vendor。原生收益待复测，不据缓存命中宣布 CPU 达标。旧 run 37439067537 的 macOS 工作区/vendor 已成功，Windows 两项本次核对仍运行；该运行只覆盖到 0a12ad6，不覆盖修订号改动。无用户笔记进入提交。
+
+## 修订号缓存的原生结果（2026-10-06）
+
+- e1f8710 locked release 构建通过；同协议三轮大文档实时预览 CPU 4.3982%/4.4317%/4.4981%，中位数 4.4317%，未达 2% 预算。原生输入与撤销、活动状态、进程退出和生成库散列核验通过；记录在 PERFORMANCE_BASELINE.md 与 target/native-text-revision-e4pxewzh。
+- run 37439067537 最近核对为 macOS 两项及 Windows vendor 成功，Windows 工作区仍运行，覆盖范围仍仅到 0a12ad6。此次测量不替代 Windows 修订号回归或五场景性能验收。文档 diff 检查通过，无真实笔记进入提交。
