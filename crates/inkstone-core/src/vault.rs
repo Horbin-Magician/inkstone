@@ -6,7 +6,7 @@ pub mod export;
 mod history;
 pub mod sync;
 mod trash_metadata;
-pub use history::{HistoryEntry, Retention};
+pub use history::{HistoryEntry, HistoryNote, Retention};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
