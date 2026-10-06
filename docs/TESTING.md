@@ -2,7 +2,7 @@
 
 开发环境安装 rustup 后，从仓库根目录执行。`rust-toolchain.toml` 是开发和 CI 的唯一工具链版本来源，目前固定 Rust 1.97.0，并安装 Clippy、rustfmt。首次执行 rustup/Cargo 时自动安装该版本；依赖仍通过 `Cargo.lock` 和 `--locked` 固定。
 
-升级工具链应单独提交：修改 `rust-toolchain.toml`，执行下列工作区检查以及 vendor 专项回归，记录新旧编译器版本和原生回归范围；macOS、Windows 与 Linux core CI 都通过后再合入。不要把 `stable` 升级和依赖/vendor 更新混进同一提交。
+升级工具链应单独提交：修改 `rust-toolchain.toml`，执行下列工作区检查以及 vendor 专项回归，记录新旧编译器版本和原生回归范围；macOS 与 Windows 的工作区及 vendor CI 都通过后再合入。不要把 `stable` 升级和依赖/vendor 更新混进同一提交。
 
 从仓库根目录执行：
 
@@ -199,10 +199,6 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增根目录 `rust-toolchain.toml`，固定 `1.97.0`、minimal profile、Clippy 和 rustfmt。三个 CI 平台在 checkout 后通过 rustup 使用同一仓库文件，不再跟随浮动 stable。
 - 本地 `rustup show active-toolchain` 确认由该文件覆盖，`rustc --version` 为 `1.97.0 (2d8144b78 2026-07-07)`，与此前验收编译器相同。格式、全工作区全目标 Clippy、差异检查通过；无依赖或业务代码变更，因此没有重复行为全量测试。
 - 已说明单独升级、必要回归和跨平台 CI 门槛。远程 CI 与全新机器安装尚未运行，不把本地 override 结果当作远程平台通过。
-
-## Linux 核心检查的字体依赖
-
-核心公式回归要求中文也输出 SVG 字形轮廓。Ubuntu 开发/CI 环境需安装 `fonts-noto-cjk`，并设置 `RATEX_UNICODE_FONT='/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc#Noto Sans CJK SC'`。只有 DejaVu 时中文会退回 `<text>`，不能满足该断言。CI 安装包后验证字体文件存在，不跳过或放宽测试；本项不要求 GPUI 或桌面窗口环境。
 
 ## 独立 vendor 回归与 CI（2026-10-05）
 
@@ -1010,3 +1006,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 实际触发 [运行 37419921824](https://github.com/Horbin-Magician/inkstone/actions/runs/37419921824)，五个任务均完成初始化并安装固定 Rust 工具链；之前 Swatin action 无法解析的初始化阻断已消除。Linux 核心 Clippy 通过；核心测试 264 项通过、1 项失败、3 项忽略，失败为中文公式输出轮廓回归。失败输出明确只有 DejaVu 字体，中文返回 `<text>`。Linux 比本机少一项 macOS 专用测试，不能直接比较总数。
 - 新增 Linux job 的 fonts-noto-cjk 安装、文件存在检查及 RATEX_UNICODE_FONT 指向 Noto Sans CJK SC。依据当前锁定 ratex-unicode-font 0.1.14 的实际字体配置/选择代码，保留原轮廓断言。YAML 解析和 diff 检查通过；修复尚待新的 Linux 远端运行证明，其他平台结果仍在收集中，不将任务已启动记作检查通过。
 - 日志：`target/ci-core-linux-37419921824.log`、`target/ci-run-37419921824-watch.log` 和对应 jobs JSON。本提交只修改 CI 环境及说明，未改产品代码；必需合入门槛尚未建立。
+
+
+## 平台范围确认：不做 Linux 适配（2026-10-06）
+
+- 用户明确不需要 Linux 适配。移除独立 Ubuntu core job 和刚增加的 Linux 字体安装/环境变量，后续目标平台限定为 macOS、Windows。上文 Linux 执行与失败记录保留为历史证据，不再作为待修复项或合入门槛。
+- 两个平台均保留固定工具链、全工作区格式/Clippy/测试及独立 vendor 全量检查；核心测试包含在 workspace 中，不因移除 Linux job 而跳过核心回归。未改通用产品实现或弱化测试断言。
+- YAML 解析确认只保留 check/vendor 两个双平台矩阵，共四项检查；diff 检查通过。远端验证分支随后更新，新运行结果另行记录。
