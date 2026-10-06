@@ -51,7 +51,7 @@ impl Workspace {
             })
             .unwrap_or_default()
     }
-    pub(super) fn hotkeys(&self, id: usize) -> Vec<String> {
+    pub(crate) fn hotkeys(&self, id: usize) -> Vec<String> {
         self.ui.prefs.hotkeys.get(&id).cloned().unwrap_or_else(|| {
             Self::default_hotkeys(id)
                 .into_iter()

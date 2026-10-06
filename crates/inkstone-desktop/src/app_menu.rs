@@ -9,6 +9,7 @@ actions!(
 );
 
 pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
+    let observed = workspace.clone();
     let workspace = workspace.downgrade();
     let handle = window.window_handle();
     cx.on_action(move |_: &Quit, cx| {
@@ -42,6 +43,84 @@ pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
         KeyBinding::new("cmd-m", Minimize, None),
         KeyBinding::new("ctrl-cmd-f", Fullscreen, None),
     ]);
+    let mut previous = menu_bindings(|id| observed.read(cx).hotkeys(id));
+    install_bindings(&previous, cx);
+    cx.observe(&observed, move |workspace, cx| {
+        let next = menu_bindings(|id| workspace.read(cx).hotkeys(id));
+        if next.0 != previous.0 {
+            install_bindings(&next, cx);
+            previous = next;
+        }
+    })
+    .detach();
+}
+
+type Bindings = (
+    Vec<(usize, Vec<String>)>,
+    Vec<&'static str>,
+    Vec<KeyBinding>,
+);
+
+fn menu_bindings(mut hotkeys: impl FnMut(usize) -> Vec<String>) -> Bindings {
+    let mut result: Bindings = (Vec::new(), Vec::new(), Vec::new());
+    macro_rules! command {
+        ($id:expr, $action:ident) => {{
+            let keys = hotkeys($id);
+            result.1.push(gpui::Action::name(&workspace::$action));
+            for key in &keys {
+                // Preferences are user-editable; malformed values must not panic.
+                if gpui::Keystroke::parse(key).is_ok() {
+                    result
+                        .2
+                        .push(KeyBinding::new(key, workspace::$action, None));
+                }
+            }
+            result.0.push(($id, keys));
+        }};
+    }
+    command!(14, Settings);
+    command!(1, OpenVault);
+    command!(2, QuickOpen);
+    command!(0, NewNote);
+    command!(34, NewTab);
+    command!(17, ReopenTab);
+    command!(5, CloseTab);
+    command!(4, Save);
+    command!(8, RenameNote);
+    command!(3, FullSearch);
+    command!(24, Bold);
+    command!(25, Italic);
+    command!(59, InsertLink);
+    command!(39, CommandPalette);
+    command!(6, ToggleReading);
+    command!(12, ToggleLeft);
+    command!(13, ToggleRight);
+    command!(31, SplitRight);
+    command!(32, SplitDown);
+    command!(20, NavigateBack);
+    command!(21, NavigateForward);
+    command!(41, PreviousTab);
+    command!(40, NextTab);
+    result
+}
+
+fn install_bindings(bindings: &Bindings, cx: &mut App) {
+    let retained: Vec<_> = cx
+        .key_bindings()
+        .borrow()
+        .bindings()
+        .filter(|binding| !bindings.1.contains(&binding.action().name()))
+        .cloned()
+        .collect();
+    // GPUI has no per-action removal. Rebuild from an exact clone of every
+    // unrelated binding, preserving component contexts, system keys and order.
+    cx.clear_key_bindings();
+    cx.bind_keys(retained);
+    cx.bind_keys(bindings.2.clone());
+    install_menus(cx);
+}
+
+fn install_menus(cx: &App) {
     cx.set_menus([
         Menu::new(crate::product::name()).items([
             MenuItem::action("设置…", workspace::Settings),
@@ -105,4 +184,54 @@ pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
             MenuItem::action("缩放", Zoom),
         ]),
     ]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Action, TestAppContext};
+
+    #[gpui::test]
+    fn menu_bindings_follow_overrides_clear_and_reset_without_accumulating(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.update(|cx| {
+            cx.bind_keys([
+                KeyBinding::new("cmd-q", Quit, None),
+                KeyBinding::new("cmd-z", input::Undo, Some("Input")),
+                KeyBinding::new("cmd-s", workspace::Save, None),
+            ]);
+        });
+        for keys in [Some(vec![String::from("ctrl-alt-s")]), Some(vec![]), None] {
+            let bindings = handle
+                .update(cx, |w, _, _| {
+                    menu_bindings(|id| {
+                        if id == 4 {
+                            keys.clone().unwrap_or_else(|| w.hotkeys(id))
+                        } else {
+                            w.hotkeys(id)
+                        }
+                    })
+                })
+                .unwrap();
+            cx.update(|cx| {
+                install_bindings(&bindings, cx);
+                let count = cx.key_bindings().borrow().bindings().len();
+                install_bindings(&bindings, cx);
+                let keymap = cx.key_bindings();
+                let keymap = keymap.borrow();
+                assert_eq!(keymap.bindings().len(), count);
+                let save: Vec<_> = keymap.bindings_for_action(&workspace::Save).collect();
+                let expected = keys.clone().unwrap_or_else(|| vec!["cmd-s".into()]);
+                assert_eq!(save.len(), expected.len());
+                for (binding, key) in save.iter().zip(expected) {
+                    assert_eq!(binding.keystrokes(), KeyBinding::new(&key, workspace::Save, None).keystrokes());
+                }
+                assert_eq!(keymap.bindings_for_action(&Quit).count(), 1);
+                assert!(keymap.bindings().any(|b| b.action().name() == input::Undo.name() && b.predicate().is_some()));
+            });
+        }
+    }
 }
