@@ -1422,3 +1422,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 工作区根节点收到 Tab 时，如有弹窗则使用同一弹窗范围导航；共享 modal_is_open 判定用于渲染和导航，避免条件漂移。弹窗内已有处理仍会停止冒泡。
 - 新增 history_mouse_selection_keeps_reverse_tab_inside_dialog：鼠标选择历史后主动让焦点回落工作区，分别执行 12 次 Tab 与 Shift+Tab，验证焦点仍在弹窗、选择和磁盘正文不变。移除根节点保护后在第一次正向 Tab 确定性失败；恢复保护后 11 项恢复回归全部通过，全工作区 all-targets Clippy -D warnings、格式和 diff 检查通过。此测试模拟失焦条件，不声称复现所有原生事件细节。
 - 自动检查日志：target/backup-cleanup-audit/history-mouse-focus-before.log、history-focus-recovery-tests.log、history-mouse-focus-clippy.log。修复后的 release 原生反向导航、Windows、DPI 与读屏验收仍待完成；本轮没有性能测量。
+
+## 正式 Root 的弹窗焦点限制（2026-10-06）
+
+- 307a8b3 release 原生复验仍复现：选择第二条历史记录后首次 Shift+Tab 焦点落在底层状态栏。原测试直接挂载 Workspace，而正式应用在外层挂载 gpui_base::Root；后者的 Tab/TabPrev 动作不经过 Workspace 的按键处理，不能以此前 11 项通过推断原生问题已修复。
+- 常规弹窗和链接更新弹窗均注册框架 focus_trap，供正式 Root 的导航动作识别。新增 recovery_dialog_traps_tabs_with_application_root，按正式结构挂载 Root + Workspace，分别验证 12 次 Shift+Tab / Tab；移除 focus_trap 时首次 Shift+Tab 确定性失败。
+- 远端 run 37446249495（722a62f）已完成：macOS/Windows 全工作区检查、两平台 vendor 检查全部成功，不覆盖本轮焦点修复。
+- 自动检查：12 项恢复回归全部通过，全工作区 all-targets Clippy -D warnings、格式和 diff 检查通过，release 构建成功；日志 history-root-{focus-before,recovery-tests,clippy,release}.log 位于 target/backup-cleanup-audit。
+- 修复后隔离 release 原生验收（target/native-history-root-trap）：选择已保存历史后首次 Shift+Tab 的焦点框位于弹窗恢复按钮；再 7 次 Shift+Tab 到“返回文件恢复”，Enter 返回总览。重新打开并选择记录，10 次 Shift+Tab 后仍在恢复按钮，Tab 跨末尾循环至关闭按钮，Enter 关闭。全量 AX 确认未保存 B 和“尚未保存”仍在；磁盘保持 A，其余 15 份生成样本散列未变。最后编辑器还原到 A，确认已保存并正常退出。
+- 本轮仅确认 macOS 上述路径；Windows 原生、DPI、读屏与链接更新弹窗原生验收仍未完成。没有进行性能测量。
