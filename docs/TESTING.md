@@ -613,3 +613,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 设置页增加“校验并保留为备份”按钮，后台执行、计入待完成写入并防止重复触发，完成后按代次检查、刷新列表和提示结果。该操作只保留数据，不开启删除执行。
 - 核心回归覆盖锁冲突、不覆盖保留、原有最新备份不变、旧记录超出保留数仍保护、非隔离路径拒绝及残缺记录保留；核心全量 245 项通过、3 项忽略。GPUI 回归验证重复点击只产生一个写入任务、完整中断记录移回列表并显示保护原因；桌面备份相关 4 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/backup-retain-interrupted-tests.log`、`target/backup-retain-interrupted-ui-tests.log`、`target/backup-retain-interrupted-clippy.log`、`target/backup-retain-interrupted-fmt.log`。没有取消保护或自动丢弃残缺记录的功能，未做原生窗口/Windows/共享目录验收；未修改用户笔记。
+
+## 整库备份：清理的本地存储检查（2026-10-06）
+
+- 清理预检和执行均检查文件系统类型，网络或未知类型保守拒绝；设置页后台检测并显示限制，容量列表和恢复入口继续可用。macOS 使用明确的本地挂载标志，Linux 限定支持的本地文件系统，Windows 限定本地磁盘类型；不支持的平台拒绝清理。
+- 本机核心全量 247 项通过、3 项忽略，包含路径缺失及 macOS 本地标志判断；桌面备份相关 4 项通过，全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/backup-storage-gate-tests.log`、`target/backup-storage-gate-ui-tests.log`、`target/backup-storage-gate-clippy.log`、`target/backup-storage-gate-fmt.log`。
+- Linux/Windows 分支及真实网络挂载尚未实机验收；Linux overlay/FUSE 被有意拒绝。本地云盘软件、导出共享目录或其他不遵守锁的写入者仍不在检测能力内，不能据此宣称共享目录清理安全。未开放删除执行 UI，未修改用户笔记。

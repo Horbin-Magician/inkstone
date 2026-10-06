@@ -27,6 +27,7 @@ pub fn prepare(
     // Keep the path spelling used by the reviewed inventory; the lock helper
     // canonicalizes aliases for coordination. Fresh listing rejects root links.
     let directory = directory.to_owned();
+    super::storage::require_local(&directory)?;
     let lock = locking::acquire(&directory, true)?;
     let snapshots = validate(&directory, expected, in_use)?;
     Ok(Checked {
@@ -104,6 +105,7 @@ impl Checked {
         self,
         mut after_move: impl FnMut(&Path, &Path),
     ) -> io::Result<Report> {
+        super::storage::require_local(&self.directory)?;
         if validate(&self.directory, &self.preview, &self.in_use)? != self.snapshots {
             return Err(invalid("备份身份或清单在预检后发生变化"));
         }
@@ -209,4 +211,10 @@ pub fn retain_interrupted(directory: &Path, selected: &Path) -> io::Result<PathB
     let destination = directory.join(format!("inkstone-backup-recovered-{}", unique_id()));
     move_no_replace(selected, &destination)?;
     Ok(destination)
+}
+
+/// This gate detects network/unknown filesystems, not cloud sync software or
+/// non-cooperating writers on a local disk. Those still require caller exclusion.
+pub fn supports_cleanup(directory: &Path) -> io::Result<bool> {
+    super::storage::local(directory)
 }

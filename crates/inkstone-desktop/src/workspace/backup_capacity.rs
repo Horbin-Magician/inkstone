@@ -15,6 +15,7 @@ pub(super) struct State {
     message: String,
     keep: usize,
     preview: Option<Preview>,
+    local_storage: Option<bool>,
 }
 impl Workspace {
     pub(super) fn refresh_backup_capacity(&mut self, cx: &mut Context<Self>) {
@@ -42,7 +43,9 @@ impl Workspace {
         let task = cx.background_executor().spawn(async move {
             let inventory = capacity::list(&scan)?;
             let preview = retention::preview(&inventory, keep, &Default::default())?;
-            Ok::<_, std::io::Error>((inventory, preview))
+            let local =
+                inkstone_core::vault::backup::cleanup::supports_cleanup(&scan).unwrap_or(false);
+            Ok::<_, std::io::Error>((inventory, preview, local))
         });
         cx.spawn(async move |this, cx| {
             let result = task.await;
@@ -56,7 +59,8 @@ impl Workspace {
                 let state = &mut this.ui.backup.capacity;
                 state.loading = false;
                 match result {
-                    Ok((inventory, preview)) => {
+                    Ok((inventory, preview, local)) => {
+                        state.local_storage = Some(local);
                         state.inventory = Some(inventory);
                         state.preview = Some(preview);
                     }
@@ -143,6 +147,8 @@ impl Workspace {
             })))
             .when(!available, |s| s.child("备份或恢复任务进行中，清理预览暂停。"))
             .when_some(state.preview.as_ref().filter(|_| current && available), |s, preview| s.child(format!("{} 份候选 · 正文与清单估算 {:.2} MiB（不等于实际释放空间）", preview.candidates, preview.candidate_bytes as f64 / 1048576.)))
+            .when(current && state.local_storage == Some(false), |s| s.child("此位置是网络存储或无法确认的文件系统，已禁止清理；仍可查看、校验和恢复备份。"))
+            .child("清理还要求此位置不被其他机器、用户或云盘同步工具同时修改；本地磁盘检测不代表这些条件已满足。")
             .when(current && state.loading, |s| s.child("正在读取备份容量……"))
             .when(current && !state.message.is_empty(), |s| s.child(state.message.clone()))
             .when_some(state.inventory.as_ref().filter(|_| current), |panel, inventory| {
