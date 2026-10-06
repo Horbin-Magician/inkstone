@@ -13,6 +13,17 @@ pub(super) struct State {
     pager_focus: std::cell::OnceCell<FocusHandle>,
 }
 
+// Text rows need an explicit role: GPUI's painted strings alone do not expose
+// the recovery verdict to native accessibility clients.
+fn labelled_text(id: impl Into<ElementId>, text: String) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .role(gpui::Role::Label)
+        .aria_label(text.clone())
+        .whitespace_normal()
+        .child(text)
+}
+
 impl Workspace {
     pub(super) fn inspect_partial_backup(&mut self, index: usize, cx: &mut Context<Self>) {
         let capacity = &self.ui.backup.capacity;
@@ -175,7 +186,10 @@ impl Workspace {
             .flex()
             .flex_wrap()
             .gap_2()
-            .child(format!("第 {} / {pages} 页", state.page + 1))
+            .child(labelled_text(
+                "partial-page-label",
+                format!("第 {} / {pages} 页", state.page + 1),
+            ))
             .children([false, true].into_iter().map(|next| {
                 let focus = focus.clone();
                 let id = ("partial-page", usize::from(next));
@@ -219,16 +233,16 @@ impl Workspace {
         let busy =
             self.ui.backup.busy || self.ui.backup.picker_open || self.ui.backup.pending.is_some();
         div().flex().flex_col().min_w_0().gap_2()
-            .when_some(state.source.as_ref(), |s, path| s.child(div().whitespace_normal().child(format!("剩余文件校验：{}", path.display()))))
-            .when(state.loading, |s| s.child("正在校验剩余文件……"))
-            .when(!state.message.is_empty(), |s| s.child(div().whitespace_normal().child(state.message.clone())))
+            .when_some(state.source.as_ref(), |s, path| s.child(labelled_text("partial-source", format!("剩余文件校验：{}", path.display()))))
+            .when(state.loading, |s| s.child(labelled_text("partial-loading", "正在校验剩余文件……".into())))
+            .when(!state.message.is_empty(), |s| s.child(labelled_text("partial-message", state.message.clone())))
             .when_some(state.preview.as_ref(), |s, preview| {
                 let verified = preview.files.iter().filter(|s| **s == FileState::Verified).count();
 
-                s.child(format!("{} 个文件中 {verified} 个通过校验。缺失、损坏及清单外文件不会恢复；原残留不删除。", preview.files.len()))
+                s.child(labelled_text("partial-summary", format!("{} 个文件中 {verified} 个通过校验。缺失、损坏及清单外文件不会恢复；原残留不删除。", preview.files.len())))
                     .children(preview.manifest.files.iter().zip(&preview.files).enumerate().skip(state.page * RECORDS_PER_PAGE).take(RECORDS_PER_PAGE).map(|(i, (entry, status))| {
                         let label = match status { FileState::Verified => "可恢复".into(), FileState::Missing => "缺失".into(), FileState::Unavailable(reason) => format!("不可恢复：{reason}") };
-                        div().debug_selector(move || format!("partial-file-{i}")).whitespace_normal().child(format!("{} · {label}", entry.path.display()))
+                        labelled_text(("partial-file", i), format!("{} · {label}", entry.path.display())).debug_selector(move || format!("partial-file-{i}"))
                     }))
                     .child(self.partial_backup_pager(preview.files.len(), cx))
                     .child(FocusReveal::new((ElementId::from("partial-restore"), "focus"), &self.ui.settings_scroll,
@@ -242,6 +256,22 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn recovery_text_exposes_complete_path_and_verdict_without_click_action() {
+        use gpui::{Element, accesskit};
+        for verdict in ["可恢复", "缺失", "不可恢复：内容校验失败"] {
+            let text = format!("旧目录/{}/笔记👩‍💻.md · {verdict}", "长路径/".repeat(30));
+            let element = labelled_text("record", text.clone());
+            assert_eq!(element.a11y_role(), Some(gpui::Role::Label));
+            let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+            element.write_a11y_info(&mut node);
+            assert_eq!(node.role(), gpui::Role::Label);
+            assert_eq!(node.label(), Some(text.as_str()));
+            assert!(!node.supports_action(accesskit::Action::Click));
+            assert!(!node.supports_action(accesskit::Action::Focus));
+        }
+    }
 
     #[gpui::test]
     fn partial_recovery_keeps_dirty_notes_and_rejects_stale_inspection(cx: &mut TestAppContext) {
