@@ -7,10 +7,13 @@ use inkstone_core::vault::backup::{
     retention::{self, Decision, Preview},
 };
 
+mod partial;
+
 const RECORDS_PER_PAGE: usize = 5;
 
 #[derive(Default)]
 pub(super) struct State {
+    partial: partial::State,
     request: u64,
     directory: Option<PathBuf>,
     loading: bool,
@@ -305,6 +308,7 @@ impl Workspace {
                     .on_click(cx.listener(|this, _, _, cx| { this.ui.backup.capacity.cleanup_confirmation = None; cx.notify(); })))))
             .when(current && state.loading, |s| s.child("正在读取备份容量……"))
             .when(current && !state.message.is_empty(), |s| s.child(state.message.clone()))
+            .when(current, |s| s.child(self.partial_backup_panel(cx)))
             .when_some(state.inventory.as_ref().filter(|_| current), |panel, inventory| {
                 panel.when(!inventory.interrupted.is_empty(), |panel| panel
                     .child(format!("发现 {} 项清理中断记录；内容可能不完整，已暂停生成清理候选。请先检查，完整备份仍可恢复为新笔记库。", inventory.interrupted.len()))
@@ -315,6 +319,8 @@ impl Workspace {
                             .child(div().whitespace_normal().child(path.to_string_lossy().to_string()))
                             .child(FocusReveal::new((ElementId::from(("backup-interrupted-retain-focus", i)), "focus"), &self.ui.settings_scroll,
                                 Button::new(("backup-cleanup-interrupted-retain", i)).label("校验并保留为备份").accessibility_label(format!("校验并保留为备份：{}", path.display())).tooltip(path.to_string_lossy().to_string()).disabled(self.ui.backup.busy || self.ui.backup.pending.is_some() || self.ui.backup.capacity.loading).on_click(cx.listener(move |this, _, _, cx| this.retain_interrupted_backup(i, cx)))))
+                            .child(FocusReveal::new((ElementId::from(("backup-interrupted-partial-focus", i)), "focus"), &self.ui.settings_scroll,
+                                Button::new(("backup-interrupted-partial", i)).label("校验剩余文件并恢复副本……").accessibility_label(format!("校验剩余文件并恢复副本：{}", path.display())).disabled(self.ui.backup.busy || self.ui.backup.picker_open || state.loading).on_click(cx.listener(move |this, _, _, cx| this.inspect_partial_backup(i, cx)))))
                             .child(FocusReveal::new((ElementId::from(("backup-interrupted-reveal-focus", i)), "focus"), &self.ui.settings_scroll,
                                 Button::new(("backup-cleanup-interrupted-reveal", i)).label("检查清理中断记录").accessibility_label(format!("检查清理中断记录：{}", path.display())).tooltip(path.to_string_lossy().to_string()).on_click(move |_, _, cx| cx.reveal_path(&path))))
                     })))
@@ -683,7 +689,7 @@ mod tests {
                     for i in start..end {
                         assert_eq!(
                             reached.iter().filter(|(row, _)| *row == i).count(),
-                            if interrupted { 2 } else { 1 },
+                            if interrupted { 3 } else { 1 },
                             "rem={rem}, interrupted={interrupted}, page={page}, record={i}: every operation must be reachable"
                         );
                     }
