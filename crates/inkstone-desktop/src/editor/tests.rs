@@ -2,6 +2,42 @@ use super::*;
 use crate::test_support::PlatformKeys;
 use core::prelude::v1::test;
 #[gpui::test]
+fn presentation_revision_handles_silent_same_length_replacement(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|window, cx| EditorPane::new("# Alpha", window, cx));
+    cx.run_until_parked();
+    handle
+        .update(cx, |pane, window, cx| {
+            pane.update_presentation(cx);
+            let parsed_revision = pane.parse_revision;
+            for offset in [0, 2, 4] {
+                pane.editor
+                    .update(cx, |state, cx| state.set_selected_range(offset..offset, cx));
+                pane.update_presentation(cx);
+                assert_eq!(pane.parse_revision, parsed_revision);
+                assert_eq!(pane.parse_source.as_ref(), "# Alpha");
+            }
+            pane.editor
+                .update(cx, |state, cx| state.set_value("# Bravo", window, cx));
+            pane.update_presentation(cx);
+            assert!(pane.parse_revision > parsed_revision);
+            assert_eq!(pane.parse_source.as_ref(), "# Bravo");
+            assert_eq!(pane.parsed.headings[0].title, "Bravo");
+            pane.editor
+                .update(cx, |state, cx| state.replace_all("# Delta", window, cx));
+            pane.update_presentation(cx);
+            assert_eq!(pane.parsed.headings[0].title, "Delta");
+            pane.editor.update(cx, |state, cx| {
+                state.undo(&gpui_component::input::Undo, window, cx)
+            });
+            pane.update_presentation(cx);
+            assert_eq!(pane.parse_source.as_ref(), "# Bravo");
+            assert_eq!(pane.parsed.headings[0].title, "Bravo");
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn plain_edits_keep_following_live_syntax_and_undo_coordinates(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let source =

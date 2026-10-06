@@ -13,15 +13,15 @@ impl EditorPane {
             self.last_presentation = None;
             return;
         }
-        // Cursor/geometry notifications also render this view. Reuse the parsed
-        // source when the rope is unchanged instead of flattening it each time.
-        // Content comparison is still required: equal length does not imply an
-        // unchanged document, and notifications are not limited to text edits.
-        let text = if state.text() == self.parse_source.as_ref() {
+        // Blink and geometry notifications do not change the document. The
+        // component revision also covers silent set_value, undo and IME edits.
+        let input_revision = (self.editor.entity_id(), state.text_revision());
+        let text = if self.parse_input_revision == Some(input_revision) {
             self.parse_source.clone()
         } else {
             state.value()
         };
+        self.parse_input_revision = Some(input_revision);
         let selections = state.selected_ranges();
         let search_query = state
             .search_session()
