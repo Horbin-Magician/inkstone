@@ -1226,3 +1226,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 三类操作复用 FileWrites 独占准入，取得凭据后才进入业务运行状态；文档拒绝冲突处理时立即释放凭据。同步在准入成功后才推进 watch epoch、置 busy 并创建 Run，批量修改在此后才消费预览和所选项。
 - 扩充现有 GUI 回归：后台文件任务阻塞冲突处理时保留 ready 比较与原文件，不设置 saving；阻塞批量操作时保留完整预览、选择与正文，不设置 loading；阻塞手动同步队列时保留 pending，busy/Run/watch epoch 不变。均确认任务数不增长且不提前设置文件操作保护。
 - 冲突回归 1 项、批量回归 1 项、同步 tests 模块 17 项通过；同步阻塞检查独立复验通过。workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/admission-conflict.log、admission-bulk.log、admission-sync.log、admission-sync-blocked.log、admission-all-clippy.log。未将自动结果替代真实双设备或原生验收，无用户笔记进入提交。
+
+## 多笔记历史目录基线（2026-10-06）
+
+- 新增 history_catalog_benchmark，固定生成 1,000 篇 × 10 个旧版本，正文含中文、组合字符与 emoji；拒绝任何已有输出目录。每轮验证记录数、总字节数，单篇正文读取在计时外核对。未改变生产历史实现。
+- macOS 27.0.1 arm64、Rust 1.97.0 release，生产基线 ee2c5f4；target/history-catalog-baseline-ee2c5f4 保留夹具、results.json 与 environment.json（二进制及基准源码 SHA-256）。10,000 条日志共 39,878,900 字节：无元数据缓存冷导入 45,981.54 ms；暖目录三轮 285.49 / 235.71 / 220.86 ms；单篇首次查询 224.47 ms，单篇索引命中三轮 0.050 / 0.047 / 0.038 ms。
+- 冷导入逐条生成带同步刷盘的可重建元数据，后续应优先评估这部分写入成本；此处尚未归因或声称优化。冷指应用缓存为空，未清操作系统页缓存；不代表原生历史窗口、编辑性能或峰值内存验收。
+- release 实测及重复输出目录拒绝检查通过，定向 Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/history-catalog-baseline.log、history-catalog-refuse-existing.log、history-catalog-clippy.log；生成夹具未纳入提交，无用户笔记。
