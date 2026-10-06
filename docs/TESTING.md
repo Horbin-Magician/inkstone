@@ -687,3 +687,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 普通弹窗及链接更新弹窗增加冒泡 Tab/Shift+Tab 处理，将最终焦点约束在弹窗范围内；若一轮遍历没有可用控件则回到容器。已被子控件消费的按键不处理，带 Ctrl/Alt/Cmd 的组合不处理。
 - 新 GPUI 回归在恢复弹窗中各执行 12 次正向/反向原生按键事件，逐步检查焦点属于弹窗且实际到达多个控件，关闭后回到空标签工作区。桌面全量单元测试 318 项通过、2 项忽略，集成测试 8 项通过；全工作区 all-targets Clippy、格式/diff 检查通过。日志：`target/modal-tab-tests.log`、`target/modal-tab-desktop-tests.log`、`target/modal-tab-clippy.log`、`target/modal-tab-fmt.log`。
 - 没有新增真实 OS/读屏验收；输入框主动消费 Tab、下拉浮层与多行编辑弹窗仍需逐项验证。当前通过 GPUI 全局导航寻找范围内目标，测试证明按键完成后的焦点位置，不证明遍历中所有焦点回调没有副作用。未修改用户笔记。
+
+
+## 设置输入框：Tab 导航与正文缩进隔离（2026-10-06）
+
+- 新增 GPUI 原生按键事件回归，分别聚焦设置搜索、快捷键搜索、同步地址、用户名和密码，逐项派发 Tab / Shift+Tab，验证焦点离开输入框且仍在设置弹窗内，中文混合文本不被修改；关闭设置后正文 Tab 仍缩进，并可一次撤销。仅设置临时表单值，不保存连接配置或发起网络请求。
+- 1 项回归（五类字段、两个方向及正文缩进/撤销）通过；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/settings-input-tab-tests.log`、`target/settings-input-tab-clippy.log`、`target/settings-input-tab-fmt.log`。现有单行输入会传播未消费 Tab，因此本次只补回归，没有更改产品行为或扩大字段可见性。
+- 测试库与恢复目录独立放在临时目录，结束后删除。未修改真实用户笔记。GPUI 事件测试不代表 macOS 原生窗口、读屏或全部弹窗的键盘验收；全键盘流程仍须继续验证。
