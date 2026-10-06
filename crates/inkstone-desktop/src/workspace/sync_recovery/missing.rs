@@ -1,7 +1,7 @@
 //! Read-only, paginated inspection of valid descriptors without adjacent bodies.
 use super::*;
 
-fn text(id: impl Into<ElementId>, value: String) -> gpui::Stateful<gpui::Div> {
+pub(super) fn text(id: impl Into<ElementId>, value: String) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .role(gpui::Role::Label)
@@ -56,6 +56,14 @@ impl Workspace {
                         Button::new(("sync-missing-reveal", i)).label("定位描述文件")
                             .accessibility_label(format!("定位描述文件：{description}"))
                             .on_click(move |_, _, cx| cx.reveal_path(&path))))
+                    .child(FocusReveal::new(("sync-missing-retain-focus", i), &self.ui.recovery_scroll,
+                        Button::new(("sync-missing-retain", i)).label("保留归档……")
+                            .accessibility_label(format!("保留归档：{description}"))
+                            .disabled(!self.can_retain_sync_residue())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.request_sync_residue_retention(i, cx);
+                                window.focus(&this.ui.modal_focus, cx);
+                            }))))
             })).into_any_element()
     }
 }
