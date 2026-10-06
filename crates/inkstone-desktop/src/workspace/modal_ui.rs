@@ -7,6 +7,37 @@ use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::{Disableable, button::*};
 
 impl Workspace {
+    fn navigate_modal_tab(
+        &self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let key = &event.keystroke;
+        if key.key != "tab" || key.modifiers.control || key.modifiers.alt || key.modifiers.platform
+        {
+            return;
+        }
+        let advance = |window: &mut Window, cx: &mut App| {
+            if key.modifiers.shift {
+                window.focus_prev(cx);
+            } else {
+                window.focus_next(cx);
+            }
+        };
+        advance(window, cx);
+        let first = window.focused(cx);
+        while !self.ui.modal_focus.contains_focused(window, cx) {
+            advance(window, cx);
+            if window.focused(cx) == first {
+                // A dialog without enabled tab stops still owns keyboard focus.
+                window.focus(&self.ui.modal_focus, cx);
+                break;
+            }
+        }
+        cx.stop_propagation();
+    }
+
     pub(super) fn modal(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let picker = self.command_open || self.ui.quick_open;
         let top = px(100.)
@@ -27,6 +58,9 @@ impl Workspace {
                     div()
                         .id("link-update-dialog")
                         .track_focus(&self.ui.modal_focus)
+                        .on_key_down(cx.listener(|this, event, window, cx| {
+                            this.navigate_modal_tab(event, window, cx)
+                        }))
                         .w(px(580.))
                         .p_3()
                         .gap_3()
@@ -57,6 +91,9 @@ impl Workspace {
         let content = div()
             .id("modal-body")
             .track_focus(&self.ui.modal_focus)
+            .on_key_down(
+                cx.listener(|this, event, window, cx| this.navigate_modal_tab(event, window, cx)),
+            )
             .flex()
             .flex_col()
             .w(px(if self.ui.settings { 900. } else { 580. }))
