@@ -17,9 +17,21 @@ pub struct Entry {
     /// Explicit or unknown-format protection; never eligible for retention cleanup.
     pub protected: bool,
 }
+/// A structurally valid, known descriptor whose adjacent body is absent.
+/// This is evidence of missing data, never authorization to discard metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingPayload {
+    pub metadata: PathBuf,
+    pub backup: PathBuf,
+    pub original: PathBuf,
+    pub metadata_bytes: u64,
+    pub modified: SystemTime,
+}
 #[derive(Clone, Debug, Default)]
 pub struct Inventory {
     pub entries: Vec<Entry>,
+    /// Also counted in unreadable so existing cleanup continues to fail closed.
+    pub missing_payloads: Vec<MissingPayload>,
     /// Invalid/unreadable descriptors and directories; valid entries remain usable.
     pub unreadable: usize,
     /// Sum of validated backup file sizes, excluding descriptors and orphan files.
@@ -69,8 +81,7 @@ fn read_descriptor(vault: &Vault, relative: &Path) -> Result<Descriptor> {
     ensure!(bytes.len() <= 16 * 1024, "备份描述文件过大");
     Ok(serde_json::from_slice(&bytes)?)
 }
-fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
-    let descriptor = read_descriptor(vault, relative)?;
+fn descriptor_paths(relative: &Path, descriptor: &Descriptor) -> Result<(PathBuf, PathBuf)> {
     validate_path(&descriptor.original)?;
     ensure!(valid_hash(&descriptor.sha256), "备份校验信息无效");
     let original = PathBuf::from(&descriptor.original);
@@ -82,6 +93,33 @@ fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
         backup.file_name().and_then(|s| s.to_str()) == Some(descriptor.backup.as_str()),
         "备份文件名不匹配"
     );
+    Ok((original, backup))
+}
+fn missing_payload(vault: &Vault, relative: &Path) -> Result<MissingPayload> {
+    let descriptor = read_descriptor(vault, relative)?;
+    ensure!(
+        descriptor.unknown.is_empty(),
+        "未知格式记录不能分类为正文缺失"
+    );
+    let (original, backup) = descriptor_paths(relative, &descriptor)?;
+    let path = vault.regular_file_path(&backup)?;
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+        Ok(_) => anyhow::bail!("备份路径仍存在"),
+    }
+    let metadata = fs::symlink_metadata(vault.regular_file_path(relative)?)?;
+    Ok(MissingPayload {
+        metadata: relative.to_owned(),
+        backup,
+        original,
+        metadata_bytes: metadata.len(),
+        modified: metadata.modified()?,
+    })
+}
+fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
+    let descriptor = read_descriptor(vault, relative)?;
+    let (original, backup) = descriptor_paths(relative, &descriptor)?;
     let backup_path = vault.regular_file_path(&backup)?;
     let meta = fs::symlink_metadata(backup_path)?;
     ensure!(meta.is_file() && !is_reparse(&meta), "备份文件类型无效");
@@ -142,7 +180,14 @@ pub fn inventory(vault: &Vault) -> Result<Inventory> {
                         report.bytes = report.bytes.saturating_add(entry.bytes);
                         report.entries.push(entry);
                     }
-                    None => report.unreadable += 1,
+                    None => {
+                        report.unreadable += 1;
+                        if let Ok(relative) = path.strip_prefix(&vault.root)
+                            && let Ok(missing) = missing_payload(vault, relative)
+                        {
+                            report.missing_payloads.push(missing);
+                        }
+                    }
                 }
             } else if !name.starts_with('.') {
                 match fs::symlink_metadata(&path) {
@@ -173,6 +218,9 @@ pub fn inventory(vault: &Vault) -> Result<Inventory> {
             .cmp(&a.modified)
             .then_with(|| a.backup.cmp(&b.backup))
     });
+    report
+        .missing_payloads
+        .sort_by(|a, b| a.metadata.cmp(&b.metadata));
     Ok(report)
 }
 
@@ -560,6 +608,65 @@ mod tests {
             fs::read(vault.root.join(&entry.backup))?,
             b"changed while restoring"
         );
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+    #[test]
+    fn missing_payload_inventory_preserves_metadata_and_blocks_retention() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("inkstone-sync-missing-{}", unique_id()));
+        fs::create_dir_all(root.join("vault/nested"))?;
+        let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
+        fs::write(vault.root.join("nested/note.md"), "old")?;
+        apply_bytes(&vault, "nested/note.md", Some(&hash(b"old")), Some(b"new"))?;
+        let entry = inventory(&vault)?.entries.remove(0);
+        let path = vault.root.join(&entry.metadata);
+        let descriptor = fs::read(&path)?;
+        fs::remove_file(vault.root.join(&entry.backup))?;
+        let report = inventory(&vault)?;
+        assert_eq!(report.unreadable, 1);
+        assert_eq!(report.missing_payloads.len(), 1);
+        let missing = &report.missing_payloads[0];
+        assert_eq!(missing.metadata, entry.metadata);
+        assert_eq!(missing.backup, entry.backup);
+        assert_eq!(missing.original, entry.original);
+        assert_eq!(missing.metadata_bytes, descriptor.len() as u64);
+        assert_eq!(report.stored_bytes, descriptor.len() as u64);
+        assert_eq!(
+            retention::preview(&report, 1, &BTreeSet::new())?.candidates,
+            0
+        );
+        assert_eq!(fs::read(&path)?, descriptor);
+        assert_eq!(fs::read(vault.root.join("nested/note.md"))?, b"new");
+        // Unknown formats and malformed paths must not become actionable residue.
+        let value: serde_json::Value = serde_json::from_slice(&descriptor)?;
+        for (field, invalid) in [
+            ("future", serde_json::json!(true)),
+            ("backup", serde_json::json!("some-other.backup")),
+            ("original", serde_json::json!("../note.md")),
+            ("sha256", serde_json::json!("invalid")),
+        ] {
+            let mut changed = value.clone();
+            changed[field] = invalid;
+            fs::write(&path, serde_json::to_vec(&changed)?)?;
+            let report = inventory(&vault)?;
+            assert_eq!(report.unreadable, 1);
+            assert!(report.missing_payloads.is_empty(), "{field}");
+        }
+        fs::write(&path, &descriptor)?;
+        fs::create_dir(vault.root.join(&entry.backup))?;
+        assert!(inventory(&vault)?.missing_payloads.is_empty());
+        fs::remove_dir(vault.root.join(&entry.backup))?;
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("absent", vault.root.join(&entry.backup))?;
+            assert!(inventory(&vault)?.missing_payloads.is_empty());
+            fs::remove_file(vault.root.join(&entry.backup))?;
+        }
+        // A body reappearing makes this an ordinary recoverable entry again.
+        fs::write(vault.root.join(&entry.backup), b"old")?;
+        let report = inventory(&vault)?;
+        assert!(report.missing_payloads.is_empty());
+        assert_eq!(report.entries.len(), 1);
         fs::remove_dir_all(root)?;
         Ok(())
     }
