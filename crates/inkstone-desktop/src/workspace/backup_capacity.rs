@@ -7,6 +7,8 @@ use inkstone_core::vault::backup::{
     retention::{self, Decision, Preview},
 };
 
+const RECORDS_PER_PAGE: usize = 5;
+
 #[derive(Default)]
 pub(super) struct State {
     request: u64,
@@ -18,6 +20,9 @@ pub(super) struct State {
     preview: Option<Preview>,
     local_storage: Option<bool>,
     cleanup_confirmation: Option<Preview>,
+    inventory_page: usize,
+    interrupted_page: usize,
+    pager_focus: [std::cell::OnceCell<FocusHandle>; 2],
 }
 impl Workspace {
     pub(super) fn refresh_backup_capacity(&mut self, cx: &mut Context<Self>) {
@@ -194,6 +199,75 @@ impl Workspace {
         .detach();
         cx.notify();
     }
+    fn backup_record_pager(
+        &self,
+        interrupted: bool,
+        count: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let page = if interrupted {
+            self.ui.backup.capacity.interrupted_page
+        } else {
+            self.ui.backup.capacity.inventory_page
+        };
+        let focus = self.ui.backup.capacity.pager_focus[usize::from(interrupted)]
+            .get_or_init(|| cx.focus_handle())
+            .clone();
+        let pages = count.div_ceil(RECORDS_PER_PAGE).max(1);
+        let kind = if interrupted {
+            "中断记录"
+        } else {
+            "备份记录"
+        };
+        div()
+            .track_focus(&focus)
+            .flex()
+            .flex_wrap()
+            .gap_2()
+            .child(format!(
+                "{kind}：第 {} / {pages} 页，每页最多 {RECORDS_PER_PAGE} 条",
+                page + 1
+            ))
+            .children([false, true].into_iter().map(|next| {
+                let focus = focus.clone();
+                let id = (
+                    "backup-record-page",
+                    usize::from(interrupted) * 2 + usize::from(next),
+                );
+                div()
+                    .debug_selector(move || format!("backup-page-{}-{}", interrupted, next))
+                    .child(SettingsFocusTarget::new(
+                        (ElementId::from(id), "focus"),
+                        &self.ui.settings_scroll,
+                        Button::new(id)
+                            .label(format!("{kind}{}", if next { "下一页" } else { "上一页" }))
+                            .disabled(if next { page + 1 >= pages } else { page == 0 })
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                let state = &mut this.ui.backup.capacity;
+                                let Some(inventory) = &state.inventory else {
+                                    return;
+                                };
+                                let (page, count) = if interrupted {
+                                    (&mut state.interrupted_page, inventory.interrupted.len())
+                                } else {
+                                    (&mut state.inventory_page, inventory.entries.len())
+                                };
+                                let last = count.saturating_sub(1) / RECORDS_PER_PAGE;
+                                *page = if next {
+                                    page.saturating_add(1).min(last)
+                                } else {
+                                    page.saturating_sub(1)
+                                };
+                                // The activated button can become disabled at a page boundary.
+                                // Keep focus in the stable pager so Tab continues within settings.
+                                window.focus(&focus, cx);
+                                cx.notify();
+                            })),
+                    ))
+            }))
+            .into_any_element()
+    }
+
     pub(super) fn backup_capacity_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let state = &self.ui.backup.capacity;
         let current = state.directory == self.ui.prefs.backup.directory;
@@ -234,32 +308,30 @@ impl Workspace {
             .when_some(state.inventory.as_ref().filter(|_| current), |panel, inventory| {
                 panel.when(!inventory.interrupted.is_empty(), |panel| panel
                     .child(format!("发现 {} 项清理中断记录；内容可能不完整，已暂停生成清理候选。请先检查，完整备份仍可恢复为新笔记库。", inventory.interrupted.len()))
-                    .child(uniform_list("backup-cleanup-interrupted", inventory.interrupted.len(), cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                        let Some(inventory) = &this.ui.backup.capacity.inventory else { return Vec::new(); };
-                        range.filter_map(|i| inventory.interrupted.get(i).map(|path| {
-                            let path = path.clone();
-                            div().h(px(84.)).flex().flex_col().gap_1().overflow_hidden()
-                                .child(Button::new(("backup-cleanup-interrupted-retain", i)).label("校验并保留为备份").disabled(this.ui.backup.busy || this.ui.backup.pending.is_some() || this.ui.backup.capacity.loading).on_click(cx.listener(move |this, _, _, cx| this.retain_interrupted_backup(i, cx))))
-                                .child(Button::new(("backup-cleanup-interrupted-reveal", i)).label("检查清理中断记录").tooltip(path.to_string_lossy().to_string()).on_click(move |_, _, cx| cx.reveal_path(&path)))
-                                .into_any_element()
-                        })).collect()
-                    })).h(px(168.))))
+                    .child(self.backup_record_pager(true, inventory.interrupted.len(), cx))
+                    .children(inventory.interrupted.iter().enumerate().skip(state.interrupted_page * RECORDS_PER_PAGE).take(RECORDS_PER_PAGE).map(|(i, path)| {
+                        let path = path.clone();
+                        div().flex().flex_col().gap_1().min_w_0().debug_selector(move || format!("backup-interrupted-{i}"))
+                            .child(div().whitespace_normal().child(path.to_string_lossy().to_string()))
+                            .child(SettingsFocusTarget::new((ElementId::from(("backup-interrupted-retain-focus", i)), "focus"), &self.ui.settings_scroll,
+                                Button::new(("backup-cleanup-interrupted-retain", i)).label("校验并保留为备份").accessibility_label(format!("校验并保留为备份：{}", path.display())).tooltip(path.to_string_lossy().to_string()).disabled(self.ui.backup.busy || self.ui.backup.pending.is_some() || self.ui.backup.capacity.loading).on_click(cx.listener(move |this, _, _, cx| this.retain_interrupted_backup(i, cx)))))
+                            .child(SettingsFocusTarget::new((ElementId::from(("backup-interrupted-reveal-focus", i)), "focus"), &self.ui.settings_scroll,
+                                Button::new(("backup-cleanup-interrupted-reveal", i)).label("检查清理中断记录").accessibility_label(format!("检查清理中断记录：{}", path.display())).tooltip(path.to_string_lossy().to_string()).on_click(move |_, _, cx| cx.reveal_path(&path))))
+                    })))
                     .child(format!("{} 份备份 · 正文 {:.2} MiB · 清单 {:.2} KiB · {} 项异常未计入", inventory.entries.len(), inventory.payload_bytes as f64 / 1048576., inventory.manifest_bytes as f64 / 1024., inventory.unreadable))
-                    .when(!inventory.entries.is_empty(), |panel| panel.child(uniform_list(
-                        "backup-capacity-list", inventory.entries.len(), cx.processor(|this, range: std::ops::Range<usize>, _, _| {
-                            let Some(inventory) = &this.ui.backup.capacity.inventory else { return Vec::new(); };
-                            range.filter_map(|i| inventory.entries.get(i).map(|entry| {
-                                let time = chrono::DateTime::from_timestamp(entry.created.min(i64::MAX as u64) as i64, 0).map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_else(|| "时间未知".into());
-                                let path = entry.directory.clone();
-                                div().h(px(108.)).flex().flex_col().gap_1().overflow_hidden()
-                                    .child(div().truncate().child(format!("{} · {time}", entry.source_name)))
-                                    .child(format!("{} 个文件 · 正文 {:.2} MiB · 清单 {} 字节", entry.files, entry.payload_bytes as f64 / 1048576., entry.manifest_bytes))
-                                    .when(!this.ui.backup.busy && this.ui.backup.pending.is_none(), |row| row.when_some(this.ui.backup.capacity.preview.as_ref().and_then(|p| p.records.get(i)), |row, record| row.child(decision_label(record.decision))))
-                                    .child(Button::new(("backup-capacity-reveal", i)).compact().label("显示备份目录").tooltip(path.to_string_lossy().to_string()).on_click(move |_, _, cx| cx.reveal_path(&path)))
-                                    .into_any_element()
-                            })).collect()
-                        })
-                    ).h(px(228.))))
+                    .when(!inventory.entries.is_empty(), |panel| panel
+                        .child(self.backup_record_pager(false, inventory.entries.len(), cx))
+                        .children(inventory.entries.iter().enumerate().skip(state.inventory_page * RECORDS_PER_PAGE).take(RECORDS_PER_PAGE).map(|(i, entry)| {
+                            let time = chrono::DateTime::from_timestamp(entry.created.min(i64::MAX as u64) as i64, 0).map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string()).unwrap_or_else(|| "时间未知".into());
+                            let path = entry.directory.clone();
+                            div().flex().flex_col().gap_1().min_w_0()
+                                .debug_selector(move || format!("backup-record-{i}"))
+                                .child(div().whitespace_normal().child(format!("{} · {time}", entry.source_name)))
+                                .child(format!("{} 个文件 · 正文 {:.2} MiB · 清单 {} 字节", entry.files, entry.payload_bytes as f64 / 1048576., entry.manifest_bytes))
+                                .when(available, |row| row.when_some(state.preview.as_ref().and_then(|p| p.records.get(i)), |row, record| row.child(decision_label(record.decision))))
+                                .child(SettingsFocusTarget::new((ElementId::from(("backup-capacity-reveal-focus", i)), "focus"), &self.ui.settings_scroll,
+                                    Button::new(("backup-capacity-reveal", i)).compact().label("显示备份目录").accessibility_label(format!("显示备份目录：{} · {time} · {}", entry.source_name, path.display())).tooltip(path.to_string_lossy().to_string()).on_click(move |_, _, cx| cx.reveal_path(&path))))
+                        })))
             }).into_any_element()
     }
 }
@@ -478,6 +550,213 @@ mod tests {
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[gpui::test]
+    fn backup_records_are_reachable_across_pages_without_running_operations(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                w.ui.settings = true;
+                w.ui.settings_tab = 7;
+                let directory = PathBuf::from("/ui-only-backup-fixture");
+                w.ui.prefs.backup.directory = Some(directory.clone());
+                w.ui.backup.capacity = State {
+                    directory: Some(directory),
+                    inventory: Some(Inventory {
+                        entries: (0..12)
+                            .map(|i| capacity::Summary {
+                                directory: PathBuf::from(format!("/ui-only-backup-fixture/{i}")),
+                                source_name: format!("测试笔记库 {i}"),
+                                created: i as u64,
+                                source_id: None,
+                                protected: false,
+                                files: 1,
+                                payload_bytes: 4,
+                                manifest_bytes: 100,
+                            })
+                            .collect(),
+                        interrupted: (0..12)
+                            .map(|i| {
+                                PathBuf::from(format!("/ui-only-backup-fixture/interrupted-{i}"))
+                            })
+                            .collect(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                };
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(800.), px(500.)));
+        fn key(visual: &mut VisualTestContext, key: &str) {
+            let keystroke = Keystroke::parse(key).unwrap();
+            visual.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(KeyUpEvent { keystroke });
+            for _ in 0..2 {
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+            }
+        }
+        let records = [
+            "backup-record-0",
+            "backup-record-1",
+            "backup-record-2",
+            "backup-record-3",
+            "backup-record-4",
+            "backup-record-5",
+            "backup-record-6",
+            "backup-record-7",
+            "backup-record-8",
+            "backup-record-9",
+            "backup-record-10",
+            "backup-record-11",
+            "backup-record-12",
+        ];
+        let interrupted_records = [
+            "backup-interrupted-0",
+            "backup-interrupted-1",
+            "backup-interrupted-2",
+            "backup-interrupted-3",
+            "backup-interrupted-4",
+            "backup-interrupted-5",
+            "backup-interrupted-6",
+            "backup-interrupted-7",
+            "backup-interrupted-8",
+            "backup-interrupted-9",
+            "backup-interrupted-10",
+            "backup-interrupted-11",
+            "backup-interrupted-12",
+        ];
+        for rem in [16., 24.] {
+            visual.update(|w, _| w.set_rem_size(px(rem)));
+            for interrupted in [false, true] {
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        w.ui.backup.capacity.inventory_page = 0;
+                        w.ui.backup.capacity.interrupted_page = 0;
+                        window.focus(&w.ui.modal_focus, cx);
+                    })
+                    .unwrap();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+                for page in 0..3 {
+                    let start = page * RECORDS_PER_PAGE;
+                    let end = (start + RECORDS_PER_PAGE).min(12);
+                    let mut reached = std::collections::BTreeSet::new();
+                    for _ in 0..65 {
+                        key(&mut visual, "tab");
+                        if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                            handle
+                                .update(&mut visual, |w, _, _| {
+                                    let viewport = w.ui.settings_scroll.bounds();
+                                    assert!(
+                                        target.top() >= viewport.top()
+                                            && target.bottom() <= viewport.bottom(),
+                                        "rem={rem} {target:?} outside {viewport:?}"
+                                    );
+                                })
+                                .unwrap();
+                            for i in start..end {
+                                let selector = if interrupted {
+                                    interrupted_records[i]
+                                } else {
+                                    records[i]
+                                };
+                                if let Some(row) = visual.debug_bounds(selector)
+                                    && target.top() >= row.top()
+                                    && target.bottom() <= row.bottom()
+                                {
+                                    reached.insert(i);
+                                }
+                            }
+                        }
+                    }
+                    assert_eq!(
+                        reached,
+                        (start..end).collect(),
+                        "rem={rem}, interrupted={interrupted}, page={page}"
+                    );
+                    assert!(
+                        visual
+                            .debug_bounds(records[if interrupted { 5 } else { end }])
+                            .is_none()
+                    );
+                    if page < 2 {
+                        let selector = if interrupted {
+                            "backup-page-true-true"
+                        } else {
+                            "backup-page-false-true"
+                        };
+                        let mut found = false;
+                        for _ in 0..65 {
+                            key(&mut visual, "tab");
+                            if visual
+                                .debug_bounds("settings-focused-control")
+                                .is_some_and(|b| Some(b) == visual.debug_bounds(selector))
+                            {
+                                found = true;
+                                break;
+                            }
+                        }
+                        assert!(found, "next-page button must be keyboard reachable");
+                        key(&mut visual, "enter");
+                        handle
+                            .update(&mut visual, |w, _, _| {
+                                assert_eq!(
+                                    if interrupted {
+                                        w.ui.backup.capacity.interrupted_page
+                                    } else {
+                                        w.ui.backup.capacity.inventory_page
+                                    },
+                                    page + 1
+                                )
+                            })
+                            .unwrap();
+                    }
+                }
+                // Return from the last page using Shift+Tab and Enter.
+                let selector = if interrupted {
+                    "backup-page-true-false"
+                } else {
+                    "backup-page-false-false"
+                };
+                let mut found = false;
+                for _ in 0..65 {
+                    key(&mut visual, "shift-tab");
+                    if visual
+                        .debug_bounds("settings-focused-control")
+                        .is_some_and(|b| Some(b) == visual.debug_bounds(selector))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                assert!(found);
+                key(&mut visual, "enter");
+                handle
+                    .update(&mut visual, |w, _, _| {
+                        assert_eq!(
+                            if interrupted {
+                                w.ui.backup.capacity.interrupted_page
+                            } else {
+                                w.ui.backup.capacity.inventory_page
+                            },
+                            1
+                        );
+                        assert!(!w.ui.backup.busy && !w.ui.backup.capacity.loading);
+                        assert!(w.ui.backup.pending.is_none());
+                        assert_eq!(w.ui.pending_file_writes, 0);
+                    })
+                    .unwrap();
+            }
+        }
+    }
+
     #[gpui::test]
     fn backup_settings_tab_navigation_reveals_controls_without_starting_operations(
         cx: &mut TestAppContext,
