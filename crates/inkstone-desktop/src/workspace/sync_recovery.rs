@@ -1,11 +1,16 @@
 //! Sync backups inside the shared file recovery entry point.
+use super::settings_ui::SettingsFocusTarget;
 use super::*;
 use gpui_component::{Disableable, button::*};
 use inkstone_core::vault::sync::recovery::{self, Inventory};
 
+const RECORDS_PER_PAGE: usize = 5;
+
 #[derive(Default)]
 pub(super) struct State {
     generation: u64,
+    page: usize,
+    pager_focus: std::cell::OnceCell<FocusHandle>,
     inventory: Inventory,
     loading: bool,
     message: String,
@@ -127,57 +132,98 @@ impl Workspace {
                 s.child(state.message.clone())
             })
             .when(!state.inventory.entries.is_empty(), |panel| {
-                panel.child(
-                    uniform_list(
-                        "sync-recovery-entries",
-                        state.inventory.entries.len(),
-                        cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                            let state = &this.ui.sync_recovery;
-                            range
-                                .map(|i| {
-                                    let entry = &state.inventory.entries[i];
-                                    let time: chrono::DateTime<chrono::Local> =
-                                        entry.modified.into();
-                                    div()
-                                        .h(px(84.))
-                                        .flex()
-                                        .flex_col()
-                                        .gap_1()
-                                        .overflow_hidden()
-                                        .child(
-                                            div().truncate().child(
-                                                entry.original.to_string_lossy().to_string(),
-                                            ),
-                                        )
-                                        .child(div().text_sm().child(format!(
-                                            "{} · {:.1} KiB",
-                                            time.format("%Y-%m-%d %H:%M:%S"),
-                                            entry.bytes as f64 / 1024.
-                                        )))
-                                        .child(
-                                            Button::new(("restore-sync-backup", i))
-                                                .compact()
-                                                .label("恢复为副本")
-                                                .tooltip(
-                                                    entry.original.to_string_lossy().to_string(),
-                                                )
-                                                .disabled(
-                                                    this.ui.file_operation
-                                                        || this.ui.pending_file_writes > 0
-                                                        || state.loading,
-                                                )
-                                                .on_click(cx.listener(move |this, _, _, cx| {
-                                                    this.restore_sync_backup(i, cx)
-                                                })),
-                                        )
-                                        .into_any_element()
-                                })
-                                .collect::<Vec<_>>()
-                        }),
+                let focus = state.pager_focus.get_or_init(|| cx.focus_handle()).clone();
+                let pages = state.inventory.entries.len().div_ceil(RECORDS_PER_PAGE);
+                panel
+                    .child(
+                        div()
+                            .track_focus(&focus)
+                            .flex()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(format!(
+                                "同步备份：第 {} / {pages} 页，每页最多 {RECORDS_PER_PAGE} 条",
+                                state.page + 1
+                            ))
+                            .children([false, true].into_iter().map(|next| {
+                                let focus = focus.clone();
+                                let id = ("sync-recovery-page", usize::from(next));
+                                div()
+                                    .debug_selector(move || format!("sync-recovery-page-{next}"))
+                                    .child(SettingsFocusTarget::new(
+                                        (ElementId::from(id), "focus"),
+                                        &self.ui.recovery_scroll,
+                                        Button::new(id)
+                                            .label(if next {
+                                                "同步备份下一页"
+                                            } else {
+                                                "同步备份上一页"
+                                            })
+                                            .disabled(if next {
+                                                state.page + 1 >= pages
+                                            } else {
+                                                state.page == 0
+                                            })
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                let state = &mut this.ui.sync_recovery;
+                                                let last =
+                                                    state.inventory.entries.len().saturating_sub(1)
+                                                        / RECORDS_PER_PAGE;
+                                                state.page = if next {
+                                                    state.page.saturating_add(1).min(last)
+                                                } else {
+                                                    state.page.saturating_sub(1)
+                                                };
+                                                // A boundary button becomes disabled; retain a stable navigation origin.
+                                                window.focus(&focus, cx);
+                                                cx.notify();
+                                            })),
+                                    ))
+                            })),
                     )
-                    .h(px(240.))
-                    .w_full(),
-                )
+                    .children(
+                        state
+                            .inventory
+                            .entries
+                            .iter()
+                            .enumerate()
+                            .skip(state.page * RECORDS_PER_PAGE)
+                            .take(RECORDS_PER_PAGE)
+                            .map(|(i, entry)| {
+                                let time: chrono::DateTime<chrono::Local> = entry.modified.into();
+                                let description = format!(
+                                    "同步备份 · {} · {} · {:.1} KiB",
+                                    entry.original.display(),
+                                    time.format("%Y-%m-%d %H:%M:%S"),
+                                    entry.bytes as f64 / 1024.
+                                );
+                                div()
+                                    .debug_selector(move || format!("sync-recovery-record-{i}"))
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .flex_shrink_0()
+                                    .child(div().whitespace_normal().child(description.clone()))
+                                    .child(SettingsFocusTarget::new(
+                                        (ElementId::from(("restore-sync-backup", i)), "focus"),
+                                        &self.ui.recovery_scroll,
+                                        Button::new(("restore-sync-backup", i))
+                                            .compact()
+                                            .label("恢复为副本")
+                                            .accessibility_label(format!(
+                                                "恢复为副本：{description}"
+                                            ))
+                                            .disabled(
+                                                self.ui.file_operation
+                                                    || self.ui.pending_file_writes > 0
+                                                    || state.loading,
+                                            )
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.restore_sync_backup(i, cx)
+                                            })),
+                                    ))
+                            }),
+                    )
             })
             .into_any_element()
     }
@@ -261,6 +307,153 @@ mod tests {
         assert!(vault.root.join(".inkstone-sync-test.backup").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[gpui::test]
+    fn sync_backup_pages_keep_every_record_keyboard_reachable(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (root, vault) = fixture();
+        let entry = recovery::inventory(&vault).unwrap().entries.remove(0);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.ui.trash_open = true;
+                w.ui.sync_recovery.inventory.entries = (0..12)
+                    .map(|i| {
+                        let mut entry = entry.clone();
+                        entry.original = PathBuf::from(format!("较长的恢复路径/第{i}篇笔记.md"));
+                        entry
+                    })
+                    .collect();
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(800.), px(500.)));
+        fn key(v: &mut VisualTestContext, key: &str) {
+            let keystroke = Keystroke::parse(key).unwrap();
+            v.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            v.simulate_event(KeyUpEvent { keystroke });
+            for _ in 0..2 {
+                v.update(|w, cx| w.draw(cx).clear(cx));
+            }
+        }
+        let selectors = [
+            "sync-recovery-record-0",
+            "sync-recovery-record-1",
+            "sync-recovery-record-2",
+            "sync-recovery-record-3",
+            "sync-recovery-record-4",
+            "sync-recovery-record-5",
+            "sync-recovery-record-6",
+            "sync-recovery-record-7",
+            "sync-recovery-record-8",
+            "sync-recovery-record-9",
+            "sync-recovery-record-10",
+            "sync-recovery-record-11",
+        ];
+        for rem in [16., 24.] {
+            visual.update(|w, _| w.set_rem_size(px(rem)));
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    w.ui.sync_recovery.page = 0;
+                    window.focus(&w.ui.modal_focus, cx);
+                })
+                .unwrap();
+            for (step, page) in [0, 1, 2, 1, 0].into_iter().enumerate() {
+                let navigation = if step < 2 { "tab" } else { "shift-tab" };
+                let mut reached = std::collections::BTreeSet::new();
+                for _ in 0..30 {
+                    key(&mut visual, navigation);
+                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                        handle
+                            .update(&mut visual, |w, _, _| {
+                                let viewport = w.ui.recovery_scroll.bounds();
+                                assert!(
+                                    target.top() >= viewport.top()
+                                        && target.bottom() <= viewport.bottom(),
+                                    "rem={rem}: {target:?} outside {viewport:?}"
+                                );
+                            })
+                            .unwrap();
+                        for (i, selector) in selectors.iter().enumerate() {
+                            if let Some(row) = visual.debug_bounds(selector)
+                                && target.top() >= row.top()
+                                && target.bottom() <= row.bottom()
+                            {
+                                reached.insert(i);
+                            }
+                        }
+                    }
+                }
+                let start = page * RECORDS_PER_PAGE;
+                let end = (start + RECORDS_PER_PAGE).min(12);
+                assert_eq!(reached, (start..end).collect());
+                for (i, selector) in selectors.iter().enumerate() {
+                    assert_eq!(
+                        visual.debug_bounds(selector).is_some(),
+                        (start..end).contains(&i)
+                    );
+                }
+                // Walk forward to the last page, then backward to the first.
+                handle
+                    .update(&mut visual, |w, _, _| {
+                        assert_eq!(w.ui.sync_recovery.page, page);
+                        assert_eq!(w.ui.pending_file_writes, 0);
+                        assert!(w.ui.sync_recovery.message.is_empty());
+                    })
+                    .unwrap();
+                if step == 4 {
+                    break;
+                }
+                let forward = step < 2;
+                let selector = if forward {
+                    "sync-recovery-page-true"
+                } else {
+                    "sync-recovery-page-false"
+                };
+                let mut found = false;
+                for _ in 0..30 {
+                    key(&mut visual, navigation);
+                    if let (Some(target), Some(button)) = (
+                        visual.debug_bounds("settings-focused-control"),
+                        visual.debug_bounds(selector),
+                    ) && target.top() >= button.top()
+                        && target.bottom() <= button.bottom()
+                        && target.left() >= button.left()
+                        && target.right() <= button.right()
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                assert!(found);
+                key(&mut visual, "enter");
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        assert!(
+                            w.ui.sync_recovery
+                                .pager_focus
+                                .get()
+                                .unwrap()
+                                .contains_focused(window, cx)
+                        );
+                    })
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(vault.root.join("note.md")).unwrap(),
+            "current"
+        );
+        assert!(!vault.root.join("note 同步恢复.md").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[gpui::test]
     fn stale_inventory_cannot_populate_the_next_vault(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

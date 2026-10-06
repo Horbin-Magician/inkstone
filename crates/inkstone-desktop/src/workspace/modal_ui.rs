@@ -390,6 +390,7 @@ impl Workspace {
                     s.child(
                         div()
                             .id("trash-items")
+                            .track_scroll(&self.ui.recovery_scroll)
                             .max_h(px(450.))
                             .overflow_y_scroll()
                             .child(
