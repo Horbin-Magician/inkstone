@@ -1130,3 +1130,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 核心全量重复检查第 10 轮复现容量 HTTP 模拟服务读取请求时 WouldBlock。监听器为非阻塞模式，接收连接后现在显式切换到阻塞模式，再应用原有 5 秒读取超时；保留接收截止时间、只读方法和清单变化断言，不改变生产 WebDAV 逻辑。
 - 修复后连续 18 轮核心全量通过（每轮 268 通过 / 3 既有忽略）；第 19 轮容量测试通过，但另一备份清理回归在检查保留记录时失败，不能宣称整体稳定性已解决。失败证据分别为 target/backup-cleanup-audit/core-10.log 和 fixed-core-19.log；修复后的 19 轮容量回归均通过。
 - 工作区 all-targets Clippy -D warnings、格式和 diff 检查通过。仅本机 macOS 验证，本提交未执行 Windows CI，也未增加 Linux 适配。用户笔记未进入提交。
+
+
+## 备份清理偶发失败的诊断保留（2026-10-06）
+
+- 将备份清理回归中九处 inspect 成功断言改为 expect，失败时保留底层 I/O/完整性错误及保护语义。没有增加重试、跳过用例或放宽断言，也没有改变生产备份锁/清理实现。
+- 本次已观测两种失败位置：较早的 cleanup_execution_rejects_replaced_directories_and_keeps_protected_backups 与本轮 fixed-core-19.log 的 cleanup_preflight_protects_retained_content_stale_plans_and_readers，均为操作后读取保留备份的旧布尔断言。现有日志不足以确认是锁竞争还是内容错误；子进程继承描述符只是待验证假设，不作为缺陷根因。
+- 补齐诊断后的 30 轮核心全量均通过，每轮 268 通过 / 3 既有入口忽略，记录 target/backup-cleanup-audit/diagnostic-core-01.log 至 diagnostic-core-30.log。工作区 all-targets Clippy -D warnings、格式、diff 检查通过。重复通过不视为原始问题已修复，保留后续复现待办；本提交仅提供更准确失败证据。
+- 未执行新的原生验收或远端 Windows CI，未纳入用户笔记。
