@@ -1319,3 +1319,8 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 
 - 0a12ad66bf3933de4864a9c5e27c9d308c4410ff 已推送现有验证分支 codex/quality-and-recovery-ci；GitHub Actions run 37439067537 的 macOS/Windows 工作区与 vendor 四项任务已确认运行中，尚未确认成功。不变更远端 master。
 - 同提交 locked release 构建通过。大纲缓存首轮原生 CPU 4.5982%，活动状态及生成笔记不变检查通过；详细边界见 PERFORMANCE_BASELINE.md，第二、三轮仍待测，不能据此宣布性能完成。
+
+## 大纲缓存原生三轮结果补齐（2026-10-06）
+
+- 0a12ad6 的第二、三轮复测完成，三轮 CPU 中位数 4.5982%，仍高于 2% 预算，也未显示相对 f9bdc1b 同协议结果的改善。三轮正式活动样本 15/15/14 条均符合条件，全部进程正常退出且生成笔记散列不变。证据与调用栈边界见 PERFORMANCE_BASELINE.md 和 target/native-outline-cache-ffyja39l/results.json。
+- run 37439067537 四项 CI 本次核对仍在运行，未报告成功。文档 diff 检查通过，无用户笔记进入提交。
