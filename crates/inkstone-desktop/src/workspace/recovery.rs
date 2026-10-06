@@ -9,6 +9,17 @@ use inkstone_core::vault::{HistoryEntry, Recovery};
 
 const VERSIONS_PER_PAGE: usize = 5;
 
+fn history_text(id: &'static str, value: impl Into<String>) -> gpui::Stateful<gpui::Div> {
+    let value = value.into();
+    div()
+        .id(id)
+        .role(Role::Label)
+        .aria_label(value.clone())
+        .min_w_0()
+        .whitespace_normal()
+        .child(value)
+}
+
 pub(super) struct Browser {
     page: usize,
     scroll: ScrollHandle,
@@ -574,18 +585,14 @@ impl Workspace {
                     })),
             ))
             .child(
-                div()
-                    .whitespace_normal()
-                    .child(browser.path.to_string_lossy().to_string()),
+                history_text("history-owner-path", browser.path.to_string_lossy().to_string()),
             )
             .when_some(browser.record.as_ref(), |s, record| {
                 s.child(
-                    div()
-                        .text_sm()
-                        .child(format!("记录原路径：{}", record.relative.display())),
+                    history_text("history-original-path", format!("记录原路径：{}", record.relative.display())).text_sm(),
                 )
             })
-            .child(div().text_sm().child(if browser.draft_review {
+            .child(history_text("history-retention", if browser.draft_review {
                 format!(
                     "未保存恢复记录 · {:.1} KiB · 恢复或放弃前保留",
                     bytes as f64 / 1024.
@@ -597,9 +604,9 @@ impl Workspace {
                     bytes as f64 / 1048576.,
                     retention_label(self.ui.prefs.history)
                 )
-            }))
+            }).text_sm())
             .when_some(browser.selected.and_then(|i| browser.entries.get(i)), |s, entry| {
-                s.child(div().text_sm().whitespace_normal().child(format!(
+                s.child(history_text("history-selected-metadata", format!(
                     "所选记录 {} · {}",
                     browser.selected.unwrap_or_default() + 1,
                     super::recovery_metadata::Metadata {
@@ -607,23 +614,23 @@ impl Workspace {
                         modified: Some(entry.modified),
                         bytes: Some(entry.bytes),
                     }.label()
-                )))
+                )).text_sm())
             })
-            .child(div().text_sm().whitespace_normal().child(
+            .child(history_text("history-size-help",
                 "容量按记录文件长度统计，包含正文、元数据及可能的保存前正文，不等于当前笔记大小或磁盘实际分配空间。"
-            ))
-            .when(!browser.current_available && !browser.loading, |s| s.child("原路径没有可读取的当前正文；可查看历史并恢复为副本。"))
-            .when(browser.loading, |s| s.child("正在读取版本……"))
+            ).text_sm())
+            .when(!browser.current_available && !browser.loading, |s| s.child(history_text("history-missing-current", "原路径没有可读取的当前正文；可查看历史并恢复为副本。")))
+            .when(browser.loading, |s| s.child(history_text("history-loading", "正在读取版本……")))
             .when(!browser.message.is_empty(), |s| {
-                s.child(browser.message.clone())
+                s.child(history_text("history-message", browser.message.clone()))
             })
             .when(browser.entries.is_empty() && !browser.loading, |s| {
-                s.child("这篇笔记尚无可用历史。修改并保存后会记录版本。")
+                s.child(history_text("history-empty", "这篇笔记尚无可用历史。修改并保存后会记录版本。"))
             })
             .when(!browser.entries.is_empty(), |panel| {
                 let pages = browser.entries.len().div_ceil(VERSIONS_PER_PAGE);
                 panel.child(div().track_focus(&browser.pager_focus).flex().flex_wrap().gap_2()
-                    .child(format!("历史：第 {} / {pages} 页，每页最多 {VERSIONS_PER_PAGE} 条", browser.page + 1))
+                    .child(history_text("history-page-status", format!("历史：第 {} / {pages} 页，每页最多 {VERSIONS_PER_PAGE} 条", browser.page + 1)))
                     .children([false, true].into_iter().map(|next| {
                         let id = ("history-page", usize::from(next));
                         div().debug_selector(move || format!("history-page-{next}"))
@@ -696,11 +703,11 @@ impl Workspace {
                             }))),),
             )
             .child(Textarea::new(&browser.preview).readonly(true).h(px(240.)))
-            .child(div().text_sm().child(if browser.draft_review {
+            .child(history_text("history-restore-help", if browser.draft_review {
                 "差异以打开比较时的磁盘正文为准；恢复草稿会新建副本，成功后清理所选草稿。"
             } else {
                 "差异以打开历史时的正文为准；恢复会新建笔记并保留原文件。"
-            }))
+            }).text_sm())
             .child(FocusReveal::new("history-restore-focus", &browser.scroll, Button::new("history-restore")
                     .primary()
                     .label(if browser.draft_review {

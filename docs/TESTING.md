@@ -1766,3 +1766,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 磁盘验收：旧路径仍不存在；外部改名后的文件和新副本均为 3982 字节，SHA-256 均与改名前保存内容一致。应用正常退出。
 - 证据：上述隔离目录中的 `catalog.ax.txt`、`catalog.png`、`restored.ax.txt`、`before-rename.json`、`verification.json`；构建日志 `target/backup-cleanup-audit/history-catalog-native-release.log`。均为本地验收产物，不纳入提交。
 - 边界：没有推断外部新路径的身份；本次只证明旧路径可发现和副本恢复。完整 VoiceOver、Windows 原生及最小窗口/DPI 矩阵未据此判定通过。
+
+
+### 2026-10-07：历史详情辅助功能元数据
+
+- 原生验收发现目录可读取元数据，但单篇历史的来源、时间、原路径、容量和保留说明未进入 AX；这些文本及加载/错误/空状态现使用具名 Label，允许换行，不增加 Tab 焦点。
+- `cargo test --locked -p inkstone-desktop workspace::recovery::tests`：12 项通过，覆盖恢复/比较、关闭及过期请求、草稿确认、重命名历史、分页与焦点。桌面 all-targets Clippy、release 构建、格式与 diff 检查通过。
+- 复用已退出的 `target/native-history-catalog` 隔离应用，替换为本次 release 并重新签名。打开旧路径历史，AX 读取保留 30 天/128 MiB 软上限、来源、原路径、时间、容量语义及恢复说明；点击第 2 个已保存版本后，AX 从“未保存草稿/8455 字节/00:21:20”更新为“保存历史/8417 字节/00:21:04”。没有执行写入或清理操作，应用正常退出。
+- 原生证据 `target/native-history-catalog/details-labels.ax.txt`；检查日志 `target/backup-cleanup-audit/history-details-label-{tests,clippy,release}.log`。这些本地测试产物不提交。
+- 本次证明 macOS AX 文本可见和更新，不替代完整 VoiceOver 播报、Windows 原生或 DPI 验收；没有性能测量或 Linux 适配。
