@@ -370,6 +370,56 @@ mod tests {
     }
 
     #[gpui::test]
+    fn recovery_dialog_tab_cycles_stay_inside_modal(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.new_blank(window, cx);
+                w.execute_command(16, window, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        for key in ["tab", "shift-tab"] {
+            let mut reached = Vec::new();
+            for _ in 0..12 {
+                let keystroke = gpui::Keystroke::parse(key).unwrap();
+                visual.simulate_event(gpui::KeyDownEvent {
+                    keystroke: keystroke.clone(),
+                    is_held: false,
+                    prefer_character_input: false,
+                });
+                visual.simulate_event(gpui::KeyUpEvent { keystroke });
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        assert!(
+                            w.ui.modal_focus.contains_focused(window, cx),
+                            "{key} escaped the modal"
+                        );
+                        let focused = window.focused(cx).unwrap();
+                        if !reached.contains(&focused) {
+                            reached.push(focused);
+                        }
+                    })
+                    .unwrap();
+            }
+            assert!(
+                reached.len() >= 2,
+                "navigation must move between controls, not stick to the container"
+            );
+        }
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.close_overlays(window, cx);
+                assert!(w.ui.workspace_focus.is_focused(window));
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn welcome_hides_workspace_chrome_but_keeps_settings_accessible(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);

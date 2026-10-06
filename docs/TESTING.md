@@ -681,3 +681,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新回归用 KeyDown/KeyUp（prefer_character_input=false）逐帧操作，验证标题设置后依次到达创建新库和打开已有库；Enter 打开对应路径选择器，取消后不产生文件；Shift+Tab 返回创建入口。模拟 IME 的 Enter 路径不适合按钮激活，因此不把普通文本模拟替代原生按键事件。
 - 桌面全量单元测试 317 项通过、2 项忽略，集成测试 8 项通过；全工作区 all-targets Clippy、格式和 diff 检查通过。日志：`target/welcome-keyboard-tests.log`、`target/keyboard-navigation-tests.log`、`target/keyboard-navigation-clippy.log`、`target/keyboard-navigation-fmt.log`。
 - 本轮为 GPUI 测试平台，未新增真实 OS 键盘验收；空标签页完整顺序、输入框退出及弹窗内焦点约束仍待继续，不能视为完整键盘可访问性达标。未修改用户笔记。
+
+## 恢复弹窗：未消费 Tab 的范围循环（2026-10-06）
+
+- 普通弹窗及链接更新弹窗增加冒泡 Tab/Shift+Tab 处理，将最终焦点约束在弹窗范围内；若一轮遍历没有可用控件则回到容器。已被子控件消费的按键不处理，带 Ctrl/Alt/Cmd 的组合不处理。
+- 新 GPUI 回归在恢复弹窗中各执行 12 次正向/反向原生按键事件，逐步检查焦点属于弹窗且实际到达多个控件，关闭后回到空标签工作区。桌面全量单元测试 318 项通过、2 项忽略，集成测试 8 项通过；全工作区 all-targets Clippy、格式/diff 检查通过。日志：`target/modal-tab-tests.log`、`target/modal-tab-desktop-tests.log`、`target/modal-tab-clippy.log`、`target/modal-tab-fmt.log`。
+- 没有新增真实 OS/读屏验收；输入框主动消费 Tab、下拉浮层与多行编辑弹窗仍需逐项验证。当前通过 GPUI 全局导航寻找范围内目标，测试证明按键完成后的焦点位置，不证明遍历中所有焦点回调没有副作用。未修改用户笔记。
