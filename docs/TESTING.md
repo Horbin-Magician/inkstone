@@ -1648,3 +1648,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 工作区全量（最终调整任务票据前）：core 321 通过 / 3 忽略，desktop 366 通过 / 2 忽略，集成 display_objects 5、grapheme_cursor 1、grapheme_wrap 2 通过。最终普通任务票据及手动保存用例加入后，5 项定向回归和全工作区 all-targets Clippy `-D warnings` 通过；格式与 diff 检查通过。日志 `target/backup-cleanup-audit/cloud-cleanup-ui-{workspace-tests,tests,clippy}.log`。
 - [CI 37468452148](https://github.com/Horbin-Magician/inkstone/actions/runs/37468452148) 对应 28866bb，macOS/Windows 工作区及 vendor 四项全部成功；不覆盖其后的有状态测试和本次界面。
 - 仅使用生成数据；未操作真实云端或用户笔记。原生视觉、服务商兼容性及云端进程强退未验收；未进行性能测量或 Linux 适配。
+
+## 云端清理跨进程强退（2026-10-06）
+
+- 有状态 HTTP 服务新增一次性响应闸门：在 LOCK 创建、清单 PUT 提交、首个 DELETE 删除之后、回复客户端之前分别暂停。父进程实际 kill 清理子进程并 wait，不执行客户端析构释放锁；随后新进程重新读取远端并完成剩余候选。
+- 验证遗留锁仍存在、没有 UNLOCK、再次加锁被拒绝；测试服务显式模拟租约过期后才允许继续。核对维护代次不回退、已删对象不重新出现、当前清单全部引用可读且哈希正确、本地中文/emoji 修改与同步基线未改变。三个检查点各自使用新服务和生成笔记。
+- 首次定向运行发现测试仅有一个候选，DELETE 后新预览已无候选，准备接口正确拒绝空计划；改为两个候选以验证实际剩余清理。最终核心全量 322 通过、3 个既有手动入口忽略；核心 all-targets Clippy `-D warnings`、格式和 diff 检查通过。最终日志 `target/backup-cleanup-audit/cloud-cleanup-kill-{core-tests,clippy}.log`，早期 `cloud-cleanup-kill-tests.log` 保留失败诊断。
+- 该实验覆盖客户端进程被杀和远端变更结果未知，不模拟服务端进程崩溃、物理断电、真实服务商锁过期调度，也不代替原生 GUI 强退验收。无性能测量、Linux 适配或真实用户数据。
+- [CI 37471917936](https://github.com/Horbin-Magician/inkstone/actions/runs/37471917936) 对应 ad598d5，macOS/Windows 工作区及 vendor 四项全部成功，覆盖清理界面及此前有状态交错；本轮强退用例尚待推送后的远端检查。

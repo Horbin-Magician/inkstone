@@ -14,6 +14,7 @@ struct State {
     expire_before_delete: bool,
     lose_delete_response: bool,
     events: Vec<(String, String, u16)>,
+    pause_after: Option<(String, mpsc::Sender<()>, mpsc::Receiver<()>)>,
 }
 impl State {
     fn etag(&self) -> Option<String> {
@@ -69,10 +70,27 @@ impl Server {
                 let request = Request::read(&mut stream).unwrap();
                 let mut state = shared.lock().unwrap();
                 let response = respond(&root, &mut state, &request);
+                let pause = if response.code < 300
+                    && state
+                        .pause_after
+                        .as_ref()
+                        .is_some_and(|(method, _, _)| *method == request.method)
+                {
+                    state.pause_after.take()
+                } else {
+                    None
+                };
                 state
                     .events
                     .push((request.method, request.path, response.code));
                 drop(state);
+                if let Some((_, reached, resume)) = pause {
+                    reached.send(()).unwrap();
+                    resume.recv_timeout(Duration::from_secs(15)).unwrap();
+                    // The parent killed the client after the mutation but before
+                    // its response. Do not write to the deliberately dead socket.
+                    continue;
+                }
                 if response.code == 0 {
                     continue;
                 }
@@ -592,5 +610,99 @@ fn reader_of_retired_snapshot_keeps_local_state_then_retries_current_manifest() 
     assert_eq!(fs::read(vaults.b.root.join("note.md"))?, b"latest");
     assert_eq!(read_baseline(&baseline)?.generation, Some(1));
     server.assert_references_exist();
+    Ok(())
+}
+
+#[test]
+fn killed_cloud_cleanup_restarts_from_remote_state() -> Result<()> {
+    const URL: &str = "INKSTONE_TEST_KILLED_CLOUD_CLEANUP_URL";
+    const TEST: &str = "vault::sync::webdav::cleanup::stateful_tests::killed_cloud_cleanup_restarts_from_remote_state";
+    if let Ok(url) = std::env::var(URL) {
+        let client = WebDav::new(
+            &Settings {
+                url,
+                ..Settings::default()
+            },
+            "",
+        )?;
+        let preview = client.preview_cloud_cleanup()?;
+        client
+            .prepare_cloud_cleanup(&preview, &Cancellation::default())?
+            .execute(&Cancellation::default())?;
+        return Ok(());
+    }
+    struct Child(std::process::Child);
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let spawn = |url: &str| -> Result<Child> {
+        Ok(Child(
+            std::process::Command::new(std::env::current_exe()?)
+                .args(["--exact", TEST])
+                .env(URL, url)
+                .stdout(std::process::Stdio::null())
+                .spawn()?,
+        ))
+    };
+    // Each checkpoint is after server mutation, before acknowledgement. No
+    // destructor/UNLOCK from the killed client can repair the remote state.
+    for method in ["LOCK", "PUT", "DELETE"] {
+        let server = Server::new()?;
+        let client = server.client()?;
+        client.upload(&hash(b"another orphan"), b"another orphan")?;
+        let vaults = Vaults::new()?;
+        synchronize(&vaults.b, &client, "killed-cleanup")?;
+        let baseline = baseline_path(&vaults.b, "killed-cleanup");
+        let saved = fs::read(&baseline)?;
+        fs::write(vaults.b.root.join("note.md"), "本地未同步修改 📝")?;
+        let (reached, received) = mpsc::channel();
+        let (resume, gate) = mpsc::channel();
+        server.state.lock().unwrap().pause_after = Some((method.into(), reached, gate));
+        let mut child = spawn(&server.url)?;
+        received.recv_timeout(Duration::from_secs(10))?;
+        child.0.kill()?;
+        assert!(!child.0.wait()?.success());
+        resume.send(())?;
+        server.assert_references_exist();
+        {
+            let state = server.state.lock().unwrap();
+            assert!(
+                state.lock.is_some(),
+                "killed client must leave its lease behind"
+            );
+            assert!(!state.events.iter().any(|(m, _, _)| m == "UNLOCK"));
+            let manifest: Manifest = serde_json::from_slice(state.manifest.as_ref().unwrap())?;
+            assert_eq!(
+                manifest.generation,
+                if method == "LOCK" { None } else { Some(1) }
+            );
+            assert_eq!(state.objects.len(), if method == "DELETE" { 2 } else { 3 });
+        }
+        // A new process cannot bypass the abandoned lease before the server
+        // expires it. Explicit model expiry avoids timing-dependent sleeps.
+        assert!(client.lock_maintenance().is_err());
+        server.state.lock().unwrap().lock = None;
+        let mut restarted = spawn(&server.url)?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Some(status) = restarted.0.try_wait()? {
+                assert!(status.success(), "restart failed after {method}");
+                break;
+            }
+            ensure!(std::time::Instant::now() < deadline, "restart timed out");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        server.assert_references_exist();
+        assert_eq!(client.preview_cloud_cleanup()?.candidates, 0);
+        assert!(server.state.lock().unwrap().lock.is_none());
+        assert_eq!(
+            fs::read_to_string(vaults.b.root.join("note.md"))?,
+            "本地未同步修改 📝"
+        );
+        assert_eq!(fs::read(&baseline)?, saved);
+    }
     Ok(())
 }
