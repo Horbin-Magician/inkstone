@@ -1,5 +1,6 @@
 //! Versioned, checksummed directory backups. Publication/restoration never overwrites.
 pub mod capacity;
+mod locking;
 mod origin;
 pub mod retention;
 use super::*;
@@ -166,6 +167,12 @@ pub(super) fn staging(destination: &Path, excluded: &Path) -> io::Result<(Stagin
 }
 
 pub fn create(vault: &Vault, destination: &Path) -> io::Result<Manifest> {
+    let _lock = locking::acquire(
+        destination
+            .parent()
+            .ok_or_else(|| invalid("无效备份位置"))?,
+        true,
+    )?;
     let (stage, destination) = staging(destination, &vault.root)?;
     let payload = stage.0.join("files");
     fs::create_dir(&payload)?;
@@ -217,7 +224,7 @@ pub fn create(vault: &Vault, destination: &Path) -> io::Result<Manifest> {
     serde_json::to_writer_pretty(&mut file, &manifest)?;
     file.sync_all()?;
     drop(file);
-    inspect(&stage.0)?;
+    inspect_unlocked(&stage.0)?;
     move_no_replace(&stage.0, &destination)?;
     Ok(manifest)
 }
@@ -287,6 +294,18 @@ fn inspect_metadata(source: &Path) -> io::Result<Manifest> {
 }
 
 pub fn inspect(source: &Path) -> io::Result<Manifest> {
+    if is_reparse(&fs::symlink_metadata(source)?) {
+        return Err(invalid("备份目录不能是符号链接"));
+    }
+    let source = fs::canonicalize(source)?;
+    let _lock = locking::acquire(
+        source.parent().ok_or_else(|| invalid("无效备份位置"))?,
+        false,
+    )?;
+    inspect_unlocked(&source)
+}
+
+fn inspect_unlocked(source: &Path) -> io::Result<Manifest> {
     let manifest = inspect_metadata(source)?;
     let payload = safe_path(source, Path::new("files"))?;
     for entry in &manifest.files {
@@ -300,7 +319,12 @@ pub fn inspect(source: &Path) -> io::Result<Manifest> {
 }
 
 pub fn restore(source: &Path, destination: &Path, expected: &Manifest) -> io::Result<Manifest> {
-    let manifest = inspect(source)?;
+    let canonical = fs::canonicalize(source)?;
+    let _lock = locking::acquire(
+        canonical.parent().ok_or_else(|| invalid("无效备份位置"))?,
+        false,
+    )?;
+    let manifest = inspect_unlocked(source)?;
     if &manifest != expected {
         return Err(invalid("备份在预览后发生变化，请重新选择并校验"));
     }
@@ -440,6 +464,53 @@ mod tests {
         fs::write(path, serde_json::to_vec(&legacy).unwrap()).unwrap();
         assert!(inspect(&f.0.join("first")).is_err());
         assert!(capacity::summarize(&f.0.join("first")).is_err());
+    }
+
+    #[test]
+    fn backup_operation_locks_protect_readers_and_coordinate_processes() {
+        const CHILD: &str = "INKSTONE_BACKUP_LOCK_CHILD";
+        if let Some(directory) = std::env::var_os(CHILD) {
+            let error = locking::acquire(Path::new(&directory), true).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+            return;
+        }
+        let f = Fixture::new();
+        let path = f.0.join("backup");
+        let manifest = create(&f.1, &path).unwrap();
+        let reader = locking::acquire(&f.0, false).unwrap();
+        let second_reader = locking::acquire(&f.0, false).unwrap();
+        assert_eq!(inspect(&path).unwrap(), manifest);
+        assert!(create(&f.1, &f.0.join("blocked")).is_err());
+        assert!(!f.0.join("blocked").exists());
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "vault::backup::tests::backup_operation_locks_protect_readers_and_coordinate_processes"])
+            .env(CHILD, &f.0).status().unwrap();
+        assert!(status.success());
+        drop(second_reader);
+        drop(reader);
+        let exclusive = locking::acquire(&f.0, true).unwrap();
+        assert!(inspect(&path).is_err());
+        assert!(restore(&path, &f.0.join("blocked-restore"), &manifest).is_err());
+        assert!(!f.0.join("blocked-restore").exists());
+        drop(exclusive);
+        restore(&path, &f.0.join("restored"), &manifest).unwrap();
+        create(&f.1, &f.0.join("unblocked")).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backup_locks_do_not_require_writing_read_only_backup_media() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = Fixture::new();
+        let media = f.0.join("media");
+        fs::create_dir(&media).unwrap();
+        let path = media.join("backup");
+        let manifest = create(&f.1, &path).unwrap();
+        fs::set_permissions(&media, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = restore(&path, &f.0.join("restored"), &manifest);
+        fs::set_permissions(&media, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(result.unwrap(), manifest);
+        assert_eq!(fs::read_dir(&media).unwrap().count(), 1);
     }
 
     #[test]
