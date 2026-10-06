@@ -1865,7 +1865,11 @@ impl Render for Workspace {
         div()
             .id("workspace")
             .tab_group()
-            .on_key_down(|event, window, cx| {
+            .on_key_down(cx.listener(|this, event, window, cx| {
+                if this.modal_is_open() {
+                    this.navigate_modal_tab(event, window, cx);
+                    return;
+                }
                 let key = &event.keystroke;
                 if key.key == "tab"
                     && !key.modifiers.control
@@ -1879,7 +1883,7 @@ impl Render for Workspace {
                     }
                     cx.stop_propagation();
                 }
-            })
+            }))
             .track_focus(&self.ui.workspace_focus)
             .relative()
             .flex()
@@ -2196,15 +2200,6 @@ impl Render for Workspace {
                         .child(div().px_1().child(count)),
                 )
             })
-            .when(
-                self.command_open
-                    || self.ui.quick_open
-                    || self.ui.name_mode.is_some()
-                    || self.ui.property_open
-                    || self.ui.settings
-                    || self.ui.trash_open
-                    || self.ui.link_update.is_some(),
-                |s| s.child(self.modal(_window, cx)),
-            )
+            .when(self.modal_is_open(), |s| s.child(self.modal(_window, cx)))
     }
 }
