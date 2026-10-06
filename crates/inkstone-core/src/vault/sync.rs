@@ -556,9 +556,16 @@ pub fn synchronize_with_progress(
     synchronize_cancellable(vault, remote, identity, &Cancellation::default(), notify)
 }
 
-/// Coordinate sync and backup recovery within this device recovery directory.
-/// Keep the legacy lock path so existing processes remain mutually exclusive.
-pub(super) fn lock_operation(vault: &Vault) -> Result<super::file_lock::FileLock> {
+/// Both guards remain alive until the complete sync/recovery operation ends.
+pub(super) struct OperationLock {
+    _device: super::file_lock::FileLock,
+    _vault: super::file_lock::FileLock,
+}
+
+/// Coordinate across recovery directories using the canonical vault path and
+/// existing local-user directory-lock protocol. Retain the legacy device lock
+/// for older processes; this does not coordinate other users or remote hosts.
+pub(super) fn lock_operation(vault: &Vault) -> Result<OperationLock> {
     let device = vault.recovery_dir.join("webdav-sync");
     fs::create_dir_all(&device)?;
     let vault_id = hash(vault.root.to_string_lossy().as_bytes());
@@ -567,7 +574,14 @@ pub(super) fn lock_operation(vault: &Vault) -> Result<super::file_lock::FileLock
         .truncate(false)
         .write(true)
         .open(device.join(format!("{vault_id}.lock")))?;
-    super::file_lock::FileLock::acquire(lock, true).context("该笔记库已有同步或备份恢复任务运行")
+    let device = super::file_lock::FileLock::acquire(lock, true)
+        .context("该笔记库已有同步或备份恢复任务运行")?;
+    let shared = super::backup::locking::acquire(&vault.root, true)
+        .context("该笔记库在其他恢复目录中已有同步或备份恢复任务运行")?;
+    Ok(OperationLock {
+        _device: device,
+        _vault: shared,
+    })
 }
 
 /// In-flight network calls finish before cancellation returns; no new transfers

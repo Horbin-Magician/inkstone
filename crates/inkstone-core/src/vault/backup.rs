@@ -2,7 +2,7 @@
 pub mod capacity;
 pub mod cleanup;
 pub mod interrupted;
-mod locking;
+pub(super) mod locking;
 mod origin;
 pub mod retention;
 mod storage;

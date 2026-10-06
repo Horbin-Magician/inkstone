@@ -1475,3 +1475,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 核心同步测试 46 通过、2 个既有手动大库/成本入口忽略（不重新进行性能测量）；全工作区 all-targets Clippy -D warnings 通过。日志 target/backup-cleanup-audit/sync-recovery-lock-{tests,clippy,ui-tests}.log。
 - 边界：只协调同一设备恢复目录及库路径。不同恢复目录、不同用户或共享存储的统一协调尚未完成；此提交不能授权同步备份删除，仍无删除入口。
 - 桌面 4 项同步恢复回归、格式与 diff 检查通过；没有改动真实用户笔记。
+
+## 同库不同恢复目录的同步互斥（2026-10-06）
+
+- sync::OperationLock 同时持有既有设备锁与按规范笔记库路径的本地用户目录锁，复用备份目录锁实现，不新建笔记库内锁文件。旧设备锁路径不变，兼容同恢复目录的旧进程；两把锁均非阻塞，获取第二把失败时自动释放第一把。
+- 新增 operations_coordinate_across_recovery_directories_and_release_failed_attempts：同库、不同恢复目录分别尝试真实 synchronize 和 restore_copy，均被占用锁拒绝，不上传、不发布清单、不创建恢复副本；其他库仍可取得锁。释放后同一调用方能恢复和同步，原件/备份正文不变。
+- 新增 canonical_vault_alias_uses_the_same_operation_lock（Unix）：库路径别名与原路径互斥，释放后可重试。已有旧路径锁回归保持通过。日志 target/backup-cleanup-audit/sync-cross-profile-lock-{tests,clippy}.log。
+- 仍限定共享本地锁目录的同一用户和遵守该锁协议的进程；其他用户、远端机器、旧版本配合不同恢复目录及不遵守协议的外部工具不在此保证内。同步备份删除仍未开放，共享存储清理不得依赖此锁。
+- 验证：48 项核心同步测试通过，2 项既有手动入口忽略；全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。

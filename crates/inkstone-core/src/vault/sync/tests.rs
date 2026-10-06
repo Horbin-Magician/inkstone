@@ -1358,3 +1358,44 @@ fn concurrent_scan_cancellation_and_removed_files_never_return_partial_manifest(
     assert!(snapshot(&f.a)?.is_empty());
     Ok(())
 }
+
+#[test]
+fn operations_coordinate_across_recovery_directories_and_release_failed_attempts() -> Result<()> {
+    let f = Fixture::new();
+    let other = Vault::open(&f.a.root, f.root.join("other-recovery"))?;
+    let remote = Memory::default();
+    fs::write(f.a.root.join("note.md"), b"old")?;
+    apply_bytes(&f.a, "note.md", Some(&hash(b"old")), Some(b"new"))?;
+    let entry = recovery::inventory(&f.a)?.entries.remove(0);
+    let owner = lock_operation(&f.a)?;
+    assert!(synchronize(&other, &remote, "other-profile").is_err());
+    assert!(recovery::restore_copy(&other, &entry, &[]).is_err());
+    assert_eq!(remote.uploads.load(Ordering::Relaxed), 0);
+    assert_eq!(remote.revision.load(Ordering::Relaxed), 0);
+    assert!(!f.a.root.join("note 同步恢复.md").exists());
+    // A separate vault remains independent, even in the same recovery directory.
+    drop(lock_operation(&f.b)?);
+    drop(owner);
+    // A failed second lock acquisition must release its already-acquired device lock.
+    let restored = recovery::restore_copy(&other, &entry, &[])?;
+    assert_eq!(fs::read(f.a.root.join(restored.relative))?, b"old");
+    synchronize(&other, &remote, "other-profile")?;
+    assert_eq!(fs::read(f.a.root.join("note.md"))?, b"new");
+    assert_eq!(fs::read(f.a.root.join(entry.backup))?, b"old");
+    drop(lock_operation(&f.a)?);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn canonical_vault_alias_uses_the_same_operation_lock() -> Result<()> {
+    let f = Fixture::new();
+    let alias = f.root.join("alias");
+    std::os::unix::fs::symlink(&f.a.root, &alias)?;
+    let other = Vault::open(alias, f.root.join("alias-recovery"))?;
+    let owner = lock_operation(&f.a)?;
+    assert!(lock_operation(&other).is_err());
+    drop(owner);
+    drop(lock_operation(&other)?);
+    Ok(())
+}

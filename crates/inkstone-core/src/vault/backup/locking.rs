@@ -3,7 +3,7 @@ use super::*;
 
 use crate::vault::file_lock::FileLock;
 
-pub(super) fn acquire(directory: &Path, exclusive: bool) -> io::Result<FileLock> {
+pub(in crate::vault) fn acquire(directory: &Path, exclusive: bool) -> io::Result<FileLock> {
     let directory = fs::canonicalize(directory)?;
     let mut digest = Sha256::new();
     digest.update(directory.as_os_str().as_encoded_bytes());
