@@ -1562,6 +1562,8 @@ impl Workspace {
                                                 } else {
                                                     "阅读视图"
                                                 }
+                                            } else if id == 16 {
+                                                "文件恢复"
                                             } else {
                                                 title
                                             };
@@ -1587,30 +1589,33 @@ impl Workspace {
                                             let shortcut = shortcut.clone();
                                             let weak = menu_weak.clone();
                                             menu = menu.item(
-                                                PopupMenuItem::element(move |_, _| {
-                                                    div()
-                                                        .w(px(220.))
-                                                        .flex()
-                                                        .items_center()
-                                                        .gap_3()
-                                                        .text_size(px(MIN_UI_FONT_SIZE))
-                                                        .when(id == 10, |s| {
-                                                            s.text_color(rgb(0xe76575))
-                                                        })
-                                                        .child(
-                                                            div()
-                                                                .flex_1()
-                                                                .min_w_0()
-                                                                .truncate()
-                                                                .child(label),
-                                                        )
-                                                        .child(
-                                                            div()
-                                                                .text_size(px(MIN_UI_FONT_SIZE))
-                                                                .text_color(colors.muted)
-                                                                .child(shortcut.clone()),
-                                                        )
-                                                })
+                                                PopupMenuItem::element_with_label(
+                                                    label,
+                                                    move |_, _| {
+                                                        div()
+                                                            .w(px(220.))
+                                                            .flex()
+                                                            .items_center()
+                                                            .gap_3()
+                                                            .text_size(px(MIN_UI_FONT_SIZE))
+                                                            .when(id == 10, |s| {
+                                                                s.text_color(rgb(0xe76575))
+                                                            })
+                                                            .child(
+                                                                div()
+                                                                    .flex_1()
+                                                                    .min_w_0()
+                                                                    .truncate()
+                                                                    .child(label),
+                                                            )
+                                                            .child(
+                                                                div()
+                                                                    .text_size(px(MIN_UI_FONT_SIZE))
+                                                                    .text_color(colors.muted)
+                                                                    .child(shortcut.clone()),
+                                                            )
+                                                    },
+                                                )
                                                 .icon(icon(symbol).size(px(16.)))
                                                 .on_click(move |_, window, cx| {
                                                     let _ = weak.update(cx, |this, cx| {

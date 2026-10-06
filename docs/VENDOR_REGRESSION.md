@@ -26,7 +26,7 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 | Base text | Markdown/HTML 源位置、任务与链接、脚注、Callout、选择、文字布局 | Base library 全量；应用阅读/实时预览回归 |
 | Base tree 与 Component tree/resizable | 文件树选择与可控工作区布局 | 两包 library 全量；应用文件树与分屏回归 |
 | Component input | 编辑器属性透传、补全菜单排版、Unicode 高亮、菜单定位 | Component library 全量；应用补全回归 |
-| Component menu | 点击修饰键透传、长按与拖拽菜单、实际事件传递 | Component library 全量；workspace navigation 回归 |
+| Component menu | 点击修饰键透传、长按与拖拽菜单、实际事件传递；自定义菜单行通过 `element_with_label` 提供交互节点的可访问名称 | Component library 全量；`popup_menu_item_a11y_label_uses_visible_label`；workspace navigation 回归 |
 | Base/Component slider | 单值滑块键盘焦点、方向/边界键、用户调整事件及可访问名称 | 两包 library 全量（slider::tests）；应用 settings_sliders_accept_keyboard_changes_and_keep_focus |
 | Component switch/title_bar | 设置开关尺寸、标题栏内容收缩 | Component library 全量；设置滚动/点击回归和原生视觉验收 |
 
