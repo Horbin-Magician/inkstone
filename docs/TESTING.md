@@ -1177,3 +1177,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 为部分恢复预览提取独立分页控件，使用稳定焦点容器；切换到首末页导致当前按钮禁用时，焦点保留在分页区域。点击处理使用当前预览重新计算页数，文件行仅增加调试选择器。
 - 新 GUI 回归使用 12 个长中英文/emoji 路径和三类校验状态，在 800×500 逻辑窗口、16/24 rem 下经真实 Tab/Shift+Tab/Enter 执行 0→1→2→1→0。每页检查仅当页五条（末页两条）被渲染，分页控件四边在设置滚动视口内，每次翻页后焦点仍属于分页容器；整个过程未打开目录选择器、启动恢复或登记文件写入。
 - 定向回归通过（6.25 秒），workspace all-targets Clippy -D warnings、格式和 diff 检查通过。日志 target/backup-cleanup-audit/partial-preview-keys.log、partial-preview-keys-clippy.log。该结果不替代 macOS/Windows 原生 DPI、读屏或目录选择器验证；用户笔记未进入提交。
+
+
+## 部分清理残留 macOS 原生恢复（2026-10-06）
+
+- release e8e916c 经 prepare_macos 生成独立 bundle、XDG_DATA_HOME 与最近库；夹具含 12 个清单文件（4 有效、4 缺失、4 损坏），另保留一个清单外文件。应用 PID 91847，记录 target/native-partial-recovery-kn4sl5vh/case/preparation.json、partial-fixture.json、native-acceptance.json；构建日志 target/backup-cleanup-audit/partial-native-build.log。
+- 设置 → 备份与恢复刷新识别中断项。原生 Tab 定位“校验剩余文件并恢复副本”，Enter 后显示 12 项中 4 项有效；长中英文/emoji 路径换行、三类状态可读。Tab/Enter 完成 1→2→3→2→1，首末页正确禁用越界按钮，焦点可继续进入恢复按钮。
+- 原生目录选择器 Escape 取消后，文件系统确认没有创建副本；再次 Enter 打开，设置新名称 native-verified-copy 并提交。界面明确报告恢复 4 个有效文件、原残留保留且并非完整备份。逐文件 SHA-256 核对新目录恰为四份有效正文，原残留 10 个文件（含原清单、损坏与额外文件）全部不变，16 个 corpus Markdown 全部不变。
+- 截图 2400×1640（普通窗口），不计为最小窗口/其他 DPI/读屏验收；未制造其他未保存编辑，该项仍依据自动回归。部分 AX 点击离屏按钮及滚动未生效，后续采用可见焦点和键盘完成。Cmd+Q 后 ps 确认 PID 消失，没有再次查询已退出应用以免重新启动。
+- 仅提交验收记录与状态更新，diff 检查通过；没有纳入用户笔记或生成夹具。
