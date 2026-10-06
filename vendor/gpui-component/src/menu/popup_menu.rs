@@ -49,6 +49,7 @@ pub enum PopupMenuItem {
     /// A menu item with custom element render.
     ElementItem {
         icon: Option<Icon>,
+        accessible_label: Option<SharedString>,
         disabled: bool,
         checked: bool,
         action: Option<Box<dyn Action>>,
@@ -89,12 +90,29 @@ impl PopupMenuItem {
     {
         PopupMenuItem::ElementItem {
             icon: None,
+            accessible_label: None,
             disabled: false,
             checked: false,
             action: None,
             render: Box::new(move |window, cx| builder(window, cx).into_any_element()),
             handler: None,
         }
+    }
+
+    /// Create a custom menu row with an accessible name on its interactive item.
+    pub fn element_with_label<F, E>(label: impl Into<SharedString>, builder: F) -> Self
+    where
+        F: Fn(&mut Window, &mut App) -> E + 'static,
+        E: IntoElement,
+    {
+        let mut item = Self::element(builder);
+        if let Self::ElementItem {
+            accessible_label, ..
+        } = &mut item
+        {
+            *accessible_label = Some(label.into());
+        }
+        item
     }
 
     /// Create a new submenu item that opens another popup menu.
@@ -274,7 +292,10 @@ impl PopupMenuItem {
             PopupMenuItem::Item { label, .. }
             | PopupMenuItem::Label(label)
             | PopupMenuItem::Submenu { label, .. } => Some(label.clone()),
-            PopupMenuItem::Separator | PopupMenuItem::ElementItem { .. } => None,
+            PopupMenuItem::ElementItem {
+                accessible_label, ..
+            } => accessible_label.clone(),
+            PopupMenuItem::Separator => None,
         }
     }
 }
@@ -1555,5 +1576,10 @@ mod tests {
         );
         assert_eq!(PopupMenuItem::separator().a11y_label(), None);
         assert_eq!(PopupMenuItem::element(|_, _| div()).a11y_label(), None);
+        assert_eq!(
+            PopupMenuItem::element_with_label("文件恢复", |_, _| div().child("文件恢复"))
+                .a11y_label(),
+            Some("文件恢复".into())
+        );
     }
 }

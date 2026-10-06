@@ -1732,3 +1732,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生归档第一页 5 条、第二页 2 条，前进/后退显示正确，末页下一页禁用。点击第二页的定位按钮，Finder 实际选中隔离库 `.inkstone-sync-native-06.backup.json.retained`，大小 180 字节；随后关闭这次打开的 Finder 窗口。撤销测试编辑后状态回到已保存，正常退出且确认测试进程已结束。
 - 证据位于 `target/native-sync-residue-e3b4ad6/`：`raised-cancel.png`、`raised-success.png`、`raised-page2.png`、`raised-result.ax.txt`、`finder-selected.ax.txt`、`raised-verification.txt`。证明本轮默认 1200×820 逻辑窗口的取消/确认/列表刷新/分页/定位和未保存保护；不扩展为最小窗口、DPI、完整键盘、VoiceOver、Windows 或原生强退通过。
 - CI [37489337623](https://github.com/Horbin-Magician/inkstone/actions/runs/37489337623) 对应 e3b4ad6 已完成：macOS/Windows 工作区及两平台 vendor 四项全部成功，包含修正后的 Windows 描述写保护与归档进程强退测试。没有性能测量、Linux 适配或真实笔记修改。
+
+## 笔记菜单恢复入口与可访问名称（2026-10-07）
+
+- 原生验收发现固定宽度笔记菜单将恢复入口的长说明裁切，且自定义行在 AX 中仅有空菜单容器。菜单中改用“文件恢复”，命令 16 的完整名称、搜索关键词、持久化编号与自定义快捷键保持不变。
+- Component `src/menu/popup_menu.rs` 新增 `element_with_label`，把自定义行名称传给已有交互菜单项的辅助功能节点；原 `element` 行保持可选名称语义。笔记菜单全部 17 项使用此接口，动态阅读/编辑标题与可见文字一致；未改变动作派发、快捷键计算或布局尺寸。
+- 扩展现有菜单名称回归；Component 全量 573 项通过，desktop all-targets Clippy `-D warnings`、release 构建、工作区格式与 diff 检查通过。日志 `target/backup-cleanup-audit/file-menu-{a11y-test,component-suite,clippy,release}.log`。
+- 使用独立 bundle/应用数据/生成库 `target/native-file-menu-a11y` 原生复验：Raise 后截图确认恢复标题完整，AX 暴露 17 个具名菜单项；点击恢复项进入统一面板。Cmd+P 搜索“草稿”仍保留完整恢复命令，Enter 正常打开恢复。证据 `menu.png`、`menu.ax.txt`、`search.ax.txt`；正常退出应用，未修改笔记。未扩展为完整 VoiceOver、Windows 或 DPI 矩阵通过；无性能测量或 Linux 适配。
