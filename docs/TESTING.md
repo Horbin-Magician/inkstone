@@ -764,3 +764,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 实际按键回归发现末页下一页按钮禁用后会丢失可导航焦点，现将翻页后的焦点交给持久分页容器，继续 Tab 可进入按钮和记录。两个列表各用十二条合成元数据，在 800×500、rem 16/24 下遍历三页，通过 Tab/Enter 翻页并逐页验证所有记录至少一个操作按钮可到达、焦点控件完整可见，再用 Shift+Tab/Enter 返回上一页。夹具不创建目录或真实备份，断言没有启动备份/容量后台任务或文件写入；不触发记录的实际操作。
 - 新增跨页回归 1 项通过，既有备份相关 5 项通过，六类设置页 36 个布局组合通过；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/backup-paging-navigation.log`、`target/backup-paging-regressions.log`、`target/backup-paging-layout.log`、`target/backup-paging-clippy.log`、`target/backup-paging-fmt.log`。
 - 本轮是 GPUI 自动事件验收，尚未完成原生窗口分页、读屏名称与真实中断记录的键盘执行验收。分页限制渲染数量，不改变元数据扫描成本。未修改真实用户笔记。
+
+
+## 备份分页：逐按钮与首尾边界回归补齐（2026-10-06）
+
+- 收紧上一轮跨页回归：逐条统计独立焦点，要求普通备份每条一个操作、中断记录每条两个操作全部可达；不再用“该行至少一个按钮可达”代替整行操作覆盖。修正中断列表页外断言误查普通备份列表的问题，两类列表均验证所有页外记录未渲染。
+- 两种字号下均验证每次向后翻页后焦点仍属于对应分页容器，再连续反向返回中间页、第一页，覆盖上一页按钮变为禁用的边界。按键测试通过（两类十二条记录、三页、rem 16/24）；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/backup-paging-complete-controls.log`、`target/backup-paging-complete-clippy.log`、`target/backup-paging-complete-fmt.log`。
+- 本次仅增强自动验收，没有修改产品行为。夹具仅为界面元数据，不执行记录操作，不修改用户笔记；原生分页与读屏仍待验收。
