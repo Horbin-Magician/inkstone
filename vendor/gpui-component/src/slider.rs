@@ -270,11 +270,12 @@ impl RenderOnce for Slider {
             .when_some(self.accessibility_label, |slider, label| {
                 slider.aria_label(label)
             })
-            .focus_visible(|style| {
-                style.shadow(vec![
-                    gpui::BoxShadow::new(px(0.), px(0.), ring_color).spread_radius(px(2.)),
-                ])
-            })
+            // A shadow behind a transparent track fills the entire rectangle.
+            // Reserve the border in both states so keyboard focus only changes
+            // its color, without resizing the control or spilling past a clip.
+            .border_1()
+            .border_color(cx.theme().transparent)
+            .focus_visible(|style| style.border_color(ring_color))
             .axis(axis)
             .disabled(self.disabled)
             .flex()
