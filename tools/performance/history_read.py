@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""macOS release comparison of old and buffered legacy journal decoding.
+"""macOS release comparison of whole, buffered and metadata-only legacy journal decoding.
 
 Uses only generated data in a fresh target directory. Build the example first:
 cargo build --locked --release -p inkstone-core --example history_read_benchmark
@@ -37,28 +37,35 @@ def main():
         "machine": platform.machine(),
         "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=project, text=True).strip(),
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+        "metadata_source_sha256": hashlib.sha256((project / "crates/inkstone-core/src/vault/history/metadata.rs").read_bytes()).hexdigest(),
         "rustc": subprocess.check_output(["rustc", "--version"], cwd=project, text=True).strip(),
     }
     (root / "fixture.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     del body
     runs = []
     for iteration in range(3):
-        modes = ["whole", "buffered"] if iteration % 2 == 0 else ["buffered", "whole"]
+        modes = ["whole", "buffered", "metadata"]
+        modes = modes[iteration:] + modes[:iteration]
         for mode in modes:
             result = subprocess.run(
                 ["/usr/bin/time", "-l", str(binary), mode, str(fixture)],
                 capture_output=True, text=True, check=True,
             )
             (root / f"{mode}-{iteration}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
+            if mode == "metadata":
+                assert "root=/synthetic/vault relative=中文.md" in result.stdout
+            else:
+                assert f"baseline_bytes={metadata['body_bytes_each']} draft_bytes={metadata['body_bytes_each']}" in result.stdout
             elapsed = float(re.search(r"elapsed_ms=([\d.]+)", result.stdout)[1])
             rss = int(re.search(r"(\d+)\s+maximum resident set size", result.stderr)[1])
             runs.append({"mode": mode, "iteration": iteration, "elapsed_ms": elapsed, "max_rss_bytes": rss})
+    assert hashlib.sha256(fixture.read_bytes()).hexdigest() == metadata["fixture_sha256"]
     summary = {
         mode: {
             "elapsed_ms_median": statistics.median(r["elapsed_ms"] for r in runs if r["mode"] == mode),
             "rss_mib_median": statistics.median(r["max_rss_bytes"] for r in runs if r["mode"] == mode) / 1048576,
         }
-        for mode in ["whole", "buffered"]
+        for mode in ["whole", "buffered", "metadata"]
     }
     (root / "results.json").write_text(json.dumps({"runs": runs, "summary": summary}, indent=2), encoding="utf-8")
     print(root)

@@ -907,3 +907,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 73 个不同长度 Unicode 文件与独立摘要对照，使用非 Sync 回调验证通知始终处于调用线程、完成数及字节数单调；新增第一次文件完成时取消、取消后重试、枚举后删除全部文件及空库重试，验证不能返回部分清单。完整核心测试 258 项通过，3 项既有手动基准/夹具入口忽略；包含已有同步中断、文件限制、流式应用、上传和恢复回归。
 - 相同机器/样本 release 三轮对照：一万小文件扫描中位数 222.130 → 95.470 ms，576 MiB 库 1070.431 → 376.359 ms；全部夹具与基线逐文件路径/大小/散列一致，测量后内容复核通过。完整数值、内存及限制见 PERFORMANCE_BASELINE.md。
 - release 构建、完整基准执行、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/parallel-scan-tests.log`、`target/parallel-scan-build.log`、`target/parallel-scan-run.log`、`target/parallel-scan-clippy.log`、`target/parallel-scan-fmt.log`。无远端访问、无真实用户笔记改动；原生长期同步和真实服务商验收仍未完成。
+
+
+## 历史冷导入：正文校验后丢弃副本（2026-10-06）
+
+- 冷导入改用仅保留 root/relative 的元数据解码类型，baseline 仍为可选字符串，draft 仍为必选字符串；解析正文后丢弃，不创建两份完整正文 String。保留完整 JSON、UTF-8、转义和末尾输入验证，缓存格式/校验和及文件变化复核不变；正文选择、恢复仍读取完整 Recovery。
+- 新增与旧 Recovery 解码器逐项对照，覆盖有效 Unicode/代理对、缺失字段、null/错误类型、未知字段、重复字段、非法 UTF-8/转义/代理项、控制字符、截断和尾随输入。既有大旧记录冷导入、缓存损坏重建、暖缓存不读取正文、实际历史正文读取和跨库/链接保护回归一并执行；完整核心 259 项通过，3 项既有手动入口忽略。
+- release 同夹具三种读取方式、各三轮独立进程测量完成，解码输出和夹具散列验证通过；相对原缓冲实现峰值 RSS 103.641 → 39.609 MiB，耗时中位数 188.513 → 182.877 ms。生产解码源码直接用于示例，具体数值和限制见 PERFORMANCE_BASELINE.md；不代替历史目录扫描或原生窗口验收。
+- 全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-metadata-tests.log`、`target/history-metadata-build.log`、`target/history-metadata-run.log`、`target/history-metadata-clippy.log`、`target/history-metadata-fmt.log`。所有生成数据位于 target 或测试临时目录，未读取或改动真实用户笔记。
