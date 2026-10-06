@@ -785,3 +785,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 
 - 历史/草稿比较页新增所选记录来源和文件大小（精确字节及 KiB），从已有元数据读取，不额外加载历史正文。成功保存历史与未保存恢复记录使用不同来源说明；原路径与现有保留规则继续显示。补充容量口径：记录文件可能包含保存前正文及元数据，不能当作当前笔记大小或实际磁盘分配空间。
 - 恢复相关 14 项既有回归通过，涵盖历史预览/差异/恢复副本、草稿处理及同步备份恢复；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/history-record-details-tests.log`、`target/history-record-details-clippy.log`、`target/history-record-details-fmt.log`。本次只添加展示文案，未增加镜像实现的格式测试；新增文案的原生布局尚未验收。未修改真实用户笔记。
+
+
+## 历史冷重建：避免同时保留整份序列化日志（2026-10-06）
+
+- 记录元数据缓存缺失/损坏时，通过 64 KiB BufReader 解析旧 Recovery 日志，替代先 `fs::read` 整份 JSON 再反序列化。仍完整验证旧记录，解析完成后仅保留库/笔记归属；不改变日志格式、缓存格式或按需读取所选历史的路径。暖查询继续复用元数据。
+- 新增大于 1 MiB 的旧日志冷导入回归，包含中文、emoji、组合字符和转义正文，验证原始恢复内容一致、元数据小于 2 KiB，以及暖查询不再调用正文解析。错误正文类型、截断 JSON、尾随垃圾均拒绝，恢复有效日志后可再次重建。历史相关 16 项通过，全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-cold-reader-tests.log`、`target/history-cold-reader-clippy.log`、`target/history-cold-reader-fmt.log`。
+- 本次去掉整份序列化输入的额外内存副本，尚无独立 RSS/耗时对比；冷重建仍遍历目录并解析正文，解码后的正文仍可能很大，不能视为常量内存或完整冷扫描优化。测试仅使用临时目录，未修改用户笔记。

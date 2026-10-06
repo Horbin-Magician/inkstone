@@ -38,7 +38,11 @@ fn cache_path(vault: &Vault, identity: &Path) -> Option<PathBuf> {
 }
 pub(super) fn scope(vault: &Vault, path: &Path, meta: &fs::Metadata) -> Option<Scope> {
     scope_with(vault, path, meta, || {
-        serde_json::from_slice::<Recovery>(&fs::read(path).ok()?).ok()
+        // Cold imports still validate the complete legacy record. Read through a
+        // bounded buffer instead of retaining the serialized file alongside both
+        // decoded bodies; warm lookups continue using metadata only.
+        let file = fs::File::open(path).ok()?;
+        serde_json::from_reader::<_, Recovery>(io::BufReader::with_capacity(64 * 1024, file)).ok()
     })
 }
 fn scope_with(
@@ -182,6 +186,51 @@ mod tests {
         assert!(scope(&vault, &saved, &fs::symlink_metadata(&saved).unwrap()).is_none());
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn cold_import_validates_large_legacy_records_and_rebuilds_metadata() {
+        let root = std::env::temp_dir().join(format!("inkstone-cold-history-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let path = vault.recovery_dir.join("legacy.saved");
+        let note = Path::new("旧目录/中文😀.md");
+        let record = Recovery {
+            root: vault.root.clone(),
+            relative: note.into(),
+            baseline: Some("旧正文\n\"\\中文😀".repeat(40_000)),
+            draft: "新正文\r\n\"\\é😀".repeat(40_000),
+        };
+        // Direct legacy publication intentionally bypasses the metadata seed.
+        fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        let meta = fs::symlink_metadata(&path).unwrap();
+        assert!(meta.len() > 1024 * 1024);
+        let imported = scope(&vault, &path, &meta).unwrap();
+        assert_eq!(imported.root, vault.root);
+        assert_eq!(imported.relative, note);
+        assert_eq!(vault.read_history(note, &path).unwrap(), record);
+        let cache = cache_path(&vault, &path.with_extension("")).unwrap();
+        assert!(fs::metadata(&cache).unwrap().len() < 2048);
+        assert!(
+            scope_with(&vault, &path, &meta, || panic!(
+                "warm lookup must not parse bodies"
+            ))
+            .is_some()
+        );
+        // Complete metadata must not conceal a malformed body or trailing input.
+        for invalid in [
+            serde_json::json!({"root": vault.root, "relative": note, "baseline": null, "draft": [1]}).to_string(),
+            format!("{} trailing", serde_json::to_string(&record).unwrap()),
+            serde_json::to_string(&record).unwrap().trim_end_matches('}').to_owned(),
+        ] {
+            fs::write(&path, invalid).unwrap();
+            fs::remove_file(&cache).unwrap();
+            assert!(scope(&vault, &path, &fs::symlink_metadata(&path).unwrap()).is_none());
+            // Restore a valid cold import before checking the next corruption.
+            fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+            assert!(scope(&vault, &path, &fs::symlink_metadata(&path).unwrap()).is_some());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn linked_record_cache_is_ignored_and_vault_scope_is_preserved() {
