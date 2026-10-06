@@ -25,7 +25,7 @@ impl Workspace {
         let Some(id) = self.active.and_then(|i| self.tabs.get(i)).map(|t| t.id) else {
             return;
         };
-        if self.has_pending_input(id, window, cx) || self.ui.file_operation {
+        if self.has_pending_input(id, window, cx) || self.file_writes.operation_active() {
             self.notifications
                 .publish("请完成当前编辑或文件操作后比较。".into());
             cx.notify();
@@ -115,7 +115,7 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        if self.ui.file_operation || self.file_writes.pending() > 0 {
+        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
             return;
         }
         self.flush_document_views(window, cx);
@@ -155,8 +155,7 @@ impl Workspace {
         if !document.persistence.begin_resolution() {
             return;
         }
-        self.ui.file_operation = true;
-        let write_ticket = self.file_writes.begin();
+        let write_ticket = self.file_writes.begin_operation();
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
         let expected_local = local.clone();
@@ -173,7 +172,6 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.ui.file_operation = false;
                 this.file_writes.finish(write_ticket);
                 document.persistence.finish_operation();
                 if this.generation != generation {
@@ -235,7 +233,7 @@ impl Workspace {
         let Some(review) = &self.ui.conflict_review else {
             return div().into_any_element();
         };
-        let disabled = !review.ready || self.ui.file_operation;
+        let disabled = !review.ready || self.file_writes.operation_active();
         div().id("conflict-content").overflow_y_scroll().flex().flex_col().min_h_0().gap_2()
             .child(review.path.to_string_lossy().to_string())
             .child("差异：减号为磁盘内容，加号为本地编辑。")
@@ -243,7 +241,7 @@ impl Workspace {
             .child(Textarea::new(&review.preview).readonly(true).h(px(300.)))
             .child("处理前会保留本地草稿；保存时再次检查磁盘版本。需要手动合并时，可关闭此窗口在正文中编辑，再重新比较。")
             .child(div().flex().flex_wrap().gap_2()
-                .child(Button::new("conflict-refresh").label("重新比较").disabled(self.ui.file_operation)
+                .child(Button::new("conflict-refresh").label("重新比较").disabled(self.file_writes.operation_active())
                     .on_click(cx.listener(|this, _, w, cx| this.open_conflict_review(w, cx))))
                 .child(Button::new("conflict-local").primary().label("保留本地并保存").disabled(disabled)
                     .on_click(cx.listener(|this, _, w, cx| this.resolve_review(true, w, cx))))

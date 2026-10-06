@@ -163,7 +163,7 @@ impl Workspace {
             || save.persistence.is_saving()
             || save.persistence.has_conflict()
             || save.persistence.error().is_some()
-            || self.ui.file_operation;
+            || self.file_writes.operation_active();
         if let Some(target) = self.tabs.iter().find(|tab| tab.path == pending.path)
             && self.has_pending_input(target.id, window, cx)
         {
@@ -1146,9 +1146,10 @@ mod tests {
                     );
                     let source = w.tabs[w.active.unwrap()].id;
                     let save = w.tabs[w.active.unwrap()].save.clone();
+                    let mut operation = None;
                     match mode {
                         0 => save.persistence.test_set_saving(true),
-                        1 => w.ui.file_operation = true,
+                        1 => operation = Some(w.file_writes.begin_operation()),
                         _ => {
                             save.persistence.test_set_error(Some("disk full".into()));
                         }
@@ -1159,7 +1160,9 @@ mod tests {
                     assert_eq!(save.editor.read(cx).value().as_ref(), "draft");
                     assert!(w.pending_navigation.is_none());
                     save.persistence.test_set_saving(false);
-                    w.ui.file_operation = false;
+                    if let Some(ticket) = operation {
+                        w.file_writes.finish(ticket);
+                    }
                 }
             })
             .unwrap();

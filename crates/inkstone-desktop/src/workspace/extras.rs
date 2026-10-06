@@ -2,7 +2,7 @@ use super::*;
 
 impl Workspace {
     pub(super) fn duplicate_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.file_operation {
+        if self.file_writes.operation_active() {
             return;
         }
         self.sync_from_split(window, cx);
@@ -107,7 +107,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.file_operation {
+        if self.file_writes.operation_active() {
             return;
         }
         let Some(after) =
@@ -223,8 +223,7 @@ impl Workspace {
         let generation = self.generation;
         let from = old.clone();
         let to = new.clone();
-        self.ui.file_operation = true;
-        let write_ticket = self.file_writes.begin();
+        let write_ticket = self.file_writes.begin_operation();
         let task = cx.background_executor().spawn(async move {
             if let Some(to) = to {
                 let index = Index::build(&vault)?;
@@ -238,11 +237,10 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, w, cx| {
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
-                this.ui.file_operation = false;
-                this.file_writes.finish(write_ticket);
                 match result {
                     Ok(edits) => {
                         if let Some(new) = &new {
@@ -675,7 +673,7 @@ impl Workspace {
         if self.ui.link_update.is_some() {
             return;
         }
-        if self.ui.file_operation {
+        if self.file_writes.operation_active() {
             return;
         }
         let (Some(vault), Some(tab)) = (

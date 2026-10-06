@@ -105,8 +105,7 @@ impl Workspace {
         if !tab.save.persistence.begin_file_operation() {
             return;
         }
-        self.ui.file_operation = true;
-        let write_ticket = self.file_writes.begin();
+        let write_ticket = self.file_writes.begin_operation();
         let task = cx.background_executor().spawn(async move {
             if trash {
                 vault
@@ -122,11 +121,11 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
+                this.file_writes.finish(write_ticket);
+                document.persistence.finish_operation();
                 if generation != this.generation {
                     return;
                 }
-                this.ui.file_operation = false;
-                this.file_writes.finish(write_ticket);
                 let Some(index) = this
                     .tabs
                     .iter()
@@ -134,7 +133,6 @@ impl Workspace {
                 else {
                     return;
                 };
-                this.tabs[index].save.persistence.finish_operation();
                 match result {
                     Ok((true, path, _)) => {
                         let removed = this.tabs[index].path.clone();

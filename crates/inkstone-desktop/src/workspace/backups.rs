@@ -149,7 +149,7 @@ impl Workspace {
             self.backup_message(format!("备份未开始：请先处理保存错误。{detail}"), cx);
             return;
         }
-        if self.ui.file_operation
+        if self.file_writes.operation_active()
             || self.file_writes.pending() > 0
             || self.settings_save.is_busy()
             || self

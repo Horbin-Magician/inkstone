@@ -429,7 +429,7 @@ impl Workspace {
             self.cloud_message("同步未开始：请先处理笔记冲突或保存错误。".into(), cx);
             return;
         }
-        if self.ui.file_operation
+        if self.file_writes.operation_active()
             || self.file_writes.pending() > 0
             || self.settings_save.is_busy()
             || self.refreshing
@@ -471,8 +471,7 @@ impl Workspace {
         let password = self.ui.cloud_sync.password.read(cx).value().to_string();
         self.ui.cloud_sync.schedule.start();
         self.ui.cloud_sync.watch.epoch = self.ui.cloud_sync.watch.epoch.wrapping_add(1);
-        self.ui.file_operation = true;
-        let write_ticket = self.file_writes.begin();
+        let write_ticket = self.file_writes.begin_operation();
         self.cloud_message("正在连接并准备云端目录……".into(), cx);
         self.ui.cloud_sync.progress = None;
         let run = Run::default();
@@ -528,7 +527,6 @@ impl Workspace {
                 let cancelled = run.is_cancelled() && result.is_err();
                 this.ui.cloud_sync.run = None;
                 if cancelled { this.cancel_queued_sync(); }
-                this.ui.file_operation = false;
                 this.ui.cloud_sync.schedule.finish();
                 this.ui.cloud_sync.progress = None;
                 let message = match &result {
@@ -900,14 +898,14 @@ mod tests {
                 // a separate guard from the vault-generation check.
                 w.ui.cloud_sync.run = Some(replacement.clone());
                 w.ui.cloud_sync.message = "replacement still active".into();
-                w.file_writes.begin()
+                w.file_writes.begin_operation()
             })
             .unwrap();
         cx.run_until_parked();
         handle
             .update(cx, |w, _, _| {
                 assert!(w.ui.cloud_sync.run.as_ref().unwrap().same(&replacement));
-                assert!(w.ui.cloud_sync.schedule.busy && w.ui.file_operation);
+                assert!(w.ui.cloud_sync.schedule.busy && w.file_writes.operation_active());
                 assert_eq!(w.ui.cloud_sync.message, "replacement still active");
                 assert!(w.ui.cloud_sync.last_success.is_none());
                 assert_eq!(
@@ -920,7 +918,7 @@ mod tests {
                 assert_eq!(w.file_writes.pending(), 0);
                 w.ui.cloud_sync.run = None;
                 w.ui.cloud_sync.schedule.finish();
-                w.ui.file_operation = false;
+                assert!(!w.file_writes.operation_active());
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();
@@ -1124,7 +1122,7 @@ mod tests {
                 assert!(w.ui.cloud_sync.progress.is_none());
                 assert!(w.ui.cloud_sync.run.is_none());
                 assert_eq!(w.file_writes.pending(), 0);
-                assert!(!w.ui.file_operation);
+                assert!(!w.file_writes.operation_active());
                 assert!(w.files.contains(&PathBuf::from("remote.md")));
                 assert_eq!(
                     std::fs::read_to_string(root.join("local/note.md")).unwrap(),
@@ -1879,7 +1877,7 @@ mod tests {
                 w.tick_cloud_sync(window, cx);
                 w.cancel_running_sync(cx);
                 assert!(w.ui.cloud_sync.schedule.busy);
-                assert!(w.ui.file_operation);
+                assert!(w.file_writes.operation_active());
                 assert!(w.file_writes.pending() > 0);
                 assert!(w.ui.cloud_sync.scheduling_label().contains("正在取消"));
                 assert!(!w.ui.cloud_sync.schedule.pending);
@@ -1889,7 +1887,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert!(!w.ui.cloud_sync.schedule.busy);
-                assert!(!w.ui.file_operation);
+                assert!(!w.file_writes.operation_active());
                 assert_eq!(w.file_writes.pending(), 0);
                 assert!(w.ui.cloud_sync.message.starts_with("本次同步已取消"));
                 assert!(w.ui.cloud_sync.run.is_none());

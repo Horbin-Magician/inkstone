@@ -112,7 +112,7 @@ impl Workspace {
             return;
         };
         self.flush_document_views(window, cx);
-        if self.ui.file_operation
+        if self.file_writes.operation_active()
             || self.file_writes.pending() > 0
             || self.tabs.iter().any(|t| {
                 t.save.persistence.is_dirty()
@@ -218,7 +218,7 @@ impl Workspace {
         .detach();
     }
     fn apply_bulk_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.file_operation || self.file_writes.pending() > 0 {
+        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
             return;
         }
         self.flush_document_views(window, cx);
@@ -258,8 +258,7 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        self.ui.file_operation = true;
-        let write_ticket = self.file_writes.begin();
+        let write_ticket = self.file_writes.begin_operation();
         let generation = self.generation;
         if let Some(r) = &mut self.ui.bulk_edit {
             r.loading = true;
@@ -271,7 +270,7 @@ impl Workspace {
             .background_executor()
             .spawn(async move { batch::apply(&vault, edits) });
         cx.spawn_in(window,async move|this,cx|{let result=task.await;let _=this.update_in(cx,|this,w,cx|{
-            this.ui.file_operation=false;this.file_writes.finish(write_ticket);if this.generation!=generation{return;}
+            this.file_writes.finish(write_ticket);if this.generation!=generation{return;}
             this.flush_document_views(w,cx);
             let mut changed=vec![];let mut conflicts=0;
             for edit in &result.written {
@@ -303,8 +302,8 @@ impl Workspace {
                 .when(!r.tags,|s|s.child(Button::new("bulk-case").label("区分大小写").when(r.case_sensitive,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.case_sensitive = !r.case_sensitive;}this.invalidate_bulk_preview(w,cx);})))
                     .child(Button::new("bulk-regex").label("正则表达式").when(r.regex,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.regex = !r.regex;}this.invalidate_bulk_preview(w,cx); }))))
                 .when(r.tags,|s|s.child(Button::new("bulk-descendants").label("包含子标签").when(r.descendants,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.descendants = !r.descendants;}this.invalidate_bulk_preview(w,cx);}))))
-                .child(Button::new("bulk-preview").label("生成预览").disabled(r.loading||self.ui.file_operation).on_click(cx.listener(|this,_,w,cx|this.preview_bulk_edit(w,cx))))
-                .child(Button::new("bulk-apply").primary().label(format!("应用选中 {} 篇",r.selected.len())).disabled(r.loading||r.selected.is_empty()||self.ui.file_operation).on_click(cx.listener(|this,_,w,cx|this.apply_bulk_edit(w,cx)))))
+                .child(Button::new("bulk-preview").label("生成预览").disabled(r.loading||self.file_writes.operation_active()).on_click(cx.listener(|this,_,w,cx|this.preview_bulk_edit(w,cx))))
+                .child(Button::new("bulk-apply").primary().label(format!("应用选中 {} 篇",r.selected.len())).disabled(r.loading||r.selected.is_empty()||self.file_writes.operation_active()).on_click(cx.listener(|this,_,w,cx|this.apply_bulk_edit(w,cx)))))
             .child(r.message.clone())
             .child(uniform_list("bulk-files",count,cx.processor(|this,range:std::ops::Range<usize>,_,cx|{
                 let Some(r)=&this.ui.bulk_edit else{return vec![];};let Some(p)=&r.plan else{return vec![];};range.filter_map(|i|{let edit=p.edits.get(i)?;Some(div().flex().gap_1().child(Button::new(("bulk-check",i)).label(if r.selected.contains(&i){"☑"}else{"☐"}).accessibility_label(format!("选择 {}",edit.path.display())).on_click(cx.listener(move|this,_,_,cx|{if let Some(r)=&mut this.ui.bulk_edit && !r.selected.remove(&i){r.selected.insert(i);}cx.notify();})))

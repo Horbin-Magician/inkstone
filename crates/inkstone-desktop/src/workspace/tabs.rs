@@ -328,7 +328,7 @@ impl Workspace {
             .is_some_and(|edit| self.tabs.get(index).is_some_and(|tab| tab.id == edit.id))
         {
             self.commit_inline_title(false, window, cx);
-            if self.ui.inline_title.is_some() && !self.ui.file_operation {
+            if self.ui.inline_title.is_some() && !self.file_writes.operation_active() {
                 self.notifications
                     .publish("请完成或取消标题修改后关闭标签。".into());
                 cx.notify();

@@ -923,3 +923,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 所有原计数加减路径均迁移，包括同步/连接测试、重命名/链接更新、批量编辑、恢复、附件清理、备份/清理、导出及首次建库。首次建库对话框取消仍不登记任务；成功取得凭据后才创建目录。文档普通保存状态及 file_operation 互斥策略不属于本次提取。
 - 新增独立回归覆盖乱序完成、旧凭据重复完成不得释放新任务、其他工作区相同编号不能释放本地任务。补强 GPUI 的旧同步 Run 完成回归，在替换 Run 后登记新的写入保护，要求旧回调完成后仍保留新任务，再显式结束新任务。
 - 完整桌面单元测试 337 项通过、2 项既有手动性能基准忽略（93.48 秒），独立集成测试 8 项通过；补强后的旧 Run 回归单独执行通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/file-writes-desktop-tests.log`、`target/file-writes-replaced-run-tests.log`、`target/file-writes-clippy.log`、`target/file-writes-fmt.log`。本次未新增原生验收，不代表全部文件操作服务拆分完成；未改动真实用户笔记。
+
+
+## 文件操作保护：按任务释放与过期完成回归（2026-10-06）
+
+- 将 UiState 的 file_operation 布尔值并入 FileWrites 的活动任务记录。同步、冲突处理、批量编辑、链接更新、笔记/文件夹移动使用 begin_operation，读取方仅查询 operation_active；普通后台任务仍只影响 pending。结束某项任务不能清除其他任务的保护，启动前的保存、IME、冲突条件仍由原调用方检查。
+- 检查完成路径发现笔记和文件夹移动在 generation 不匹配时会先返回，漏释放任务。新增 GPUI 故障注入回归在任务启动后改变代次并登记替代任务，修复前实际得到 pending=2（应为 1），见 `target/file-operation-stale-before.log`。调整为实际完成后先释放自身凭据；笔记路径还结束捕获的原 DocumentState 操作状态，再检查是否更新 UI。正常切库仍等待未完成任务，回归的代次变化是显式注入，不代表正常 UI 允许强行切库。
+- 修复后回归覆盖笔记和文件夹两种移动，验证磁盘操作已完成、旧路径/通知不应用到当前界面、原文档 saving 已结束、新任务保护仍在，结束新任务后无残余保护。独立状态测试覆盖普通任务与两个保护任务混合、乱序/重复完成；旧同步 Run 替换测试也要求替代任务保护保留。
+- 最终桌面单元测试 339 项通过、2 项既有手动性能基准忽略（101.47 秒），全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/file-operation-tests-final.log`、`target/file-operation-clippy.log`、`target/file-operation-fmt.log`。本轮未修改 core/vendor，也未新增原生操作验收；各操作的启动策略及完整服务拆分仍待继续推进，真实用户笔记未改动。

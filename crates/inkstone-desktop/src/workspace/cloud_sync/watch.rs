@@ -67,7 +67,7 @@ impl Workspace {
         };
         let state = &mut self.ui.cloud_sync;
         if self.loading
-            || self.ui.file_operation
+            || self.file_writes.operation_active()
             || state.schedule.busy
             || state.schedule.pending
             || state.schedule.again

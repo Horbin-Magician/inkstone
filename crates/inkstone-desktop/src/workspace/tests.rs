@@ -957,7 +957,7 @@ fn shared_document_paths_follow_rename_and_recovery_copy(cx: &mut TestAppContext
                 s.replace_and_mark_text_in_range(None, "ni", Some(2..2), window, cx)
             });
             w.manage_named_note(w.tabs[0].id, false, "renamed.md".into(), window, cx);
-            assert!(!w.ui.file_operation);
+            assert!(!w.file_writes.operation_active());
             mirror.update(cx, |s, cx| s.replace_text_in_range(None, "", window, cx));
             w.manage_named_note(w.tabs[0].id, false, "renamed.md".into(), window, cx);
         })
@@ -2716,7 +2716,7 @@ fn inline_title_renames_original_tab_and_preserves_failed_input(cx: &mut TestApp
             let input = w.ui.inline_title.as_ref().unwrap().input.clone();
             input.update(cx, |s, cx| s.set_value("../bad", window, cx));
             w.commit_inline_title(true, window, cx);
-            assert!(!w.ui.file_operation);
+            assert!(!w.file_writes.operation_active());
             assert!(w.ui.inline_title.is_some());
             input.update(cx, |s, cx| s.set_value("other", window, cx));
             w.commit_inline_title(true, window, cx);
@@ -2837,7 +2837,7 @@ fn rename_link_prompt_supports_skip_once_always_and_conflict(cx: &mut TestAppCon
     handle
         .update(cx, |w, _, _| {
             assert!(w.notifications.text().contains("未更新"));
-            assert!(!w.ui.file_operation);
+            assert!(!w.file_writes.operation_active());
         })
         .unwrap();
     std::fs::remove_dir_all(root).unwrap();
@@ -2863,7 +2863,7 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
             w.ui.prefs.bookmarks.push("old/note.md".into());
             w.ui.closed.push("old/target.md".into());
             w.manage_folder("old".into(), Some("archive/new".into()), window, cx);
-            assert!(w.ui.file_operation);
+            assert!(w.file_writes.operation_active());
             assert_eq!(w.file_writes.pending(), 1);
             w.save_all(window, cx);
             assert!(!w.tabs[0].save.persistence.is_saving());
@@ -2872,7 +2872,7 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
     cx.run_until_parked();
     handle
         .update(cx, |w, _, cx| {
-            assert!(!w.ui.file_operation);
+            assert!(!w.file_writes.operation_active());
             assert_eq!(w.file_writes.pending(), 0);
             assert_eq!(w.tabs[0].path, PathBuf::from("archive/new/note.md"));
             assert_eq!(
@@ -2973,7 +2973,7 @@ fn trashing_a_folder_updates_the_tree_without_rereading_other_notes(cx: &mut Tes
     handle
         .update(cx, |w, _, cx| {
             assert_eq!(w.notifications.text(), "文件夹已移入可恢复回收站。");
-            assert!(!w.ui.file_operation);
+            assert!(!w.file_writes.operation_active());
             assert!(
                 w.tabs
                     .iter()
@@ -5238,5 +5238,68 @@ fn shortcut_rows_scroll_with_keyboard_focus_inside_their_own_viewport(cx: &mut T
                 controls.len()
             );
         }
+    }
+}
+
+#[gpui::test]
+fn stale_file_moves_release_only_their_own_operation_guard(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for folder in [false, true] {
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-stale-file-move-{}-{folder}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault/old")).unwrap();
+        std::fs::write(root.join("vault/old/note.md"), "saved").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        let (replacement, document) = handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.vault = Some(Vault::open(root.join("vault"), root.join("recovery")).unwrap());
+                w.add_tab(
+                    "old/note.md".into(),
+                    Some("saved".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                let document = w.tabs[0].save.clone();
+                if folder {
+                    w.manage_folder("old".into(), Some("new".into()), window, cx);
+                } else {
+                    w.name.update(cx, |s, cx| s.set_value("new.md", window, cx));
+                    w.manage_note(false, window, cx);
+                }
+                assert_eq!(w.file_writes.pending(), 1);
+                assert!(w.file_writes.operation_active());
+                // Inject invalidation before the completion callback is polled.
+                // Normal vault switching already waits for pending file tasks.
+                w.generation += 1;
+                w.notifications.publish("new generation".into());
+                (w.file_writes.begin_operation(), document)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(w.file_writes.pending(), 1, "{folder}");
+                assert!(w.file_writes.operation_active());
+                assert_eq!(w.notifications.text(), "new generation");
+                assert_eq!(w.tabs[0].path, PathBuf::from("old/note.md"));
+                assert!(!document.persistence.is_saving());
+                assert!(w.file_writes.finish(replacement));
+                assert_eq!(w.file_writes.pending(), 0);
+                assert!(!w.file_writes.operation_active());
+            })
+            .unwrap();
+        let moved = if folder { "new/note.md" } else { "new.md" };
+        assert_eq!(
+            std::fs::read_to_string(root.join("vault").join(moved)).unwrap(),
+            "saved"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
