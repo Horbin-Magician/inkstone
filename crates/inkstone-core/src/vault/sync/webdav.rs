@@ -1,4 +1,8 @@
 mod capacity;
+mod cleanup;
+#[cfg(test)]
+mod test_support;
+pub use cleanup::{CheckedCloudCleanup, CloudCleanupPreview};
 mod maintenance;
 use super::*;
 pub use capacity::CloudCapacity;

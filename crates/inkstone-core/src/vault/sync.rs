@@ -11,7 +11,9 @@ use std::sync::{
     Mutex,
     atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
 };
-pub use webdav::{CloudCapacity, MaintenanceLock, WebDav};
+pub use webdav::{
+    CheckedCloudCleanup, CloudCapacity, CloudCleanupPreview, MaintenanceLock, WebDav,
+};
 
 pub const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
