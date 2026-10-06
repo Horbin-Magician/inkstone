@@ -257,3 +257,17 @@ release e1f8710，含 e9a7e7b 展示源码修订号与 e1f8710 字数缓存修�
 CPU 中位数 4.4317%，采样最大 RSS 中位数 350.1563 MiB（真实峰值下界）。相对上一组 4.5982% 仅略低，仍高于 2% 预算；三轮样本不能排除运行波动，不能宣称主要性能问题已解决。全部活动记录为激活/获焦/加载完成，最大相邻间隔 2,100/2,101/2,100 ms；间隔记录不等于连续事件追踪。采样期间没有本地编译/测试，没有关闭其他用户应用或清空 OS 缓存。
 
 原始目录 target/native-text-revision-e4pxewzh：run.json、results.json、各轮 preparation.json/idle.json/activity.jsonl/audit.json/pid。第三轮在计量结束后另外采集五秒调用栈至 3/idle-stack.txt（sample.log），不混入 CPU 计量。三个进程 Cmd+Q 后均消失，各库 16 个 Markdown 的长度与 SHA-256 不变。构建日志 target/backup-cleanup-audit/text-revision-release.log；下一步继续定位输入布局与窗口重绘的成本。
+
+## 移除标记绘制全文分配后的三轮原生复测（2026-10-06）
+
+release 627d780，沿用 e1f8710 同机、corpus v1 large-document/live、1200×820 逻辑窗口、字号 16、左右栏开启、活动诊断及 zoom 往返/x/Cmd+Z 预热。每轮截图确认正文，输入与撤销回“已保存”，稳定 30 秒后采样 30 秒；不是冷启动或显示帧延迟测试。
+
+| 轮次 | PID | 单核 CPU | 采样最大 RSS |
+| --- | ---: | ---: | ---: |
+| 1 | 4649 | 4.2314% | 344.1406 MiB |
+| 2 | 4805 | 3.7649% | 338.2188 MiB |
+| 3 | 4960 | 4.0661% | 346.8594 MiB |
+
+CPU 中位数 4.0661%，低于上一组 4.4317%，仍高于 2% 预算；保留轮次波动，不把三轮差异解释为精确收益。采样最大 RSS 中位数 344.1406 MiB，仅是真实峰值下界。每轮 15 条正式活动记录均为激活/获焦/加载完成，最大相邻间隔 2,100/2,101/2,100 ms；间隔记录不替代连续追踪。期间无本地编译/测试，其他用户应用未退出，OS 缓存未清空。
+
+原始目录 target/native-overlay-revision-ahfjqa_d，含 run.json、results.json、各轮 preparation.json/idle.json/activity.jsonl/audit.json/pid；三个进程正常退出，各库 16 个 Markdown 长度及 SHA-256 不变。构建日志 target/backup-cleanup-audit/overlay-revision-release.log。后续继续定位布局与重绘成本，完整五场景原生验收尚未完成。
