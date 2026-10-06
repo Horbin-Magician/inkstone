@@ -560,3 +560,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 界面说明统计备份位置中所有来源，范围仅可读备份正文/清单，不代表完整磁盘占用或内容已经校验，并显示不自动清理规则。没有加入删除按钮或改变原恢复入口。
 - GPUI 回归使用独立临时库验证容量回填、切换目录/重复请求拒绝旧结果、缺失目录错误及清空位置状态；桌面备份相关 4 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/backup-capacity-ui-tests.log`、`target/backup-capacity-ui-clippy.log`、`target/backup-capacity-ui-fmt.log`。
 - 本次未做原生窗口、放大字体/DPI、键盘或读屏验收；清理预览与受保护清理待继续。未修改用户笔记。
+
+## 整库备份：来源分组与旧清单兼容（2026-10-06）
+
+- 新清单增加可选来源摘要，基于来源路径、目录卷/文件身份及创建时间；无可用创建时间则保持未分类。容量摘要携带此字段，后续清理预览须保护未分类记录，不能按名称合并同名库。路径/目录身份变化可能分成多个保护组，不宣称永久库身份或跨机器身份。
+- 新回归验证同源重复备份一致、同名不同目录分离、原路径重建目录分离、去掉字段的旧清单可校验/统计/完整恢复、非法标识拒绝。核心全量最终 236 项通过、3 项忽略；桌面备份相关 4 项及全工作区 all-targets Clippy（`-D warnings`）、格式、diff 检查通过。
+- 首次全量出现已有同步用例 `failed_streamed_application_keeps_original_and_cleans_temporary_file` 的同步锁占用错误；单独重跑全量及随后三轮并发全量均通过（每轮 236 项）。目前未定位该间歇性锁错误，不宣称已经修复，后续并发回归仍需关注。
+- 日志：`target/backup-origin-tests.log`（首次失败）、`target/backup-origin-tests-rerun.log`、`target/backup-origin-repeat-tests.log`、`target/backup-origin-desktop-tests.log`、`target/backup-origin-clippy.log`、`target/backup-origin-fmt.log`。未做 Windows 实机验证或实现删除操作，未修改用户笔记。

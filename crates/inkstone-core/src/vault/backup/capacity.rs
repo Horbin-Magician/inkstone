@@ -6,6 +6,7 @@ pub struct Summary {
     pub directory: PathBuf,
     pub created: u64,
     pub source_name: String,
+    pub source_id: Option<String>,
     pub files: usize,
     /// Logical payload bytes, excluding filesystem allocation and extra root files.
     pub payload_bytes: u64,
@@ -30,6 +31,7 @@ pub fn summarize(source: &Path) -> io::Result<Summary> {
         files: manifest.files.len(),
         payload_bytes: manifest.bytes(),
         source_name: manifest.source_name,
+        source_id: manifest.source_id,
         manifest_bytes: fs::metadata(safe_path(source, Path::new("manifest.json"))?)?.len(),
     })
 }
