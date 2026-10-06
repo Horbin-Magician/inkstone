@@ -1784,3 +1784,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生截图为 1600×1000 像素，与 800×500、当前 2× 显示倍率一致。云同步页地址/密码说明正常换行；滚动到自动同步区域后，开关、完整说明、保存配置/测试连接/立即同步按钮都在视口内；继续滚动可完整看到容量说明和末尾“预览云端清理”。未输入账号或发起联网/清理，应用正常退出。
 - 证据 `target/native-min-window/cloud-auto.png`、`cloud-bottom.png`、`cloud.ax.txt`。桌面 all-targets Clippy、release 构建、格式及 diff 检查通过，日志 `target/backup-cleanup-audit/min-window-{clippy,release}.log`。
 - 当前仅完成云同步页的上述原生组合；不宣称其他设置页、字体放大、多倍率或完整读屏已通过。无性能测量，无 Linux 适配。
+
+
+### 2026-10-07：主要设置页最小窗口末尾可达性
+
+- 使用 61a49cd release、既有 `target/native-min-window` 隔离库和 800×500/2× 窗口，仅切换分类和滚动，没有修改设置或笔记。
+- 编辑器：底部制表符宽度滑块、说明和“管理文件恢复”完整可见；文件与链接：末尾内部链接开关、说明完整；备份与恢复：历史期限及容量按钮全部可见，长策略说明换行；外观：字体大小滑块与快捷调字号开关完整可见；界面：标题栏开关及说明完整；快捷键：独立列表可滚动到最后的表格编辑命令，添加/清除/默认按钮完整。
+- 原生截图已逐张检查：同一隔离目录下 `editor-bottom.png`、`links-bottom.png`、`backup-bottom.png`、`appearance-bottom.png`、`interface.png`、`shortcuts-bottom.png`。应用正常退出。这些文件不进入代码提交。
+- 范围限定为上述位置的视觉布局与滚动可达性，不将它等同于所有中间行、全键盘、读屏、放大字体或多显示倍率验证。快捷键 AX 输出因工具每容器 100 项上限而截断，不据此判断末尾控件缺失。
+- 远端 CI：`gh run list` 确认 fbea2ab 的 run 37493560571 为 completed/success；后续提交尚在执行或排队，未报告通过。
