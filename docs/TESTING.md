@@ -1431,3 +1431,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 自动检查：12 项恢复回归全部通过，全工作区 all-targets Clippy -D warnings、格式和 diff 检查通过，release 构建成功；日志 history-root-{focus-before,recovery-tests,clippy,release}.log 位于 target/backup-cleanup-audit。
 - 修复后隔离 release 原生验收（target/native-history-root-trap）：选择已保存历史后首次 Shift+Tab 的焦点框位于弹窗恢复按钮；再 7 次 Shift+Tab 到“返回文件恢复”，Enter 返回总览。重新打开并选择记录，10 次 Shift+Tab 后仍在恢复按钮，Tab 跨末尾循环至关闭按钮，Enter 关闭。全量 AX 确认未保存 B 和“尚未保存”仍在；磁盘保持 A，其余 15 份生成样本散列未变。最后编辑器还原到 A，确认已保存并正常退出。
 - 本轮仅确认 macOS 上述路径；Windows 原生、DPI、读屏与链接更新弹窗原生验收仍未完成。没有进行性能测量。
+
+## 设置输入与关闭的正式 Root 回归（2026-10-06）
+
+- 将既有 settings_input_tab_leaves_field_without_editing_and_editor_tab_still_indents 改为正式 Root + Workspace 结构，并注册与 main 相同的 Escape → ClosePalette 绑定；不再直接挂载 Workspace 或调用关闭方法代替按键。
+- 覆盖设置筛选、快捷键筛选、WebDAV 地址/用户名/密码五类输入：Tab 与 Shift+Tab 离开输入框且留在弹窗内，Unicode 文本保持不变。Escape 关闭后确认没有活动焦点限制、焦点回到正文且正文未变；随后 Tab 缩进与撤销恢复原文。
+- 这是自动回归，不能替代原生 IME、Windows 和读屏验收；使用临时生成的笔记库，未读取或提交用户笔记。日志见 target/backup-cleanup-audit/settings-root-tab-{tests,clippy}.log。
+- 本轮定向测试、全工作区 all-targets Clippy -D warnings、格式及 diff 检查均通过。
