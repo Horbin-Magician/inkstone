@@ -299,3 +299,17 @@ release 721b1f2，沿用 cbb5372 同机、corpus v1 large-document/live、1200×
 CPU 中位数 3.6649%，相比上一组 3.7984% 略低，仍未达到 2% 预算；轮次波动不能排除，不能将此差值认定为精确收益。采样最大 RSS 中位数 353.3906 MiB，仍仅为真实生命周期峰值的下界，不含 GPU/辅助进程。全部正式活动记录为激活/获焦/加载完成，最大相邻间隔 2,101/2,100/2,100 ms，间隔记录不替代连续追踪。采样期间无本地编译/测试，未退出其他用户应用、未清空 OS 缓存。
 
 原始目录 target/native-a11y-cache-guw31erk，含 run.json、results.json 和各轮 preparation.json/idle.json/activity.jsonl/audit.json/pid。三进程均正常退出，三份生成库各 16 个 Markdown 长度与 SHA-256 不变。release 构建日志 target/backup-cleanup-audit/a11y-value-cache-release.log。完整输入延迟、滚动、打开和五场景验收仍待完成；后续检查 Workspace 定时草稿扫描的正文读取。
+
+## 草稿空闲扫描复测与范围调整（2026-10-06）
+
+c06bab1 locked release，同机 large-document/live，沿用 721b1f2 的窗口、zoom 往返及 x/Cmd+Z 预热、30 秒稳定/30 秒采样协议。原始目录 target/native-draft-idle-48l65n5a。
+
+| 轮次 | PID | 单核 CPU | 采样最大 RSS | 活动核验 |
+| --- | ---: | ---: | ---: | --- |
+| 1 | 7726 | 3.4653% | 342.2813 MiB | 14 条均激活/获焦/加载完成 |
+| 2 | 7906 | 3.7286% | 354.6719 MiB | 14 条均激活/获焦/加载完成 |
+| 3 | 8088 | 1.4326% | 352.3594 MiB | 14 条未全部满足激活/获焦条件，不能作为有效达标样本 |
+
+每轮最大相邻活动记录间隔 2,100 ms。各库 16 个生成 Markdown 长度与 SHA-256 不变，三个进程已退出；原始采样及 audit.json 保留。第三轮低值不用于声明收益或达标，不形成三轮有效验收。采样期间未编译或测试，未退出其他用户应用或清空 OS 缓存；RSS 不是生命周期峰值，未测输入帧延迟。
+
+用户在第三轮采样完成后要求跳过性能优化环节。停止后续调用栈采集、性能优化与性能验收，保留已有提交与数据；尚未达到的预算不记为通过。构建日志 target/backup-cleanup-audit/draft-idle-release.log。

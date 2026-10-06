@@ -1389,3 +1389,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - cbb5372 原生调用栈在 Workspace::tick 下出现 Rope 展平；代码确认 tick_drafts 每轮在判断已保存状态前读取 value。现已保存且无草稿、或清理完成且无在途写入时提前返回。未完成写入、待清理及失败重试仍走原路径，IME 与正式保存保护保持不变。
 - 扩展草稿回归：初始已保存状态不创建草稿；回到基线清理后连续空闲，再次编辑仍能持久化新草稿，原 Markdown 不变。4 项草稿回归全过，覆盖连续输入检查点、IME、保存后清理、排队写入防复活及失败重试；6 项保存协调/状态回归通过。
 - workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/draft-idle-tests.log、draft-idle-save-tests.log、draft-idle-clippy.log。原生收益待复测，最近 3.6649% CPU 仍未达到预算；真实笔记未进入提交。
+
+## 性能环节按用户要求跳过（2026-10-06）
+
+- c06bab1 release 构建完成，采样记录保存在 target/native-draft-idle-48l65n5a。前两轮活动条件满足但 CPU 仍超过预算；第三轮活动条件不完整，低值不用于达标判断。详见 PERFORMANCE_BASELINE.md。
+- 收到用户“跳过这一性能优化环节”后退出最后一个隔离实例，不再采集调用栈或继续性能改动。三个测试进程退出、生成库散列均已核验。后续转回其他待办，性能剩余工作按用户要求跳过，不标记验收通过。
+- 文档 diff 检查通过；真实笔记未进入提交。
