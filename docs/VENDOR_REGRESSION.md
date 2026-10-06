@@ -10,6 +10,8 @@ python3 tools/vendor-regression/run.py
 
 脚本在 `target/vendor-regression` 中重新复制当前源码，保持上游 `crates/base` / `crates/component` 布局，并复制同一上游提交的 README、图标、Markdown 和主题夹具供 include_str/include_bytes 测试使用。测试执行两个包的全部 library tests，失败返回非零；不使用旧 target 源码作测试输入。`tools/vendor-regression/Cargo.lock` 固定其开发依赖，主 Cargo.lock 不会被改写。普通工作区测试不运行依赖包内部测试，不能替代此命令。
 
+2026-10-06 在 macOS 独立源码目录、空 Cargo 依赖缓存及构建目录执行上述正式入口：Base 1,236 项、Component 572 项全部通过，无忽略项。暂存源码与归档的 vendor 源码一致，两份独立锁均未变化；仍复用本机工具链和 SDK，不能替代 Windows、远端 CI 或原生交互验收。详见 [验收记录](TESTING.md)。
+
 CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令；合入规则应要求这两个 job 与 Workspace checks 通过。2026-10-06 核对远端：master 经典分支保护 API 返回 Branch not protected，有效分支规则列表为空，当前尚不能保证失败检查阻止合入。必须在更新后的工作流实际成功执行、检查名称稳定后配置必需检查并复核；本地 YAML 不会自动建立该门槛。
 
 工作流不依赖第三方 Rust 缓存 action。最近远端运行在准备阶段无法解析 `Swatin/rust-cache`，因此移除这一可选依赖；后续 CI 构建可能更慢，但核心、工作区和 vendor 检查命令保持不变。支持 push、pull_request 和手动 workflow_dispatch；新工作流尚未在远端执行，不把本地解析检查记作远端通过。

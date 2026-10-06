@@ -965,3 +965,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 同一隔离目录依次运行固定工具链检查、`cargo fmt --all --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`，全部退出码为零。Clippy 总耗时 76.03 秒，测试含编译总耗时 246.52 秒；这些是执行记录，不是应用性能预算。核心 259 项通过/3 项既有手动入口忽略，桌面 339 项通过/2 项既有手动性能基准忽略，独立集成测试 8 项通过；子进程回归输出不重复计入总数。
 - 最终 Cargo.lock 散列不变。完整 `toolchain.log`、`fmt.log`、`clippy.log`、`tests.log`、`results.json`、`final-verification.json` 保留在隔离根目录。验证结束后仅清理本次及上次 `clean-core-_f35j_b2` 的可再生 build/cargo-home，保留 source、source.tar、所有日志与 JSON 证据；清理记录分别为 `cache-cleanup.json`。
 - 本机为 macOS 27.0.1 (26A434)、Apple Silicon、Command Line Tools `/Library/Developer/CommandLineTools`、SDK 27.0、仓库固定 Rust 1.97.0。仍使用已安装的系统 SDK/工具链，不代表裸系统安装流程、Windows/Linux 或远端 CI 已通过。工作区测试并不包含独立 vendor 全量回归；分支合入门槛也仍未启用。本次仅提交验收记录，未改产品代码或真实用户笔记，diff 检查通过。
+
+
+## 独立 vendor 检查：macOS 空缓存验收（2026-10-06）
+
+- 从提交 `9d8951d` 通过 git archive 导出固定工具链、vendor 和 tools/vendor-regression 至全新 `target/clean-vendor-od8q8ufd/source`，未复制旧暂存源码、依赖缓存、编译结果或真实笔记。子进程 CARGO_HOME 指向新建空目录；源码目录开始没有 target，正式脚本重新建立暂存工作区并下载依赖。
+- 执行 `python3 tools/vendor-regression/run.py`，退出码 0，总耗时 207.69 秒。Base 1,236 项通过（测试 24.21 秒），Component 572 项通过（测试 2.53 秒），均无失败或忽略项，合计 1,808 项。两包均使用脚本自带的 `--locked` 入口。
+- 验证原始与暂存 Cargo.lock 均保持记录的 SHA-256；逐文件确认两个暂存包与本次归档 vendor 源码一致（排除脚本约定不复制的 Cargo.lock / .cargo-ok）。`run.json` 保存源提交及归档/锁散列，`vendor.log` 保存完整输出，`result.json` 和 `final-verification.json` 保存结果。结束后保留源码归档、原始源码及 `staged-source`，删除本次独立 cargo-home 和 source/target 中可再生成的构建缓存，记录在 `cache-cleanup.json`。
+- 复用同一 macOS 主机已经安装的 Rust 1.97.0、SDK 和 Python；本次没有 Windows、裸系统安装或远端 CI 执行，也没有原生 IME/DPI 验收。远端必需合入检查仍待建立。本提交仅更新验收记录，未修改产品代码或真实用户笔记；diff 检查通过。
