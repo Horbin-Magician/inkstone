@@ -640,3 +640,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 仅转换默认值，不修改用户保存的绑定或显式清空的绑定；新标签及阅读模式工具栏提示/可访问名称读取实际快捷键。测试辅助方法同步平台默认值，自定义冲突测试仍验证替换、禁用、持久化和重新分配。
 - 桌面全量单元测试 312 项通过、2 项忽略，集成测试 8 项通过；随后新增默认键唯一性/旧 Ctrl 绑定字面保留回归 1 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/mac-shortcuts-tests.log`、`target/mac-shortcuts-defaults-tests.log`、`target/mac-shortcuts-clippy.log`、`target/mac-shortcuts-fmt.log`。
 - 尚未做原生菜单/IME/全键盘验收；原生菜单仍从启动静态绑定获取提示，自定义变更后的菜单提示同步须继续处理。示例文档中的跨平台快捷键说明将单独更新。未修改用户笔记。
+
+## macOS：原生菜单跟随自定义快捷键（2026-10-06）
+
+- 菜单初始化读取实际配置，观察工作区通知并仅在有效键快照变化时重建菜单；清空/恢复默认/其他命令占用默认键均通过同一配置来源反映。绑定重建保留无关动作及上下文，只移除菜单命令的旧绑定，避免累积过期组合。
+- 快捷键相关 15 项回归通过；新增菜单绑定回归 1 项通过，覆盖自定义、清空、恢复默认、反复刷新数量稳定、退出键及输入上下文撤销绑定保留。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/menu-shortcuts-tests.log`、`target/menu-shortcuts-native-tests.log`、`target/menu-shortcuts-clippy.log`、`target/menu-shortcuts-fmt.log`。
+- 上述使用 GPUI 测试平台，日志名称不代表原生验收；真实 macOS 菜单显示/点击、输入法焦点和自定义键录入流程仍待实机核对。未修改用户笔记。
