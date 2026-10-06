@@ -14,6 +14,8 @@ pub struct Entry {
     /// Baseline recorded before sync, not a claim that backup bytes were verified.
     /// A concurrent external edit can make the preserved backup differ from it.
     pub expected_sha256: String,
+    /// Explicit recovery protection, including future interrupted cleanup records.
+    pub protected: bool,
 }
 #[derive(Clone, Debug, Default)]
 pub struct Inventory {
@@ -35,6 +37,8 @@ struct Descriptor {
     original: String,
     backup: String,
     sha256: String,
+    #[serde(default)]
+    protected: bool,
 }
 fn is_descriptor(name: &str) -> bool {
     name.starts_with(".inkstone-sync-") && name.ends_with(".backup.json")
@@ -76,6 +80,7 @@ fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
         modified: meta.modified()?,
         bytes: meta.len(),
         expected_sha256: descriptor.sha256,
+        protected: descriptor.protected,
     })
 }
 
@@ -396,6 +401,38 @@ mod tests {
         stale.bytes += 1;
         assert!(restore_copy(&vault, &stale, &[]).is_err());
         drop(super::super::lock_operation(&vault)?);
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn protected_descriptors_remain_recoverable_and_legacy_records_still_load() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("inkstone-sync-protected-{}", unique_id()));
+        fs::create_dir_all(root.join("vault"))?;
+        let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
+        fs::write(vault.root.join("note.md"), b"old")?;
+        apply_bytes(&vault, "note.md", Some(&hash(b"old")), Some(b"new"))?;
+        let legacy = inventory(&vault)?.entries.remove(0);
+        assert!(!legacy.protected);
+        let path = vault.root.join(&legacy.metadata);
+        let mut descriptor: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+        descriptor["protected"] = serde_json::Value::Bool(true);
+        fs::write(&path, serde_json::to_vec(&descriptor)?)?;
+        let entry = inventory(&vault)?.entries.remove(0);
+        assert!(entry.protected);
+        assert!(restore_copy(&vault, &legacy, &[]).is_err());
+        let restored = restore_copy(&vault, &entry, &[])?;
+        assert_eq!(fs::read(vault.root.join(restored.relative))?, b"old");
+        assert_eq!(fs::read(vault.root.join("note.md"))?, b"new");
+        assert_eq!(fs::read(vault.root.join(&entry.backup))?, b"old");
+        assert!(inventory(&vault)?.entries[0].protected);
+        // An invalid protection field is not silently interpreted as unprotected.
+        descriptor["protected"] = serde_json::Value::String("unknown".into());
+        fs::write(&path, serde_json::to_vec(&descriptor)?)?;
+        let broken = inventory(&vault)?;
+        assert!(broken.entries.is_empty());
+        assert_eq!(broken.unreadable, 1);
+        assert_eq!(broken.unindexed_files, 1);
         fs::remove_dir_all(root)?;
         Ok(())
     }

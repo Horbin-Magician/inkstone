@@ -10,6 +10,7 @@ pub enum Decision {
     /// Still requires a locked inventory refresh and payload integrity verification.
     Candidate,
     Recent,
+    Protected,
     InUse,
     IncompleteInventory,
 }
@@ -65,6 +66,8 @@ pub fn preview(
     for entry in &inventory.entries {
         let decision = if incomplete {
             Decision::IncompleteInventory
+        } else if entry.protected {
+            Decision::Protected
         } else if in_use.contains(&entry.backup) {
             Decision::InUse
         } else if entry.modified >= cutoffs[entry.original.as_path()] {
@@ -100,6 +103,7 @@ mod tests {
             modified: UNIX_EPOCH + Duration::from_secs(time),
             bytes: 10,
             expected_sha256: "a".repeat(64),
+            protected: false,
         }
     }
     fn inventory() -> Inventory {
@@ -163,6 +167,16 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn explicitly_protected_old_records_never_become_candidates() {
+        let mut inventory = inventory();
+        inventory.entries[0].protected = true;
+        let result = preview(&inventory, 1, &BTreeSet::new()).unwrap();
+        assert_eq!(result.records[0].decision, Decision::Protected);
+        assert_eq!((result.candidates, result.candidate_bytes), (1, 10));
+        assert_eq!(result.records[1].decision, Decision::Candidate);
+    }
+
     #[test]
     fn candidate_size_overflow_is_an_error() {
         let mut inventory = inventory();
