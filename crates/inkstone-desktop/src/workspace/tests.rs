@@ -2793,6 +2793,15 @@ fn rename_link_prompt_supports_skip_once_always_and_conflict(cx: &mut TestAppCon
         handle
             .update(cx, |w, window, cx| {
                 assert!(w.ui.link_update.is_some());
+                let pending = w.file_writes.begin();
+                let edits = w.ui.link_update.clone();
+                let old_preference = w.ui.prefs.always_update_links;
+                w.confirm_link_updates(always, window, cx);
+                assert_eq!(w.ui.link_update, edits);
+                assert_eq!(w.ui.prefs.always_update_links, old_preference);
+                assert_eq!(w.file_writes.pending(), 1);
+                assert!(!w.file_writes.operation_active());
+                assert!(w.file_writes.finish(pending));
                 w.confirm_link_updates(always, window, cx);
             })
             .unwrap();
@@ -2805,6 +2814,26 @@ fn rename_link_prompt_supports_skip_once_always_and_conflict(cx: &mut TestAppCon
     handle
         .update(cx, |w, window, cx| {
             assert!(w.ui.prefs.always_update_links);
+            let pending = w.file_writes.begin();
+            let edits = vec![(PathBuf::from("source.md"), "[[/d]]".into(), "[[d]]".into())];
+            w.offer_link_updates(edits.clone(), window, cx);
+            assert_eq!(w.ui.link_update, Some(edits));
+            assert_eq!(w.file_writes.pending(), 1);
+            assert_eq!(
+                std::fs::read_to_string(root.join("source.md")).unwrap(),
+                "[[/d]]"
+            );
+            assert!(w.file_writes.finish(pending));
+            w.confirm_link_updates(false, window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(
+        std::fs::read_to_string(root.join("source.md")).unwrap(),
+        "[[d]]"
+    );
+    handle
+        .update(cx, |w, window, cx| {
             w.name.update(cx, |s, cx| s.set_value("e.md", window, cx));
             w.manage_note(false, window, cx);
         })

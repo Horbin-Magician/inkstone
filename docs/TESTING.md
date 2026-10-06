@@ -1271,3 +1271,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 未命中的大文档只克隆共享 Rope，200 ms 防抖结束后在后台转换正文并统计；小选区只转换选中片段。全文仍排除 frontmatter，选区仍按原有 UTF-8 字节范围统计，阅读模式仍统计全文，旧任务使用原有 revision 保护。Rope 内容相等判断仍需扫描，不宣称常数时间缓存；快照会暂时保留编辑前共享节点。
 - 新回归覆盖反复重绘不重启待执行计数、相同字节长度但内容不同的替换不能误命中、仅移动空选区光标不重计数；现有长文/过期请求、Unicode 选区/阅读模式、分屏异步计数回归通过。counts 筛选共 5 项通过（其中 1 项为名称匹配的云容量测试）；workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/counts-rope-tests.log、counts-rope-clippy.log。
 - 这是消除已确认分配路径的改动，尚无新原生性能对照，输入/滚动/空闲预算仍未完成。无用户笔记进入提交。
+
+## 链接更新使用统一文件任务准入（2026-10-06）
+
+- 手动确认链接更新在未完成文件任务存在时保留待确认内容，不提前保存“总是更新”偏好；实际启动通过 FileWrites::try_begin_exclusive_operation 取得凭据。自动更新遇到繁忙任务时转为保留审阅内容的提示，可待任务完成后重试。
+- 无条件 begin_operation 现仅在 cfg(test) 下可用，供凭据拥有者/旧代次回归构造重叠任务；生产操作统一走独占准入。后台保存的原有 before 基线校验及打开编辑器的新输入保护保持不变。
+- 扩展 rename_link_prompt_supports_skip_once_always_and_conflict，验证普通文件任务拒绝启动、审阅/偏好保留、自动更新不提前落盘及释放后成功重试；原有跳过、单次、总是、外部冲突路径通过。另 4 项 FileWrites 回归、workspace all-targets Clippy -D warnings、格式和 diff 检查通过。日志 target/backup-cleanup-audit/link-admission-tests.log、link-admission-accounting.log、link-admission-clippy.log。首次定向测试有旧无条件方法 dead_code 警告，限制为测试入口后最终 Clippy 通过。
+- 尚未替代真实同步/保存并发的原生综合验收。无用户笔记进入提交。

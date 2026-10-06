@@ -32,8 +32,9 @@ impl FileWrites {
         self.register(false)
     }
 
-    // The caller checks its operation-specific start conditions first. Keeping
-    // protection on each ticket prevents one completion from unlocking another.
+    // Tests can simulate overlapping/old operations to check ticket ownership.
+    // Production operations must use the exclusive admission API.
+    #[cfg(test)]
     pub fn begin_operation(&mut self) -> Ticket {
         self.register(true)
     }
