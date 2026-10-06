@@ -9,8 +9,15 @@ jobs:
   core:
     name: Core without desktop dependencies
     runs-on: ubuntu-latest
+    env:
+      RATEX_UNICODE_FONT: '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc#Noto Sans CJK SC'
     steps:
       - uses: actions/checkout@v4
+      - name: Install CJK font for outlined formula regression
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y fonts-noto-cjk
+          test -f /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
       - name: Install repository-pinned Rust toolchain
         run: rustup show active-toolchain
       - run: cargo clippy --locked -p inkstone-core --all-targets -- -D warnings
