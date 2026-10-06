@@ -709,9 +709,15 @@ pub fn synchronize_cancellable(
         manifest,
         completed_at_ms: Some(completed_at_ms),
     };
-    fs::write(&temp, serde_json::to_vec(&record)?)?;
-    fs::File::open(&temp)?.sync_all()?;
-    fs::rename(temp, state)?;
+    {
+        // Windows requires write access when flushing a file. Keep the writer
+        // through sync_all instead of reopening the completed bytes read-only.
+        let mut file = fs::File::create(&temp).context("无法创建同步基线暂存文件")?;
+        file.write_all(&serde_json::to_vec(&record)?)
+            .context("无法写入同步基线")?;
+        file.sync_all().context("无法持久化同步基线")?;
+    }
+    fs::rename(temp, state).context("无法提交同步基线")?;
     for object in objects.values() {
         object.remove();
     }

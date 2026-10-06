@@ -1021,3 +1021,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 配置前读取经典保护为 Branch not protected、有效规则为空。配置后重新 GET 保护 API，核对四个 checks/context 及 app id 完全一致、strict/admins 均启用、强制推送和删除均禁用。门槛在检查仍运行时先建立，失败和缺失检查不能正常合入；这不构成当前代码测试全通过或实际合并验收。管理员主动修改仓库设置仍是独立管理行为。
 - 证据：`target/ci-required-contexts.json`、`target/ci-master-protection-before.json`、`target/ci-master-rules-before.json`、`target/ci-master-protection-request.json`、`target/ci-master-protection-applied.json`、`target/ci-master-protection-verified.json`。核验过程中没有用尝试合并或推送 master 来验证阻断，避免改动主分支。
 - 运行 37420330322 的 macOS/Windows 格式及全工作区 Clippy 已通过；四个任务仍在运行，完整测试结果继续跟进。本提交只更新远端配置验收记录，diff 检查通过，未修改产品代码或真实用户笔记。
+
+
+## Windows 同步基线刷盘句柄修复（2026-10-06）
+
+- 远端运行 37420330322 的 Windows 全工作区格式和 Clippy 通过，核心测试 240 项通过、18 项同步回归失败、3 项忽略，桌面测试未执行。失败集中为 Access is denied (os error 5)，包括首次同步、重试、基线时间、下载中断和文件监听分类；完整日志保存为 `target/ci-windows-37420330322.log`。
+- 审查共同基线提交路径发现先 `fs::write` 再用只读 `File::open` 调用 sync_all。Windows [FlushFileBuffers 文档](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers) 要求句柄具有写权限。改为在同一写入句柄上 write_all + sync_all，关闭句柄后重命名提交；持久化顺序保持，新增创建/写入/刷盘/提交错误上下文。未跳过失败用例，也未降低持久化要求。
+- 本机核心全量 266 项通过、3 项既有手动入口忽略（2.74 秒）；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/sync-baseline-flush-tests.log`、`target/sync-baseline-flush-clippy.log`、`target/sync-baseline-flush-fmt.log`。复用既有完整同步回归验证，不增加仅镜像实现的测试。
+- 本机 macOS 通过不能证明 Windows 已修复；修复提交将更新独立 CI 分支，Windows 需复跑原失败回归和完整工作区。旧运行的其余任务继续收集结果，不将单平台失败当作整个运行已经停止。未修改真实用户笔记。
