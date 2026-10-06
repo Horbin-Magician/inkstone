@@ -1,8 +1,11 @@
 use super::*;
+mod catalog;
 mod index;
 pub(super) mod links;
 mod metadata;
 pub(super) mod records;
+
+pub use catalog::HistoryNote;
 
 pub(super) fn cache_journal(vault: &Vault, path: &Path, recovery: &Recovery) {
     records::seed(vault, path, recovery);

@@ -1088,3 +1088,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 本机 release 的原生启动与退出后重启分别为 PID 84091/84141，两次 AX 均确认生成库 long-paragraph.md / 实时预览；正常 Cmd+Q 后 PID 均消失，全部 16 个生成 Markdown 散列复核一致。记录 `target/native-preparation-check/preparation.json`、`native-check.json`。此处仅验证隔离和恢复模式，不是启动时延或帧性能验收。
 - 启动画面排查：生产加载完成分支已有 cx.notify；当前 GPUI macOS `start_display_link` 根据遮挡状态停启帧回调。另一个开启 INKSTONE_TRACE_STARTUP 的原生启动实例（`target/native-launch-check-p0bt_dmp`，PID 83850 已退出）直接显示固定尺寸正文，无缩放；追踪开关本身增加帧回调，因此该对照不足以把问题归因于启动方式或证明重绘缺陷已修复。继续保留受控可见性复验待办，没有添加未经证明的强制重绘补丁。
 - diff 检查通过，仅提交工具、回归及验收文档；夹具和用户笔记不进入提交。
+
+
+## 整库历史归属目录接口（2026-10-06）
+
+- 增加 `Vault::history_notes`，无需打开或存在当前 Markdown 即可列出本库有历史记录的路径、记录数、记录文件总字节与最近时间。应用内重命名使用现有持久归属映射；外部重命名/删除仍列出原归属，不按名称或正文猜测新身份，不修改文件或历史归属。后续恢复界面可用此入口寻找旧路径记录；本提交尚未接入界面。
+- 列表复用逐记录 scope 元数据缓存，不保留正文；旧格式/缓存损坏时冷导入仍须验证原 JSON，目录枚举尚未消除。忽略其他库、损坏记录、非法相对路径、目录与链接；返回目录只是快照，正文选择仍走已有 read_history 权限/归属复核。
+- 两项新增回归覆盖外部重命名与删除后发现旧历史、正文仍可按旧路径读取且新文件不变、应用内重命名归属、冷/暖目录一致、记录数量/容量/时间汇总以及异库/非法/损坏/链接隔离。核心全量 268 通过 / 3 既有入口忽略（3.48 秒），workspace all-targets Clippy -D warnings、格式与 diff 检查通过。日志 `target/history-catalog-core-final.log`、`target/history-catalog-clippy.log`。
+- 初轮核心全量另遇既有备份清理测试 inspect(0) 断言失败，后续完整重跑通过；初轮日志 `target/history-catalog-core.log` 保留，不修改或放宽该测试。新增目录测试最初漏计重命名前快照，已按实际记录修正预期。产品界面验收及该既有偶发失败原因不在此结果中宣称解决；用户笔记未进入提交。

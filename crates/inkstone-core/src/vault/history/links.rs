@@ -62,12 +62,15 @@ impl Ownership {
         Ok(Self(links))
     }
     pub(super) fn owns(&self, journal: &Path, original: &Path, requested: &Path) -> bool {
+        self.owner(journal, original) == requested
+    }
+
+    pub(super) fn owner<'a>(&'a self, journal: &Path, original: &'a Path) -> &'a Path {
         self.0
             .owners
             .get(&journal.with_extension(""))
             .map(PathBuf::as_path)
             .unwrap_or(original)
-            == requested
     }
 }
 
