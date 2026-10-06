@@ -1775,3 +1775,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 复用已退出的 `target/native-history-catalog` 隔离应用，替换为本次 release 并重新签名。打开旧路径历史，AX 读取保留 30 天/128 MiB 软上限、来源、原路径、时间、容量语义及恢复说明；点击第 2 个已保存版本后，AX 从“未保存草稿/8455 字节/00:21:20”更新为“保存历史/8417 字节/00:21:04”。没有执行写入或清理操作，应用正常退出。
 - 原生证据 `target/native-history-catalog/details-labels.ax.txt`；检查日志 `target/backup-cleanup-audit/history-details-label-{tests,clippy,release}.log`。这些本地测试产物不提交。
 - 本次证明 macOS AX 文本可见和更新，不替代完整 VoiceOver 播报、Windows 原生或 DPI 验收；没有性能测量或 Linux 适配。
+
+
+### 2026-10-07：可重复的原生最小窗口验收
+
+- 启动环境变量 `INKSTONE_ACCEPTANCE_MIN_WINDOW=1` 将初始窗口设为产品现有最小值 800×500 逻辑像素；只有精确值 `1` 生效，未设置时仍为 1200×820。最小窗口约束保持 800×500。该选项用于隔离原生布局验收，不修改系统分辨率或笔记。
+- macOS 验收包：准备 `target/native-min-window` 后，在该测试包 Info.plist 的 LSEnvironment 中设置上述变量，再重新签名。独立数据目录和生成库沿用准备脚本；普通安装包无需此变量。
+- 原生截图为 1600×1000 像素，与 800×500、当前 2× 显示倍率一致。云同步页地址/密码说明正常换行；滚动到自动同步区域后，开关、完整说明、保存配置/测试连接/立即同步按钮都在视口内；继续滚动可完整看到容量说明和末尾“预览云端清理”。未输入账号或发起联网/清理，应用正常退出。
+- 证据 `target/native-min-window/cloud-auto.png`、`cloud-bottom.png`、`cloud.ax.txt`。桌面 all-targets Clippy、release 构建、格式及 diff 检查通过，日志 `target/backup-cleanup-audit/min-window-{clippy,release}.log`。
+- 当前仅完成云同步页的上述原生组合；不宣称其他设置页、字体放大、多倍率或完整读屏已通过。无性能测量，无 Linux 适配。

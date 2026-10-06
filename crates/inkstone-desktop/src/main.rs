@@ -158,7 +158,14 @@ fn main() {
                     WindowOptions {
                         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
                             point(px(80.), px(60.)),
-                            size(px(1200.), px(820.)),
+                            // Opt-in native acceptance at the same minimum used below.
+                            // Exact matching keeps inherited/empty values from changing startup.
+                            if std::env::var("INKSTONE_ACCEPTANCE_MIN_WINDOW").as_deref() == Ok("1")
+                            {
+                                size(px(800.), px(500.))
+                            } else {
+                                size(px(1200.), px(820.))
+                            },
                         ))),
                         window_min_size: Some(size(px(800.), px(500.))),
                         titlebar: Some(TitlebarOptions {
