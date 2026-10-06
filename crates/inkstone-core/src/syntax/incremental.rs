@@ -42,11 +42,13 @@ impl Snapshot {
         let Node::Root(root) = ast else {
             return None;
         };
+        // Reparse the entire paragraph even when only one of its lines changed.
+        // With line terminators unchanged, subsequent nodes keep their line numbers.
         let (index, block) = root.children.iter().enumerate().find(|(_, node)| {
             matches!(node, Node::Paragraph(_) | Node::Heading(_))
                 && node.position().is_some_and(|p| {
                     p.start.column == 1
-                        && p.start.line == p.end.line
+                        && (matches!(node, Node::Paragraph(_)) || p.start.line == p.end.line)
                         && p.start.offset < start
                         && old_end <= p.end.offset
                 })
@@ -109,7 +111,9 @@ fn shift(node: &mut Node, at: usize, delta: isize, line: usize, source: &str) {
                 point.offset = point.offset.checked_add_signed(delta).unwrap();
             }
             if point.line == line {
-                let start = source[..point.offset].rfind('\n').map_or(0, |i| i + 1);
+                let start = source[..point.offset]
+                    .rfind(['\r', '\n'])
+                    .map_or(0, |i| i + 1);
                 point.column = source[start..point.offset].chars().fold(1, |column, c| {
                     if c == '\t' {
                         column + 4 - (column - 1) % 4
@@ -179,6 +183,126 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn multiline_paragraph_edits_match_full_trees_and_styles() {
+        for newline in ["\n", "\r\n", "\r"] {
+            for lines in [
+                [
+                    "Text **bold** 中文",
+                    "another [link](note.md) 😀",
+                    "last *line* end",
+                ],
+                ["Text `multi", "line code` and \\*literal", "last $x^2$ end"],
+                ["Text with hard break  ", "another line\\", "last line end"],
+                [
+                    "Text [multi",
+                    "line](note.md) and **strong",
+                    "last line** end",
+                ],
+            ] {
+                let block = lines.join(newline);
+                let before = format!(
+                    "# Before{newline}{newline}{block}{newline}{newline}> After **text**{newline}{newline}Final paragraph{newline}"
+                );
+                let snapshot = Snapshot::new(&before);
+                let origin = before.find(&block).unwrap();
+                let mut accepted = 0;
+                for (at, ch) in block
+                    .char_indices()
+                    .skip(1)
+                    .filter(|(_, c)| !matches!(c, '\r' | '\n'))
+                {
+                    for text in [
+                        "",
+                        "中文",
+                        "👩‍💻 e\u{301}",
+                        "**x**",
+                        "\t",
+                        "[x](other.md)",
+                        "`code`",
+                        "# ",
+                        "- ",
+                    ] {
+                        let mut after = before.clone();
+                        after.replace_range(origin + at..origin + at + ch.len_utf8(), text);
+                        if let Some(updated) = snapshot.update_block(&after) {
+                            accepted += 1;
+                            let full = Snapshot::new(&after);
+                            assert_eq!(updated.ast, full.ast, "{before:?} -> {after:?}");
+                            assert_eq!(
+                                crate::markdown::spans_snapshot(&updated),
+                                crate::markdown::spans_snapshot(&full),
+                                "{after:?}"
+                            );
+                            assert_eq!(updated.structural, full.structural);
+                        }
+                    }
+                }
+                assert!(
+                    accepted > 100,
+                    "multiline edits must use the local parser: {block:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn final_multiline_paragraph_updates_root_end_columns() {
+        for newline in ["\n", "\r\n", "\r"] {
+            let before = format!("# Before{newline}{newline}Text **bold**{newline}another line");
+            let snapshot = Snapshot::new(&before);
+            for text in ["中文", "\t", "👩‍💻", ""] {
+                let after = before.replace("another", &format!("an{text}ther"));
+                let updated = snapshot.update_block(&after).expect("local paragraph edit");
+                let full = Snapshot::new(&after);
+                assert_eq!(updated.ast, full.ast, "{after:?}");
+                assert_eq!(
+                    crate::markdown::spans_snapshot(&updated),
+                    crate::markdown::spans_snapshot(&full)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn multiline_structure_changes_still_fall_back() {
+        for (before, after) in [
+            (
+                "Text **bold**\nanother line\nlast line",
+                "Text **bold**\n# another line\nlast line",
+            ),
+            (
+                "Text **bold**\nanother line\nlast line",
+                "Text **bold**\n- another line\nlast line",
+            ),
+            (
+                "Text **bold**\nanother line\nlast line",
+                "Text **bold**\n\nanother line\nlast line",
+            ),
+            (
+                "Text **bold**\nanother line\nlast line",
+                "Text **bold**another line\nlast line",
+            ),
+            (
+                "Text **bold**\nanother line\nlast line",
+                "Text **bold**\nanother line\n---",
+            ),
+            (
+                "Text [ref]\nanother line\n\n[ref]: old.md",
+                "Text [ref]\nanother changed line\n\n[ref]: old.md",
+            ),
+            (
+                "> Text **bold**\n> another line",
+                "> Text **bold**\n> another changed line",
+            ),
+        ] {
+            assert!(
+                Snapshot::new(before).update_block(after).is_none(),
+                "{after:?}"
+            );
+        }
+    }
+
     #[test]
     fn global_and_block_structure_edits_fall_back() {
         for (before, after) in [
