@@ -3,7 +3,11 @@ use inkstone_core::syntax::Snapshot;
 use std::{hint::black_box, time::Instant};
 fn main() {
     let args: Vec<_> = std::env::args().collect();
-    assert_eq!(args.len(), 3, "usage: block_benchmark FILE MARKER");
+    assert!(
+        (3..=4).contains(&args.len()),
+        "usage: block_benchmark FILE MARKER [INSERT_PREFIX]"
+    );
+    let insertion = args.get(3).map(String::as_str).unwrap_or("中文");
     let source = std::fs::read_to_string(&args[1]).unwrap();
     let at = source.find(&args[2]).expect("marker missing") + args[2].len();
     let base = Snapshot::new(&source);
@@ -11,7 +15,7 @@ fn main() {
     let mut local_ms = Vec::new();
     for i in 0..25 {
         let mut text = source.clone();
-        text.insert_str(at, &format!("中文{i}"));
+        text.insert_str(at, &format!("{insertion}{i}"));
         let start = Instant::now();
         let full = black_box(Snapshot::new(black_box(&text)));
         let full_time = start.elapsed().as_secs_f64() * 1000.;
