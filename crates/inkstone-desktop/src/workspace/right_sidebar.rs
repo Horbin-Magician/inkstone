@@ -7,12 +7,60 @@ use gpui_component::{Disableable, Selectable, button::*, list::ListItem};
 use std::rc::Rc;
 
 type OutlineKey = Rc<(PathBuf, Vec<inkstone_core::index::Heading>)>;
+type OutlineRows = Rc<Vec<(inkstone_core::index::Heading, bool, bool)>>;
+
+struct OutlineProjection {
+    key: OutlineKey,
+    query: String,
+    collapsed: std::collections::BTreeSet<usize>,
+    rows: OutlineRows,
+}
 
 #[derive(Default)]
 pub(super) struct OutlineState {
     key: Option<OutlineKey>,
+    projection: Option<OutlineProjection>,
     scroll: UniformListScrollHandle,
     collapsed: std::collections::BTreeSet<usize>,
+}
+
+impl OutlineState {
+    fn project(
+        &mut self,
+        path: &std::path::Path,
+        headings: &[inkstone_core::index::Heading],
+        query: &str,
+    ) -> (OutlineKey, OutlineRows) {
+        let empty = Default::default();
+        let collapsed = if self
+            .key
+            .as_ref()
+            .is_some_and(|key| key.0 == path && key.1 == headings)
+        {
+            &self.collapsed
+        } else {
+            &empty
+        };
+        if let Some(cached) = &self.projection
+            && cached.key.0 == path
+            && cached.key.1 == headings
+            && cached.query == query
+            && cached.collapsed == *collapsed
+        {
+            return (cached.key.clone(), cached.rows.clone());
+        }
+        // Keep only the current projection. Compare content rather than length:
+        // edits may rename headings or move source offsets without changing count.
+        let key = Rc::new((path.to_path_buf(), headings.to_vec()));
+        let rows = Rc::new(outline_rows(headings, collapsed, query));
+        self.projection = Some(OutlineProjection {
+            key: key.clone(),
+            query: query.to_owned(),
+            collapsed: collapsed.clone(),
+            rows: rows.clone(),
+        });
+        (key, rows)
+    }
 }
 
 impl Workspace {
@@ -57,13 +105,8 @@ impl Workspace {
             )
             .into_any_element()
     }
-    pub(super) fn right_panel(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn right_panel(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let pane = self.current_pane();
-        let headings = pane
-            .as_ref()
-            .filter(|_| self.ui.right_mode == 0)
-            .map(|p| p.read(cx).parsed.headings.clone())
-            .unwrap_or_default();
         let outline_query = if self.ui.right_mode == 0 && self.ui.outline_filter_open {
             self.ui
                 .outline_filter
@@ -74,22 +117,20 @@ impl Workspace {
         } else {
             String::new()
         };
-        // Every row captures this immutable snapshot. Cloning the full heading
-        // vector per callback makes an n-heading outline allocate O(n²) titles
-        // on each workspace redraw even when the headings have not changed.
-        let fold_key = Rc::new((
-            pane.as_ref()
-                .map(|p| p.read(cx).current_path.clone())
-                .unwrap_or_default(),
-            headings.clone(),
-        ));
-        let empty_folds = Default::default();
-        let collapsed = if self.ui.outline.key.as_ref() == Some(&fold_key) {
-            &self.ui.outline.collapsed
+        let (fold_key, headings) = if self.ui.right_mode == 0 {
+            if let Some(pane) = &pane {
+                let pane = pane.read(cx);
+                self.ui
+                    .outline
+                    .project(&pane.current_path, &pane.parsed.headings, &outline_query)
+            } else {
+                self.ui
+                    .outline
+                    .project(std::path::Path::new(""), &[], &outline_query)
+            }
         } else {
-            &empty_folds
+            (Rc::new((PathBuf::new(), Vec::new())), Rc::new(Vec::new()))
         };
-        let headings = outline_rows(&headings, collapsed, &outline_query);
         let links = pane
             .as_ref()
             .filter(|_| self.ui.right_mode == 2)
@@ -926,6 +967,55 @@ mod outline_tests {
                 );
             })
             .unwrap();
+    }
+
+    #[test]
+    fn outline_projection_reuses_rows_and_invalidates_all_visible_inputs() {
+        let mut state = OutlineState::default();
+        let path = std::path::Path::new("one.md");
+        let mut headings = vec![
+            inkstone_core::index::Heading {
+                level: 1,
+                offset: 0,
+                title: "Parent".into(),
+            },
+            inkstone_core::index::Heading {
+                level: 2,
+                offset: 12,
+                title: "Child".into(),
+            },
+        ];
+        let (key, rows) = state.project(path, &headings, "");
+        for _ in 0..10 {
+            let (same_key, same_rows) = state.project(path, &headings, "");
+            assert!(Rc::ptr_eq(&key, &same_key));
+            assert!(Rc::ptr_eq(&rows, &same_rows));
+        }
+        state.key = Some(key);
+        state.collapsed.insert(0);
+        let (_, folded) = state.project(path, &headings, "");
+        assert_eq!(folded.len(), 1);
+        assert!(folded[0].2);
+        let (_, filtered) = state.project(path, &headings, "child");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].0.offset, 12);
+        let (_, restored) = state.project(path, &headings, "");
+        assert_eq!(*restored, *folded);
+        // A different note must not inherit the old note's folded parent.
+        let (_, other) = state.project(std::path::Path::new("two.md"), &headings, "");
+        assert_eq!(other.len(), 2);
+        // Same-count and same-length title edits must invalidate cached rows.
+        headings[1].title = "Other".into();
+        headings[1].offset = 14;
+        let (_, edited) = state.project(path, &headings, "");
+        assert_eq!(edited.len(), 2);
+        assert_eq!(edited[1].0.title, "Other");
+        assert_eq!(edited[1].0.offset, 14);
+        headings[1].level = 1;
+        let (_, siblings) = state.project(path, &headings, "");
+        assert!(!siblings[0].1);
+        let (_, empty) = state.project(path, &[], "");
+        assert!(empty.is_empty());
     }
 
     #[test]

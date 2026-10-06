@@ -1308,3 +1308,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 大纲标题跳转由普通点击区域改为可聚焦按钮，可访问名称包含标题级别和标题文本；折叠按钮仍独立操作，虚拟列表继续使用固定行高。
 - 扩展 501 个标题的虚拟列表回归：滚动后点击末尾标题仍定位正确；筛选到末尾标题后，从筛选输入按 Tab，再分别按 Enter/Space，均跳转到正确源码位置并将焦点交回编辑器，正文和筛选文字不变；清除筛选后折叠仍正确。
 - outline 筛选共 3 项通过（含 1 项原生图形同名筛选测试），全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/outline-keyboard-tests.log、outline-keyboard-clippy.log。本次是组件事件回归，不替代原生读屏和长列表完整键盘遍历验收；无用户笔记进入提交。
+
+## 复用未变化的大纲筛选结果（2026-10-06）
+
+- 大纲虚拟化后，right_panel 仍在每次工作区重绘复制完整标题列表、构造回调快照并重新生成筛选行。新增仅保留当前结果的缓存，以路径、完整标题内容、筛选词及有效折叠集合验证；命中后共享标题快照和行列表，保留虚拟列表及原有折叠语义。隐藏分类不触发缓存重建。
+- 新回归验证重复调用复用同一快照、折叠/筛选/恢复、切换路径不继承其他笔记折叠、相同数量与长度的标题改名、源码位置变化、级别变化和清空。既有 501 标题滚动、筛选、Enter/Space 跳转及折叠回归继续通过。
+- outline 筛选共 4 项通过（含 1 项原生图形测试），全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/outline-cache-tests.log、outline-cache-clippy.log。命中仍需内容比较，不宣称减少重绘或已经达到 CPU 预算；release 原生对照待完成。未涉及用户笔记。
