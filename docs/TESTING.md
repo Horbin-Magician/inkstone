@@ -1570,3 +1570,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 完整复算旧备份 SHA-256 与初始值一致，最新备份逐字节不变，原 Markdown SHA-256 不变，无清理暂存记录。停止后的完整 AX 树确认编辑正文仍含中文/emoji/组合字符、状态仍为尚未保存、停止按钮已消失。随后撤销测试编辑恢复已保存状态并正常退出，进程退出和原文件散列再次核验。
 - preparation.json、acceptance.json、results.json 留在隔离目录。未改动真实用户笔记。
 - 观察到独立问题：首次打开时 AX 已含编辑器/恢复控件，但画面仍停在加载占位，缩放窗口后恢复；此前已有类似记录，尚未定位，不作为界面整体通过。此次停止功能在缩放后的原生窗口完成；Windows 实机、完整 DPI 矩阵和 GUI 强退仍待验证。
+
+
+## 清理集成后的全工作区回归与原生呈现排查（2026-10-06）
+
+- 在 9855843 执行 cargo test --locked --workspace：294 项核心单元测试通过、3 项既有手动入口忽略；361 项桌面单元测试通过、2 项既有手动入口忽略；额外的五项回归、单项 grapheme_cursor、两项 grapheme_wrap 和两项文档测试均通过。子进程测试输出中的单项结果不重复计入核心数量。日志 target/backup-cleanup-audit/workspace-after-sync-cleanup.log。
+- 覆盖此前同步备份预览、清理、取消、强杀恢复及工作区任务准入的集成；不包含独立 vendor 全量测试或原生像素正确性的证明。远端 37455366426（24517f9）最后观察仍在运行。
+- 原生显示问题的现有复现线索：独立生成应用在后台启动；加载占位曾被截图捕获；随后 AX 能看到正文、未保存状态和恢复弹窗，并可完成编辑，但画面仍保持占位；执行窗口 zoom 后画面恢复。之前 native-sync-cleanup-3bd4717 正常，native-sync-cleanup-stop 遇到此现象，因此不能宣称稳定复现或将大备份认定为原因。
+- 代码核对：session::load_vault 的成功回调清除 loading 并 cx.notify，Workspace 根据 loading 渲染；gpui-pre 0.3.7 的窗口激活路径调用 bounds_changed/refresh，绘制请求会 draw/present。gpui-pre-apple 的 Metal draw 存在 drawable 或渲染失败后提前返回路径，但本轮没有相应运行日志，不能将其判为根因。未修改注册表依赖或加入周期性重绘补丁。
+- 后续需在隔离复现中取得原生呈现失败日志/状态，并区分后台启动、前台启动及窗口变形前后；保持此项未解决。此排查针对画面正确性，未重启性能预算或测量工作。
