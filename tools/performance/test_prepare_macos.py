@@ -12,6 +12,18 @@ import prepare_macos
 
 @unittest.skipUnless(sys.platform == "darwin", "requires macOS codesign")
 class PreparationTests(unittest.TestCase):
+    def test_activity_trace_is_opt_in_and_stays_inside_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for enabled in (False, True):
+                root = Path(tmp).resolve() / str(enabled)
+                report = prepare_macos.prepare(root, Path("/usr/bin/true"), "ordinary", "live", enabled)
+                environment = plistlib.loads((Path(report["bundle"]) / "Contents/Info.plist").read_bytes())["LSEnvironment"]
+                if enabled:
+                    self.assertEqual(environment["INKSTONE_TRACE_ACTIVITY"], str(root / "activity.jsonl"))
+                else:
+                    self.assertNotIn("INKSTONE_TRACE_ACTIVITY", environment)
+                self.assertFalse((root / "activity.jsonl").exists())
+
     def test_existing_directory_and_dangling_symlink_are_not_reused(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

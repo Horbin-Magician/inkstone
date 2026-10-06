@@ -1,3 +1,4 @@
+mod activity_trace;
 mod file_sync;
 mod file_writes;
 mod focus_reveal;
@@ -108,6 +109,7 @@ struct Tab {
     _focus: Subscription,
 }
 pub struct Workspace {
+    activity_trace: Option<activity_trace::ActivityTrace>,
     settings_save: settings_save::State,
     file_writes: file_writes::FileWrites,
     #[cfg(target_os = "macos")]
