@@ -429,8 +429,7 @@ impl Workspace {
             self.cloud_message("同步未开始：请先处理笔记冲突或保存错误。".into(), cx);
             return;
         }
-        if self.file_writes.operation_active()
-            || self.file_writes.pending() > 0
+        if !self.file_writes.can_start_exclusive_operation()
             || self.settings_save.is_busy()
             || self.refreshing
             || self
@@ -469,9 +468,11 @@ impl Workspace {
         };
         let settings = self.ui.prefs.webdav.clone();
         let password = self.ui.cloud_sync.password.read(cx).value().to_string();
+        let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
+            return;
+        };
         self.ui.cloud_sync.schedule.start();
         self.ui.cloud_sync.watch.epoch = self.ui.cloud_sync.watch.epoch.wrapping_add(1);
-        let write_ticket = self.file_writes.begin_operation();
         self.cloud_message("正在连接并准备云端目录……".into(), cx);
         self.ui.cloud_sync.progress = None;
         let run = Run::default();
@@ -1469,6 +1470,18 @@ mod tests {
                 w.tick(window, cx);
                 assert!(!w.ui.cloud_sync.schedule.pending);
                 assert!(!w.ui.cloud_sync.schedule.busy);
+                let pending = w.file_writes.begin();
+                let epoch = w.ui.cloud_sync.watch.epoch;
+                w.ui.cloud_sync.schedule.manual();
+                w.tick_cloud_sync(window, cx);
+                assert!(w.ui.cloud_sync.schedule.pending);
+                assert!(!w.ui.cloud_sync.schedule.busy);
+                assert!(w.ui.cloud_sync.run.is_none());
+                assert_eq!(w.ui.cloud_sync.watch.epoch, epoch);
+                assert_eq!(w.file_writes.pending(), 1);
+                assert!(!w.file_writes.operation_active());
+                w.ui.cloud_sync.schedule.clear_request();
+                assert!(w.file_writes.finish(pending));
                 w.watcher = None;
             })
             .unwrap();

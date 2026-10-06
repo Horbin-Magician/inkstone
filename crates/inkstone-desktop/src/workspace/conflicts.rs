@@ -115,7 +115,7 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
+        if !self.file_writes.can_start_exclusive_operation() {
             return;
         }
         self.flush_document_views(window, cx);
@@ -152,10 +152,13 @@ impl Workspace {
             cx.notify();
             return;
         }
+        let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
+            return;
+        };
         if !document.persistence.begin_resolution() {
+            self.file_writes.finish(write_ticket);
             return;
         }
-        let write_ticket = self.file_writes.begin_operation();
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
         let expected_local = local.clone();
@@ -296,6 +299,17 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert!(w.ui.conflict_review.as_ref().unwrap().ready);
+                let pending = w.file_writes.begin();
+                w.resolve_review(true, window, cx);
+                assert!(w.ui.conflict_review.as_ref().unwrap().ready);
+                assert!(!w.tabs[w.active.unwrap()].save.persistence.is_saving());
+                assert_eq!(w.file_writes.pending(), 1);
+                assert!(!w.file_writes.operation_active());
+                assert_eq!(
+                    std::fs::read_to_string(root.join("note.md")).unwrap(),
+                    "external"
+                );
+                assert!(w.file_writes.finish(pending));
                 std::fs::write(root.join("note.md"), "newer external").unwrap();
                 w.resolve_review(true, window, cx);
             })

@@ -218,7 +218,7 @@ impl Workspace {
         .detach();
     }
     fn apply_bulk_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
+        if !self.file_writes.can_start_exclusive_operation() {
             return;
         }
         self.flush_document_views(window, cx);
@@ -258,7 +258,9 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        let write_ticket = self.file_writes.begin_operation();
+        let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
+            return;
+        };
         let generation = self.generation;
         if let Some(r) = &mut self.ui.bulk_edit {
             r.loading = true;
@@ -363,6 +365,16 @@ mod tests {
                 assert_eq!(r.plan.as_ref().unwrap().edits.len(), 2);
                 assert!(r.preview.read(cx).value().contains("new 😀"));
                 r.selected.remove(&1);
+                let pending = w.file_writes.begin();
+                w.apply_bulk_edit(window, cx);
+                let review = w.ui.bulk_edit.as_ref().unwrap();
+                assert!(!review.loading);
+                assert_eq!(review.plan.as_ref().unwrap().edits.len(), 2);
+                assert_eq!(review.selected.len(), 1);
+                assert_eq!(w.file_writes.pending(), 1);
+                assert!(!w.file_writes.operation_active());
+                assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "old");
+                assert!(w.file_writes.finish(pending));
                 w.apply_bulk_edit(window, cx);
                 w.tabs[0].save.editor.update(cx, |s, cx| {
                     s.replace_all("typed while applying", window, cx)

@@ -1220,3 +1220,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 将两类路径操作的“文件任务为空才可启动”规则移入 FileWrites；实际取得独占任务凭据时再次检查，UI 提前检查不再是唯一保护。文档状态拒绝进入操作时释放已取得凭据。保存、IME、冲突、链接审阅与任务完成的代次判断保持原有行为。
 - 四项 FileWrites 单元回归通过，包含两个后台任务乱序完成、未清空时拒绝独占操作且不泄漏凭据、独占期间拒绝重复启动、完成后重新开放准入。既有笔记/文件夹旧代次回归增加后台任务阻塞检查，确认拒绝时不改路径、不设置文档保存状态、不新增任务；释放阻塞后实际移动成功，旧回调只释放自己的保护。
 - 定向 GUI 回归、workspace all-targets Clippy -D warnings、格式与 diff 检查通过，日志 target/backup-cleanup-audit/admission-unit.log、admission-moves.log、admission-clippy.log。本次为任务准入边界提取，未执行新的原生综合验收；无用户笔记进入提交。
+
+## 同步、冲突处理与批量修改的任务准入（2026-10-06）
+
+- 三类操作复用 FileWrites 独占准入，取得凭据后才进入业务运行状态；文档拒绝冲突处理时立即释放凭据。同步在准入成功后才推进 watch epoch、置 busy 并创建 Run，批量修改在此后才消费预览和所选项。
+- 扩充现有 GUI 回归：后台文件任务阻塞冲突处理时保留 ready 比较与原文件，不设置 saving；阻塞批量操作时保留完整预览、选择与正文，不设置 loading；阻塞手动同步队列时保留 pending，busy/Run/watch epoch 不变。均确认任务数不增长且不提前设置文件操作保护。
+- 冲突回归 1 项、批量回归 1 项、同步 tests 模块 17 项通过；同步阻塞检查独立复验通过。workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/admission-conflict.log、admission-bulk.log、admission-sync.log、admission-sync-blocked.log、admission-all-clippy.log。未将自动结果替代真实双设备或原生验收，无用户笔记进入提交。
