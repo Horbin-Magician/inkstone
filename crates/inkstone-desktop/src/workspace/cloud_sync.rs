@@ -1,4 +1,5 @@
 mod capacity;
+mod cleanup;
 mod run;
 use run::Run;
 mod schedule;
@@ -65,6 +66,7 @@ pub(super) struct State {
     remote_check: super::remote_check::RemoteCheck,
     watch: watch::Watch,
     capacity: capacity::State,
+    cleanup: cleanup::State,
 }
 impl State {
     fn scheduling_label(&self) -> &'static str {
@@ -113,11 +115,13 @@ impl State {
             remote_check: Default::default(),
             watch: Default::default(),
             capacity: Default::default(),
+            cleanup: Default::default(),
         };
         for input in [&state.url, &state.username, &state.password] {
             cx.subscribe(input, |this, _, event, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.ui.cloud_sync.capacity.invalidate();
+                    this.ui.cloud_sync.cleanup.invalidate();
                     cx.notify();
                 }
             })
@@ -161,7 +165,7 @@ impl Workspace {
         let state = &self.ui.cloud_sync;
         // An automatic attempt may wait for saves, a quiet period, or a retry.
         // Keep configuration and manual actions available during that wait.
-        self.vault.is_none() || self.loading || state.schedule.busy
+        self.vault.is_none() || self.loading || state.schedule.busy || state.cleanup.is_running()
     }
 
     pub(super) fn apply_cloud_secret(
@@ -174,6 +178,7 @@ impl Workspace {
         state.remote_check = Default::default();
         state.watch.reset();
         state.capacity = Default::default();
+        state.cleanup = Default::default();
         state.schedule = Schedule::default();
         state.run = None;
         state.message.clear();
@@ -330,6 +335,9 @@ impl Workspace {
         }
     }
     fn save_cloud_settings(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.ui.cloud_sync.cleanup.is_running() {
+            return false;
+        }
         let settings = self.cloud_settings(cx);
         // URL validation does not perform network access.
         if let Err(error) = settings.validate() {
@@ -399,7 +407,7 @@ impl Workspace {
         .detach();
     }
     fn request_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.vault.is_none() || self.loading || self.ui.cloud_sync.schedule.busy {
+        if self.cloud_settings_disabled() {
             return;
         }
         if self.ui.cloud_sync.schedule.pending && !self.ui.cloud_sync.schedule.automatic {
@@ -655,6 +663,7 @@ impl Workspace {
                 .child(state.scheduling_label())
                 .child(self.sync_success_label())
                 .child(self.cloud_capacity_panel(cx))
+                .child(self.cloud_cleanup_panel(cx))
                 .when(!state.message.is_empty(), |s| s.child(state.message.clone()))
         ).into_any_element()
     }
@@ -2098,6 +2107,8 @@ mod tests {
             ("tab", "webdav-actions"),
             ("tab", "webdav-poll-control"),
             ("tab", "cloud-capacity-control"),
+            ("tab", "cloud-cleanup-preview-control"),
+            ("shift-tab", "cloud-capacity-control"),
             ("shift-tab", "webdav-poll-control"),
             ("shift-tab", "webdav-actions"),
             ("shift-tab", "webdav-actions"),
