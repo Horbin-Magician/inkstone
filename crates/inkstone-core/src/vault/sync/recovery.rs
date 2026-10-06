@@ -245,8 +245,8 @@ mod tests {
         let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
         fs::write(vault.root.join("note.md"), "old")?;
         fs::write(vault.root.join("nested/image.bin"), [0, 255, 1, 2])?;
-        apply(&vault, "note.md", Some(&hash(b"old")), Some(b"new"))?;
-        apply(
+        apply_bytes(&vault, "note.md", Some(&hash(b"old")), Some(b"new"))?;
+        apply_bytes(
             &vault,
             "nested/image.bin",
             Some(&hash(&[0, 255, 1, 2])),
@@ -285,7 +285,7 @@ mod tests {
         fs::create_dir_all(root.join("vault/nested"))?;
         let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
         fs::write(vault.root.join("note.md"), "old")?;
-        apply(&vault, "note.md", Some(&hash(b"old")), None)?;
+        apply_bytes(&vault, "note.md", Some(&hash(b"old")), None)?;
         for (id, original, backup) in [
             (
                 "traversal",
@@ -330,7 +330,7 @@ mod tests {
         let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
         let bytes = [0, 255, 1, 128];
         fs::write(vault.root.join("image.bin"), bytes)?;
-        apply(&vault, "image.bin", Some(&hash(&bytes)), Some(b"current"))?;
+        apply_bytes(&vault, "image.bin", Some(&hash(&bytes)), Some(b"current"))?;
         let entry = inventory(&vault)?.entries.remove(0);
         fs::write(vault.root.join("image 同步恢复.bin"), b"existing")?;
         let restored = restore_copy(&vault, &entry, &[PathBuf::from("image 同步恢复 2.bin")])?;
@@ -365,7 +365,7 @@ mod tests {
         fs::create_dir_all(root.join("vault"))?;
         let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
         fs::write(vault.root.join("note.md"), b"original")?;
-        apply(&vault, "note.md", Some(&hash(b"original")), None)?;
+        apply_bytes(&vault, "note.md", Some(&hash(b"original")), None)?;
         let entry = inventory(&vault)?.entries.remove(0);
         assert!(
             restore_with(&vault, &entry, &[], || {

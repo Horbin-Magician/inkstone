@@ -125,21 +125,35 @@ fn verify(path: &Path, digest: &str, cancellation: &Cancellation) -> Result<u64>
     Ok(bytes)
 }
 impl Object {
-    pub fn read(&self) -> Result<Vec<u8>> {
+    // The caller only publishes its temporary output after this check succeeds.
+    pub fn copy_to(&self, output: &mut impl Write) -> Result<()> {
         let meta = fs::symlink_metadata(&self.path)?;
         ensure!(
-            meta.is_file() && !is_reparse(&meta) && meta.len() == self.bytes,
+            meta.is_file()
+                && !is_reparse(&meta)
+                && meta.len() == self.bytes
+                && self.bytes <= MAX_FILE_BYTES,
             "下载缓存已变化"
         );
-        let mut bytes = Vec::new();
-        fs::File::open(&self.path)?
-            .take(MAX_FILE_BYTES + 1)
-            .read_to_end(&mut bytes)?;
+        let mut file = fs::File::open(&self.path)?;
+        let mut buffer = [0u8; 64 * 1024];
+        let mut digest = Sha256::new();
+        let mut bytes = 0u64;
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            bytes += count as u64;
+            ensure!(bytes <= self.bytes, "下载缓存已变化");
+            digest.update(&buffer[..count]);
+            output.write_all(&buffer[..count])?;
+        }
         ensure!(
-            bytes.len() as u64 == self.bytes && hash(&bytes) == self.digest,
+            bytes == self.bytes && format!("{:x}", digest.finalize()) == self.digest,
             "下载缓存校验失败"
         );
-        Ok(bytes)
+        Ok(())
     }
     pub fn remove(&self) {
         let _ = fs::remove_file(&self.path);

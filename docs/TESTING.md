@@ -514,3 +514,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增空文件、多缓冲二进制、缺失文件、目录、取消分类及超过 128 MiB 的稀疏文件回归。核心全量 228 项通过、2 项忽略；桌面同步相关 27 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 同机、同 release 576 MiB 测试通过，`/usr/bin/time -l` 峰值 RSS 615,481,344 字节（约 587 MiB），相对上一提交的 1,219,395,584 字节降低约 49.5%。本次测试内部耗时 4.33 秒、进程 4.92 秒；运行时另有开发构建，不据此宣称耗时改善。样本与哈希核验不变，下载应用/上传仍使用逐文件 Vec，内存优化尚未结束。
 - 日志：`target/sync-hash-tests.log`、`target/sync-hash-desktop-tests.log`、`target/sync-hash-clippy.log`、`target/sync-hash-fmt.log`、`target/sync-hash-large-tests.log`。未修改用户笔记，未进行真实 WebDAV 大库及原生界面验收。
+
+
+## 大库同步第四步：流式应用下载对象（2026-10-06）
+
+- 下载应用不再构造完整正文 Vec，使用固定 64 KiB 缓冲复制到同目录独占创建的临时文件，计算摘要并检查实际字节，校验/同步成功后才进入原替换或不覆盖发布流程。写入/校验失败清理临时文件；保留原有文件权限、同步备份、并发修改复核及提交阶段不可取消规则。
+- 新回归注入目标部分写入失败，并在 Applying 阶段把已校验的暂存正文替换为同长度错误内容：均验证原件保留、临时文件清空；后者还验证基线不前进、再次同步重新下载并收敛。原备份/删除/权限测试继续通过。核心全量 229 项通过、2 项忽略；桌面同步相关 27 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 同机、同 release 576 MiB 样本通过，构建及其他测试结束后执行 `/usr/bin/time -l`：峰值 RSS 8,880,128 字节（约 8.47 MiB），相对上一步 615,481,344 字节降低约 98.6%；测试内部耗时 4.44 秒、进程 4.92 秒。保留生成、同步及全库哈希验证，不宣称耗时改善。该结果证明此下载测试不再随整批正文驻留内存，尚不代表真实 WebDAV 或上传峰值。
+- 日志：`target/sync-apply-tests.log`、`target/sync-apply-desktop-tests.log`、`target/sync-apply-clippy.log`、`target/sync-apply-fmt.log`、`target/sync-apply-large-tests.log`。上传仍最多四个逐文件 Vec；真实远端验证、部分对象续传、遗留暂存容量治理及清理待后续。未修改用户笔记。
