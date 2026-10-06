@@ -1,5 +1,5 @@
 //! Sync backups inside the shared file recovery entry point.
-use super::settings_ui::SettingsFocusTarget;
+use super::focus_reveal::FocusReveal;
 use super::*;
 use gpui_component::{Disableable, button::*};
 use inkstone_core::vault::sync::recovery::{self, Inventory};
@@ -150,7 +150,7 @@ impl Workspace {
                                 let id = ("sync-recovery-page", usize::from(next));
                                 div()
                                     .debug_selector(move || format!("sync-recovery-page-{next}"))
-                                    .child(SettingsFocusTarget::new(
+                                    .child(FocusReveal::new(
                                         (ElementId::from(id), "focus"),
                                         &self.ui.recovery_scroll,
                                         Button::new(id)
@@ -204,7 +204,7 @@ impl Workspace {
                                     .gap_1()
                                     .flex_shrink_0()
                                     .child(div().whitespace_normal().child(description.clone()))
-                                    .child(SettingsFocusTarget::new(
+                                    .child(FocusReveal::new(
                                         (ElementId::from(("restore-sync-backup", i)), "focus"),
                                         &self.ui.recovery_scroll,
                                         Button::new(("restore-sync-backup", i))
@@ -369,7 +369,7 @@ mod tests {
                 let mut reached = std::collections::BTreeSet::new();
                 for _ in 0..30 {
                     key(&mut visual, navigation);
-                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                    if let Some(target) = visual.debug_bounds("focus-revealed-control") {
                         handle
                             .update(&mut visual, |w, _, _| {
                                 let viewport = w.ui.recovery_scroll.bounds();
@@ -420,7 +420,7 @@ mod tests {
                 for _ in 0..30 {
                     key(&mut visual, navigation);
                     if let (Some(target), Some(button)) = (
-                        visual.debug_bounds("settings-focused-control"),
+                        visual.debug_bounds("focus-revealed-control"),
                         visual.debug_bounds(selector),
                     ) && target.top() >= button.top()
                         && target.bottom() <= button.bottom()

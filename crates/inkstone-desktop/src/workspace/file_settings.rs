@@ -1,4 +1,4 @@
-use super::settings_ui::SettingsFocusTarget;
+use super::focus_reveal::FocusReveal;
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
@@ -264,7 +264,7 @@ impl Workspace {
                                         }),
                                 ),
                         )
-                        .child(SettingsFocusTarget::new(
+                        .child(FocusReveal::new(
                             if attachment {
                                 "attachment-location-focus"
                             } else {
@@ -288,7 +288,7 @@ impl Workspace {
                                 } else {
                                     "存放新建笔记的文件夹"
                                 }))
-                                .child(SettingsFocusTarget::new(
+                                .child(FocusReveal::new(
                                     if attachment {
                                         "attachment-folder-focus"
                                     } else {
@@ -346,7 +346,7 @@ impl Workspace {
                                         .child("设置链接到库内文件时使用的路径格式。"),
                                 ),
                             )
-                            .child(SettingsFocusTarget::new(
+                            .child(FocusReveal::new(
                                 "link-format-focus",
                                 &self.ui.settings_scroll,
                                 link_format,
@@ -358,7 +358,7 @@ impl Workspace {
                             .items_center()
                             .justify_between()
                             .child("使用双链语法")
-                            .child(SettingsFocusTarget::new(
+                            .child(FocusReveal::new(
                                 "use-wikilinks-focus",
                                 &self.ui.settings_scroll,
                                 super::settings_ui::setting_switch("use-wikilinks")
@@ -385,7 +385,7 @@ impl Workspace {
                                         .child("关闭时，重命名或移动后会询问是否更新链接。"),
                                 ),
                             )
-                            .child(SettingsFocusTarget::new(
+                            .child(FocusReveal::new(
                                 "always-update-links-focus",
                                 &self.ui.settings_scroll,
                                 super::settings_ui::setting_switch("always-update-links")

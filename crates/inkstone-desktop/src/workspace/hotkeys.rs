@@ -289,7 +289,7 @@ impl Workspace {
                                     .iter()
                                     .filter(|(_, title, _)| title.to_lowercase().contains(&query))
                                     .map(|&(id, title, _)| {
-                                        super::settings_ui::SettingsFocusTarget::new(
+                                        super::focus_reveal::FocusReveal::new(
                                             ("hotkey-row-focus", id),
                                             &self.ui.hotkey_scroll,
                                             div()

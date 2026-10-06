@@ -1,4 +1,4 @@
-use super::settings_ui::SettingsFocusTarget;
+use super::focus_reveal::FocusReveal;
 use super::*;
 use gpui_component::{
     Disableable, Selectable,
@@ -583,7 +583,7 @@ impl Workspace {
                     .children([false, true].into_iter().map(|next| {
                         let id = ("history-page", usize::from(next));
                         div().debug_selector(move || format!("history-page-{next}"))
-                            .child(SettingsFocusTarget::new((ElementId::from(id), "focus"), &browser.scroll,
+                            .child(FocusReveal::new((ElementId::from(id), "focus"), &browser.scroll,
                                 Button::new(id).label(if next { "历史下一页" } else { "历史上一页" })
                                     .disabled(if next { browser.page + 1 >= pages } else { browser.page == 0 })
                                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -600,7 +600,7 @@ impl Workspace {
                         .map(|(i, entry)| {
                             let date: chrono::DateTime<chrono::Local> = entry.modified.into();
                             div().debug_selector(move || format!("history-version-{i}"))
-                                .child(SettingsFocusTarget::new((ElementId::from(("history-version", i)), "focus"), &browser.scroll,
+                                .child(FocusReveal::new((ElementId::from(("history-version", i)), "focus"), &browser.scroll,
                                     Button::new(("history-version", i)).ghost()
                                         .when(browser.selected == Some(i), |b| b.primary())
                                         .selected(browser.selected == Some(i))
@@ -613,7 +613,7 @@ impl Workspace {
                     .flex()
                     .flex_wrap()
                     .gap_2()
-                    .child(SettingsFocusTarget::new("history-before-focus", &browser.scroll, Button::new("history-before")
+                    .child(FocusReveal::new("history-before-focus", &browser.scroll, Button::new("history-before")
                             .label("保存前内容")
                             .when(browser.baseline, |b| b.primary())
                             .selected(browser.baseline)
@@ -624,7 +624,7 @@ impl Workspace {
                                 }
                                 this.update_history_preview(w, cx);
                             }))),)
-                    .child(SettingsFocusTarget::new("history-draft-focus", &browser.scroll, Button::new("history-draft")
+                    .child(FocusReveal::new("history-draft-focus", &browser.scroll, Button::new("history-draft")
                             .label("记录内容")
                             .when(!browser.baseline, |b| b.primary())
                             .selected(!browser.baseline)
@@ -635,7 +635,7 @@ impl Workspace {
                                 }
                                 this.update_history_preview(w, cx);
                             }))),)
-                    .child(SettingsFocusTarget::new("history-diff-focus", &browser.scroll, Button::new("history-diff")
+                    .child(FocusReveal::new("history-diff-focus", &browser.scroll, Button::new("history-diff")
                             .label(if browser.draft_entry.is_some() {
                                 "与磁盘正文比较"
                             } else {
@@ -657,7 +657,7 @@ impl Workspace {
             } else {
                 "差异以打开历史时的正文为准；恢复会新建笔记并保留原文件。"
             }))
-            .child(SettingsFocusTarget::new("history-restore-focus", &browser.scroll, Button::new("history-restore")
+            .child(FocusReveal::new("history-restore-focus", &browser.scroll, Button::new("history-restore")
                     .primary()
                     .label(if browser.draft_entry.is_some() {
                         "恢复草稿为副本"
@@ -667,7 +667,7 @@ impl Workspace {
                     .disabled(browser.record.is_none() || browser.loading)
                     .on_click(cx.listener(|this, _, w, cx| this.restore_history(w, cx)))),)
             .when(browser.draft_entry.is_some(), |s| {
-                s.child(SettingsFocusTarget::new("draft-discard-focus", &browser.scroll, Button::new("draft-discard")
+                s.child(FocusReveal::new("draft-discard-focus", &browser.scroll, Button::new("draft-discard")
                         .label(if browser.confirm_discard {
                             "确认放弃这一条草稿"
                         } else {
@@ -807,7 +807,7 @@ mod tests {
                 let mut reached = std::collections::BTreeSet::new();
                 for _ in 0..30 {
                     key(&mut visual, navigation);
-                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                    if let Some(target) = visual.debug_bounds("focus-revealed-control") {
                         handle
                             .update(&mut visual, |w, _, _| {
                                 let viewport = w.ui.history.as_ref().unwrap().scroll.bounds();
@@ -860,7 +860,7 @@ mod tests {
                 for _ in 0..30 {
                     key(&mut visual, navigation);
                     if let (Some(target), Some(button)) = (
-                        visual.debug_bounds("settings-focused-control"),
+                        visual.debug_bounds("focus-revealed-control"),
                         visual.debug_bounds(selector),
                     ) && target.top() >= button.top()
                         && target.bottom() <= button.bottom()
@@ -898,7 +898,7 @@ mod tests {
         for _ in 0..30 {
             key(&mut visual, "tab");
             if let (Some(target), Some(row)) = (
-                visual.debug_bounds("settings-focused-control"),
+                visual.debug_bounds("focus-revealed-control"),
                 visual.debug_bounds("history-version-11"),
             ) && target.top() >= row.top()
                 && target.bottom() <= row.bottom()

@@ -568,11 +568,11 @@ impl Workspace {
                 .when(self.vault.is_none(), |s| s.child("请先打开笔记库，再配置云同步。同步配置按笔记库分别保存。"))
                 .child("在各设备填写同一个已存在的 WebDAV 目录；不同笔记库请使用不同目录。")
                 .child("服务器目录地址")
-                .child(super::settings_ui::SettingsFocusTarget::new("webdav-url-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-url-field".into()).child(Input::new(&state.url).disabled(disabled))))
+                .child(super::focus_reveal::FocusReveal::new("webdav-url-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-url-field".into()).child(Input::new(&state.url).disabled(disabled))))
                 .child("用户名")
-                .child(super::settings_ui::SettingsFocusTarget::new("webdav-username-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-username-field".into()).child(Input::new(&state.username).disabled(disabled))))
+                .child(super::focus_reveal::FocusReveal::new("webdav-username-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-username-field".into()).child(Input::new(&state.username).disabled(disabled))))
                 .child("密码 / 应用专用密码")
-                .child(super::settings_ui::SettingsFocusTarget::new("webdav-password-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-password-field".into()).child(Input::new(&state.password).disabled(disabled))))
+                .child(super::focus_reveal::FocusReveal::new("webdav-password-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-password-field".into()).child(Input::new(&state.password).disabled(disabled))))
                 .child("密码以明文保存在本机应用数据中，不写入笔记库，也不会上传。重启或切换回来后会自动填回。建议使用 HTTPS。")
                 .child(
                     div()
@@ -590,7 +590,7 @@ impl Workspace {
                             ),
                         )
                         .child(
-                            super::settings_ui::SettingsFocusTarget::new("webdav-auto-focus", &self.ui.settings_scroll, div().id("webdav-auto-control").debug_selector(|| "webdav-auto-control".into()).flex_shrink_0().child(super::settings_ui::setting_switch("webdav-auto")
+                            super::focus_reveal::FocusReveal::new("webdav-auto-focus", &self.ui.settings_scroll, div().id("webdav-auto-control").debug_selector(|| "webdav-auto-control".into()).flex_shrink_0().child(super::settings_ui::setting_switch("webdav-auto")
                                 .accessibility_label("自动同步")
                                 .checked(self.ui.prefs.webdav.auto)
                                 .disabled(disabled)
@@ -607,7 +607,7 @@ impl Workspace {
                                 })))),
                         ),
                 )
-                .child(super::settings_ui::SettingsFocusTarget::new("webdav-actions-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-actions".into()).flex().flex_wrap().flex_shrink_0().gap_2()
+                .child(super::focus_reveal::FocusReveal::new("webdav-actions-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-actions".into()).flex().flex_wrap().flex_shrink_0().gap_2()
                     .child(Button::new("webdav-save").label("保存配置").disabled(disabled).on_click(cx.listener(|this, _, _, cx| {
                         if this.save_cloud_settings(cx) {
                             let message = if this.ui.cloud_sync.password.read(cx).value().is_empty() {
@@ -621,12 +621,12 @@ impl Workspace {
                     .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
                     .child(Button::new("webdav-sync").primary().label(if state.schedule.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx))))))
                 .when(state.run.is_some(), |s| s.child(
-                    super::settings_ui::SettingsFocusTarget::new("webdav-cancel-running-focus", &self.ui.settings_scroll, Button::new("webdav-cancel-running").label("取消本次同步")
+                    super::focus_reveal::FocusReveal::new("webdav-cancel-running-focus", &self.ui.settings_scroll, Button::new("webdav-cancel-running").label("取消本次同步")
                         .disabled(state.run.as_ref().is_some_and(Run::is_cancelled))
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_running_sync(cx))))
                 ))
                 .when(!state.schedule.busy && (state.schedule.pending || state.schedule.again || state.schedule.wait.is_some() || state.watch.has_work()), |s| s.child(
-                    super::settings_ui::SettingsFocusTarget::new("webdav-cancel-wait-focus", &self.ui.settings_scroll, Button::new("webdav-cancel-wait").label("取消本次同步等待")
+                    super::focus_reveal::FocusReveal::new("webdav-cancel-wait-focus", &self.ui.settings_scroll, Button::new("webdav-cancel-wait").label("取消本次同步等待")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.cancel_queued_sync();
                             this.cloud_message("已取消本次等待；开启自动同步时，后续变更或定期检查仍会触发同步。".into(), cx);
@@ -634,7 +634,7 @@ impl Workspace {
                 ))
                 .child("双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
                 .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB；传输使用本地临时空间，中断后可复用已校验的下载。")
-                .child(super::settings_ui::SettingsFocusTarget::new("webdav-poll-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-poll-control".into()).child(Button::new("webdav-poll-interval")
+                .child(super::focus_reveal::FocusReveal::new("webdav-poll-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-poll-control".into()).child(Button::new("webdav-poll-interval")
                     .label(format!("远端检查间隔：{} 分钟（点击切换）", self.ui.prefs.webdav.poll_minutes.clamp(1, 1440)))
                     .disabled(disabled)
                     .on_click(cx.listener(|this, _, _, cx| {

@@ -1,5 +1,5 @@
 //! Background metadata-only capacity for the configured backup destination.
-use super::settings_ui::SettingsFocusTarget;
+use super::focus_reveal::FocusReveal;
 use super::*;
 use gpui_component::{Disableable, button::*};
 use inkstone_core::vault::backup::{
@@ -236,7 +236,7 @@ impl Workspace {
                 );
                 div()
                     .debug_selector(move || format!("backup-page-{}-{}", interrupted, next))
-                    .child(SettingsFocusTarget::new(
+                    .child(FocusReveal::new(
                         (ElementId::from(id), "focus"),
                         &self.ui.settings_scroll,
                         Button::new(id)
@@ -274,13 +274,13 @@ impl Workspace {
         let available = !self.ui.backup.busy && self.ui.backup.pending.is_none();
         div().flex().flex_col().gap_2()
             .child("整库备份容量")
-            .child(SettingsFocusTarget::new((ElementId::from("backup-capacity-refresh"), "focus"), &self.ui.settings_scroll, Button::new("backup-capacity-refresh").label("刷新备份容量")
+            .child(FocusReveal::new((ElementId::from("backup-capacity-refresh"), "focus"), &self.ui.settings_scroll, Button::new("backup-capacity-refresh").label("刷新备份容量")
                 .disabled(self.ui.prefs.backup.directory.is_none() || current && state.loading)
                 .on_click(cx.listener(|this, _, _, cx| this.refresh_backup_capacity(cx)))))
             .child("统计此备份位置中的所有来源。仅统计可读取备份的正文和清单，不含异常项、额外文件及磁盘分配开销。容量列表不代表内容已校验；恢复前仍会完整校验。备份不会自动清理。")
             .child("清理预览：按来源保留最新份数，同一截止时间的记录全部保留。来源不明或读取异常时保护记录；候选尚未执行内容校验。预览本身不会删除备份；清理需要另行确认。")
             .child(div().flex().flex_wrap().gap_2().children([1usize, 3, 5, 10].into_iter().map(|keep| {
-                SettingsFocusTarget::new((ElementId::from(("backup-retention-keep", keep)), "focus"), &self.ui.settings_scroll, Button::new(("backup-retention-keep", keep)).label(format!("每个来源保留 {keep} 份"))
+                FocusReveal::new((ElementId::from(("backup-retention-keep", keep)), "focus"), &self.ui.settings_scroll, Button::new(("backup-retention-keep", keep)).label(format!("每个来源保留 {keep} 份"))
                     .when(state.keep == keep || state.keep == 0 && keep == 3, |b| b.primary())
                     .disabled(!available || self.ui.prefs.backup.directory.is_none())
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -292,16 +292,16 @@ impl Workspace {
             .when_some(state.preview.as_ref().filter(|_| current && available), |s, preview| s.child(format!("{} 份候选 · 正文与清单估算 {:.2} MiB（不等于实际释放空间）", preview.candidates, preview.candidate_bytes as f64 / 1048576.)))
             .when(current && state.local_storage == Some(false), |s| s.child("此位置是网络存储或无法确认的文件系统，已禁止清理；仍可查看、校验和恢复备份。"))
             .child("清理还要求此位置不被其他机器、用户或云盘同步工具同时修改；本地磁盘检测不代表这些条件已满足。")
-            .child(SettingsFocusTarget::new((ElementId::from("backup-cleanup-review"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-review").label("清理预览中的候选备份……")
+            .child(FocusReveal::new((ElementId::from("backup-cleanup-review"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-review").label("清理预览中的候选备份……")
                 .disabled(!self.can_clean_backups())
                 .on_click(cx.listener(|this, _, _, cx| this.request_backup_cleanup(cx)))))
             .when_some(state.cleanup_confirmation.as_ref().filter(|_| current && available), |s, preview| s
                 .child(format!("将永久删除上述 {} 份候选备份，保留各来源最近 {} 份及受保护记录。无法撤销。位置：{}", preview.candidates, preview.keep_per_source, state.directory.as_ref().unwrap().display()))
                 .child("仅在已停止其他机器、用户及云盘工具对此目录的写入后确认。执行前将重新校验全部备份；预览过期或校验失败会拒绝清理。")
-                .child(SettingsFocusTarget::new((ElementId::from("backup-cleanup-confirm"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-confirm").label("已停止外部写入，确认永久清理")
+                .child(FocusReveal::new((ElementId::from("backup-cleanup-confirm"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-confirm").label("已停止外部写入，确认永久清理")
                     .disabled(!self.can_clean_backups())
                     .on_click(cx.listener(|this, _, _, cx| this.execute_backup_cleanup(cx)))))
-                .child(SettingsFocusTarget::new((ElementId::from("backup-cleanup-cancel"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-cancel").label("取消清理")
+                .child(FocusReveal::new((ElementId::from("backup-cleanup-cancel"), "focus"), &self.ui.settings_scroll, Button::new("backup-cleanup-cancel").label("取消清理")
                     .on_click(cx.listener(|this, _, _, cx| { this.ui.backup.capacity.cleanup_confirmation = None; cx.notify(); })))))
             .when(current && state.loading, |s| s.child("正在读取备份容量……"))
             .when(current && !state.message.is_empty(), |s| s.child(state.message.clone()))
@@ -313,9 +313,9 @@ impl Workspace {
                         let path = path.clone();
                         div().flex().flex_col().gap_1().min_w_0().debug_selector(move || format!("backup-interrupted-{i}"))
                             .child(div().whitespace_normal().child(path.to_string_lossy().to_string()))
-                            .child(SettingsFocusTarget::new((ElementId::from(("backup-interrupted-retain-focus", i)), "focus"), &self.ui.settings_scroll,
+                            .child(FocusReveal::new((ElementId::from(("backup-interrupted-retain-focus", i)), "focus"), &self.ui.settings_scroll,
                                 Button::new(("backup-cleanup-interrupted-retain", i)).label("校验并保留为备份").accessibility_label(format!("校验并保留为备份：{}", path.display())).tooltip(path.to_string_lossy().to_string()).disabled(self.ui.backup.busy || self.ui.backup.pending.is_some() || self.ui.backup.capacity.loading).on_click(cx.listener(move |this, _, _, cx| this.retain_interrupted_backup(i, cx)))))
-                            .child(SettingsFocusTarget::new((ElementId::from(("backup-interrupted-reveal-focus", i)), "focus"), &self.ui.settings_scroll,
+                            .child(FocusReveal::new((ElementId::from(("backup-interrupted-reveal-focus", i)), "focus"), &self.ui.settings_scroll,
                                 Button::new(("backup-cleanup-interrupted-reveal", i)).label("检查清理中断记录").accessibility_label(format!("检查清理中断记录：{}", path.display())).tooltip(path.to_string_lossy().to_string()).on_click(move |_, _, cx| cx.reveal_path(&path))))
                     })))
                     .child(format!("{} 份备份 · 正文 {:.2} MiB · 清单 {:.2} KiB · {} 项异常未计入", inventory.entries.len(), inventory.payload_bytes as f64 / 1048576., inventory.manifest_bytes as f64 / 1024., inventory.unreadable))
@@ -329,7 +329,7 @@ impl Workspace {
                                 .child(div().whitespace_normal().child(format!("{} · {time}", entry.source_name)))
                                 .child(format!("{} 个文件 · 正文 {:.2} MiB · 清单 {} 字节", entry.files, entry.payload_bytes as f64 / 1048576., entry.manifest_bytes))
                                 .when(available, |row| row.when_some(state.preview.as_ref().and_then(|p| p.records.get(i)), |row, record| row.child(decision_label(record.decision))))
-                                .child(SettingsFocusTarget::new((ElementId::from(("backup-capacity-reveal-focus", i)), "focus"), &self.ui.settings_scroll,
+                                .child(FocusReveal::new((ElementId::from(("backup-capacity-reveal-focus", i)), "focus"), &self.ui.settings_scroll,
                                     Button::new(("backup-capacity-reveal", i)).compact().label("显示备份目录").accessibility_label(format!("显示备份目录：{} · {time} · {}", entry.source_name, path.display())).tooltip(path.to_string_lossy().to_string()).on_click(move |_, _, cx| cx.reveal_path(&path))))
                         })))
             }).into_any_element()
@@ -650,7 +650,7 @@ mod tests {
                     let mut reached = Vec::new();
                     for _ in 0..65 {
                         key(&mut visual, "tab");
-                        if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                        if let Some(target) = visual.debug_bounds("focus-revealed-control") {
                             handle
                                 .update(&mut visual, |w, _, _| {
                                     let viewport = w.ui.settings_scroll.bounds();
@@ -710,7 +710,7 @@ mod tests {
                         for _ in 0..65 {
                             key(&mut visual, "tab");
                             if visual
-                                .debug_bounds("settings-focused-control")
+                                .debug_bounds("focus-revealed-control")
                                 .is_some_and(|b| Some(b) == visual.debug_bounds(selector))
                             {
                                 found = true;
@@ -750,7 +750,7 @@ mod tests {
                     for _ in 0..65 {
                         key(&mut visual, "shift-tab");
                         if visual
-                            .debug_bounds("settings-focused-control")
+                            .debug_bounds("focus-revealed-control")
                             .is_some_and(|b| Some(b) == visual.debug_bounds(selector))
                         {
                             found = true;
@@ -850,7 +850,7 @@ mod tests {
                     for _ in 0..2 {
                         visual.update(|window, cx| window.draw(cx).clear(cx));
                     }
-                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                    if let Some(target) = visual.debug_bounds("focus-revealed-control") {
                         handle
                             .update(&mut visual, |w, window, cx| {
                                 let viewport = w.ui.settings_scroll.bounds();

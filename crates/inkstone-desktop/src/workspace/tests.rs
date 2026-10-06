@@ -5064,7 +5064,7 @@ fn settings_rows_reveal_keyboard_focus_in_both_directions(cx: &mut TestAppContex
                     for _ in 0..2 {
                         visual.update(|window, cx| window.draw(cx).clear(cx));
                     }
-                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                    if let Some(target) = visual.debug_bounds("focus-revealed-control") {
                         handle
                             .update(&mut visual, |w, window, cx| {
                                 let viewport = w.ui.settings_scroll.bounds();
@@ -5127,7 +5127,7 @@ fn settings_sliders_accept_keyboard_changes_and_keep_focus(cx: &mut TestAppConte
             for _ in 0..2 {
                 visual.update(|window, cx| window.draw(cx).clear(cx));
             }
-            if visual.debug_bounds("settings-focused-control") == visual.debug_bounds(selector) {
+            if visual.debug_bounds("focus-revealed-control") == visual.debug_bounds(selector) {
                 found = true;
                 break;
             }
@@ -5210,7 +5210,7 @@ fn shortcut_rows_scroll_with_keyboard_focus_inside_their_own_viewport(cx: &mut T
                 for _ in 0..2 {
                     visual.update(|window, cx| window.draw(cx).clear(cx));
                 }
-                if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                if let Some(target) = visual.debug_bounds("focus-revealed-control") {
                     handle
                         .update(&mut visual, |w, window, cx| {
                             let viewport = w.ui.hotkey_scroll.bounds();
