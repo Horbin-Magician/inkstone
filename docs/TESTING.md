@@ -792,3 +792,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 记录元数据缓存缺失/损坏时，通过 64 KiB BufReader 解析旧 Recovery 日志，替代先 `fs::read` 整份 JSON 再反序列化。仍完整验证旧记录，解析完成后仅保留库/笔记归属；不改变日志格式、缓存格式或按需读取所选历史的路径。暖查询继续复用元数据。
 - 新增大于 1 MiB 的旧日志冷导入回归，包含中文、emoji、组合字符和转义正文，验证原始恢复内容一致、元数据小于 2 KiB，以及暖查询不再调用正文解析。错误正文类型、截断 JSON、尾随垃圾均拒绝，恢复有效日志后可再次重建。历史相关 16 项通过，全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-cold-reader-tests.log`、`target/history-cold-reader-clippy.log`、`target/history-cold-reader-fmt.log`。
 - 本次去掉整份序列化输入的额外内存副本，尚无独立 RSS/耗时对比；冷重建仍遍历目录并解析正文，解码后的正文仍可能很大，不能视为常量内存或完整冷扫描优化。测试仅使用临时目录，未修改用户笔记。
+
+## 历史冷读取：release 内存/耗时对照（2026-10-06）
+
+- 增加可独立运行的 Rust 解码微基准与 macOS 夹具/采样脚本，执行方式和统计边界见 `tools/performance/README.md`。两个模式使用同一份 77,276,882 字节混合 Unicode/转义日志，在独立子进程中交错各执行三轮；记录夹具和二进制散列、平台、原始 time 输出及中位数。
+- 脚本实测：整文件读取 118.868 ms / 177.297 MiB；64 KiB 缓冲读取 186.337 ms / 103.641 MiB（耗时/峰值 RSS 中位数）。峰值 RSS 减少约 41.5%，解码耗时增加约 56.8%；因此保留上一轮的内存取舍，不宣称是延迟优化。结果位于 `target/history-read-3y6tqom7`；此前直接采样亦得到相同 RSS、122.583 / 187.106 ms，位于 `target/history-read-benchmark`。
+- release 构建、脚本完整执行、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-read-benchmark-build.log`、`target/history-read-benchmark-clippy.log`、`target/history-read-benchmark-fmt.log`。夹具生成在计量子进程外，不计入 RSS；未清空系统文件缓存，未测端到端历史 UI 或扫描耗时。没有改动真实笔记或恢复日志。
