@@ -139,8 +139,8 @@ impl WrapMap {
     }
 
     /// Set font parameters
-    pub(super) fn set_font(&mut self, font: Font, font_size: Pixels, cx: &mut App) {
-        self.wrapper.set_font(font, font_size, cx);
+    pub(super) fn set_font(&mut self, font: Font, font_size: Pixels, cx: &mut App) -> bool {
+        self.wrapper.set_font(font, font_size, cx)
     }
 
     /// Ensure text is prepared (initializes wrapper if needed)
