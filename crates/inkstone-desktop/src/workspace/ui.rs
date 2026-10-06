@@ -1151,7 +1151,11 @@ impl Workspace {
         self.ui.table_editor = None;
         self.ui.conflict_review = None;
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
-        if let Some(pane) = self.current_pane() {
+        if let Some(pane) = self.current_pane().filter(|_| {
+            self.active
+                .and_then(|i| self.tabs.get(i))
+                .is_some_and(|tab| !tab.path.as_os_str().is_empty())
+        }) {
             pane.update(cx, |p, cx| p.focus_view(window, cx));
         } else {
             window.focus(&self.ui.workspace_focus, cx);

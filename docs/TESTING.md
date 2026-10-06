@@ -652,3 +652,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 欢迎示例改用墨砚/InkStone，区分快速打开与命令面板，列出 macOS 和 Windows/Linux 默认快捷键并说明自定义配置优先；更新三种模式、建库和首篇笔记步骤，补充手动保存、独立草稿及恢复副本的边界。建议复制示例库后体验。
 - 桌面验收样例增加写作、保存、草稿恢复、布局及键盘检查，明确步骤不代表通过结果。移除旧的“限定实时样式”和过时键位说明。
 - 逐项对照命令默认表、平台转换及编辑器查找绑定；检查示例库本地 Markdown/图片链接，保留“我的第一篇笔记”这一有意创建新笔记的双链。检查通过，记录：`target/demo-content-check.log`；`git diff --check` 通过。本次只改示例和状态/验收文档，不重跑代码测试，未修改真实用户笔记。
+
+## macOS 原生首次使用与空标签页恢复焦点（2026-10-06）
+
+- 使用 release 构建、独立验收 app bundle 与 XDG_DATA_HOME。夹具及日志：`target/native-onboarding-njtg2dd3`；原生建库、Cmd+N 新建、粘贴中文/表情/组合字符、Cmd+S 保存均完成，磁盘核对正文 77 字节一致。Cmd+E 进入阅读、模式菜单选择源码、Cmd+T 新标签和空标签“文件恢复”入口均可操作。这次使用粘贴，不是中文 IME 验收。
+- 原生发现：空标签关闭恢复弹窗后，隐藏编辑器获得焦点，文件菜单动作全部禁用。修复为没有实际笔记时恢复工作区焦点。新增回归验证焦点及 NewNote/OpenVault 动作可用；欢迎页相关 7 项通过，全工作区 Clippy、格式和 diff 检查通过。日志：`target/blank-recovery-focus-tests.log`、`target/blank-recovery-focus-clippy.log`、`target/blank-recovery-focus-fmt.log`。
+- 重建 release 后原生复验同一路径，文件菜单不再禁用，点击原生“新建标签页”确实新增标签；退出测试实例。构建日志：`target/native-onboarding-build.log`、`target/blank-recovery-focus-release.log`。示例的新建流程说明同步改为默认生成“未命名.md”，之后可重命名。
+- 测试操作边界：原生保存面板把完整路径输入规范化为带冒号的文件夹名称，首次夹具实际创建在用户主目录；退出后只将该新建测试目录移动到上述 target 夹具。自动化工具在已退出实例上读取状态会重新启动应用，曾加载非隔离最近库；发现后立即停止该实例，未对其执行编辑或保存操作，复验前重新确认仅有测试笔记。后续应避免退出后调用会隐式启动的 UI 观察接口。
+- 尚未验证：自定义键原生录入/菜单快捷键列显示、最小窗口/不同 DPI、Tab 焦点顺序、完整纯键盘路径及 IME。本轮不代表第 8 项全部完成。

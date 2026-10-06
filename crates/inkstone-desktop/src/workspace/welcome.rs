@@ -276,6 +276,29 @@ mod tests {
     }
 
     #[gpui::test]
+    fn closing_recovery_on_blank_tab_restores_visible_workspace_focus(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.new_blank(window, cx);
+                w.execute_command(16, window, cx);
+                w.close_overlays(window, cx);
+                assert!(w.ui.workspace_focus.is_focused(window));
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |_, window, cx| {
+                assert!(window.is_action_available(&super::super::NewNote, cx));
+                assert!(window.is_action_available(&super::super::OpenVault, cx));
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn welcome_hides_workspace_chrome_but_keeps_settings_accessible(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
