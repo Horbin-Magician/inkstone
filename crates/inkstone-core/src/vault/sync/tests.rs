@@ -913,3 +913,128 @@ fn failed_streamed_application_keeps_original_and_cleans_temporary_file() -> Res
     assert_eq!(fs::read(&path)?, b"new");
     Ok(())
 }
+
+#[test]
+fn killed_download_process_reuses_only_complete_verified_objects() -> Result<()> {
+    const CHILD: &str = "INKSTONE_SYNC_DOWNLOAD_CHILD";
+    const COMPLETE: &[u8] = b"verified complete object";
+    const INCOMPLETE: &[u8] = b"interrupted object must be downloaded again";
+    struct RemoteProcess {
+        root: PathBuf,
+        child: bool,
+        downloads: AtomicUsize,
+    }
+    impl Remote for RemoteProcess {
+        fn manifest(&self) -> Result<(Manifest, Option<String>)> {
+            Ok((
+                Manifest {
+                    version: 1,
+                    files: [
+                        ("complete.md".into(), hash(COMPLETE)),
+                        ("interrupted.md".into(), hash(INCOMPLETE)),
+                    ]
+                    .into(),
+                },
+                Some("1".into()),
+            ))
+        }
+        fn download(&self, _: &str) -> Result<Vec<u8>> {
+            unreachable!()
+        }
+        fn download_to(&self, digest: &str, output: &mut dyn Write) -> Result<u64> {
+            self.downloads.fetch_add(1, Ordering::Relaxed);
+            if digest == hash(COMPLETE) {
+                ensure!(
+                    self.child,
+                    "verified object must survive process termination"
+                );
+                output.write_all(COMPLETE)?;
+                return Ok(COMPLETE.len() as u64);
+            }
+            ensure!(digest == hash(INCOMPLETE), "unexpected object");
+            if self.child {
+                output.write_all(b"interrupted")?;
+                fs::write(self.root.join("partial-ready"), b"ready")?;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
+            output.write_all(INCOMPLETE)?;
+            Ok(INCOMPLETE.len() as u64)
+        }
+        fn upload(&self, _: &str, _: &[u8]) -> Result<()> {
+            unreachable!()
+        }
+        fn publish(&self, _: &Manifest, _: Option<&str>) -> Result<()> {
+            unreachable!()
+        }
+    }
+    if let Some(root) = std::env::var_os(CHILD) {
+        let root = PathBuf::from(root);
+        let vault = Vault::open(root.join("b"), root.join("recovery"))?;
+        let remote = RemoteProcess {
+            root: root.clone(),
+            child: true,
+            downloads: AtomicUsize::new(0),
+        };
+        synchronize_with_progress(&vault, &remote, "crash", |progress| {
+            if progress.phase == Phase::Downloading && progress.completed == 1 {
+                fs::write(root.join("complete-ready"), b"ready").unwrap();
+            }
+        })?;
+        panic!("child must be killed while downloading");
+    }
+    let f = Fixture::new();
+    let mut child = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "vault::sync::tests::killed_download_process_reuses_only_complete_verified_objects",
+        ])
+        .env(CHILD, &f.root)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let ready = loop {
+        if f.root.join("partial-ready").exists() && f.root.join("complete-ready").exists() {
+            break true;
+        }
+        if child.try_wait()?.is_some() || std::time::Instant::now() >= deadline {
+            break false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    let _ = child.kill();
+    let status = child.wait()?;
+    assert!(
+        ready,
+        "child did not reach both download checkpoints: {status}"
+    );
+    assert!(!status.success());
+    assert!(!f.b.root.join("complete.md").exists());
+    assert!(!f.b.root.join("interrupted.md").exists());
+    let state = baseline_path(&f.b, "crash");
+    assert!(!state.exists());
+    let cache = state.with_extension("downloads");
+    assert_eq!(fs::read(cache.join(hash(COMPLETE)))?, COMPLETE);
+    assert!(!cache.join(hash(INCOMPLETE)).exists());
+    assert!(fs::read_dir(&cache)?.any(|entry| {
+        entry
+            .unwrap()
+            .path()
+            .extension()
+            .is_some_and(|e| e == "partial")
+    }));
+    let reopened = Vault::open(f.b.root.clone(), f.root.join("recovery"))?;
+    let remote = RemoteProcess {
+        root: f.root.clone(),
+        child: false,
+        downloads: AtomicUsize::new(0),
+    };
+    assert_eq!(synchronize(&reopened, &remote, "crash")?.downloaded, 2);
+    assert_eq!(remote.downloads.load(Ordering::Relaxed), 1);
+    assert_eq!(fs::read(f.b.root.join("complete.md"))?, COMPLETE);
+    assert_eq!(fs::read(f.b.root.join("interrupted.md"))?, INCOMPLETE);
+    assert!(state.exists());
+    Ok(())
+}
