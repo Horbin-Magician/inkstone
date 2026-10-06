@@ -576,7 +576,7 @@ impl Workspace {
                             ),
                         )
                         .child(
-                            div().flex_shrink_0().child(super::settings_ui::setting_switch("webdav-auto")
+                            div().id("webdav-auto-control").debug_selector(|| "webdav-auto-control".into()).flex_shrink_0().child(super::settings_ui::setting_switch("webdav-auto")
                                 .accessibility_label("自动同步")
                                 .checked(self.ui.prefs.webdav.auto)
                                 .disabled(disabled)
@@ -619,7 +619,7 @@ impl Workspace {
                         }))
                 ))
                 .child("双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
-                .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB，一次下载上限 512 MiB。")
+                .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB；传输使用本地临时空间，中断后可复用已校验的下载。")
                 .child(Button::new("webdav-poll-interval")
                     .label(format!("远端检查间隔：{} 分钟（点击切换）", self.ui.prefs.webdav.poll_minutes.clamp(1, 1440)))
                     .disabled(disabled)
