@@ -660,3 +660,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 重建 release 后原生复验同一路径，文件菜单不再禁用，点击原生“新建标签页”确实新增标签；退出测试实例。构建日志：`target/native-onboarding-build.log`、`target/blank-recovery-focus-release.log`。示例的新建流程说明同步改为默认生成“未命名.md”，之后可重命名。
 - 测试操作边界：原生保存面板把完整路径输入规范化为带冒号的文件夹名称，首次夹具实际创建在用户主目录；退出后只将该新建测试目录移动到上述 target 夹具。自动化工具在已退出实例上读取状态会重新启动应用，曾加载非隔离最近库；发现后立即停止该实例，未对其执行编辑或保存操作，复验前重新确认仅有测试笔记。后续应避免退出后调用会隐式启动的 UI 观察接口。
 - 尚未验证：自定义键原生录入/菜单快捷键列显示、最小窗口/不同 DPI、Tab 焦点顺序、完整纯键盘路径及 IME。本轮不代表第 8 项全部完成。
+
+## macOS 原生快捷键录入与控件名称（2026-10-06）
+
+- 沿用隔离 release 实例和 `target/native-onboarding-njtg2dd3` 测试库。在快捷键设置筛选“新建标签页”，清空后录入 Ctrl+Alt+T：工具栏名称立即更新；退出设置后旧 Cmd+T 不创建标签，新键新增一个标签。恢复默认后自定义键失效、Cmd+T 再次新增标签。清空绑定后提示不再显示快捷键、Cmd+T 不触发；重启后清空状态仍保留。最终通过 UI 恢复默认并退出。
+- 原生 AX 检查发现每行“添加/清除/默认”按钮缺少所属命令信息，已补上命令名称。重建 release 后实际 AX 树显示“为新建标签页添加快捷键”“清除新建标签页的快捷键”“恢复新建标签页的默认快捷键”；其他命令行同样具名。
+- 快捷键相关 15 项通过，全工作区 all-targets Clippy、格式/diff 检查通过；日志：`target/hotkey-accessibility-tests.log`、`target/hotkey-accessibility-clippy.log`、`target/hotkey-accessibility-fmt.log`、`target/hotkey-accessibility-release.log`。未改动真实用户笔记。
+- 菜单打开时当前截图接口不可用，AX 文本未给出快捷键列，故本轮证明实际按键、持久化与工具栏提示，不宣称已肉眼验收原生菜单快捷键列。Tab 顺序和读屏完整路径也仍待验证。
