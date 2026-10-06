@@ -1252,3 +1252,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 大文档原生空闲调用栈出现 String/Heading 克隆；代码检查发现 right_panel 为每个大纲行复制含全部标题的 fold_key，形成每次重绘 O(n²) 标题复制。改为 Rc 共享本次渲染的不可变路径/标题快照，行回调与折叠状态仅复制引用；快照值比较、文档/标题变更后的折叠重置、每次点击的状态修改保持原有语义。
 - 两项 outline 定向回归、workspace all-targets Clippy -D warnings、格式与 diff 检查通过，日志 target/backup-cleanup-audit/outline-share-tests.log、outline-share-clippy.log。本次只移除平方级快照复制，没有将大纲列表虚拟化，也未证明持续重绘的唯一来源。
 - 原生三轮 CPU 对照尚待下一步执行，仍按大文档 22.96% 基线保留预算未通过状态，不以结构性优化替代性能实测。无用户笔记进入提交。
+
+## 大纲可见行布局（2026-10-06）
+
+- 共享快照后仍有 13.29% 原生空闲 CPU，调用栈出现大量布局计算；大纲原先为全部标题创建普通行。现用有界 uniform_list 仅布局可见标题，保留完整标题数据、层级缩进、折叠、筛选与原始源码 offset；筛选工具栏位于列表外，其他侧栏分类维持原布局。
+- 新 GUI 回归用 501 个标题、1200×820 窗口确认首屏不布局第 100/500 行，滚到末尾后最后一行可见且前部行退出布局；实际点击最后一行和筛选后的唯一行，均断言编辑器选区准确落在该标题的原始源码 offset。长列表过滤为一行、折叠根标题后滚动范围有效，正文保持不变。
+- 三项 outline 回归、workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/outline-virtual-final-tests.log、outline-virtual-clippy.log。原生滚动/折叠及三轮 CPU 对照待复验，不能据此声称 2% 预算已通过；无用户笔记进入提交。
