@@ -773,6 +773,44 @@ mod tests {
     }
 
     #[gpui::test]
+    fn recovery_dialog_traps_tabs_with_application_root(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut workspace = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Workspace::new(window, cx));
+            workspace = Some(view.clone());
+            gpui_component::Root::new(view, window, cx)
+        });
+        let workspace = workspace.unwrap();
+        visual.update(|window, cx| {
+            workspace.update(cx, |w, cx| w.show_recovery_hub(window, cx));
+        });
+        visual.run_until_parked();
+        for key in ["shift-tab", "tab"] {
+            for step in 0..12 {
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+                let keystroke = Keystroke::parse(key).unwrap();
+                visual.simulate_event(KeyDownEvent {
+                    keystroke: keystroke.clone(),
+                    is_held: false,
+                    prefer_character_input: false,
+                });
+                visual.simulate_event(KeyUpEvent { keystroke });
+                visual.update(|window, cx| {
+                    assert!(
+                        workspace
+                            .read(cx)
+                            .ui
+                            .modal_focus
+                            .contains_focused(window, cx),
+                        "application root escaped dialog on {key} {step}"
+                    );
+                });
+            }
+        }
+    }
+
+    #[gpui::test]
     fn history_mouse_selection_keeps_reverse_tab_inside_dialog(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let stamp = std::time::SystemTime::now()

@@ -3,6 +3,7 @@ use super::focus_reveal::FocusReveal;
 use super::ui::{NameMode, icon, tool};
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
+use gpui_base::FocusTrapElement;
 use gpui_component::date_picker::DatePicker;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::{Disableable, button::*};
@@ -95,7 +96,8 @@ impl Workspace {
                                     ),
                                 ),
                         )
-                        .child(self.link_update_panel(cx)),
+                        .child(self.link_update_panel(cx))
+                        .focus_trap("link-update-focus-trap", &self.ui.modal_focus),
                 )
                 .into_any_element();
         }
@@ -539,7 +541,7 @@ impl Workspace {
             .items_start()
             .justify_center()
             .pt(top)
-            .child(content)
+            .child(content.focus_trap("workspace-modal-focus-trap", &self.ui.modal_focus))
             .into_any_element()
     }
     fn picker_search(&self, command: bool, cx: &mut Context<Self>) -> AnyElement {
