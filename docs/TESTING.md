@@ -884,3 +884,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 LF/CRLF/CR、多行代码/链接、硬换行、Unicode 与文末/后续嵌套块的完整 AST 和样式对照，既要求实际接纳局部更新，也验证结构变化拒绝。新增编辑器回归覆盖换行插入后实时语法、标题/任务坐标，以及撤销后原文与坐标一致。
 - 核心 255 项通过、3 项既有手动基准/夹具入口忽略；编辑器 113 项通过、2 项手动帧基准忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/paragraph-newline-core-tests.log`、`target/paragraph-newline-editor-tests.log`、`target/paragraph-newline-clippy.log`、`target/paragraph-newline-fmt.log`。
 - release 基准支持可选插入前缀，三轮同输入对照已执行；大文档换行插入解析 p95 中位数完整 115.973 ms、局部 2.955 ms。测量条件及原始路径见 `PERFORMANCE_BASELINE.md`。结果支持保留此路径，但不替代原生 IME、输入/滚动帧、选区和模式矩阵验收。未修改真实用户笔记。
+
+
+## 展示更新：保留未改动的无依赖片段（2026-10-06）
+
+- 将编辑前后的展示保留从公式扩展到经过验证的无依赖片段。新旧片段原文必须相同，语法候选范围/块类型/角色一致，映射文档只涉及当前笔记且所有映射在原范围内；引用、任务、脚注编号/目标及含方括号的潜在未解析引用均不走此路径。保留 TextView、尺寸和渲染正文，平移来源映射并更新对应的全文版本。
+- 新增真实表格 GPUI 回归：完成首次布局后在表格前连续插入 Unicode/换行，刻意不等待后台任务，断言展示对象始终存在、源范围正确移动、尺寸与视图实体不变，逐字符来源到输出映射一致；随后改动表格，旧展示立即失效。独立回归验证外部新增引用定义及插入代码围栏不能复用过期表格。核心映射回归覆盖旧版本不匹配、改动字节、越界映射、外部来源、引用/任务依赖及未解析引用拒绝。
+- 展示对象相关 9 项回归通过，核心 256 项通过（3 项既有手动基准/夹具入口忽略），编辑器 115 项通过（2 项手动帧基准忽略）；最终 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/local-projection-tests.log`、`target/local-projection-core-tests.log`、`target/local-projection-editor-tests.log`、`target/local-projection-clippy.log`、`target/local-projection-fmt.log`。
+- 本轮验证后台结果到达前的展示对象与几何连续性，不宣称原生帧延迟或闪烁矩阵已通过。复杂引用、任务、脚注及其他跨片段依赖仍等待重建，完整后台阅读文档计算未改变；未修改真实用户笔记。

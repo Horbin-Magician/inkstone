@@ -145,10 +145,10 @@ impl EditorPane {
             .collect();
     }
 
-    // Keep source-independent graphics visible while the full reading document
+    // Keep dependency-free objects visible while the full reading document
     // is rebuilt. Revalidate syntax as well as bytes: edits outside a formula
     // can turn it into code or otherwise change its Markdown context.
-    pub(super) fn retain_live_graphics(&mut self, snapshot: &inkstone_core::syntax::Snapshot) {
+    pub(super) fn retain_live_objects(&mut self, snapshot: &inkstone_core::syntax::Snapshot) {
         let old = self.parse_source.as_ref();
         let new = snapshot.source.as_ref();
         let prefix = old
@@ -165,11 +165,16 @@ impl EditorPane {
         let candidates = inkstone_core::preview::candidates(snapshot);
         let current_source = SharedString::from(new.to_owned());
         for widget in &mut self.live_objects {
-            if widget
+            let current_graphic = widget
                 .graphic_source
                 .as_ref()
-                .is_none_or(|s| s.as_ref() != old)
-            {
+                .is_some_and(|s| s.as_ref() == old);
+            let local_document = widget.formula.is_none()
+                && widget.role == Role::Content
+                && widget.numbers.is_empty()
+                && widget.targets.is_empty()
+                && widget.document.source_matches(&self.current_path, old);
+            if !current_graphic && !local_document {
                 continue;
             }
             let range = if widget.source.end <= prefix {
@@ -187,8 +192,19 @@ impl EditorPane {
                     .iter()
                     .any(|c| c.source == *range && c.block == widget.block && c.role == widget.role)
             }) {
-                widget.source = range;
-                widget.graphic_source = Some(current_source.clone());
+                if current_graphic {
+                    widget.source = range;
+                    widget.graphic_source = Some(current_source.clone());
+                } else if let Some(document) = widget.document.rebase_local_fragment(
+                    &self.current_path,
+                    old,
+                    snapshot.source.clone(),
+                    widget.source.clone(),
+                    range.clone(),
+                ) {
+                    widget.source = range;
+                    widget.document = Arc::new(document);
+                }
             } else {
                 widget.graphic_source = None;
             }
@@ -925,6 +941,113 @@ mod tests {
                 .unwrap();
         }
     }
+    #[gpui::test]
+    fn unchanged_table_keeps_projection_geometry_and_mapping_before_background_parse(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let source = "top\n\n| A | B |\n| --- | --- |\n| 中文 | **bold** |\n\ntail";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..10 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, window, cx| {
+                assert_eq!(pane.editor.read(cx).display_objects().len(), 1);
+                let original = pane.live_objects[0].clone();
+                for inserted in ["中文😀\n", "more "] {
+                    pane.editor.update(cx, |state, cx| {
+                        state.set_selected_range(0..0, cx);
+                        state.replace_text_in_range(None, inserted, window, cx);
+                    });
+                    pane.update_presentation(cx);
+                    let current = pane.editor.read(cx).value();
+                    let shift = current.len() - source.len();
+                    let objects = pane.editor.read(cx).display_objects();
+                    assert_eq!(
+                        objects.len(),
+                        1,
+                        "unchanged table must not disappear while parsing"
+                    );
+                    assert_eq!(
+                        objects[0].source,
+                        original.source.start + shift..original.source.end + shift
+                    );
+                    assert_eq!(
+                        objects[0].size,
+                        size(px(original.width), px(original.height))
+                    );
+                    let retained = &pane.live_objects[0];
+                    assert_eq!(retained.view, original.view);
+                    assert!(
+                        retained
+                            .document
+                            .source_matches(&pane.current_path, &current)
+                    );
+                    for (offset, _) in source[original.source.clone()].char_indices() {
+                        assert_eq!(
+                            retained
+                                .document
+                                .output_offset(&pane.current_path, retained.source.start + offset),
+                            original
+                                .document
+                                .output_offset(&pane.current_path, original.source.start + offset)
+                        );
+                    }
+                }
+                let table = pane.live_objects[0].source.clone();
+                pane.editor.update(cx, |state, cx| {
+                    let at = table.start + 2;
+                    state.set_selected_range(at..at, cx);
+                    state.replace_text_in_range(None, "changed", window, cx);
+                    state.set_selected_range(0..0, cx);
+                });
+                pane.update_presentation(cx);
+                assert!(
+                    pane.editor.read(cx).display_objects().is_empty(),
+                    "changed table cannot reuse stale content"
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn table_reference_dependencies_and_syntax_changes_do_not_reuse_stale_projection(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        for (source, inserted) in [
+            (
+                "top\n\n| A | B |\n| --- | --- |\n| [ref] | text |\n\ntail",
+                "[ref]: other.md\n\n",
+            ),
+            (
+                "top\n\n| A | B |\n| --- | --- |\n| plain | text |\n\ntail",
+                "```\n",
+            ),
+        ] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            cx.run_until_parked();
+            handle
+                .update(cx, |pane, window, cx| {
+                    assert_eq!(
+                        pane.active_live_objects(source, std::slice::from_ref(&(0..0)), &[])
+                            .len(),
+                        1
+                    );
+                    pane.editor.update(cx, |state, cx| {
+                        state.set_selected_range(0..0, cx);
+                        state.replace_text_in_range(None, inserted, window, cx);
+                    });
+                    pane.update_presentation(cx);
+                    assert!(pane.editor.read(cx).display_objects().is_empty());
+                })
+                .unwrap();
+        }
+    }
+
     #[gpui::test]
     fn unchanged_math_stays_rendered_before_background_parse(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

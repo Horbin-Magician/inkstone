@@ -187,6 +187,43 @@ impl ReadingDocument {
     pub fn source_matches(&self, path: &Path, text: &str) -> bool {
         self.sources.get(path).is_some_and(|s| s.as_ref() == text)
     }
+    /// Retain a dependency-free fragment after an edit outside its source range.
+    /// The caller must separately revalidate that it is still the same syntax kind.
+    pub fn rebase_local_fragment(
+        &self,
+        path: &Path,
+        old: &str,
+        new: Arc<str>,
+        before: Range<usize>,
+        after: Range<usize>,
+    ) -> Option<Self> {
+        let raw = old.get(before.clone())?;
+        // Unresolved references/footnotes can become active after an edit elsewhere.
+        // They may not appear in the old rendered dependency metadata yet.
+        if raw.contains(['[', ']'])
+            || self.sources.len() != 1
+            || !self.source_matches(path, old)
+            || !self.references.is_empty()
+            || !self.tasks.is_empty()
+            || before.is_empty()
+            || raw != new.get(after.clone())?
+            || self.locations.is_empty()
+            || self
+                .locations
+                .iter()
+                .any(|m| m.path != path || m.start < before.start || m.source_end > before.end)
+        {
+            return None;
+        }
+        let mut retained = self.clone();
+        for map in &mut retained.locations {
+            map.start = after.start.checked_add(map.start - before.start)?;
+            map.source_end = after.start.checked_add(map.source_end - before.start)?;
+        }
+        retained.sources.insert(path.to_owned(), new);
+        Some(retained)
+    }
+
     pub fn output_offset(&self, path: &Path, source: usize) -> Option<usize> {
         if let Some(m) = self
             .locations
@@ -780,6 +817,76 @@ pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Opti
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_fragment_rebase_rejects_dependencies_and_invalid_provenance() {
+        use super::{ReadingDocument, Reference, TaskTarget};
+        use std::{
+            path::{Path, PathBuf},
+            sync::Arc,
+        };
+        let path = Path::new("note.md");
+        let old: Arc<str> = "top\n\nliteral fragment\n\ntail".into();
+        let before = 5..21;
+        let doc = ReadingDocument::graphic_fragment(path, old.clone(), before.clone());
+        let new: Arc<str> = format!("中文\n{old}").into();
+        let shift = new.len() - old.len();
+        let after = before.start + shift..before.end + shift;
+        let rebase = |document: &ReadingDocument| {
+            document.rebase_local_fragment(path, &old, new.clone(), before.clone(), after.clone())
+        };
+        let retained = rebase(&doc).unwrap();
+        assert_eq!(retained.markdown, doc.markdown);
+        assert!(retained.source_matches(path, &new));
+        assert_eq!(
+            retained.output_offset(path, after.start + 3),
+            doc.output_offset(path, before.start + 3)
+        );
+        assert!(doc.source_matches(path, &old));
+        let mut dependent = doc.clone();
+        dependent.references.push(Reference {
+            from: path.into(),
+            target: "other.md".into(),
+            wiki: false,
+        });
+        assert!(rebase(&dependent).is_none());
+        let mut dependent = doc.clone();
+        dependent.tasks.push(TaskTarget {
+            rendered_start: 0,
+            path: path.into(),
+            marker: before.clone(),
+            baseline: old.clone(),
+        });
+        assert!(rebase(&dependent).is_none());
+        let mut foreign = doc.clone();
+        foreign
+            .sources
+            .insert(PathBuf::from("other.md"), "foreign".into());
+        assert!(rebase(&foreign).is_none());
+        let mut outside = doc.clone();
+        outside.locations[0].start = before.start - 1;
+        assert!(rebase(&outside).is_none());
+        assert!(
+            doc.rebase_local_fragment(path, "stale", new.clone(), before.clone(), after.clone())
+                .is_none()
+        );
+        assert!(
+            doc.rebase_local_fragment(path, &old, "changed".into(), before, after)
+                .is_none()
+        );
+        let unresolved: Arc<str> = "[unknown]".into();
+        let doc = ReadingDocument::graphic_fragment(path, unresolved.clone(), 0..unresolved.len());
+        assert!(
+            doc.rebase_local_fragment(
+                path,
+                &unresolved,
+                format!("{unresolved}\n\n[unknown]: target.md").into(),
+                0..unresolved.len(),
+                0..unresolved.len()
+            )
+            .is_none()
+        );
+    }
+
     #[test]
     fn reference_links_keep_formatted_labels_when_definitions_are_outside_the_section() {
         let source = "# 显示\r\n\r\n[**粗体** ==高亮==][DEST]、[简写][]、[快捷]\r\n\r\n# 定义\r\n\r\n[dest]: ../target.md#标题 \"链接标题\"\r\n[简写]: short.md\r\n[快捷]: quick.md\r\n";
