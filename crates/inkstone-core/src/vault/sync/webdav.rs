@@ -190,6 +190,17 @@ impl Remote for WebDav {
         self.put_object(digest, Body::sized(file, bytes))
     }
     fn publish(&self, manifest: &Manifest, revision: Option<&str>) -> Result<()> {
+        self.publish_conditionally(manifest, revision, None)
+    }
+}
+
+impl WebDav {
+    fn publish_conditionally(
+        &self,
+        manifest: &Manifest,
+        revision: Option<&str>,
+        lock_condition: Option<header::HeaderValue>,
+    ) -> Result<()> {
         validate_manifest(manifest)?;
         let bytes = serde_json::to_vec(manifest)?;
         ensure!(
@@ -204,7 +215,21 @@ impl Remote for WebDav {
             Some(etag) => request.header(header::IF_MATCH, etag),
             None => request.header(header::IF_NONE_MATCH, "*"),
         };
-        Self::status(self.send(request)?)?;
+        let request = if let Some(condition) = lock_condition {
+            request
+                .header("If", condition)
+                .header(header::CACHE_CONTROL, "no-cache")
+        } else {
+            request
+        };
+        let response = Self::status(self.send(request)?)?;
+        ensure!(
+            matches!(
+                response.status(),
+                StatusCode::OK | StatusCode::CREATED | StatusCode::NO_CONTENT
+            ),
+            "服务器未确认清单发布"
+        );
         Ok(())
     }
 }

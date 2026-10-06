@@ -106,6 +106,44 @@ impl MaintenanceLock<'_> {
         Ok(())
     }
 
+    /// Irreversibly upgrade to version 2 and advance its maintenance generation.
+    /// Call only after the user has elected maintenance requiring all devices to
+    /// support version 2. Ordinary sync never invokes this operation.
+    ///
+    /// A successful conditional publication invalidates pre-maintenance writers.
+    /// Read-back must match exactly and expose a different strong ETag. Any failure
+    /// invalidates this guard; publication may have succeeded and must not be rolled
+    /// back. Reacquire and inspect the manifest before retrying maintenance.
+    pub fn advance_manifest(&mut self) -> Result<(Manifest, String)> {
+        let result = (|| {
+            let condition = self.condition()?;
+            let (before, revision) = self.remote.manifest()?;
+            let generation = before
+                .generation
+                .unwrap_or(0)
+                .checked_add(1)
+                .context("云端维护代次已耗尽，无法继续维护")?;
+            let next = Manifest {
+                version: 2,
+                generation: Some(generation),
+                ..before
+            };
+            self.remote
+                .publish_conditionally(&next, revision.as_deref(), Some(condition))?;
+            let (confirmed, current_revision) = self.remote.manifest()?;
+            let current_revision = current_revision.context("维护后云端清单缺失")?;
+            ensure!(
+                confirmed == next && revision.as_deref() != Some(current_revision.as_str()),
+                "云端维护清单未确认或 ETag 未变化，已停止维护"
+            );
+            Ok((confirmed, current_revision))
+        })();
+        if result.is_err() {
+            self.valid = false;
+        }
+        result
+    }
+
     /// Explicit release reports errors. Do this before reporting maintenance success.
     pub fn release(mut self) -> Result<()> {
         self.unlock()

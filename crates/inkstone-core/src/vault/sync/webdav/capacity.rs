@@ -41,7 +41,7 @@ impl WebDav {
         };
         let (after, current_revision) = self.manifest()?;
         ensure!(
-            revision == current_revision && before.files == after.files,
+            revision == current_revision && before == after,
             "统计期间云端清单发生变化，请重新刷新容量"
         );
         Ok(report)
@@ -195,6 +195,7 @@ mod tests {
                 ("same.md".into(), "a".repeat(64)),
                 ("missing.md".into(), "c".repeat(64)),
             ]),
+            ..Manifest::default()
         }
     }
     #[test]
