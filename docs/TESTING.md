@@ -1115,3 +1115,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - Enter 打开第 11 条历史：实际界面提示原路径没有可读取的当前正文，比较按钮禁用，Unicode 历史正文正确显示。Tab 经只读预览到恢复按钮、Enter 创建独立副本。磁盘核对副本文字与所选记录完全相同，原路径仍不存在；全部 16 个原始样本与 12 份原始历史记录的 SHA-256 未变。未刻意制造其他未保存笔记，相关保护本轮仍依赖上一提交自动回归，不写为原生验证。
 - 本轮截图尺寸为 2940×1846，拖动和缩放操作未确认得到 800×500 逻辑窗口，因此最小窗口验收仍未完成；未验证反向翻页。早期一次未先确认命令面板的批量按键创建了夹具内空白“未命名”笔记，其记录作为额外目录项保留；不修改原始证据，也不计入预置的 12 条。后续通过逐步核对状态完成验收。
 - 证据 `target/native-history-catalog-ze4f6tnc/case/preparation.json`、`history-fixture.json`、`native-acceptance.json` 及生成的副本；构建日志 `target/history-catalog-native-build.log`。Cmd+Q 后 PID 已消失。仅提交验收记录，diff 检查通过；用户笔记和测试夹具不进入提交。
+
+
+## 整库历史最小窗口双向键盘回归（2026-10-06）
+
+- 新增 800×500 逻辑窗口、16/24 rem 两档自动 GUI 回归，使用 12 个包含长英文段、中文目录和 emoji 的历史路径。按 Tab/Shift+Tab 访问实际控件，通过 Enter 执行 0→1→2→1→0 页码往返；仅每档初始页设为 0，后续翻页不直接设置页码。
+- 每页逐项验证可聚焦记录集合恰为该页记录、其他页没有渲染行；每次焦点揭示的控件上下左右边界均在恢复列表滚动视口内。翻页后焦点留在分页区域；全过程没有打开历史正文、创建笔记或启动文件写入。
+- 新增定向 GUI 回归通过，workspace all-targets Clippy -D warnings、格式和 diff 检查通过。日志 `target/history-catalog-minimum.log`、`target/history-catalog-minimum-clippy.log`。仅增加调试布局选择器与回归，不更改分页业务行为；不重跑无关全量测试。
+- 该结果补齐自动最小窗口/字号压力/反向导航证据，不等同于真实 DPI、VoiceOver 或 macOS 原生最小窗口验收；这些未验证项仍保留。无用户笔记进入提交。
