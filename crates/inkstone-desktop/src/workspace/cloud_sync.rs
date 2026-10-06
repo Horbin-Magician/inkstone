@@ -1,3 +1,4 @@
+mod capacity;
 mod run;
 use run::Run;
 mod schedule;
@@ -63,6 +64,7 @@ pub(super) struct State {
     progress: Option<Progress>,
     remote_check: super::remote_check::RemoteCheck,
     watch: watch::Watch,
+    capacity: capacity::State,
 }
 impl State {
     fn scheduling_label(&self) -> &'static str {
@@ -94,7 +96,7 @@ impl State {
     }
 
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
-        Self {
+        let state = Self {
             url: cx.new(|cx| InputState::new(window, cx).placeholder("https://服务器/dav/笔记库/")),
             username: cx.new(|cx| InputState::new(window, cx).placeholder("用户名")),
             password: cx.new(|cx| {
@@ -110,7 +112,18 @@ impl State {
             progress: None,
             remote_check: Default::default(),
             watch: Default::default(),
+            capacity: Default::default(),
+        };
+        for input in [&state.url, &state.username, &state.password] {
+            cx.subscribe(input, |this, _, event, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.ui.cloud_sync.capacity.invalidate();
+                    cx.notify();
+                }
+            })
+            .detach();
         }
+        state
     }
 }
 impl Workspace {
@@ -160,6 +173,7 @@ impl Workspace {
         let state = &mut self.ui.cloud_sync;
         state.remote_check = Default::default();
         state.watch.reset();
+        state.capacity = Default::default();
         state.schedule = Schedule::default();
         state.run = None;
         state.message.clear();
@@ -641,6 +655,7 @@ impl Workspace {
                 })
                 .child(state.scheduling_label())
                 .child(self.sync_success_label())
+                .child(self.cloud_capacity_panel(cx))
                 .when(!state.message.is_empty(), |s| s.child(state.message.clone()))
         ).into_any_element()
     }
@@ -2064,6 +2079,8 @@ mod tests {
             ("tab", "webdav-actions"),
             ("tab", "webdav-actions"),
             ("tab", "webdav-poll-control"),
+            ("tab", "cloud-capacity-control"),
+            ("shift-tab", "webdav-poll-control"),
             ("shift-tab", "webdav-actions"),
             ("shift-tab", "webdav-actions"),
             ("shift-tab", "webdav-actions"),
