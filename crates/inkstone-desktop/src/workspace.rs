@@ -58,7 +58,7 @@ use gpui_component::{
     tree::{TreeItem, TreeState},
 };
 use inkstone_core::index::{Index, Resolution, SearchHit};
-use inkstone_core::vault::{RecoveryEntry, Vault, VaultError};
+use inkstone_core::vault::{RecoveryEntry, RecoverySummary, Vault, VaultError};
 use notify::{RecursiveMode, Watcher};
 use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
@@ -127,7 +127,7 @@ pub struct Workspace {
     watch_events: Option<std::sync::mpsc::Receiver<notify::Result<notify::Event>>>,
     refresh_requested: bool,
     refreshing: bool,
-    recoveries: Vec<RecoveryEntry>,
+    recoveries: Vec<RecoverySummary>,
     index: Arc<Index>,
     link_paths: std::collections::HashMap<PathBuf, Arc<Vec<crate::editor_links::CompletionPath>>>,
     link_paths_key: Option<(Arc<Index>, inkstone_core::locations::LinkFormat, bool)>,

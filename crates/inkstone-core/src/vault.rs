@@ -94,6 +94,15 @@ pub struct SaveReceipt {
     pub recovery: PathBuf,
 }
 
+/// Lightweight recovery list entry. Read and validate its body only when selected.
+#[derive(Clone, Debug)]
+pub struct RecoverySummary {
+    pub journal: PathBuf,
+    pub relative: PathBuf,
+    pub modified: SystemTime,
+    pub bytes: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct RecoveryEntry {
     pub journal: PathBuf,

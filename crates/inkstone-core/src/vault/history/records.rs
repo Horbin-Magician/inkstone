@@ -3,7 +3,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(super) struct Scope {
+pub(in crate::vault) struct Scope {
     pub root: PathBuf,
     pub relative: PathBuf,
 }
@@ -36,7 +36,7 @@ fn cache_path(vault: &Vault, identity: &Path) -> Option<PathBuf> {
     let key = serde_json::to_vec(identity).ok()?;
     Some(directory.join(format!("{:x}.json", Sha256::digest(key))))
 }
-pub(super) fn scope(vault: &Vault, path: &Path, meta: &fs::Metadata) -> Option<Scope> {
+pub(in crate::vault) fn scope(vault: &Vault, path: &Path, meta: &fs::Metadata) -> Option<Scope> {
     scope_with(vault, path, meta, || {
         // Validate the complete legacy record, but retain only its ownership.
         // The JSON decoder reuses scratch space instead of keeping both bodies.

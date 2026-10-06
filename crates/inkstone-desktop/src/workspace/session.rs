@@ -210,7 +210,7 @@ impl Workspace {
             let (index, folders) = Index::load_cached(&vault, &cache_path)?;
             inkstone_core::startup_trace::mark("index_ready");
             let files = index.note_paths();
-            let recoveries = vault.recoveries()?;
+            let recoveries = vault.recovery_summaries()?;
             let _ = std::fs::write(
                 app_dir().join("recent.txt"),
                 vault.root.to_string_lossy().as_bytes(),

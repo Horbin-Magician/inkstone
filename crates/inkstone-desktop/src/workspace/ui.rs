@@ -1066,7 +1066,7 @@ impl Workspace {
         self.refresh_trash_metadata(cx);
         let task = cx
             .background_executor()
-            .spawn(async move { (vault.trash_entries(), vault.recoveries()) });
+            .spawn(async move { (vault.trash_entries(), vault.recovery_summaries()) });
         cx.spawn(async move |this, cx| {
             let (trash, recoveries) = task.await;
             let _ = this.update(cx, |this, cx| {

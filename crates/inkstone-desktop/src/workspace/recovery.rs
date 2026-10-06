@@ -24,6 +24,7 @@ pub(super) struct Browser {
     message: String,
     preview: Entity<TextareaState>,
     draft_entry: Option<RecoveryEntry>,
+    draft_review: bool,
     confirm_discard: bool,
 }
 
@@ -98,10 +99,7 @@ impl Workspace {
     }
 
     pub(super) fn reviewing_draft(&self) -> bool {
-        self.ui
-            .history
-            .as_ref()
-            .is_some_and(|b| b.draft_entry.is_some())
+        self.ui.history.as_ref().is_some_and(|b| b.draft_review)
     }
     pub(super) fn review_draft(
         &mut self,
@@ -125,7 +123,7 @@ impl Workspace {
             page: 0,
             scroll: ScrollHandle::new(),
             pager_focus: cx.focus_handle(),
-            path: entry.record.relative.clone(),
+            path: entry.relative.clone(),
             current: "".into(),
             entries: vec![],
             selected: None,
@@ -135,7 +133,8 @@ impl Workspace {
             loading: true,
             message: String::new(),
             preview,
-            draft_entry: Some(entry.clone()),
+            draft_entry: None,
+            draft_review: true,
             confirm_discard: false,
         });
         self.ui.trash_open = true;
@@ -143,7 +142,7 @@ impl Workspace {
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
         let task = cx.background_executor().spawn(async move {
-            vault.validate_draft(&entry)?;
+            let entry = vault.read_draft(&entry)?;
             let current = vault.read(&entry.record.relative)?;
             let metadata = std::fs::metadata(&entry.journal)?;
             Ok::<_, VaultError>((entry, current, metadata))
@@ -166,6 +165,7 @@ impl Workspace {
                             String::new()
                         };
                         browser.current = current.unwrap_or_default().into();
+                        browser.draft_entry = Some(entry.clone());
                         browser.entries = vec![HistoryEntry {
                             journal: entry.journal,
                             modified: metadata.modified().unwrap_or(std::time::UNIX_EPOCH),
@@ -326,6 +326,7 @@ impl Workspace {
             message: String::new(),
             preview,
             draft_entry: None,
+            draft_review: false,
             confirm_discard: false,
         });
         self.ui.trash_open = true;
@@ -429,7 +430,7 @@ impl Workspace {
         .clone();
         let current = browser.current.clone();
         let difference = browser.difference;
-        let draft_review = browser.draft_entry.is_some();
+        let draft_review = browser.draft_review;
         browser.loading = true;
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
@@ -490,12 +491,7 @@ impl Workspace {
     }
 
     fn restore_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .ui
-            .history
-            .as_ref()
-            .is_some_and(|b| b.draft_entry.is_some())
-        {
+        if self.ui.history.as_ref().is_some_and(|b| b.draft_review) {
             self.finish_draft_review(false, window, cx);
             return;
         }
@@ -544,7 +540,7 @@ impl Workspace {
                         .child(format!("记录原路径：{}", record.relative.display())),
                 )
             })
-            .child(div().text_sm().child(if browser.draft_entry.is_some() {
+            .child(div().text_sm().child(if browser.draft_review {
                 format!(
                     "未保存恢复记录 · {:.1} KiB · 恢复或放弃前保留",
                     bytes as f64 / 1024.
@@ -636,7 +632,7 @@ impl Workspace {
                                 this.update_history_preview(w, cx);
                             }))),)
                     .child(FocusReveal::new("history-diff-focus", &browser.scroll, Button::new("history-diff")
-                            .label(if browser.draft_entry.is_some() {
+                            .label(if browser.draft_review {
                                 "与磁盘正文比较"
                             } else {
                                 "与当前正文比较"
@@ -652,21 +648,21 @@ impl Workspace {
                             }))),),
             )
             .child(Textarea::new(&browser.preview).readonly(true).h(px(240.)))
-            .child(div().text_sm().child(if browser.draft_entry.is_some() {
+            .child(div().text_sm().child(if browser.draft_review {
                 "差异以打开比较时的磁盘正文为准；恢复草稿会新建副本，成功后清理所选草稿。"
             } else {
                 "差异以打开历史时的正文为准；恢复会新建笔记并保留原文件。"
             }))
             .child(FocusReveal::new("history-restore-focus", &browser.scroll, Button::new("history-restore")
                     .primary()
-                    .label(if browser.draft_entry.is_some() {
+                    .label(if browser.draft_review {
                         "恢复草稿为副本"
                     } else {
                         "恢复所选内容为新笔记"
                     })
                     .disabled(browser.record.is_none() || browser.loading)
                     .on_click(cx.listener(|this, _, w, cx| this.restore_history(w, cx)))),)
-            .when(browser.draft_entry.is_some(), |s| {
+            .when(browser.draft_review, |s| {
                 s.child(FocusReveal::new("draft-discard-focus", &browser.scroll, Button::new("draft-discard")
                         .label(if browser.confirm_discard {
                             "确认放弃这一条草稿"
@@ -1095,6 +1091,61 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
     #[gpui::test]
+    fn changed_draft_summary_cannot_enable_recovery(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-stale-draft-summary-{stamp}"));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        std::fs::write(vault.root.join("note.md"), "original").unwrap();
+        let journal = vault
+            .journal(
+                std::path::Path::new("note.md"),
+                Some("original"),
+                "listed draft",
+            )
+            .unwrap();
+        let summaries = vault.recovery_summaries().unwrap();
+        std::fs::write(&journal, "changed after listing").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.recoveries = summaries;
+                w.review_draft(0, window, cx);
+                assert!(w.reviewing_draft());
+                assert!(w.ui.history.as_ref().unwrap().draft_entry.is_none());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let browser = w.ui.history.as_ref().unwrap();
+                assert!(!browser.loading);
+                assert!(browser.record.is_none() && browser.draft_entry.is_none());
+                assert!(browser.message.contains("无法读取草稿"));
+                w.finish_draft_review(false, window, cx);
+                w.finish_draft_review(true, window, cx);
+                assert!(w.tabs.is_empty());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read_to_string(&journal).unwrap(),
+            "changed after listing"
+        );
+        assert_eq!(
+            std::fs::read_to_string(vault.root.join("note.md")).unwrap(),
+            "original"
+        );
+        assert_eq!(std::fs::read_dir(&vault.root).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn draft_review_compares_disk_and_discard_requires_confirmation(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let stamp = std::time::SystemTime::now()
@@ -1114,7 +1165,7 @@ mod tests {
         let handle = cx.add_window(Workspace::new);
         handle
             .update(cx, |w, window, cx| {
-                w.recoveries = vault.recoveries().unwrap();
+                w.recoveries = vault.recovery_summaries().unwrap();
                 w.vault = Some(vault.clone());
                 let index = w
                     .recoveries
