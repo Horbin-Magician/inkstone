@@ -2,13 +2,15 @@
 use super::focus_reveal::FocusReveal;
 use super::*;
 use gpui_component::{Disableable, button::*};
-use inkstone_core::vault::sync::recovery::{self, Inventory};
+use inkstone_core::vault::sync::recovery::{self, Inventory, retention};
 
 const RECORDS_PER_PAGE: usize = 5;
 
 #[derive(Default)]
 pub(super) struct State {
     generation: u64,
+    request: u64,
+    preview: Option<retention::Preview>,
     page: usize,
     pager_focus: std::cell::OnceCell<FocusHandle>,
     inventory: Inventory,
@@ -17,29 +19,52 @@ pub(super) struct State {
 }
 impl Workspace {
     pub(super) fn refresh_sync_recovery(&mut self, cx: &mut Context<Self>) {
+        self.load_sync_recovery(false, cx);
+    }
+    fn preview_sync_retention(&mut self, cx: &mut Context<Self>) {
+        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
+            return;
+        }
+        self.load_sync_recovery(true, cx);
+    }
+    fn load_sync_recovery(&mut self, preview: bool, cx: &mut Context<Self>) {
         let Some(vault) = self.vault.clone() else {
             return;
         };
+        let request = self.ui.sync_recovery.request.wrapping_add(1);
         self.ui.sync_recovery = State {
+            request,
             generation: self.generation,
             loading: true,
             ..Default::default()
         };
         let generation = self.generation;
-        let request = self.ui.recovery_refresh;
-        let task = cx
-            .background_executor()
-            .spawn(async move { recovery::inventory(&vault) });
+        let recovery_request = self.ui.recovery_refresh;
+        let task = cx.background_executor().spawn(async move {
+            let inventory = recovery::inventory(&vault)?;
+            let preview = if preview {
+                Some(retention::preview(&inventory, 1, &Default::default())?)
+            } else {
+                None
+            };
+            anyhow::Ok((inventory, preview))
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if this.generation != generation || this.ui.recovery_refresh != request {
+                if this.generation != generation
+                    || this.ui.recovery_refresh != recovery_request
+                    || this.ui.sync_recovery.request != request
+                {
                     return;
                 }
                 let state = &mut this.ui.sync_recovery;
                 state.loading = false;
                 match result {
-                    Ok(inventory) => state.inventory = inventory,
+                    Ok((inventory, preview)) => {
+                        state.inventory = inventory;
+                        state.preview = preview;
+                    }
                     Err(error) => state.message = format!("无法读取同步备份：{error}"),
                 }
                 cx.notify();
@@ -69,6 +94,7 @@ impl Workspace {
             .collect::<Vec<_>>();
         let generation = self.generation;
         let write_ticket = self.file_writes.begin();
+        self.ui.sync_recovery.preview = None;
         self.ui.sync_recovery.message = "正在恢复副本……".into();
         let task = cx
             .background_executor()
@@ -143,6 +169,20 @@ impl Workspace {
             })
             .when(!state.message.is_empty(), |s| {
                 s.child(state.message.clone())
+            })
+            .child(FocusReveal::new(
+                "sync-retention-preview-focus",
+                &self.ui.recovery_scroll,
+                Button::new("sync-retention-preview")
+                    .label("预览保留规则（每篇保留最新 1 份）")
+                    .disabled(state.loading || self.file_writes.operation_active() || self.file_writes.pending() > 0)
+                    .on_click(cx.listener(|this, _, _, cx| this.preview_sync_retention(cx))),
+            ))
+            .when_some(state.preview.as_ref(), |panel, preview| {
+                panel.child(div().whitespace_normal().child(format!(
+                    "保留预览：{} 条待核验候选，正文共 {} 字节。每个原路径保留最新 1 份及同时间记录；清单不完整时全部保留。仅供审阅，尚不执行删除。",
+                    preview.candidates, preview.candidate_bytes
+                )))
             })
             .when(!state.inventory.entries.is_empty(), |panel| {
                 let focus = state.pager_focus.get_or_init(|| cx.focus_handle()).clone();
@@ -220,6 +260,14 @@ impl Workspace {
                                     .gap_1()
                                     .flex_shrink_0()
                                     .child(div().whitespace_normal().child(description.clone()))
+                                    .when_some(state.preview.as_ref().and_then(|p| p.records.get(i)), |row, record| {
+                                        row.child(div().whitespace_normal().child(match record.decision {
+                                            retention::Decision::Candidate => "待核验候选：旧版本，尚未核验正文完整性",
+                                            retention::Decision::Recent => "保留：该原路径的最新记录（含同时间记录）",
+                                            retention::Decision::InUse => "保留：正在查看或恢复",
+                                            retention::Decision::IncompleteInventory => "保留：备份清单不完整",
+                                        }))
+                                    })
                                     .child(FocusReveal::new(
                                         (ElementId::from(("restore-sync-backup", i)), "focus"),
                                         &self.ui.recovery_scroll,
@@ -471,6 +519,110 @@ mod tests {
     }
 
     #[gpui::test]
+    fn retention_preview_refreshes_inventory_and_never_saves_dirty_notes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (root, vault) = fixture();
+        let old = vault.root.join(".inkstone-sync-old.backup");
+        std::fs::write(&old, b"older").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1)),
+            )
+            .unwrap();
+        std::fs::write(vault.root.join(".inkstone-sync-old.backup.json"),
+            serde_json::to_vec(&serde_json::json!({"original":"note.md", "backup":".inkstone-sync-old.backup", "sha256":"0".repeat(64)})).unwrap()).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.add_tab("note.md".into(), Some("current".into()), false, window, cx);
+                w.tabs[0].save.editor.update(cx, |editor, cx| {
+                    editor.set_value("unsaved 中文", window, cx)
+                });
+                w.flush_document_views(window, cx);
+                let pending = w.file_writes.begin();
+                w.preview_sync_retention(cx);
+                assert!(!w.ui.sync_recovery.loading);
+                w.file_writes.finish(pending);
+                w.preview_sync_retention(cx);
+                assert!(w.ui.sync_recovery.loading);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                let preview = w.ui.sync_recovery.preview.as_ref().unwrap();
+                assert_eq!((preview.candidates, preview.candidate_bytes), (1, 5));
+                assert!(
+                    preview.records.iter().any(|r| r
+                        .backup
+                        .backup
+                        .ends_with(".inkstone-sync-old.backup")
+                        && r.decision == retention::Decision::Candidate)
+                );
+                assert!(w.tabs[0].save.persistence.is_dirty());
+                assert_eq!(
+                    w.tabs[0].save.editor.read(cx).value().as_ref(),
+                    "unsaved 中文"
+                );
+                assert_eq!(w.file_writes.pending(), 0);
+                // A same-vault refresh supersedes an in-flight preview, not just its rows.
+                w.preview_sync_retention(cx);
+                let request = w.ui.sync_recovery.request;
+                w.refresh_sync_recovery(cx);
+                assert_ne!(w.ui.sync_recovery.request, request);
+                assert!(w.ui.sync_recovery.preview.is_none());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert!(!w.ui.sync_recovery.loading);
+                assert!(w.ui.sync_recovery.preview.is_none());
+                assert!(w.tabs[0].save.persistence.is_dirty());
+                // Unindexed data must suppress every candidate on a fresh preview.
+                std::fs::write(
+                    vault.root.join(".inkstone-sync-orphan.backup"),
+                    b"protected",
+                )
+                .unwrap();
+                w.preview_sync_retention(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                let preview = w.ui.sync_recovery.preview.as_ref().unwrap();
+                assert_eq!(preview.candidates, 0);
+                assert!(
+                    preview
+                        .records
+                        .iter()
+                        .all(|r| r.decision == retention::Decision::IncompleteInventory)
+                );
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read(vault.root.join("note.md")).unwrap(),
+            b"current"
+        );
+        assert_eq!(std::fs::read(&old).unwrap(), b"older");
+        assert_eq!(
+            std::fs::read(vault.root.join(".inkstone-sync-test.backup")).unwrap(),
+            b"backup"
+        );
+        assert_eq!(
+            std::fs::read(vault.root.join(".inkstone-sync-orphan.backup")).unwrap(),
+            b"protected"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn stale_inventory_cannot_populate_the_next_vault(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let (root, vault) = fixture();
@@ -481,6 +633,7 @@ mod tests {
             .update(cx, |w, _, cx| {
                 w.vault = Some(vault.clone());
                 w.refresh_trash(cx);
+                w.preview_sync_retention(cx);
                 w.generation = w.generation.wrapping_add(1);
                 w.vault = Some(other);
                 w.refresh_trash(cx);
@@ -493,6 +646,7 @@ mod tests {
                 assert!(!w.ui.sync_recovery.loading);
                 assert!(w.ui.sync_recovery.inventory.entries.is_empty());
                 assert!(w.ui.trash_metadata.is_empty());
+                assert!(w.ui.sync_recovery.preview.is_none());
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();

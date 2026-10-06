@@ -1460,3 +1460,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 三项规则回归覆盖多笔记隔离、保留数为零/超大、边界并列、使用中记录、空清单、三类不完整状态与容量溢出；与五项现有同步备份恢复测试一起运行。日志 target/backup-cleanup-audit/sync-retention-preview-{tests,clippy}.log。
 - 该提交只提供可独立验证的后端预览基础，尚无 UI 或删除入口。后续执行必须重新取得同步互斥、复扫清单、检查候选正文完整性和恢复保护，不能直接删除缓存预览中的路径；云端旧对象仍仅统计、不清理。
 - 验证：8 项同步备份恢复/保留测试、全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。
+
+## 同步备份保留预览界面（2026-10-06）
+
+- 恢复页增加“预览保留规则（每篇保留最新 1 份）”，后台重新读取清单并计算预览，沿用每页五条记录；显示待核验候选数量/正文字节、最新记录与不完整清单的保留原因。按钮使用焦点滚动，写任务运行时拒绝启动，不保存未提交正文，也没有删除入口。
+- 增加独立请求编号；同库普通刷新和后续预览可使早期结果失效，切库还校验工作区代次与恢复请求身份。普通刷新和恢复开始会清除旧预览。
+- 新增 retention_preview_refreshes_inventory_and_never_saves_dirty_notes：验证写任务准入、旧备份候选、dirty 正文不变、同库刷新覆盖在途预览、加入无记录备份后全部保护，磁盘原件与备份逐字节不变。切库回归增加在途预览覆盖；既有分页键盘与副本恢复回归一起执行。日志 target/backup-cleanup-audit/sync-retention-ui-{tests,clippy}.log。原生新增预览界面验收待完成。
+- 验证结果：4 项桌面同步恢复回归、全工作区 all-targets Clippy -D warnings、格式和 diff 检查通过。
