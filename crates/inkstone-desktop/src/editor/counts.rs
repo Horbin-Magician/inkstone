@@ -5,18 +5,21 @@ use super::*;
 impl EditorPane {
     pub fn text_counts(&mut self, cx: &mut Context<Self>) -> inkstone_core::word_count::Counts {
         let editor = self.editor.read(cx);
-        let source = editor.value();
+        let source = editor.text();
         let selection = if self.reading || editor.selected_range().is_empty() {
             0..0
         } else {
             editor.selected_range()
         };
         if let Some(cache) = &self.count_cache
-            && (std::ptr::eq(cache.source.as_ref(), source.as_ref()) || cache.source == source)
+            && cache.source == *source
             && cache.selection == selection
         {
             return cache.counts;
         }
+        // Clone the shared rope, not a flattened document. Large count requests
+        // materialize text only after the debounce, on the background executor.
+        let source = source.clone();
         self.count_revision = self.count_revision.wrapping_add(1);
         let revision = self.count_revision;
         self.count_task = None;
@@ -35,12 +38,12 @@ impl EditorPane {
             counts: previous,
         });
         let calculate = move || {
-            let text = if selection.is_empty() {
-                inkstone_core::word_count::document_body(&source)
+            if selection.is_empty() {
+                let text = source.to_string();
+                inkstone_core::word_count::count(inkstone_core::word_count::document_body(&text))
             } else {
-                &source[selection]
-            };
-            inkstone_core::word_count::count(text)
+                inkstone_core::word_count::count(&source.slice(selection).to_string())
+            }
         };
         if length <= 4096 {
             let counts = calculate();

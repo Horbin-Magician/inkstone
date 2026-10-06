@@ -51,7 +51,7 @@ struct PresentationSnapshot {
 }
 
 struct CountSnapshot {
-    source: SharedString,
+    source: gpui_base::input::Rope,
     selection: std::ops::Range<usize>,
     counts: inkstone_core::word_count::Counts,
 }
