@@ -1671,3 +1671,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 定向清理回归 5 项通过；desktop all-targets Clippy `-D warnings`、release 构建、格式及 diff 检查通过。日志 `target/backup-cleanup-audit/cloud-cleanup-a11y-{tests,clippy,build,preparation}.log`。
 - 新隔离 macOS release 原生复验：AX 可见“只读预览…”说明、2 个候选/1 个保留、不可撤销升级警告；实际完成后 AX 显示 2 对象/24 字节结果。从地址字段 9 次 Tab + Return 仍触发预览，随后 Tab + Return 进入确认，新增文字不占用 Tab 路径。确认按钮滚动到可见范围后执行成功。
 - 证据 `target/native-cloud-cleanup-a11y/result.ax.txt`、`result.png` 及该目录 HTTP 日志/准备记录。测试应用和服务均已关闭，只用生成数据。本轮证实原生 AX 暴露，没有进行完整 VoiceOver 导航/播报验收；Windows 原生仍待补。
+
+## 同步备份缺失正文分类（2026-10-06）
+
+- 为恢复清单新增 `missing_payloads`，包含已知格式描述文件的原路径、预期正文路径、描述路径、描述长度与时间。复用普通恢复记录的路径/哈希/相邻文件名验证，仅将明确 NotFound 分类为正文缺失；该列表是只读快照，不是清理授权。
+- 这些记录仍计入 `unreadable` 和既有描述文件占用，保留原清理阻断；未知字段、坏哈希、路径穿越、错正文名、目录和悬空链接不会误归类。正文重新出现后回到普通恢复清单。没有自动删除或移动描述文件。
+- 新回归覆盖上述边界、原笔记及描述字节保留、占用与恢复清单变化。同步恢复子集 22 项通过，全工作区 all-targets Clippy `-D warnings`、格式与 diff 检查通过。日志 `target/backup-cleanup-audit/sync-missing-payload-{tests,clippy}.log`。
+- 此提交仅建立残留分类接口；界面明细及显式处置仍待接入，不能记为中断残留闭环完成。仅使用生成数据，没有性能测量或 Linux 适配。
