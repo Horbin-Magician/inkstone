@@ -1,4 +1,5 @@
 //! Versioned, checksummed directory backups. Publication/restoration never overwrites.
+pub mod capacity;
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, io::Read};
@@ -214,12 +215,17 @@ pub fn create(vault: &Vault, destination: &Path) -> io::Result<Manifest> {
     Ok(manifest)
 }
 
-pub fn inspect(source: &Path) -> io::Result<Manifest> {
-    if is_reparse(&fs::symlink_metadata(source)?) {
-        return Err(invalid("备份目录不能是符号链接"));
+fn inspect_metadata(source: &Path) -> io::Result<Manifest> {
+    let metadata = fs::symlink_metadata(source)?;
+    if !metadata.is_dir() || is_reparse(&metadata) {
+        return Err(invalid("备份位置必须是普通目录"));
     }
     let path = safe_path(source, Path::new("manifest.json"))?;
-    if fs::metadata(&path)?.len() > 16 * 1024 * 1024 {
+    let metadata = fs::metadata(&path)?;
+    if !metadata.is_file() {
+        return Err(invalid("备份清单必须是普通文件"));
+    }
+    if metadata.len() > 16 * 1024 * 1024 {
         return Err(invalid("备份清单过大"));
     }
     let manifest: Manifest = serde_json::from_reader(fs::File::open(path)?)?;
@@ -255,6 +261,20 @@ pub fn inspect(source: &Path) -> io::Result<Manifest> {
     if (dirs, files) != (expected_dirs, expected_files) {
         return Err(invalid("备份文件清单不完整或存在额外文件"));
     }
+    for entry in &manifest.files {
+        if fs::metadata(safe_path(&payload, &entry.path)?)?.len() != entry.bytes {
+            return Err(invalid(format!(
+                "备份文件大小不符：{}",
+                entry.path.display()
+            )));
+        }
+    }
+    Ok(manifest)
+}
+
+pub fn inspect(source: &Path) -> io::Result<Manifest> {
+    let manifest = inspect_metadata(source)?;
+    let payload = safe_path(source, Path::new("files"))?;
     for entry in &manifest.files {
         if transfer(&safe_path(&payload, &entry.path)?, None)?
             != (entry.bytes, entry.sha256.clone())
@@ -320,6 +340,48 @@ mod tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    #[test]
+    fn capacity_lists_metadata_without_treating_it_as_verified_content() {
+        let f = Fixture::new();
+        let destination = f.0.join("backups");
+        fs::create_dir(&destination).unwrap();
+        let first = destination.join("first");
+        let second = destination.join("second");
+        let manifest = create(&f.1, &first).unwrap();
+        create(&f.1, &second).unwrap();
+        let summary = capacity::summarize(&first).unwrap();
+        assert_eq!(summary.payload_bytes, manifest.bytes());
+        assert_eq!(summary.files, manifest.files.len());
+        assert_eq!(summary.created, manifest.created);
+        assert_eq!(summary.source_name, manifest.source_name);
+        assert_eq!(
+            summary.manifest_bytes,
+            fs::metadata(first.join("manifest.json")).unwrap().len()
+        );
+        fs::write(first.join("files/image.bin"), [9, 8, 7, 6]).unwrap();
+        assert_eq!(capacity::summarize(&first).unwrap(), summary);
+        assert!(inspect(&first).is_err());
+        let inventory = capacity::list(&destination).unwrap();
+        assert_eq!(inventory.entries.len(), 2);
+        assert_eq!(inventory.payload_bytes, manifest.bytes() * 2);
+        assert_eq!(inventory.manifest_bytes, summary.manifest_bytes * 2);
+        assert_eq!(inventory.unreadable, 0);
+        fs::write(second.join("files/image.bin"), b"short").unwrap();
+        fs::create_dir(destination.join("unrelated")).unwrap();
+        fs::create_dir(destination.join(".inkstone-backup-staging-test")).unwrap();
+        fs::create_dir(destination.join("inkstone-backup-broken")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&first, destination.join("linked")).unwrap();
+        let inventory = capacity::list(&destination).unwrap();
+        assert_eq!(inventory.entries, vec![summary]);
+        assert_eq!(inventory.payload_bytes, manifest.bytes());
+        assert_eq!(inventory.unreadable, 2 + usize::from(cfg!(unix)));
+        assert_eq!(
+            fs::read(first.join("files/image.bin")).unwrap(),
+            [9, 8, 7, 6]
+        );
+    }
+
     #[test]
     fn backup_roundtrip_preserves_notes_binary_assets_config_and_empty_directories() {
         let f = Fixture::new();

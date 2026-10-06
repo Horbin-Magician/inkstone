@@ -547,3 +547,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新回归在收到上传快照后改写原笔记，确认传输的仍是原扫描正文、本地编辑保留、清单/成功基线不前进；覆盖上传失败清理、重试收敛、旧摘要在传输前拒绝。核心 debug 全量 234 项通过；新增忽略的大库样本后 release 全量 234 项通过、3 项忽略。桌面同步相关 27 项、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 新增显式 release 用例 `streamed_upload_uses_file_snapshots_for_large_library`：生成 9 个不同的 64 MiB 文件，总计 576 MiB；远端禁止切片上传并逐块核对接收摘要，验证全部对象完成后才发布、基线/本地内容一致、暂存目录清空。构建和其他测试结束后 `/usr/bin/time -l` 测得 4.11 秒、峰值 RSS 9,224,192 字节（约 8.80 MiB），包含生成和最终扫描；不是 HTTP/WebDAV 服务商峰值测量。
 - 日志：`target/sync-upload-snapshot-tests.log`、`target/sync-upload-snapshot-release-tests.log`、`target/sync-upload-snapshot-desktop-tests.log`、`target/sync-upload-snapshot-clippy.log`、`target/sync-upload-snapshot-fmt.log`、`target/sync-upload-snapshot-large-tests.log`。快照磁盘上限为并发数×单文件上限（当前 512 MiB），不含下载对象；总体磁盘预算、真实远端和容量治理仍待完成。未修改用户笔记。
+
+## 容量管理：整库备份元数据清单（2026-10-06）
+
+- 新增只读容量列表和单备份摘要：时间、来源、文件数、正文逻辑字节及清单字节分别返回；不读取备份正文，异常项单独计数、不计入合计。隐藏暂存目录和无备份标记的无关目录忽略，链接拒绝；格式/目录/文件大小检查与恢复复用，恢复仍执行完整哈希校验。
+- 新回归覆盖两个备份合计、清单大小、来源/时间、同大小正文损坏仍可统计但完整校验拒绝、长度变化拒绝、损坏备份、无关目录、隐藏暂存目录、链接隔离以及读取不改写正文。核心全量 235 项通过、3 项忽略；桌面备份相关 3 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/backup-capacity-tests.log`、`target/backup-capacity-desktop-tests.log`、`target/backup-capacity-clippy.log`、`target/backup-capacity-fmt.log`。统计范围为成功列出的备份正文与清单，不含异常项、额外根目录文件及文件系统分配开销；不能作为完整磁盘占用数字。界面及清理预览尚未接入，无删除行为，未修改用户笔记。
