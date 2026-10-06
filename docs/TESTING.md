@@ -633,3 +633,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 空标签页增加首篇笔记标题、三种编辑模式说明、实际配置的保存快捷键和文件恢复按钮；解释独立草稿与手动保存的区别。欢迎页和空标签页允许垂直滚动，正文区域不收缩；原有文件保持不变。
 - GPUI 欢迎页相关 6 项通过，新增回归覆盖取消、已有目录拒绝、成功建库、待完成写入释放、恢复入口及旧文件正文保留。全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/onboarding-tests.log`、`target/onboarding-clippy.log`、`target/onboarding-fmt.log`。
 - 本次未覆盖真实平台路径选择器、最小窗口/DPI、首次写作保存全流程及键盘/读屏操作；这些仍须原生验收。仅操作临时测试夹具，未修改用户笔记。
+
+## macOS：统一命令默认快捷键（2026-10-06）
+
+- 新增默认键平台转换入口，命令调度与启动时的应用/原生菜单绑定共同使用；macOS 默认 Ctrl 命令改为 Cmd，保留 Ctrl+Tab/Ctrl+Shift+Tab，查找替换使用 Cmd+Alt+F 避开系统隐藏动作。既有特殊编辑命令保留原平台规则。
+- 仅转换默认值，不修改用户保存的绑定或显式清空的绑定；新标签及阅读模式工具栏提示/可访问名称读取实际快捷键。测试辅助方法同步平台默认值，自定义冲突测试仍验证替换、禁用、持久化和重新分配。
+- 桌面全量单元测试 312 项通过、2 项忽略，集成测试 8 项通过；随后新增默认键唯一性/旧 Ctrl 绑定字面保留回归 1 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/mac-shortcuts-tests.log`、`target/mac-shortcuts-defaults-tests.log`、`target/mac-shortcuts-clippy.log`、`target/mac-shortcuts-fmt.log`。
+- 尚未做原生菜单/IME/全键盘验收；原生菜单仍从启动静态绑定获取提示，自定义变更后的菜单提示同步须继续处理。示例文档中的跨平台快捷键说明将单独更新。未修改用户笔记。
