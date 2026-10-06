@@ -1542,3 +1542,13 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 复现远端 macOS 失败：recovery_controls_scroll_into_view_in_both_keyboard_directions 实际遍历 27 个控件，旧断言仍要求 26 个。新增同步保留预览按钮使固定计数过时。
 - 预期改为 24 条恢复记录加刷新、历史、同步保留预览三个控件；仍要求每条记录都被遍历，并在 800×500、16/24 rem、Tab/Shift-Tab 下逐步断言目标位于滚动可视区域。不放宽可见性或完整遍历要求。
 - 修改前定向测试确实失败，修改后对应测试通过；格式与 diff 检查通过。日志 target/backup-cleanup-audit/recovery-preview-focus-{before,tests}.log。此改动仅修正测试预期，不替代新增清理按钮的原生验收。
+
+
+## 同步备份清理 macOS 原生验收（2026-10-06）
+
+- release 对应 3bd4717，隔离目录 target/native-sync-cleanup-3bd4717；只复用 prepare_macos.py 生成库/独立应用数据与签名包，不做性能测量。生成三个同步备份：旧 20 字节、最新 20 字节、持久保护 26 字节，描述均有正确 SHA-256。
+- 1200×820 逻辑窗口、2× 显示下，恢复页显示 3 条记录、563 字节总占用；预览仅 1 条候选、20 字节。确认说明换行；Tab/Shift-Tab 可将确认及取消按钮带入滚动可视区域，键盘 Enter 取消后确认控件消失，23 个初始文件散列全部不变。
+- 重新确认执行后显示“已清理 1 条同步备份，正文共 20 字节”，刷新为 2 条记录、379 字节。只删除旧正文和描述文件，其余 21 个文件散列一致（16 篇生成笔记、语料清单及 4 个保留备份文件；不比较会自行持久化的工作区偏好）。未留下清理暂存记录。
+- 随后在原生界面恢复受保护记录，ordinary 同步恢复.md 精确为 26 字节 protected generated backup；原 Markdown、最新与受保护备份保持不变。应用正常退出，进程退出已核验。preparation.json、acceptance.json、results.json 保留于隔离目录，构建日志 target/backup-cleanup-audit/sync-cleanup-native-release.log。
+- 范围限制：未在此轮原生验证清理中停止、进程强退、未保存编辑、大字体/最小窗口矩阵和 Windows 实机；相关自动测试不能代替这些验收。
+- 远端 run 37453169144 已结束：macOS/Windows 工作区仅同一恢复键盘计数断言失败（实际 27、期望 26），两个 vendor 作业通过。该断言已在 3bd4717 修正并本机复现前后结果；等待后续新提交的完整远端检查，不把旧 run 记为通过。
