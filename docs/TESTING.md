@@ -1445,3 +1445,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 capacity_counts_unindexed_backups_without_reading_or_removing_them：覆盖有效记录、64 MiB 稀疏无记录正文、损坏描述文件、普通非同步文件排除，以及 Unix 链接不跟随；验证字节总和、恢复记录不变、异常正文/描述内容保留。原有替换、删除、二进制恢复及写入竞争回归一起执行。
 - UI 显示有效正文和备份/描述总字节、无可用记录备份及统计不完整提示；没有有效记录时改为“暂无可直接恢复的同步备份记录”，避免把异常备份误报为不存在。无清理操作新增。日志：target/backup-cleanup-audit/sync-backup-accounting-{tests,ui-tests,clippy}.log。原生新文案布局尚待复验。
 - 验证结果：5 项后端恢复测试、3 项桌面同步备份测试、全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。
+
+## 同步备份容量 macOS 原生复验（2026-10-06）
+
+- 1e20996 release，隔离目录 target/native-backup-accounting-1e20996。生成一条有效同步备份（16 字节）、无描述正文和损坏描述对应正文（合计 37 字节）、损坏描述文件及一条指向隔离库外生成文件的链接。无需真实笔记或云端凭据。
+- 文件恢复截图确认：1 条可恢复记录，备份/描述总计 206 字节，另有 2 个缺少可用记录的备份共 37 字节；显示 1 个路径无法安全统计、总字节不完整，以及 1 条记录读取异常。文本可换行，恢复按钮可见且可操作。该窗口为 1200×820 逻辑尺寸 / 2× 显示；不推断其他 DPI 或最小窗口通过。
+- 点击有效记录“恢复为副本”成功创建 ordinary 同步恢复.md，内容逐字节等于 preserved backup。原有 16 份生成笔记、5 份备份/描述文件和样本清单合计 22 文件 SHA-256 未变；链接和库外生成目标保留。工作区偏好属于会话状态，不纳入散列不变断言。应用正常退出。
+- preparation.json、acceptance.json 和 results.json 保留在隔离目录。release 构建日志 target/backup-cleanup-audit/backup-accounting-release.log。此次没有测量性能，也没有执行清理。Windows 原生、最小窗口及完整 DPI/读屏矩阵仍待验收。
