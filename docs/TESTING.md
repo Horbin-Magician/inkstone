@@ -1383,3 +1383,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 721b1f2 locked release 构建成功；三轮原生 AX 输入/撤销更新、活动状态、退出及生成库散列核验通过。CPU 中位数 3.6649%，未达 2% 预算，详见 PERFORMANCE_BASELINE.md 与 target/native-a11y-cache-guw31erk。
 - run 37443802450 覆盖 0aa54f2（字体投影），本次核对 macOS vendor 已通过，其余三项仍运行，不覆盖辅助功能缓存。本次未取消或重启该运行。
 - 文档 diff 检查通过，未包含真实用户笔记。
+
+## 已保存笔记跳过空闲草稿正文读取（2026-10-06）
+
+- cbb5372 原生调用栈在 Workspace::tick 下出现 Rope 展平；代码确认 tick_drafts 每轮在判断已保存状态前读取 value。现已保存且无草稿、或清理完成且无在途写入时提前返回。未完成写入、待清理及失败重试仍走原路径，IME 与正式保存保护保持不变。
+- 扩展草稿回归：初始已保存状态不创建草稿；回到基线清理后连续空闲，再次编辑仍能持久化新草稿，原 Markdown 不变。4 项草稿回归全过，覆盖连续输入检查点、IME、保存后清理、排队写入防复活及失败重试；6 项保存协调/状态回归通过。
+- workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/draft-idle-tests.log、draft-idle-save-tests.log、draft-idle-clippy.log。原生收益待复测，最近 3.6649% CPU 仍未达到预算；真实笔记未进入提交。
