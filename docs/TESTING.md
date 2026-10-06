@@ -586,3 +586,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 回归覆盖多个读者同时校验、读者阻止新备份、独占任务阻止校验/恢复且不生成目标、释放锁后恢复和创建成功、独立子进程无法取得冲突锁，以及 Unix 只读备份父目录仍能恢复且不新增锁文件。
 - 核心最终全量 240 项通过、3 项忽略；桌面备份相关 4 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/backup-lock-tests.log`、`target/backup-lock-desktop-tests.log`、`target/backup-lock-clippy.log`、`target/backup-lock-fmt.log`。桌面回归运行于最终 I/O 错误分类微调前，分类改动后核心全量与 Clippy 已重新通过。
 - 未进行 Windows/网络文件系统实机验证；协议不提供跨机器或绕过应用协议的外部文件操作互斥。删除执行尚未接入，不能据此宣称共享目录清理已安全完成。未修改用户笔记。
+
+## 整库备份：清理前完整校验与过期拒绝（2026-10-06）
+
+- 新增独占锁内的清理准备接口，重扫清单、重算保留规则并比较原预览/保护状态，校验全部候选及保留副本正文，拒绝候选根目录额外文件，结束前再次对比元数据清单。返回结果持有锁，释放后其他任务才能继续；此步没有删除行为。
+- 回归验证读者阻止准备、准备结果持锁阻止校验/新建备份、释放后恢复、正在使用路径变化使预览过期、保留副本同大小损坏阻止清理、候选额外文件保护、新备份出现拒绝旧预览，所有现有备份保持可读。
+- 初次测试发现规范化目录拼写与原预览路径拼写不同导致误拒绝，改为清单比较沿用调用方路径、锁身份单独规范化。最终核心全量 241 项通过、3 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/backup-cleanup-preflight-tests.log`、`target/backup-cleanup-preflight-clippy.log`、`target/backup-cleanup-preflight-fmt.log`。
+- 未接入删除、原生确认界面或跨机器互斥；预检后绕过协议的外部变化仍必须在执行阶段处理。未修改用户笔记。
