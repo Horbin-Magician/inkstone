@@ -1678,3 +1678,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 这些记录仍计入 `unreadable` 和既有描述文件占用，保留原清理阻断；未知字段、坏哈希、路径穿越、错正文名、目录和悬空链接不会误归类。正文重新出现后回到普通恢复清单。没有自动删除或移动描述文件。
 - 新回归覆盖上述边界、原笔记及描述字节保留、占用与恢复清单变化。同步恢复子集 22 项通过，全工作区 all-targets Clippy `-D warnings`、格式与 diff 检查通过。日志 `target/backup-cleanup-audit/sync-missing-payload-{tests,clippy}.log`。
 - 此提交仅建立残留分类接口；界面明细及显式处置仍待接入，不能记为中断残留闭环完成。仅使用生成数据，没有性能测量或 Linux 适配。
+
+## 同步备份正文缺失明细界面（2026-10-06）
+
+- 恢复页接入 `missing_payloads`，独立分页每页 5 条，展示原路径、预期正文、描述路径、描述占用及时间。说明明确缺失可能来自中断或外部修改，不能据此认定可安全删除；清理保护不变。“定位描述文件”只调用系统定位，不修改记录。
+- 文本使用原生 Label 角色，定位按钮带完整记录名称；页码使用独立稳定焦点，刷新/切库复用原请求代次保护并清零页码。普通可恢复备份的页码互不影响。
+- 新 GPUI 回归用 12 个实际生成描述文件，检查 800×500、rem 16/24 下三页往返、只绘制当页记录、分页按钮焦点可见、末页按钮禁用后的焦点保留、刷新复位及原笔记/全部描述保留。同步恢复 UI 子集 10 项通过，desktop all-targets Clippy `-D warnings`、格式及 diff 检查通过；日志 `target/backup-cleanup-audit/sync-missing-ui-{tests,clippy}.log`。
+- 原生定位及视觉验收、残留显式处置仍待完成。本轮没有添加删除/归档接口，没有性能测量或 Linux 适配。
+- [CI 37476352495](https://github.com/Horbin-Magician/inkstone/actions/runs/37476352495) 对应 36362e7，macOS/Windows 工作区与 vendor 四项全部成功，覆盖云端清理客户端强退测试；不覆盖之后的辅助功能和正文缺失分类/界面。

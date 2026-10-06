@@ -4,6 +4,8 @@ use super::*;
 use gpui_component::{Disableable, button::*};
 use inkstone_core::vault::sync::recovery::{self, Inventory, retention};
 
+mod missing;
+
 const RECORDS_PER_PAGE: usize = 5;
 
 #[derive(Default)]
@@ -15,6 +17,8 @@ pub(super) struct State {
     cleaning: bool,
     cancellation: Option<std::sync::Arc<inkstone_core::vault::sync::Cancellation>>,
     page: usize,
+    missing_page: usize,
+    missing_focus: std::cell::OnceCell<FocusHandle>,
     pager_focus: std::cell::OnceCell<FocusHandle>,
     inventory: Inventory,
     loading: bool,
@@ -237,6 +241,7 @@ impl Workspace {
                     state.inventory.unmeasured_files
                 )))
             })
+            .child(self.missing_sync_payload_panel(cx))
             .when(state.loading, |s| s.child("正在读取同步备份……"))
             .when(!state.loading && state.inventory.entries.is_empty(), |s| {
                 s.child("暂无可直接恢复的同步备份记录")
@@ -944,6 +949,141 @@ mod tests {
             "current"
         );
         assert!(!vault.root.join("note 同步恢复.md").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn missing_payload_pages_keep_focus_and_refresh_resets_page(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (root, vault) = fixture();
+        for i in 0..12 {
+            let name = format!(".inkstone-sync-missing-{i:02}.backup");
+            std::fs::write(vault.root.join(format!("{name}.json")), serde_json::to_vec(
+                &serde_json::json!({"original":"note.md", "backup":name, "sha256":"0".repeat(64)})
+            ).unwrap()).unwrap();
+        }
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.ui.trash_open = true;
+                w.ui.sync_recovery.inventory = recovery::inventory(&vault).unwrap();
+                assert_eq!(w.ui.sync_recovery.inventory.missing_payloads.len(), 12);
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(800.), px(500.)));
+        fn key(v: &mut VisualTestContext, value: &str) {
+            let keystroke = Keystroke::parse(value).unwrap();
+            v.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            v.simulate_event(KeyUpEvent { keystroke });
+            for _ in 0..2 {
+                v.update(|window, cx| window.draw(cx).clear(cx));
+            }
+        }
+        for rem in [16., 24.] {
+            visual.update(|window, _| window.set_rem_size(px(rem)));
+            for (step, page) in [0, 1, 2, 1, 0].into_iter().enumerate() {
+                key(&mut visual, "tab");
+                for i in 0..12 {
+                    let selector = [
+                        "sync-missing-record-0",
+                        "sync-missing-record-1",
+                        "sync-missing-record-2",
+                        "sync-missing-record-3",
+                        "sync-missing-record-4",
+                        "sync-missing-record-5",
+                        "sync-missing-record-6",
+                        "sync-missing-record-7",
+                        "sync-missing-record-8",
+                        "sync-missing-record-9",
+                        "sync-missing-record-10",
+                        "sync-missing-record-11",
+                    ][i];
+                    assert_eq!(
+                        visual.debug_bounds(selector).is_some(),
+                        (page * 5..((page + 1) * 5).min(12)).contains(&i)
+                    );
+                }
+                handle
+                    .update(&mut visual, |w, _, _| {
+                        assert_eq!(w.ui.sync_recovery.missing_page, page);
+                        assert_eq!(w.file_writes.pending(), 0);
+                    })
+                    .unwrap();
+                if step == 4 {
+                    break;
+                }
+                let selector = if step < 2 {
+                    "sync-missing-page-true"
+                } else {
+                    "sync-missing-page-false"
+                };
+                let mut found = false;
+                for _ in 0..40 {
+                    key(&mut visual, "tab");
+                    if let (Some(target), Some(button)) = (
+                        visual.debug_bounds("focus-revealed-control"),
+                        visual.debug_bounds(selector),
+                    ) && target.top() >= button.top()
+                        && target.bottom() <= button.bottom()
+                        && target.left() >= button.left()
+                        && target.right() <= button.right()
+                    {
+                        handle
+                            .update(&mut visual, |w, _, _| {
+                                let viewport = w.ui.recovery_scroll.bounds();
+                                assert!(
+                                    target.top() >= viewport.top()
+                                        && target.bottom() <= viewport.bottom()
+                                );
+                            })
+                            .unwrap();
+                        found = true;
+                        break;
+                    }
+                }
+                assert!(found, "missing pager {selector}, rem={rem}");
+                key(&mut visual, "enter");
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        assert!(
+                            w.ui.sync_recovery
+                                .missing_focus
+                                .get()
+                                .unwrap()
+                                .contains_focused(window, cx)
+                        )
+                    })
+                    .unwrap();
+            }
+        }
+        handle
+            .update(&mut visual, |w, _, cx| {
+                w.ui.sync_recovery.missing_page = 2;
+                w.refresh_sync_recovery(cx);
+            })
+            .unwrap();
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.ui.sync_recovery.missing_page, 0)
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read(vault.root.join("note.md")).unwrap(),
+            b"current"
+        );
+        assert_eq!(
+            recovery::inventory(&vault).unwrap().missing_payloads.len(),
+            12
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
