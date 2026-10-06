@@ -1044,3 +1044,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 运行 37420330322 的最后一个任务 Windows vendor job 112128021149 已 completed/success，正式脚本全部通过：Base 1,237 项（51.13 秒）、Component 571 项（5.98 秒），无失败/忽略，共 1,808 项。平台条件用例导致分包数量与 macOS 不同，不能直接套用本机数量。
 - 环境：Microsoft Windows Server 2025 Datacenter 10.0.26100，windows-2025-vs2026 镜像 20260925.250.1，仓库固定 Rust 1.97.0。证据为 `target/ci-windows-vendor-37420330322.log` 和终态 `target/ci-run-37420330322.json`。
 - 此次运行最终为 failure：macOS 工作区与两平台 vendor 三项成功，Windows 工作区因前述同步基线问题失败；不能因 vendor 双平台通过而视为整体通过。修复提交 db042e8 的新运行 37421293815 仍在进行，未替换或覆盖旧运行证据。仅更新验收记录，diff 检查通过，未改真实用户笔记。
+
+
+## CI 任务执行上限（2026-10-06）
+
+- 为 macOS/Windows 工作区和 vendor 两个矩阵的全部四个 job 设置 45 分钟总上限，防止异常编译或测试长期占用 runner。保留原全部命令、fail-fast=false、四项名称及必需检查配置，超时不会被当作成功或跳过回归。
+- 已取得的成功冷构建任务约 9–13 分钟；45 分钟为留有余量的执行边界，并非 Windows 当前任务卡死的判断或产品性能承诺。运行 37421293815 的 Windows 工作区仍在进行；本轮未取消它，也未为超时配置重复启动新运行。此配置只作用于后续运行。
+- YAML 解析确认两矩阵均为 macOS/Windows、各有 timeout-minutes=45，测试入口和 job 名称保持一致；diff 检查通过。配置解析记录：`target/ci-timeout-validation.log`。本提交未改产品代码或真实用户笔记；不将静态配置检查写为已实际触发超时验收。
