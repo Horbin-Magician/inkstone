@@ -718,3 +718,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - Base 滑块相关 7 项通过，新增检查覆盖小数 step、四方向、首尾及翻页键、边界/修饰键不产生额外事件、Change/Release 顺序、禁用无 Tab 停靠、范围起点保留。应用设置相关 12 项通过，包括滚动矩阵和既有表单导航。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/slider-keyboard-vendor-tests.log`、`target/slider-keyboard-desktop-tests.log`、`target/slider-keyboard-settings-tests.log`、`target/slider-keyboard-clippy.log`、`target/slider-keyboard-fmt.log`。
 - 当前为 GPUI 自动回归；原生焦点描边、可访问名称读出及辅助技术增减动作还未实机验收，不能以内部用户调整方法测试替代读屏结果。未修改真实用户笔记。
 - Vendor 全量合计 1,808 项通过：Base 1,236 项（`target/slider-keyboard-vendor-full.log`）；中断前 Component 构建未完成，确认进程已结束后单独续跑 Component 572 项（`target/slider-keyboard-component-full.log`）。补丁清单已更新，现有独立 vendor CI 运行两包完整 library tests，新增 Base 滑块回归包含在其中。
+
+
+## 快捷键设置：列表内的焦点滚动（2026-10-06）
+
+- 快捷键列表保留独立滚动区域，增加持久滚动句柄并限制在设置页剩余高度内；各命令行复用焦点可见性容器。Tab/Shift+Tab 进入添加、清除、默认按钮时滚入对应命令行，不改变命令绑定。
+- 新增 GPUI 回归：800×500 逻辑窗口，rem 16/24，每个组合分别连续 45 次正向与反向 Tab；每方向至少到达 30 个不同按钮，逐次验证目标行完整位于内部视口，内部视口又位于设置页视口。新回归 1 项及既有快捷键回归 15 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/hotkey-focus-scroll-tests.log`、`target/hotkey-focus-scroll-regressions.log`、`target/hotkey-focus-scroll-clippy.log`、`target/hotkey-focus-scroll-fmt.log`。
+- 本次只覆盖列表导航与可见性，录入完成/取消后的焦点返回将单独处理；原生窗口、系统字号/DPI 与读屏仍待验收。未修改用户笔记。
