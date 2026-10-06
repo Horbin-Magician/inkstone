@@ -38,6 +38,11 @@ pub fn prepare(
     for entry in &fresh.entries {
         cancellation.check()?;
         ensure!(inspect(vault, &entry.metadata)? == *entry, "备份记录已变化");
+        let descriptor = read_descriptor(vault, &entry.metadata)?;
+        ensure!(
+            descriptor.unknown.is_empty(),
+            "备份包含未知格式字段，已保留全部备份"
+        );
         let path = vault.regular_file_path(&entry.backup)?;
         crate::vault::backup::storage::require_local(&path)?;
         let mut source = SaveGuard::open(&path)?;
@@ -147,6 +152,52 @@ mod tests {
             fs::remove_dir_all(root).unwrap();
         }
     }
+    #[test]
+    fn unknown_metadata_protects_records_but_keeps_copy_recovery_available() {
+        let (root, vault, before) = fixture();
+        let path = vault.root.join(".inkstone-sync-old.backup.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["future_recovery_policy"] = serde_json::json!({"keep":true});
+        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        let records = inventory(&vault).unwrap();
+        assert_eq!(records.unreadable, 0);
+        let entry = records
+            .entries
+            .iter()
+            .find(|e| e.backup.ends_with(".inkstone-sync-old.backup"))
+            .unwrap();
+        assert!(entry.protected);
+        let fresh = retention::preview(&records, 1, &BTreeSet::new()).unwrap();
+        assert_eq!(fresh.candidates, 0);
+        assert!(prepare(&vault, &before, &BTreeSet::new(), &Cancellation::default()).is_err());
+        let restored = restore_copy(&vault, entry, &[]).unwrap();
+        assert_eq!(
+            fs::read(vault.root.join(restored.relative)).unwrap(),
+            b"old"
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&fs::read(&path).unwrap()).unwrap(),
+            value
+        );
+        // Unknown fields on a retained newest record also block an otherwise valid batch.
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("future_recovery_policy");
+        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        let newest = vault.root.join(".inkstone-sync-new.backup.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&newest).unwrap()).unwrap();
+        value["format_version"] = serde_json::json!(99);
+        fs::write(&newest, serde_json::to_vec(&value).unwrap()).unwrap();
+        let fresh = retention::preview(&inventory(&vault).unwrap(), 1, &BTreeSet::new()).unwrap();
+        assert_eq!(fresh.candidates, 1);
+        assert!(prepare(&vault, &fresh, &BTreeSet::new(), &Cancellation::default()).is_err());
+        assert_eq!(fs::read(vault.root.join("note.md")).unwrap(), b"current");
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn changed_protection_unknown_backups_and_cancellation_never_authorize_cleanup() {
         let (root, vault, preview) = fixture();
