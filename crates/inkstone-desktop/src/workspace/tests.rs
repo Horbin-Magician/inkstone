@@ -5033,11 +5033,19 @@ fn settings_rows_reveal_keyboard_focus_in_both_directions(cx: &mut TestAppContex
     visual.simulate_resize(size(px(800.), px(500.)));
     for rem in [16., 24.] {
         visual.update(|window, _| window.set_rem_size(px(rem)));
-        for (tab, minimum_controls) in [(0, 14), (5, 5), (6, 1)] {
+        for (tab, minimum_controls) in [(0, 14), (5, 5), (6, 1), (2, 7)] {
             handle
                 .update(&mut visual, |w, window, cx| {
                     w.ui.settings = true;
                     w.ui.settings_tab = tab;
+                    if tab == 2 {
+                        w.ui.prefs.locations.notes = inkstone_core::locations::Location::Folder;
+                        w.ui.prefs.locations.attachments =
+                            inkstone_core::locations::Location::Subfolder;
+                        w.ui.prefs.locations.note_folder = "收件箱".into();
+                        w.ui.prefs.locations.attachment_folder = "附件".into();
+                        w.prepare_file_settings(window, cx);
+                    }
                     w.ui.settings_scroll.set_offset(Point::default());
                     window.focus(&w.ui.modal_focus, cx);
                 })

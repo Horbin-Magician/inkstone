@@ -741,3 +741,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生快捷键页筛选新建标签页，Tab/Enter 开始录入；Esc 后 Enter 能再次开始，Ctrl+Alt+T 成功后“添加”按钮显示焦点。随后 Tab/Enter 清除、Tab/Enter 恢复默认，工具栏提示恢复 Cmd+T。清空筛选后连续 45 次 Tab 将列表滚到可见的当前行，45 次 Shift+Tab 后 Esc 返回笔记。测试中导航分类和起始输入框使用鼠标，因此不是从启动起全程纯键盘验收。
 - 边框修复后应用滑块按键回归 1 项、六类设置页 36 组合布局回归 1 项、Component 滑块鼠标/禁用回归 2 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/slider-focus-border-tests.log`、`target/slider-focus-border-layout.log`、`target/slider-focus-border-vendor-tests.log`、`target/slider-focus-border-clippy.log`、`target/slider-focus-border-fmt.log`。构建日志：`target/native-keyboard-acceptance-build.log`、`target/slider-focus-border-release.log`。
 - 原生截图证据在本轮会话中；没有进行 VoiceOver 朗读、辅助技术增减动作或系统 DPI/最小窗口全矩阵验收。测试只修改隔离配置，未修改真实用户笔记或配置。
+
+
+## 文件与链接设置：焦点可见性与位置控件名称（2026-10-06）
+
+- 两个位置选择器、条件显示的两个文件夹输入框、链接格式选择器和两个链接开关均接入焦点滚动。位置/链接格式按钮的可访问名称包含用途和当前选择，区分笔记与附件的同名位置选项；实际路径和链接规则不变。
+- 通用设置行键盘回归扩展到文件与链接页：笔记指定文件夹、附件当前目录下子文件夹，800×500 逻辑窗口、rem 16/24，每方向 40 次 Tab/Shift+Tab，每方向至少验证 7 个不同焦点控件完整可见。扩展回归、既有笔记/附件位置写入回归、六类设置页 36 组合布局回归分别通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/file-settings-focus-tests.log`、`target/file-settings-focus-write-tests.log`、`target/file-settings-focus-layout.log`、`target/file-settings-focus-clippy.log`、`target/file-settings-focus-fmt.log`。
+- 本轮为 GPUI 自动检查，尚未覆盖下拉菜单内选项操作、路径错误提示下的所有布局或原生读屏；未修改用户笔记。
