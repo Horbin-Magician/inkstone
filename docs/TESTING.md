@@ -822,3 +822,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 请求前打开临时笔记并编辑为未保存内容。请求开始时不占同步 busy 或待写文件计数；结束后仍保持 dirty、没有进入 saving，编辑器文本保持未保存版本，磁盘 Markdown 保持原版，工作区配置文件逐字节不变，表单地址/账号未写入已保存偏好，远端笔记未下载。容量刷新不偷偷保存正文的完整异步路径已有自动证据。
 - 新集成回归 1 项通过，全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/cloud-capacity-http-ui-tests.log`、`target/cloud-capacity-http-ui-clippy.log`、`target/cloud-capacity-http-ui-fmt.log`。服务仅监听 loopback，记录和凭据都是测试夹具；未连接用户云端，未修改真实用户笔记。
 - 本轮验证完成回调和界面状态，不代表原生窗口结果布局或真实 WebDAV 服务商兼容性验收；这些仍待完成。
+
+
+## macOS 原生云端容量与未保存保护验收（2026-10-06）
+
+- 对源码 `35935d9e0d908fd191cfbb5a36cb56e8899ad36c` 执行 release 构建，在 `target/native-cloud-capacity-lahv7hrn` 使用独立 app、XDG_DATA_HOME、显式测试库路径和 loopback HTTP 服务；构建日志为 `target/native-cloud-capacity-build.log`，夹具参数、请求日志与结论分别为 `run.json`、`requests.jsonl`、`acceptance.json`。未访问真实用户笔记或云端。
+- 在正文粘贴验收文字并确认“尚未保存”，进入云同步设置后通过 Tab/Enter 刷新。原生截图显示已引用 1 个 / 2.00 MiB、未引用 1 个 / 3.00 MiB、缺失引用 1、异常列表项 0 及统计时间；按钮焦点和说明换行可见。服务改为 HTTP 503 后再次刷新，显示明确错误且旧统计消失；恢复服务后 Enter 重试成功。Shift+Tab 到用户名输入测试值，再返回容量区域，旧结果和时间已清除，未保存配置。
+- 两次成功与一次失败共十一条请求，仅含 GET/PROPFIND，没有正文下载或远端写入。请求完成和字段修改后，原 Markdown SHA-256 均为 `cf647cdb7f5ceff4061f8648e64e9f36c9e54b252b196206c254b5b61d2ecd06`，已保存用户名仍为空、自动同步仍关闭，库内没有下载的远端笔记。Esc 退出设置并撤销验收输入后显示“已保存”，Cmd+Q 后进程检查确认退出，正文散列仍一致；本机服务已停止。
+- 本提交仅记录原生验收，diff 检查通过；产品代码沿用上一提交已通过的集成回归、all-targets Clippy 和格式检查。本次不覆盖真实 WebDAV 服务商、并发目录变更、VoiceOver 或最小窗口/DPI 矩阵；截图在工具记录中。
