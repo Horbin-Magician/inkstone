@@ -1483,3 +1483,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 canonical_vault_alias_uses_the_same_operation_lock（Unix）：库路径别名与原路径互斥，释放后可重试。已有旧路径锁回归保持通过。日志 target/backup-cleanup-audit/sync-cross-profile-lock-{tests,clippy}.log。
 - 仍限定共享本地锁目录的同一用户和遵守该锁协议的进程；其他用户、远端机器、旧版本配合不同恢复目录及不遵守协议的外部工具不在此保证内。同步备份删除仍未开放，共享存储清理不得依赖此锁。
 - 验证：48 项核心同步测试通过，2 项既有手动入口忽略；全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。
+
+## 同步备份清理前完整性核验（2026-10-06）
+
+- 新增 sync::recovery::cleanup::prepare，复用本地存储检查和双重操作锁，在锁内重新读取清单、重算保留规则并与预览完整比对。异常记录、保护集合变化、无候选均拒绝通过。
+- 对候选及保留正文都用 64 KiB 缓冲流式核验长度和 SHA-256，检查路径仍指向同一文件，前后重新比对描述及清单；每个文件也确认本地存储，避免库根本地但子路径挂载远端。正文与同步前基线不符时全批保留，包括同步期间外部修改导致的合法差异。支持合作式取消。
+- 返回 Checked 持有操作锁，丢弃释放；它不是持久删除授权，没有执行删除方法，未来执行前必须再次核验外部文件变化。
+- 新回归覆盖正常核验期间锁被占用且原件保留、候选/最新保留备份的同长度同时间戳损坏、保护状态变化、无记录正文及预先取消，失败后锁可重试。日志 target/backup-cleanup-audit/sync-cleanup-preflight-{tests,clippy}.log。此提交是后端核验步骤，尚无 UI 核验/删除入口。
+- 验证：51 项核心同步测试通过，2 个既有手动入口忽略；全工作区 all-targets Clippy -D warnings、格式及 diff 检查通过。

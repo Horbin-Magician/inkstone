@@ -5,7 +5,7 @@ pub mod interrupted;
 pub(super) mod locking;
 mod origin;
 pub mod retention;
-mod storage;
+pub(super) mod storage;
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, io::Read};

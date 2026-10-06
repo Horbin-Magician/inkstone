@@ -1,4 +1,5 @@
 //! Inventory and no-clobber recovery of displaced local files retained by sync.
+pub mod cleanup;
 pub mod retention;
 use super::*;
 
