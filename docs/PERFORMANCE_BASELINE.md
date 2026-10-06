@@ -67,3 +67,23 @@
 三轮 CPU 中位数为 1.200%，峰值 RSS 中位数为 286.453 MiB；这组观测低于空闲 2% / RSS 1 GiB 预算，但仅覆盖普通笔记实时预览静置场景，不能判定整个第 3 项通过。RSS 来自 `/usr/bin/time -l` 正常退出统计，不含独立 GPU/辅助进程；采样最大值仅作对照。另保存系统 peak footprint 原值，其口径不同，不与 RSS 混用。没有测得原生输入到显示、滚动或打开到可编辑时间；其余四场景与模式仍需补齐。
 
 原始证据：`target/performance-idle-0mp287n8/run.json`、`results.json`，每轮子目录的 `idle.json`、`resources.log`、`stdout.log`、PID 与退出码；构建日志 `target/performance-idle-release-build.log`。三轮均 Cmd+Q 正常退出、执行会话退出码 0，进程检查确认结束；每轮全部十六篇 Markdown 的 SHA-256 均匹配 corpus v1。未读取或改写真实用户笔记。
+
+
+## 多行段落行内编辑：release 解析 CPU 对照（2026-10-06）
+
+从 corpus v1 的 ordinary.md 和 large-document.md 分别将首次 `、English text` 替换为换行加 `English text`，仅使第一段成为多行段落；这是明确派生的解析微基准，不与未变的原生样本混用。派生长度分别为 3,943 / 1,720,680 字节，来源及派生 SHA-256 记录在 `target/multiline-block-616lbwr8/manifest.json`。每轮用同一原始快照，在标记 `English text` 后插入中文；5 次预热、20 次测量，每次在计时外比较完整 AST。
+
+同机 Apple M4 / Rust 1.97.0，独立 release 进程连续三轮，构建与其他测试结束后运行。完整解析代表此前对此类段落回退的解析工作，局部路径包含当前公共 `update_block` 的检测、整段重解析、树复制与后续坐标修正。每轮先完整后局部，不清理 OS 缓存，也没有控制其他用户进程负载。
+
+| 样本 / 轮次 | 完整解析 p50 / p95 | 局部解析 p50 / p95 |
+| --- | --- | --- |
+| 普通 / 1 | 0.817 / 1.034 ms | 0.043 / 0.057 ms |
+| 普通 / 2 | 0.413 / 0.438 ms | 0.021 / 0.026 ms |
+| 普通 / 3 | 0.410 / 0.458 ms | 0.021 / 0.026 ms |
+| 大文档 / 1 | 118.272 / 120.478 ms | 2.742 / 2.856 ms |
+| 大文档 / 2 | 116.998 / 121.368 ms | 2.701 / 2.899 ms |
+| 大文档 / 3 | 116.312 / 118.667 ms | 2.738 / 3.167 ms |
+
+大文档三轮 p95 的中位数为完整 120.478 ms、局部 2.899 ms。此数据支持保留扩大后的解析路径，不包含编辑器处理、样式/投影更新、原生输入、布局或显示帧，不能用来判定 50 ms 原生预算已达标。跨行插入/删除、嵌套块与全局语法仍回退完整解析。
+
+复现：先按上述单次替换生成新夹具，再运行 `target/release/examples/block_benchmark FILE 'English text'`；构建命令为 `cargo build --release --locked -p inkstone-core --example block_benchmark`。原始逐轮输出与二进制散列在 `target/multiline-block-616lbwr8`。
