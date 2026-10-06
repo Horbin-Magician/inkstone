@@ -543,6 +543,17 @@ impl Workspace {
                     retention_label(self.ui.prefs.history)
                 )
             }))
+            .when_some(browser.selected.and_then(|i| browser.entries.get(i)), |s, entry| {
+                s.child(div().text_sm().whitespace_normal().child(format!(
+                    "所选记录 · {} · 记录文件 {} 字节（{:.1} KiB）",
+                    if entry.saved { "保存历史" } else { "未保存恢复记录" },
+                    entry.bytes,
+                    entry.bytes as f64 / 1024.
+                )))
+            })
+            .child(div().text_sm().whitespace_normal().child(
+                "容量按记录文件长度统计，包含正文、元数据及可能的保存前正文，不等于当前笔记大小或磁盘实际分配空间。"
+            ))
             .when(browser.loading, |s| s.child("正在读取版本……"))
             .when(!browser.message.is_empty(), |s| {
                 s.child(browser.message.clone())
