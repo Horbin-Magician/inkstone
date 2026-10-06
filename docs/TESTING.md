@@ -949,3 +949,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 用系统 Ruby YAML 解析器检查三个触发器、三个 job、固定工具链入口及 action 所属前缀，人工复核前后矩阵/命令 diff；YAML 结构与 diff 检查通过。仅工作流/文档改动，本轮不重复 Rust 全量测试。原始证据：`target/ci-audit-latest.json`、`ci-audit-latest-failed.log`、`ci-audit-cache-action.json`、`ci-audit-workflow-validation.log`。
 - 核实 master 经典保护 API 返回 `Branch not protected`（404），有效规则 API `repos/Horbin-Magician/inkstone/rules/branches/master` 返回空数组，保存于 `target/ci-audit-effective-rules.json`。这证明现有检查尚未形成必需合入门槛。本轮未推送本地提交、未修改远端仓库设置；更新后远端执行、新环境验证及必需检查配置仍未完成。
 - 同时依据已有完整日志修正 STATUS 的陈旧 vendor 数量：Base 1,236 + Component 572 = 1,808 项，未宣称本轮重新运行 vendor。未修改真实用户笔记。
+
+
+## 核心检查：隔离源码、空依赖缓存与空构建目录（2026-10-06）
+
+- 从提交 `3321370` 使用 git archive 提取 Cargo.toml、Cargo.lock、rust-toolchain.toml、crates 和 vendor 至新目录 `target/clean-core-_f35j_b2/source`，没有复制当前工作区 target、Cargo 缓存、用户笔记或未提交文件。开始时新建空 `cargo-home` 和 `build`，分别设置为子进程 CARGO_HOME / CARGO_TARGET_DIR；元数据与源码归档 SHA-256 见该目录 `run.json`。
+- 依次执行 `rustup show active-toolchain`、`cargo clippy --locked -p inkstone-core --all-targets -- -D warnings`、`cargo test --locked -p inkstone-core`。工具链报告由隔离目录的 rust-toolchain.toml 覆盖为 1.97.0-aarch64-apple-darwin；依赖从空缓存下载后 Clippy 通过（27.94 秒），测试编译 22.89 秒、主测试集 259 项通过/3 项既有手动入口忽略（3.42 秒）。测试日志还包含中断回归启动的子进程单测，不能将其重复计入总数。
+- 后续 `cargo tree --locked -p inkstone-core --prefix none` 证实核心依赖树不含 GPUI，Cargo.lock 的 SHA-256 与开始时完全一致。所有命令退出码为零。原始日志 `toolchain.log`、`clippy.log`、`tests.log`、`dependency-tree.log`、`results.json` 位于上述隔离根目录，保留用于复核。
+- 这是同一 macOS 主机的干净源码/依赖/构建验证，仍复用本机已安装的 Rustup/Rust 工具链、SDK 和系统工具；不代表全新操作系统安装、工具链下载、Linux/Windows、桌面及 vendor 全量在新环境已经通过。远端新工作流和必需合入检查仍未验收。本次只更新证据记录，未改产品代码或真实用户笔记，diff 检查通过。
