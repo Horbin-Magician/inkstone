@@ -1491,3 +1491,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 返回 Checked 持有操作锁，丢弃释放；它不是持久删除授权，没有执行删除方法，未来执行前必须再次核验外部文件变化。
 - 新回归覆盖正常核验期间锁被占用且原件保留、候选/最新保留备份的同长度同时间戳损坏、保护状态变化、无记录正文及预先取消，失败后锁可重试。日志 target/backup-cleanup-audit/sync-cleanup-preflight-{tests,clippy}.log。此提交是后端核验步骤，尚无 UI 核验/删除入口。
 - 验证：51 项核心同步测试通过，2 个既有手动入口忽略；全工作区 all-targets Clippy -D warnings、格式及 diff 检查通过。
+
+## 同步备份受保护记录（2026-10-06）
+
+- 同步备份描述增加可选 protected 布尔标记，缺省兼容旧格式；清单携带标记，保留预览对显式保护优先于时间/使用中规则，旧保护记录也不会进入候选。界面和恢复按钮可访问名称显示“受保护备份”。未增加删除或解除保护操作。
+- 回归覆盖旧描述读取、保护标记变化使旧恢复选择失效、受保护记录可恢复副本且原件/备份/保护标记保留、非法保护字段导致异常清单，以及旧保护记录不参与清理候选。标记为后续清理中断留下的恢复记录提供持久保护，尚未产生真实清理中断记录。
+- 日志 target/backup-cleanup-audit/sync-protected-record-{tests,ui-tests,clippy}.log。原生受保护标签验收待完成。
+- 远端 run 37448687675（1a28db5）已完成，macOS/Windows 全工作区与 vendor 四项检查全部通过；不覆盖本轮及之后尚未推送的提交。
+- 本轮验证：53 项核心同步测试及 4 项桌面恢复回归通过，2 个既有手动入口忽略；全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。

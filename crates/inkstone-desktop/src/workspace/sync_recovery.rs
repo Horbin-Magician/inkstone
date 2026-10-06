@@ -244,7 +244,7 @@ impl Workspace {
                             .take(RECORDS_PER_PAGE)
                             .map(|(i, entry)| {
                                 let description = format!(
-                                    "{} · 原路径：{}",
+                                    "{} · 原路径：{}{}",
                                     super::recovery_metadata::Metadata {
                                         source: super::recovery_metadata::Source::SyncBackup,
                                         modified: Some(entry.modified),
@@ -252,6 +252,7 @@ impl Workspace {
                                     }
                                     .label(),
                                     entry.original.display(),
+                                    if entry.protected { " · 受保护备份" } else { "" },
                                 );
                                 div()
                                     .debug_selector(move || format!("sync-recovery-record-{i}"))
@@ -264,6 +265,7 @@ impl Workspace {
                                         row.child(div().whitespace_normal().child(match record.decision {
                                             retention::Decision::Candidate => "待核验候选：旧版本，尚未核验正文完整性",
                                             retention::Decision::Recent => "保留：该原路径的最新记录（含同时间记录）",
+                                            retention::Decision::Protected => "保留：受保护的恢复记录",
                                             retention::Decision::InUse => "保留：正在查看或恢复",
                                             retention::Decision::IncompleteInventory => "保留：备份清单不完整",
                                         }))
