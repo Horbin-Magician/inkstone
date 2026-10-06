@@ -14,7 +14,7 @@ python3 tools/vendor-regression/run.py
 
 CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10-06 已从实际 GitHub check runs 核实四个检查名称，并为 master 配置必需检查：`check (macos-latest)`、`check (windows-latest)`、`Vendor regression (macos-latest)`、`Vendor regression (windows-latest)`，均限定 GitHub Actions app（15368）。严格要求分支最新，管理员也受约束；远端读取复核与配置一致。待完成或失败的检查不能正常合入，配置门槛不等于测试已经通过；实际运行结果独立记录。修改 job 名称时必须同步更新远端配置，本地 YAML 不会自动更新门槛。
 
-工作流不依赖第三方 Rust 缓存 action。最近远端运行在准备阶段无法解析 `Swatin/rust-cache`，因此移除这一可选依赖；后续 CI 构建可能更慢，工作区和 vendor 检查命令保持不变，核心回归包含在工作区测试中。支持 push、pull_request 和手动 workflow_dispatch；新工作流在独立分支触发运行 37419921824 后已通过初始化。用户随后明确不需要 Linux 适配，现仅保留 macOS/Windows 的工作区及 vendor 四项检查；提交 b5fca64 的远端 macOS vendor 1,808 项已通过，Windows 结果仍在收集中。
+工作流不依赖第三方 Rust 缓存 action。最近远端运行在准备阶段无法解析 `Swatin/rust-cache`，因此移除这一可选依赖；后续 CI 构建可能更慢，工作区和 vendor 检查命令保持不变，核心回归包含在工作区测试中。支持 push、pull_request 和手动 workflow_dispatch；新工作流在独立分支触发运行 37419921824 后已通过初始化。用户随后明确不需要 Linux 适配，现仅保留 macOS/Windows 的工作区及 vendor 四项检查；提交 b5fca64 的远端 macOS 和 Windows vendor 均通过 1,808 项（macOS Base 1,236/Component 572；Windows Base 1,237/Component 571），无忽略项。
 
 ## 维护目的与验证层次
 
