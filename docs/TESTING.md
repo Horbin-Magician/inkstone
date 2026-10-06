@@ -1701,3 +1701,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增保留描述归档列表，每页 5 条，显示原路径、原描述路径、预期正文、当前归档路径、时间及占用，提供系统定位。说明、记录及状态使用 Label；确认/取消后将焦点移回稳定弹窗节点。
 - 3 项新增 GPUI 回归验证必须确认、任务准入、刷新使确认失效、重复执行拒绝、成功后清单/容量刷新、正文重现拒绝、过期回调释放票据，以及未保存 Unicode 正文与原 Markdown 不变。同步恢复界面子集 13 项通过（含已有缺失列表三页/字号回归），全工作区 all-targets Clippy `-D warnings`、格式和 diff 检查通过。日志 `target/backup-cleanup-audit/sync-residue-ui-{tests,clippy}.log`。
 - 新归档列表完整分页键盘矩阵、原生视觉/定位与强退仍待验收。无自动归档、删除元数据或真实用户笔记修改；未做性能测量或 Linux 适配。
+
+## 保留描述归档的键盘回归（2026-10-06）
+
+- 使用 12 条实际生成且经后端归档的描述文件，验证 800×500 窗口、rem 16/24 下三页前进/后退；每页仅创建对应记录，逐条定位按钮均可通过 Tab/Shift+Tab 到达并滚入可见范围，首尾按钮禁用后的焦点留在稳定分页节点。完整遍历后所有描述字节和原笔记不变。
+- 增加真实按键取消归档确认的回归：Tab 到取消、Enter 取消后焦点留在恢复弹窗，Escape 正常关闭；未启动后台任务、描述原字节保留、没有生成归档或改写笔记。为该按钮外层添加测试定位标识，产品动作保持不变。
+- 同步恢复 UI 子集 15 项通过，desktop all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志 `target/backup-cleanup-audit/sync-retained-keys-{tests,suite,clippy}.log`（tests 为归档分页单项，suite 为最终完整子集）。
+- 此为 GPUI 自动键盘矩阵，不能替代 macOS/Windows 原生视觉、系统定位、VoiceOver 或进程强退验收。没有性能测量、Linux 适配或真实笔记修改。
