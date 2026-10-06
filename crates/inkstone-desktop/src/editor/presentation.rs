@@ -13,7 +13,15 @@ impl EditorPane {
             self.last_presentation = None;
             return;
         }
-        let text = state.value();
+        // Cursor/geometry notifications also render this view. Reuse the parsed
+        // source when the rope is unchanged instead of flattening it each time.
+        // Content comparison is still required: equal length does not imply an
+        // unchanged document, and notifications are not limited to text edits.
+        let text = if state.text() == self.parse_source.as_ref() {
+            self.parse_source.clone()
+        } else {
+            state.value()
+        };
         let selections = state.selected_ranges();
         let search_query = state
             .search_session()
