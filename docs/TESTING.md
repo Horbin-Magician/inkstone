@@ -1194,3 +1194,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - macOS：核心 269 通过 / 3 既有忽略，桌面 343 通过 / 2 既有忽略（178.61 秒），另 8 项集成测试通过。Windows：核心 260 通过 / 3 既有忽略，桌面 340 通过 / 2 既有忽略（294.33 秒），另 8 项集成测试通过。两平台格式与 Clippy 均通过。
 - 日志逐项确认：整库历史副本恢复不保存其他编辑、最小窗口历史分页在两平台通过；macOS 子进程 exec 前释放备份锁的新确定性测试通过。vendor macOS 1,236 + 572、Windows 1,237 + 571，均无失败或忽略。
 - 本结果不包括后续公共锁守卫扩展与部分残留恢复（99fa10f 起），也不替代原生性能/IME/双设备验收。验收记录更新 diff 检查通过，无用户笔记。
+
+
+## 原生 IME 输入路径复核（2026-10-06，未通过验收）
+
+- 使用 e8e916c release 创建新的隔离 source 模式实例 target/native-ime-audit-cwee_qqc/case，测试文件 ime-acceptance.md 仅含标题和 baseline。应用 PID 92352，bundle/XDG_DATA_HOME/最近库均独立。
+- 系统设置只读核对：输入源为 ABC 和简体拼音，Control+Space（上一个输入法）及 Control+Option+Space（下一个输入法）均已启用；没有修改任何系统键盘设置，检查后关闭系统设置。
+- 两条自动化切换路径配合逐字母按键均仅显示普通 ni/nihao，没有观察到候选框或可确认的 marked text。因此无法证明 IME 预编辑不进入草稿；不将普通字母、粘贴中文或既有无头测试视为这项原生验收。底层原因尚未确定，不能归为产品输入法缺陷。
+- 文件复核原 Markdown 保持基线，应用生成自身恢复日志。记录 ime-attempt.json 保留具体范围；已请求可选的人工候选态输入，测试实例暂留以供配合，不触及用户笔记。本提交仅记录验收边界，diff 检查通过。
