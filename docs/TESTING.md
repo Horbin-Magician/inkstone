@@ -619,3 +619,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 清理预检和执行均检查文件系统类型，网络或未知类型保守拒绝；设置页后台检测并显示限制，容量列表和恢复入口继续可用。macOS 使用明确的本地挂载标志，Linux 限定支持的本地文件系统，Windows 限定本地磁盘类型；不支持的平台拒绝清理。
 - 本机核心全量 247 项通过、3 项忽略，包含路径缺失及 macOS 本地标志判断；桌面备份相关 4 项通过，全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/backup-storage-gate-tests.log`、`target/backup-storage-gate-ui-tests.log`、`target/backup-storage-gate-clippy.log`、`target/backup-storage-gate-fmt.log`。
 - Linux/Windows 分支及真实网络挂载尚未实机验收；Linux overlay/FUSE 被有意拒绝。本地云盘软件、导出共享目录或其他不遵守锁的写入者仍不在检测能力内，不能据此宣称共享目录清理安全。未开放删除执行 UI，未修改用户笔记。
+
+## 整库备份：确认与后台清理界面（2026-10-06）
+
+- 设置页从候选预览进入独立确认，显示目标位置、数量、保留规则及永久删除说明，要求确认已停止其他机器/用户/云盘工具写入。刷新使确认失效，无确认、正在备份/恢复或选择目录时拒绝执行；执行调用持锁完整预检和复核，后台运行、计入待完成写入，完成后刷新并显示成功或错误及中断记录。
+- 修复恢复校验完成后等待确认/选择目标时占用状态提前释放的问题，这段等待期间也阻止清理启动。
+- GPUI 临时夹具回归覆盖无确认不执行、刷新失效、busy/picker 阻止、重复执行仅一个任务、实际删除三个候选后保留最新及受保护记录、原笔记正文不变；桌面备份相关 4 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过，日志为 `target/backup-cleanup-ui-tests.log`、`target/backup-cleanup-ui-clippy.log`、`target/backup-cleanup-ui-fmt.log`。核心执行逻辑未变，沿用前次 247 项核心回归证据。
+- 未做原生窗口、字体/DPI、键盘及跨平台界面验收；外部写入排除依赖用户确认，不能检测或锁住任意云盘工具。仅删除测试夹具，未操作真实用户备份或笔记。

@@ -16,6 +16,7 @@ pub(super) struct State {
     keep: usize,
     preview: Option<Preview>,
     local_storage: Option<bool>,
+    cleanup_confirmation: Option<Preview>,
 }
 impl Workspace {
     pub(super) fn refresh_backup_capacity(&mut self, cx: &mut Context<Self>) {
@@ -70,6 +71,73 @@ impl Workspace {
             });
         })
         .detach();
+    }
+    fn can_clean_backups(&self) -> bool {
+        let state = &self.ui.backup.capacity;
+        !self.ui.backup.busy
+            && !self.ui.backup.picker_open
+            && self.ui.backup.pending.is_none()
+            && !state.loading
+            && state.directory.is_some()
+            && state.directory == self.ui.prefs.backup.directory
+            && state.local_storage == Some(true)
+            && state.preview.as_ref().is_some_and(|p| p.candidates > 0)
+    }
+    fn request_backup_cleanup(&mut self, cx: &mut Context<Self>) {
+        if self.can_clean_backups() {
+            self.ui.backup.capacity.cleanup_confirmation = self.ui.backup.capacity.preview.clone();
+            cx.notify();
+        }
+    }
+    fn execute_backup_cleanup(&mut self, cx: &mut Context<Self>) {
+        if !self.can_clean_backups() {
+            return;
+        }
+        let Some(preview) = self.ui.backup.capacity.cleanup_confirmation.take() else {
+            return;
+        };
+        if self.ui.backup.capacity.preview.as_ref() != Some(&preview) {
+            return;
+        }
+        let directory = self.ui.prefs.backup.directory.clone().unwrap();
+        let generation = self.generation;
+        self.ui.backup.busy = true;
+        self.ui.pending_file_writes += 1;
+        self.ui.backup.capacity.message = "正在校验并清理备份，请等待完成……".into();
+        let task = cx.background_executor().spawn(async move {
+            inkstone_core::vault::backup::cleanup::prepare(
+                &directory,
+                &preview,
+                &Default::default(),
+            )?
+            .execute()
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                if this.generation != generation {
+                    return;
+                }
+                this.ui.backup.busy = false;
+                this.refresh_backup_capacity(cx);
+                let message = match result {
+                    Ok(report) => format!(
+                        "已清理 {} 份备份，正文和清单共 {:.2} MiB（逻辑容量）。",
+                        report.removed,
+                        report.logical_bytes as f64 / 1048576.
+                    ),
+                    Err(error) => {
+                        format!("备份清理未完成：{error}。请检查刷新后的列表及中断记录。")
+                    }
+                };
+                this.ui.backup.capacity.message = message.clone();
+                this.notifications.publish(message);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
     fn retain_interrupted_backup(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.ui.backup.busy
@@ -135,7 +203,7 @@ impl Workspace {
                 .disabled(self.ui.prefs.backup.directory.is_none() || current && state.loading)
                 .on_click(cx.listener(|this, _, _, cx| this.refresh_backup_capacity(cx))))
             .child("统计此备份位置中的所有来源。仅统计可读取备份的正文和清单，不含异常项、额外文件及磁盘分配开销。容量列表不代表内容已校验；恢复前仍会完整校验。备份不会自动清理。")
-            .child("清理预览：按来源保留最新份数，同一截止时间的记录全部保留。来源不明或读取异常时保护记录；候选尚未执行内容校验。此处仅预览，不会删除备份。")
+            .child("清理预览：按来源保留最新份数，同一截止时间的记录全部保留。来源不明或读取异常时保护记录；候选尚未执行内容校验。预览本身不会删除备份；清理需要另行确认。")
             .child(div().flex().flex_wrap().gap_2().children([1usize, 3, 5, 10].into_iter().map(|keep| {
                 Button::new(("backup-retention-keep", keep)).label(format!("每个来源保留 {keep} 份"))
                     .when(state.keep == keep || state.keep == 0 && keep == 3, |b| b.primary())
@@ -149,6 +217,17 @@ impl Workspace {
             .when_some(state.preview.as_ref().filter(|_| current && available), |s, preview| s.child(format!("{} 份候选 · 正文与清单估算 {:.2} MiB（不等于实际释放空间）", preview.candidates, preview.candidate_bytes as f64 / 1048576.)))
             .when(current && state.local_storage == Some(false), |s| s.child("此位置是网络存储或无法确认的文件系统，已禁止清理；仍可查看、校验和恢复备份。"))
             .child("清理还要求此位置不被其他机器、用户或云盘同步工具同时修改；本地磁盘检测不代表这些条件已满足。")
+            .child(Button::new("backup-cleanup-review").label("清理预览中的候选备份……")
+                .disabled(!self.can_clean_backups())
+                .on_click(cx.listener(|this, _, _, cx| this.request_backup_cleanup(cx))))
+            .when_some(state.cleanup_confirmation.as_ref().filter(|_| current && available), |s, preview| s
+                .child(format!("将永久删除上述 {} 份候选备份，保留各来源最近 {} 份及受保护记录。无法撤销。位置：{}", preview.candidates, preview.keep_per_source, state.directory.as_ref().unwrap().display()))
+                .child("仅在已停止其他机器、用户及云盘工具对此目录的写入后确认。执行前将重新校验全部备份；预览过期或校验失败会拒绝清理。")
+                .child(Button::new("backup-cleanup-confirm").label("已停止外部写入，确认永久清理")
+                    .disabled(!self.can_clean_backups())
+                    .on_click(cx.listener(|this, _, _, cx| this.execute_backup_cleanup(cx))))
+                .child(Button::new("backup-cleanup-cancel").label("取消清理")
+                    .on_click(cx.listener(|this, _, _, cx| { this.ui.backup.capacity.cleanup_confirmation = None; cx.notify(); }))))
             .when(current && state.loading, |s| s.child("正在读取备份容量……"))
             .when(current && !state.message.is_empty(), |s| s.child(state.message.clone()))
             .when_some(state.inventory.as_ref().filter(|_| current), |panel, inventory| {
@@ -315,6 +394,51 @@ mod tests {
                         .iter()
                         .any(|r| r.decision == Decision::Protected)
                 );
+                w.ui.backup.capacity.keep = 1;
+                w.refresh_backup_capacity(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                // An execution call without explicit confirmation has no effect.
+                w.execute_backup_cleanup(cx);
+                assert_eq!(w.ui.pending_file_writes, 0);
+                w.request_backup_cleanup(cx);
+                assert!(w.ui.backup.capacity.cleanup_confirmation.is_some());
+                // Refresh invalidates the confirmation even if contents are unchanged.
+                w.refresh_backup_capacity(cx);
+                assert!(w.ui.backup.capacity.cleanup_confirmation.is_none());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.ui.backup.busy = true;
+                w.request_backup_cleanup(cx);
+                assert!(w.ui.backup.capacity.cleanup_confirmation.is_none());
+                w.ui.backup.busy = false;
+                w.ui.backup.picker_open = true;
+                w.request_backup_cleanup(cx);
+                assert!(w.ui.backup.capacity.cleanup_confirmation.is_none());
+                w.ui.backup.picker_open = false;
+                w.request_backup_cleanup(cx);
+                w.execute_backup_cleanup(cx);
+                w.execute_backup_cleanup(cx);
+                assert_eq!(w.ui.pending_file_writes, 1);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert!(!w.ui.backup.busy);
+                assert_eq!(w.ui.pending_file_writes, 0);
+                assert!(w.ui.backup.capacity.message.contains("已清理 3 份"));
+                let inventory = w.ui.backup.capacity.inventory.as_ref().unwrap();
+                assert_eq!(inventory.entries.len(), 2);
+                assert_eq!(inventory.entries.iter().filter(|e| e.protected).count(), 1);
+                assert!(root.join("backups/4/manifest.json").exists());
+                assert_eq!(std::fs::read(root.join("vault/note.md")).unwrap(), b"body");
                 // The earlier request completes after a new directory is selected.
                 w.refresh_backup_capacity(cx);
                 w.ui.prefs.backup.directory = Some(root.join("empty"));
