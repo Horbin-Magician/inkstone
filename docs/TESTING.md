@@ -1793,3 +1793,14 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生截图已逐张检查：同一隔离目录下 `editor-bottom.png`、`links-bottom.png`、`backup-bottom.png`、`appearance-bottom.png`、`interface.png`、`shortcuts-bottom.png`。应用正常退出。这些文件不进入代码提交。
 - 范围限定为上述位置的视觉布局与滚动可达性，不将它等同于所有中间行、全键盘、读屏、放大字体或多显示倍率验证。快捷键 AX 输出因工具每容器 100 项上限而截断，不据此判断末尾控件缺失。
 - 远端 CI：`gh run list` 确认 fbea2ab 的 run 37493560571 为 completed/success；后续提交尚在执行或排队，未报告通过。
+
+
+### 2026-10-07：最小窗口首次使用操作闭环
+
+- 使用 61a49cd release、新应用标识及全新 `target/native-first-use-min/data`。移出准备脚本生成的 recent.txt 后启动，欢迎页提供创建/打开笔记库；通过系统保存面板在隔离目录创建“我的笔记库”，没有访问真实笔记。
+- 800×500/2× 下，新库引导的保存快捷键、三种视图及草稿保护说明可完整滚动阅读。`Cmd+N` 创建第一篇笔记，输入含 emoji 的两段 Markdown，`Cmd+S` 保存。
+- 原生模式菜单提供阅读、源码和实时预览；从默认实时预览切换到源码，随后 `Cmd+E` 进入阅读视图，模式状态分别更新。`Cmd+P` 搜索“文件恢复”并 Enter，历史目录显示新笔记及其记录。
+- 退出后磁盘 `我的笔记库/未命名.md` 为 62 字节，与输入逐字一致，SHA-256 为 `5fc1ea3b04950ca34d9fe571ca71a588f3236d6a1e5af4db2b9544d3eecfb6ba`。
+- 证据在隔离目录 `guide.png`、`recovery.ax.txt`、`verification.json`，不提交。系统路径面板逐次确认最终父目录后才创建新库，应用正常退出。
+- 边界：这是受控原生操作验收，不等同于真实首次使用者理解测试、完整键盘/读屏或其他 DPI 验收。没有性能测量。
+- `gh run list` 确认 7f6b307 对应 CI 37494799181 completed/success，后续仍在运行或排队。
