@@ -1739,3 +1739,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - Component `src/menu/popup_menu.rs` 新增 `element_with_label`，把自定义行名称传给已有交互菜单项的辅助功能节点；原 `element` 行保持可选名称语义。笔记菜单全部 17 项使用此接口，动态阅读/编辑标题与可见文字一致；未改变动作派发、快捷键计算或布局尺寸。
 - 扩展现有菜单名称回归；Component 全量 573 项通过，desktop all-targets Clippy `-D warnings`、release 构建、工作区格式与 diff 检查通过。日志 `target/backup-cleanup-audit/file-menu-{a11y-test,component-suite,clippy,release}.log`。
 - 使用独立 bundle/应用数据/生成库 `target/native-file-menu-a11y` 原生复验：Raise 后截图确认恢复标题完整，AX 暴露 17 个具名菜单项；点击恢复项进入统一面板。Cmd+P 搜索“草稿”仍保留完整恢复命令，Enter 正常打开恢复。证据 `menu.png`、`menu.ax.txt`、`search.ax.txt`；正常退出应用，未修改笔记。未扩展为完整 VoiceOver、Windows 或 DPI 矩阵通过；无性能测量或 Linux 适配。
+
+## 设置行标题与说明的辅助功能文本（2026-10-07）
+
+- 原生编辑器设置此前只暴露控件，默认视图/编辑模式和严格换行等说明不在 AX 树中。公共 `settings_row` 为标题、说明新增独立稳定 ID、Label 角色和完整文字名称；保留原绘制容器样式，不增加键盘焦点或修改控件行为。
+- `cargo test --locked -p inkstone-desktop settings_` 共 13 项通过，包括 800×500、1/1.5/2 比例与 rem 16/24 的布局矩阵、设置键盘显隐、滑块、云同步等待与备份设置导航。desktop all-targets Clippy `-D warnings`、release 构建、格式和 diff 检查通过；日志 `target/backup-cleanup-audit/settings-label-{tests,clippy,release}.log`。
+- 新隔离应用 `target/native-settings-labels` 在 macOS release 下实测 Cmd+, 打开设置，AX 可读到“选择新标签页使用编辑视图还是阅读视图”“选择编辑视图默认使用实时预览还是源码模式”及严格换行、折叠、缩进、补全等标题和说明。证据 `editor-settings.ax.txt`、`editor-settings.png`；未改笔记或设置，已关闭测试应用。此为原生 AX 核验，不等同完整 VoiceOver 验收。
+- 本轮曾在旧隔离测试窗口尝试拖动原生边缘，窗口未改变尺寸，故未获得最小窗口原生结论；上述小窗口/字号/比例结果仍仅为 GPUI 自动回归。没有性能测量或 Linux 适配。

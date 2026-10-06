@@ -79,12 +79,18 @@ impl Workspace {
                     .gap(px(4.))
                     .child(
                         div()
+                            .id((ElementId::from(id), "name"))
+                            .role(gpui::Role::Label)
+                            .aria_label(name.to_string())
                             .text_size(px(MIN_UI_FONT_SIZE))
                             .line_height(relative(1.3))
                             .child(name.to_string()),
                     )
                     .child(
                         div()
+                            .id((ElementId::from(id), "description"))
+                            .role(gpui::Role::Label)
+                            .aria_label(description.to_string())
                             .text_size(px(MIN_UI_FONT_SIZE))
                             .line_height(relative(1.3))
                             .text_color(crate::theme::palette(self.ui.prefs.light).muted)
