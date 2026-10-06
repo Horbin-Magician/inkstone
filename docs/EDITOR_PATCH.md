@@ -214,3 +214,9 @@
 - 片段视图可以覆盖脚注编号；文末视图在普通块插件前过滤重复正文，原始解析仍负责引用顺序、脚注导航和完整来源映射。
 
 `vendor/gpui-component` 保留锁定的 0.7.0 来源及许可证，Cargo 使用本地补丁。改动包括补全菜单的排版与高亮范围计算、标题栏收缩，以及设置开关的 Large 尺寸；详情见该目录的 `INKSTONE_PATCHES.md`。
+
+## 正文修订号读取（2026-10-06）
+
+`vendor/gpui-base/src/input/base/state.rs` 公开只读 `text_revision()`，复用组件已有 document_revision；default_value 初始化也推进修订号。静默 set_value、编辑、撤销/重做及 IME 正文替换经过现有 push_history 推进，焦点、光标和布局通知不推进。它只在同一实体内用于相等比较，允许等内容替换推进和 u64 回绕，不能持久化或当作内容散列。
+
+应用展示更新以 (EntityId, text_revision) 复用 parse_source，避免空闲通知先逐字比较 Rope 与全文；IME 预编辑分支仍先执行，不跳过其对象重定位。验证入口：Base `test_text_revision_tracks_silent_history_and_composition_edits`、桌面 `presentation_revision_handles_silent_same_length_replacement`，以及完整 vendor 与 editor:: 回归。

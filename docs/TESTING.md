@@ -1324,3 +1324,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 
 - 0a12ad6 的第二、三轮复测完成，三轮 CPU 中位数 4.5982%，仍高于 2% 预算，也未显示相对 f9bdc1b 同协议结果的改善。三轮正式活动样本 15/15/14 条均符合条件，全部进程正常退出且生成笔记散列不变。证据与调用栈边界见 PERFORMANCE_BASELINE.md 和 target/native-outline-cache-ffyja39l/results.json。
 - run 37439067537 四项 CI 本次核对仍在运行，未报告成功。文档 diff 检查通过，无用户笔记进入提交。
+
+## 展示更新按正文修订号复用源码（2026-10-06）
+
+- 原生调用栈仍出现 update_presentation 的全文相等判断。新增组件正文修订号读取接口，展示更新按实体及修订号复用已有 SharedString，替代每次空闲通知的 Rope/字符串逐字比较。仅减少读取成本，不屏蔽光标、几何或焦点通知；IME 分支不变。
+- Base 新测试覆盖选区/通知不推进、静默等长赋值、编辑、撤销/重做、预编辑与提交推进；应用新测试覆盖选区移动不重新解析、等长静默标题替换和撤销后正确语法。editor:: 117 项通过、2 项既有手工基准忽略；完整 vendor Base 1,237 + Component 572 项通过，无忽略；workspace all-targets Clippy -D warnings、workspace 与修改 vendor 文件格式、diff 检查通过。
+- 日志 target/backup-cleanup-audit/text-revision-editor.log、text-revision-vendor.log、text-revision-clippy.log。原生收益及此次改动的 Windows CI 待测，4.5982% 最近 CPU 中位数仍按未达标记录。补丁接口契约与验证入口已加入 EDITOR_PATCH.md；无用户笔记进入提交。

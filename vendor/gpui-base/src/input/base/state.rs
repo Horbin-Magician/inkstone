@@ -1624,6 +1624,7 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn default_value(mut self, value: impl Into<SharedString>) -> Self {
         let text: SharedString = value.into();
         self.text = Rope::from(self.normalize_input(&text).as_ref());
+        self.document_revision = self.document_revision.wrapping_add(1);
         if let Some(diagnostics) = self.mode.diagnostics_mut() {
             diagnostics.reset(&self.text)
         }
@@ -1669,6 +1670,14 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// nothing. See [`Self::value`] when an owned string is wanted.
     pub fn text(&self) -> &Rope {
         &self.text
+    }
+
+    /// Revision of this input's text, including silent assignments, history
+    /// replay and IME preedit. Cursor, focus and layout changes do not advance
+    /// it. Compare only within the same entity; this wrapping counter is not a
+    /// persisted version or a content hash. Equal-text replacements may advance it.
+    pub fn text_revision(&self) -> u64 {
+        self.document_revision
     }
 
     /// Return the (0-based) [`Position`] of the cursor.
@@ -7127,6 +7136,39 @@ mod tests {
                 assert_eq!(state.value(), "1,234");
                 state.redo(&Redo, window, cx);
                 assert_eq!(state.value(), "12,345");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn test_text_revision_tracks_silent_history_and_composition_edits(cx: &mut TestAppContext) {
+        let view = InputView::build_textarea(cx, |state| state.default_value("a"));
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        cx.update(|window, cx| {
+            view.input.update(cx, |state, cx| {
+                let mut revision = state.text_revision();
+                state.set_selected_range(0..0, cx);
+                cx.notify();
+                assert_eq!(state.text_revision(), revision);
+                state.set_value("b", window, cx);
+                assert_ne!(state.text_revision(), revision);
+                revision = state.text_revision();
+                state.replace_text_in_range(Some(0..1), "c", window, cx);
+                assert_ne!(state.text_revision(), revision);
+                revision = state.text_revision();
+                state.undo(&Undo, window, cx);
+                assert_eq!(state.value(), "b");
+                assert_ne!(state.text_revision(), revision);
+                revision = state.text_revision();
+                state.redo(&Redo, window, cx);
+                assert_eq!(state.value(), "c");
+                assert_ne!(state.text_revision(), revision);
+                revision = state.text_revision();
+                state.replace_and_mark_text_in_range(Some(0..1), "中", None, window, cx);
+                assert_ne!(state.text_revision(), revision);
+                revision = state.text_revision();
+                state.replace_text_in_range(None, "文", window, cx);
+                assert_ne!(state.text_revision(), revision);
             });
         });
     }
