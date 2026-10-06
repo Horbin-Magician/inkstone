@@ -1290,3 +1290,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 最新 137314d release 第一轮隔离大文档确认正文显示、单字符 x 原生键入和撤销至“已保存”；稳定 30 秒再采样 30 秒。原始记录 target/native-sidebar-lazy-n4ww13o9/1，PID 99324 正常退出，16 个生成 Markdown SHA-256 不变。CPU 约 0.100%、采样 RSS 最大 363.813 MiB，缺少采样期窗口活动记录，仍不据此证明前台预算或优化比例。第二、三实例只准备未启动，暂缓重复相同证据缺口的测量。
 - 新增显式 INKSTONE_TRACE_ACTIVITY 诊断开关，现有两秒定时器记录窗口激活/编辑焦点/加载状态及时间戳，不包含文档数据；新建文件、拒绝覆盖、最多 1,800 条、写入失败后关闭，默认无日志。prepare_macos --trace-activity 将日志绑定到隔离目录；CPU 采样增加可对齐的 Unix 毫秒边界，计算仍使用单调时钟。
 - 1 项 Rust 记录字段/上限/拒绝覆盖测试、4 项真实签名准备工具测试、workspace all-targets Clippy -D warnings、格式/diff 与 Python 语法检查通过。日志 target/backup-cleanup-audit/activity-trace-tests.log、activity-trace-prepare.log、activity-trace-clippy.log。新记录器原生对齐验收待下一轮 release 执行；间隔记录不是连续事件追踪，不能独自证明输入/滚动延迟。
+
+## 展示更新复用未变化的正文字符串（2026-10-06）
+
+- 原生空闲调用栈仍见 Window::draw；代码追踪确认 BlinkCursor 通知 InputState，再经 EditorPane 观察者请求更新。该观察者也承载滚动、选区和布局响应，本次不按猜测屏蔽通知。
+- update_presentation 在非 IME 预编辑路径中先比较借用的 Rope 与 parse_source，正文相同时直接复用已有 SharedString，避免每次光标/几何更新先展平全文；内容不同仍取新正文，上下文版本、选区、搜索和外观的后续判断保持原状。预编辑重定位路径不变。相等判断仍扫描内容，不以长度替代，也不宣称减少重绘次数。
+- editor:: 筛选 116 项通过，2 项既有手工性能基准忽略；workspace all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/presentation-source-tests.log、presentation-source-clippy.log。原生性能幅度尚未复测，保留 4.065% 最近基线与预算未通过状态；无用户笔记进入提交。
