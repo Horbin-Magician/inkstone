@@ -507,3 +507,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 回归新增失败发布后重新打开笔记库复用对象（远端对象不可用且下载次数不增）、损坏暂存强制重新下载并拒绝损坏远端、取消清除部分文件并保留已校验对象、应用前对象变更拒绝。核心全量 227 项通过、2 项忽略；桌面同步相关 27 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 大库用例 `vault::sync::tests::streamed_first_sync_exceeds_former_batch_limit` 默认忽略，显式 release 执行通过：生成 9 个不同的 64 MiB 对象（576 MiB），流式 Remote 禁止 Vec 下载，逐个检查实际文件长度并核对整个库哈希，成功后确认暂存清空。命令：`cargo test --locked --release -p inkstone-core streamed_first_sync_exceeds_former_batch_limit -- --ignored`。本次直接运行构建出的 release 测试二进制，用 `/usr/bin/time -l` 测得 3.93 秒、峰值 RSS 1,219,395,584 字节（约 1.14 GiB），包含样本生成、同步及完整扫描校验；这是内存优化前基线，尚未达到内存受控验收。
 - 日志：`target/sync-staging-tests.log`、`target/sync-staging-desktop-tests.log`、`target/sync-staging-clippy.log`、`target/sync-staging-fmt.log`、`target/sync-staging-large-tests.log`。没有真实 WebDAV 大库、强退/断电及原生界面验收；遗留对象清理、部分下载续传与扫描/应用内存优化待继续。未修改用户笔记。
+
+## 大库同步第三步：流式扫描与基线校验（2026-10-06）
+
+- 扫描、下载目标复核、应用前比较及同步备份复核改为固定 64 KiB 缓冲计算 SHA-256，不再为只需要摘要的操作读取整篇正文。保留文件类型/大小限制，按实际读取字节更新进度；扫描/提交前校验每块检查取消，提交后沿用不可取消规则。
+- 新增空文件、多缓冲二进制、缺失文件、目录、取消分类及超过 128 MiB 的稀疏文件回归。核心全量 228 项通过、2 项忽略；桌面同步相关 27 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 同机、同 release 576 MiB 测试通过，`/usr/bin/time -l` 峰值 RSS 615,481,344 字节（约 587 MiB），相对上一提交的 1,219,395,584 字节降低约 49.5%。本次测试内部耗时 4.33 秒、进程 4.92 秒；运行时另有开发构建，不据此宣称耗时改善。样本与哈希核验不变，下载应用/上传仍使用逐文件 Vec，内存优化尚未结束。
+- 日志：`target/sync-hash-tests.log`、`target/sync-hash-desktop-tests.log`、`target/sync-hash-clippy.log`、`target/sync-hash-fmt.log`、`target/sync-hash-large-tests.log`。未修改用户笔记，未进行真实 WebDAV 大库及原生界面验收。

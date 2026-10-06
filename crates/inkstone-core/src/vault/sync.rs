@@ -194,6 +194,32 @@ fn read_file(path: &Path) -> Result<Option<Vec<u8>>> {
     );
     Ok(Some(bytes))
 }
+// Hashing does not need a complete copy of the file in memory.
+fn fingerprint(path: &Path, cancellation: &Cancellation) -> Result<Option<(String, u64)>> {
+    cancellation.check()?;
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let metadata = file.metadata()?;
+    ensure!(metadata.is_file(), "同步目标不是普通文件");
+    ensure!(metadata.len() <= MAX_FILE_BYTES, "单个同步文件超过 128 MiB");
+    let mut buffer = [0u8; 64 * 1024];
+    let mut digest = Sha256::new();
+    let mut bytes = 0u64;
+    loop {
+        cancellation.check()?;
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        bytes += count as u64;
+        ensure!(bytes <= MAX_FILE_BYTES, "单个同步文件超过 128 MiB");
+        digest.update(&buffer[..count]);
+    }
+    Ok(Some((format!("{:x}", digest.finalize()), bytes)))
+}
 #[cfg(test)]
 fn snapshot(vault: &Vault) -> Result<Files> {
     snapshot_with_progress(vault, Phase::Scanning, &|_| {})
@@ -232,11 +258,11 @@ fn snapshot_cancellable(
             .context("同步文件名必须是 UTF-8")?
             .replace('\\', "/");
         validate_path(&name)?;
-        let bytes =
-            read_file(&vault.regular_file_path(&path)?)?.context("扫描期间文件被删除，请重试")?;
-        files.insert(name, hash(&bytes));
+        let (digest, bytes) = fingerprint(&vault.regular_file_path(&path)?, cancellation)?
+            .context("扫描期间文件被删除，请重试")?;
+        files.insert(name, digest);
         progress.completed += 1;
-        progress.bytes += bytes.len() as u64;
+        progress.bytes += bytes;
         notify(progress.clone());
     }
     validate_manifest(&Manifest {
@@ -571,7 +597,10 @@ pub fn synchronize_cancellable(
         let object = objects.get(digest).unwrap().clone();
         let target = vault.regular_file_path(Path::new(path))?;
         ensure!(
-            read_file(&target)?.as_ref().map(|b| hash(b)).as_ref() == local.get(path),
+            fingerprint(&target, cancellation)?
+                .as_ref()
+                .map(|(digest, _)| digest)
+                == local.get(path),
             "本地文件已变化：{path}"
         );
         downloads.insert(path.clone(), object);
@@ -659,7 +688,10 @@ fn apply(
 ) -> Result<()> {
     let path = vault.regular_file_path(Path::new(relative))?;
     ensure!(
-        read_file(&path)?.as_ref().map(|b| hash(b)).as_ref() == baseline,
+        fingerprint(&path, &Cancellation::default())?
+            .as_ref()
+            .map(|(digest, _)| digest)
+            == baseline,
         "下载期间本地文件已变化：{relative}"
     );
     let parent = path.parent().context("无效的同步路径")?;
@@ -697,7 +729,12 @@ fn apply(
     } else {
         move_no_replace(&path, &backup)?;
     }
-    if baseline.is_some() && read_file(&backup)?.as_ref().map(|b| hash(b)).as_ref() != baseline {
+    if baseline.is_some()
+        && fingerprint(&backup, &Cancellation::default())?
+            .as_ref()
+            .map(|(digest, _)| digest)
+            != baseline
+    {
         bail!(
             "同步时发生本地并发修改，原内容已保留在 {}",
             backup.display()
