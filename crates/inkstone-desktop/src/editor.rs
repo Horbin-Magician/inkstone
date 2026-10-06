@@ -51,7 +51,7 @@ struct PresentationSnapshot {
 }
 
 struct CountSnapshot {
-    source: gpui_base::input::Rope,
+    input_revision: (EntityId, u64),
     selection: std::ops::Range<usize>,
     counts: inkstone_core::word_count::Counts,
 }

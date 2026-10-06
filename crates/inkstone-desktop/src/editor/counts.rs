@@ -5,21 +5,21 @@ use super::*;
 impl EditorPane {
     pub fn text_counts(&mut self, cx: &mut Context<Self>) -> inkstone_core::word_count::Counts {
         let editor = self.editor.read(cx);
-        let source = editor.text();
+        let input_revision = (self.editor.entity_id(), editor.text_revision());
         let selection = if self.reading || editor.selected_range().is_empty() {
             0..0
         } else {
             editor.selected_range()
         };
         if let Some(cache) = &self.count_cache
-            && cache.source == *source
+            && cache.input_revision == input_revision
             && cache.selection == selection
         {
             return cache.counts;
         }
         // Clone the shared rope, not a flattened document. Large count requests
         // materialize text only after the debounce, on the background executor.
-        let source = source.clone();
+        let source = editor.text().clone();
         self.count_revision = self.count_revision.wrapping_add(1);
         let revision = self.count_revision;
         self.count_task = None;
@@ -33,7 +33,7 @@ impl EditorPane {
             selection.len()
         };
         self.count_cache = Some(CountSnapshot {
-            source: source.clone(),
+            input_revision,
             selection: selection.clone(),
             counts: previous,
         });
