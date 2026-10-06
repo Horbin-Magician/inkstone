@@ -1,4 +1,5 @@
 //! Modal container, keyboard navigation, pickers and property controls.
+use super::settings_ui::SettingsFocusTarget;
 use super::ui::{NameMode, icon, tool};
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
@@ -399,7 +400,9 @@ impl Workspace {
                                     .flex_wrap()
                                     .gap_2()
                                     .p_2()
-                                    .child(
+                                    .child(SettingsFocusTarget::new(
+                                        "recovery-refresh-focus",
+                                        &self.ui.recovery_scroll,
                                         Button::new("recovery-refresh")
                                             .label("刷新恢复记录")
                                             .on_click(
@@ -407,15 +410,17 @@ impl Workspace {
                                                     this.refresh_trash(cx)
                                                 }),
                                             ),
-                                    )
-                                    .child(
+                                    ))
+                                    .child(SettingsFocusTarget::new(
+                                        "recovery-history-focus",
+                                        &self.ui.recovery_scroll,
                                         Button::new("recovery-history")
                                             .label("当前笔记版本历史")
                                             .disabled(self.active.is_none())
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.open_history(window, cx)
                                             })),
-                                    ),
+                                    )),
                             )
                             .child(self.sync_recovery_panel(cx))
                             .child(
@@ -429,6 +434,7 @@ impl Workspace {
                             })
                             .children(self.ui.trash.iter().enumerate().map(|(i, e)| {
                                 div()
+                                    .debug_selector(move || format!("recovery-trash-{i}"))
                                     .flex()
                                     .items_center()
                                     .p_2()
@@ -440,7 +446,7 @@ impl Workspace {
                                             .flex()
                                             .flex_col()
                                             .child(
-                                                div().truncate().child(
+                                                div().whitespace_normal().child(
                                                     e.original.to_string_lossy().to_string(),
                                                 ),
                                             )
@@ -450,14 +456,20 @@ impl Workspace {
                                                 ),
                                             )),
                                     )
-                                    .child(
+                                    .child(SettingsFocusTarget::new(
+                                        (ElementId::from(("restore-trash", i)), "focus"),
+                                        &self.ui.recovery_scroll,
                                         Button::new(("restore-trash", i))
+                                            .accessibility_label(format!(
+                                                "从回收站恢复：{}",
+                                                e.original.display()
+                                            ))
                                             .compact()
                                             .label("恢复")
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.restore_deleted(i, cx)
                                             })),
-                                    )
+                                    ))
                             }))
                             .child(
                                 div()
@@ -468,13 +480,14 @@ impl Workspace {
                             .children(self.recoveries.iter().enumerate().map(|(i, e)| {
                                 let time: chrono::DateTime<chrono::Local> = e.modified.into();
                                 div()
+                                    .debug_selector(move || format!("recovery-draft-{i}"))
                                     .flex()
                                     .flex_col()
                                     .gap_1()
                                     .p_2()
                                     .child(
                                         div()
-                                            .truncate()
+                                            .whitespace_normal()
                                             .child(e.record.relative.to_string_lossy().to_string()),
                                     )
                                     .child(div().text_sm().child(format!(
@@ -482,8 +495,15 @@ impl Workspace {
                                         time.format("%Y-%m-%d %H:%M:%S"),
                                         e.bytes as f64 / 1024.
                                     )))
-                                    .child(
+                                    .child(SettingsFocusTarget::new(
+                                        (ElementId::from(("restore-draft", i)), "focus"),
+                                        &self.ui.recovery_scroll,
                                         Button::new(("restore-draft", i))
+                                            .accessibility_label(format!(
+                                                "比较、恢复或放弃草稿：{} · {}",
+                                                e.record.relative.display(),
+                                                time.format("%Y-%m-%d %H:%M:%S")
+                                            ))
                                             .ghost()
                                             .label("比较、恢复或放弃")
                                             .tooltip(
@@ -493,7 +513,7 @@ impl Workspace {
                                                 this.ui.trash_open = false;
                                                 this.review_draft(i, w, cx);
                                             })),
-                                    )
+                                    ))
                             })),
                     )
                 },
@@ -666,5 +686,145 @@ impl Workspace {
                 )
             })
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use inkstone_core::vault::{Recovery, RecoveryEntry, TrashEntry};
+
+    #[gpui::test]
+    fn recovery_controls_scroll_into_view_in_both_keyboard_directions(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.new_blank(window, cx);
+                w.ui.trash_open = true;
+                w.ui.trash = (0..12)
+                    .map(|i| TrashEntry {
+                        stored: PathBuf::from(format!("ui-only-trash/{i}")),
+                        original: PathBuf::from(format!(
+                            "多层目录/较长的回收站原始笔记路径/第{i}篇笔记.md"
+                        )),
+                        directory: false,
+                    })
+                    .collect();
+                w.recoveries = (0..12)
+                    .map(|i| RecoveryEntry {
+                        journal: PathBuf::from(format!("ui-only-drafts/{i}")),
+                        record: Recovery {
+                            root: PathBuf::from("ui-only-vault"),
+                            relative: PathBuf::from(format!(
+                                "多层目录/较长的未保存草稿原始路径/第{i}篇笔记.md"
+                            )),
+                            baseline: Some("original".into()),
+                            draft: "unsaved".into(),
+                        },
+                        modified: std::time::UNIX_EPOCH,
+                        bytes: 123,
+                    })
+                    .collect();
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(800.), px(500.)));
+        let selectors = [
+            "recovery-trash-0",
+            "recovery-trash-1",
+            "recovery-trash-2",
+            "recovery-trash-3",
+            "recovery-trash-4",
+            "recovery-trash-5",
+            "recovery-trash-6",
+            "recovery-trash-7",
+            "recovery-trash-8",
+            "recovery-trash-9",
+            "recovery-trash-10",
+            "recovery-trash-11",
+            "recovery-draft-0",
+            "recovery-draft-1",
+            "recovery-draft-2",
+            "recovery-draft-3",
+            "recovery-draft-4",
+            "recovery-draft-5",
+            "recovery-draft-6",
+            "recovery-draft-7",
+            "recovery-draft-8",
+            "recovery-draft-9",
+            "recovery-draft-10",
+            "recovery-draft-11",
+        ];
+        for rem in [16., 24.] {
+            visual.update(|w, _| w.set_rem_size(px(rem)));
+            for key in ["tab", "shift-tab"] {
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        window.focus(&w.ui.modal_focus, cx)
+                    })
+                    .unwrap();
+                let mut reached = std::collections::BTreeSet::new();
+                let mut focused_controls = Vec::new();
+                for _ in 0..40 {
+                    let keystroke = Keystroke::parse(key).unwrap();
+                    visual.simulate_event(KeyDownEvent {
+                        keystroke: keystroke.clone(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    });
+                    visual.simulate_event(KeyUpEvent { keystroke });
+                    for _ in 0..2 {
+                        visual.update(|w, cx| w.draw(cx).clear(cx));
+                    }
+                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                        handle
+                            .update(&mut visual, |w, window, cx| {
+                                let viewport = w.ui.recovery_scroll.bounds();
+                                assert!(
+                                    viewport.top() >= px(0.)
+                                        && viewport.bottom() <= window.viewport_size().height
+                                );
+                                assert!(
+                                    target.top() >= viewport.top()
+                                        && target.bottom() <= viewport.bottom(),
+                                    "{key}, rem={rem}: {target:?} outside {viewport:?}"
+                                );
+                                let focus = window.focused(cx).unwrap();
+                                if !focused_controls.contains(&focus) {
+                                    focused_controls.push(focus);
+                                }
+                            })
+                            .unwrap();
+                        for (i, selector) in selectors.iter().enumerate() {
+                            if let Some(row) = visual.debug_bounds(selector)
+                                && target.top() >= row.top()
+                                && target.bottom() <= row.bottom()
+                            {
+                                reached.insert(i);
+                            }
+                        }
+                    }
+                }
+                assert_eq!(reached.len(), 24, "{key}, rem={rem}: {reached:?}");
+                assert_eq!(
+                    focused_controls.len(),
+                    26,
+                    "all record controls plus refresh/history"
+                );
+                handle
+                    .update(&mut visual, |w, _, _| {
+                        assert_eq!(w.ui.trash.len(), 12);
+                        assert_eq!(w.recoveries.len(), 12);
+                        assert_eq!(w.ui.pending_file_writes, 0);
+                        assert!(!w.ui.file_operation);
+                        assert!(w.ui.history.is_none());
+                        assert!(w.recoveries.iter().all(|e| e.record.draft == "unsaved"));
+                    })
+                    .unwrap();
+            }
+        }
     }
 }

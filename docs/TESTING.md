@@ -846,3 +846,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增真实历史夹具回归：隔离测试库连续保存十二个含 Unicode 的版本，在 800×500、rem 16/24 下通过 Tab/Shift+Tab/Enter 往返三页，逐页验证所有版本可达、焦点按钮完整处于视口、页外版本不渲染、首尾分页继续导航。翻页期间当前选择及正文记录保留；再用 Enter 选择末页最后一条，验证所选编号、异步加载正文与预览均匹配实际历史文件。磁盘原文保持最新版本，未产生恢复副本或待写操作。
 - 历史模块 7 项回归、恢复相关 16 项回归通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-paging-tests.log`、`target/history-paging-recovery-regressions.log`、`target/history-paging-clippy.log`、`target/history-paging-fmt.log`。所有新增记录均在临时目录，未修改真实用户笔记。
 - 本轮是 GPUI 自动按键和真实历史读取验收，尚未完成新增分页的原生窗口、读屏与 DPI 矩阵；草稿放弃按钮保留既有确认回归，其完整原生键盘路径仍待验证。分页只限制渲染数量，不改变历史清单查询成本。
+
+
+## 恢复首页：草稿与回收站焦点可见性（2026-10-06）
+
+- 刷新、当前笔记历史、回收站恢复及草稿比较按钮接入恢复首页的焦点滚动。回收站恢复的可访问名称包含原路径，草稿操作名称包含原路径与时间；两类记录路径改为换行显示。恢复/放弃的业务状态和确认规则不变。
+- 新增 GPUI 按键回归：两类各十二条合成记录，800×500、rem 16/24，逐一用 Tab/Shift+Tab 遍历。每种组合验证全部二十四条记录及两个入口控件可达，焦点目标完整处于滚动视口，视口处于窗口内；记录数量/草稿正文不变，无待写文件、文件操作或比较弹窗被启动。夹具仅为内存元数据，不创建或删除文件。
+- 新按键回归与恢复相关 17 项回归通过，全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/recovery-controls-tests.log`、`target/recovery-controls-regressions.log`、`target/recovery-controls-clippy.log`、`target/recovery-controls-fmt.log`。
+- 本轮不等同于原生窗口或 VoiceOver 验收，也未改变草稿/回收站列表一次渲染全部记录的成本。实际恢复保护沿用已有独立回归，新增测试只验证导航；未修改真实用户笔记。
