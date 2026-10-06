@@ -10,7 +10,7 @@ pub(super) struct State {
     pub capacity: super::backup_capacity::State,
     pub pending: Option<PathBuf>,
     pub busy: bool,
-    picker_open: bool,
+    pub(super) picker_open: bool,
     last_attempt: u64,
     output: Option<PathBuf>,
     message: String,
@@ -237,6 +237,7 @@ impl Workspace {
                 this.ui.backup.busy = false;
                 match result {
                     Ok(manifest) => {
+                        this.ui.backup.picker_open = true;
                         let detail = format!("来源：{}\n文件：{}\n大小：{:.1} MiB\n所有文件已通过内容校验。接下来选择一个新目录，现有笔记库不会被覆盖。", manifest.source_name, manifest.files.len(), manifest.bytes() as f64 / 1048576.);
                         let prompt = window.prompt(PromptLevel::Info, "恢复备份为新笔记库", Some(&detail), &["选择恢复位置", "取消"], cx);
                         Some((manifest, prompt))
@@ -245,12 +246,21 @@ impl Workspace {
                 }
             }).ok().flatten();
             let Some((manifest, prompt)) = prompt else { return };
-            if prompt.await != Ok(0) { return; }
+            if prompt.await != Ok(0) {
+                let _ = this.update(cx, |this, cx| {
+                    if this.generation == generation { this.ui.backup.picker_open = false; cx.notify(); }
+                });
+                return;
+            }
             let dialog = this.update(cx, |this, cx| {
                 (this.generation == generation).then(|| cx.prompt_for_new_path(source.parent().unwrap_or(&source), Some("恢复的笔记库")))
             }).ok().flatten();
             let Some(dialog) = dialog else { return };
-            if let Ok(Ok(Some(destination))) = dialog.await {
+            let result = dialog.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.generation == generation { this.ui.backup.picker_open = false; cx.notify(); }
+            });
+            if let Ok(Ok(Some(destination))) = result {
                 let _ = this.update(cx, |this, cx| this.restore_backup(source, destination, manifest, generation, cx));
             }
         }).detach();
