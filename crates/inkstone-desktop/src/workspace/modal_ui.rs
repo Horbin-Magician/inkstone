@@ -451,7 +451,7 @@ impl Workspace {
                                                     e.original.to_string_lossy().to_string(),
                                                 ),
                                             )
-                                            .child(div().text_sm().child(
+                                            .child(div().text_sm().whitespace_normal().child(
                                                 super::recovery::trash_details(
                                                     self.ui.trash_metadata.get(&e.stored),
                                                 ),
@@ -491,10 +491,13 @@ impl Workspace {
                                             .whitespace_normal()
                                             .child(e.relative.to_string_lossy().to_string()),
                                     )
-                                    .child(div().text_sm().child(format!(
-                                        "草稿 · {} · {:.1} KiB · 恢复或放弃前保留",
-                                        time.format("%Y-%m-%d %H:%M:%S"),
-                                        e.bytes as f64 / 1024.
+                                    .child(div().text_sm().whitespace_normal().child(format!(
+                                        "{} · 恢复或放弃前保留",
+                                        super::recovery_metadata::Metadata {
+                                            source: super::recovery_metadata::Source::Draft,
+                                            modified: Some(e.modified),
+                                            bytes: Some(e.bytes),
+                                        }.label()
                                     )))
                                     .child(FocusReveal::new(
                                         (ElementId::from(("restore-draft", i)), "focus"),

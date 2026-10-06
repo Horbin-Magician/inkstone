@@ -1395,3 +1395,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - c06bab1 release 构建完成，采样记录保存在 target/native-draft-idle-48l65n5a。前两轮活动条件满足但 CPU 仍超过预算；第三轮活动条件不完整，低值不用于达标判断。详见 PERFORMANCE_BASELINE.md。
 - 收到用户“跳过这一性能优化环节”后退出最后一个隔离实例，不再采集调用栈或继续性能改动。三个测试进程退出、生成库散列均已核验。后续转回其他待办，性能剩余工作按用户要求跳过，不标记验收通过。
 - 文档 diff 检查通过；真实笔记未进入提交。
+
+## 恢复记录共用展示元数据（2026-10-06）
+
+- 新增 recovery_metadata 展示模型，草稿、所选历史版本、回收站及同步备份共用来源、时间和容量格式。草稿/历史标记“记录文件”，回收站/同步备份标记“恢复内容”；显示准确字节数及 KiB，不将未知大小写成零。原路径、保留策略及原有恢复授权/校验仍由现有流程维护，展示模型不作为恢复凭据。
+- 新测试覆盖四类来源的容量口径、未知时间/大小、零字节与非整 KiB 内容；recovery 筛选 22 项全部通过，涵盖历史重命名、副本恢复、过期记录、未保存保护、恢复入口及键盘翻页。为较长元数据增加换行后，单独复验恢复首页双向键盘焦点滚动。
+- workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/recovery-metadata-{tests,layout,clippy}.log。原生 DPI/读屏验收仍待完成，未改动真实笔记。
+- GitHub run 37443802450 的 macOS/Windows 工作区与 vendor 四项 jobs 全部 completed/success，覆盖 0aa54f2（含字体投影）；不覆盖之后提交。本轮按用户要求未继续性能优化。

@@ -42,18 +42,12 @@ pub(super) fn preview_text(text: &str) -> String {
 }
 
 pub(super) fn trash_details(metadata: Option<&inkstone_core::vault::TrashMetadata>) -> String {
-    let time = metadata
-        .and_then(|m| m.modified)
-        .map(|t| {
-            let time: chrono::DateTime<chrono::Local> = t.into();
-            time.format("%Y-%m-%d %H:%M:%S").to_string()
-        })
-        .unwrap_or_else(|| "时间未知".into());
-    let size = metadata
-        .and_then(|m| m.bytes)
-        .map(|n| format!("{:.1} KiB", n as f64 / 1024.))
-        .unwrap_or_else(|| "大小未知".into());
-    format!("回收站 · {time} · {size}")
+    super::recovery_metadata::Metadata {
+        source: super::recovery_metadata::Source::Trash,
+        modified: metadata.and_then(|m| m.modified),
+        bytes: metadata.and_then(|m| m.bytes),
+    }
+    .label()
 }
 
 fn retention_label(policy: inkstone_core::vault::Retention) -> String {
@@ -583,11 +577,13 @@ impl Workspace {
             }))
             .when_some(browser.selected.and_then(|i| browser.entries.get(i)), |s, entry| {
                 s.child(div().text_sm().whitespace_normal().child(format!(
-                    "所选记录 {} · {} · 记录文件 {} 字节（{:.1} KiB）",
+                    "所选记录 {} · {}",
                     browser.selected.unwrap_or_default() + 1,
-                    if entry.saved { "保存历史" } else { "未保存恢复记录" },
-                    entry.bytes,
-                    entry.bytes as f64 / 1024.
+                    super::recovery_metadata::Metadata {
+                        source: if entry.saved { super::recovery_metadata::Source::History } else { super::recovery_metadata::Source::Draft },
+                        modified: Some(entry.modified),
+                        bytes: Some(entry.bytes),
+                    }.label()
                 )))
             })
             .child(div().text_sm().whitespace_normal().child(
