@@ -534,3 +534,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 同步取得笔记库独占锁后，在扫描/联网及启动下载工作线程前清理当前远端暂存目录中的未完成文件。仅匹配应用生成的三个非空数字字段加 `.partial`，且必须是普通非链接文件；不递归、不处理完整对象或恢复记录。删除失败报告错误，避免静默跳过积累问题；每个条目前检查取消。
 - 回归覆盖持有同步锁时拒绝第二次同步且不清理、释放锁后清理、其他远端及其他笔记库隔离、完整对象保留、未知名称/目录/符号链接保留、草稿原文保留。真实子进程 kill 回归增加重启同步后暂存目录清空断言，同时保持已完成对象不重新下载的检查。
 - 核心全量 231 项通过、2 项忽略；桌面同步相关 27 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/sync-partial-cleanup-tests.log`、`target/sync-partial-cleanup-desktop-tests.log`、`target/sync-partial-cleanup-clippy.log`、`target/sync-partial-cleanup-fmt.log`。本次仅自动清理不可复用的部分下载；完整对象及恢复记录的容量预览/受保护清理仍待实现。未修改用户笔记。
+
+## 大库上传第一步：文件传输接口（2026-10-06）
+
+- 新增 `Remote::upload_file`，契约要求调用方提供私有不可变文件快照。WebDAV 按固定缓冲校验摘要/大小，复位文件游标，通过有明确长度的文件 Body 发送，避免传输接口再复制整份正文；原切片接口保留，二者共用条件创建和 412 已存在对象校验。主同步流程尚未调用新接口，上传内存验收尚未完成，后续须先构造隔离用户编辑的快照。
+- 真实本地 HTTP 回归覆盖 200,003 字节完整请求正文、非零初始游标复位、Content-Length、If-None-Match、错误摘要及超限拒绝，以及已存在对象正确/损坏的复核结果。核心全量 232 项通过、2 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/sync-upload-file-tests.log`、`target/sync-upload-file-clippy.log`、`target/sync-upload-file-fmt.log`。未做真实 WebDAV 服务商或大文件上传峰值验收，未修改用户笔记。
