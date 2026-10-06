@@ -232,7 +232,10 @@ impl Workspace {
                     "调整编辑和阅读视图的正文字号，单位为像素。",
                     div()
                         .w(px(160.))
-                        .child(Slider::new(&self.ui.font_size_slider)),
+                        .debug_selector(|| "font-size-slider".into())
+                        .child(
+                            Slider::new(&self.ui.font_size_slider).accessibility_label("字体大小"),
+                        ),
                     true,
                     20.,
                 ),

@@ -21,6 +21,7 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令；合入�
 | Base tree 与 Component tree/resizable | 文件树选择与可控工作区布局 | 两包 library 全量；应用文件树与分屏回归 |
 | Component input | 编辑器属性透传、补全菜单排版、Unicode 高亮、菜单定位 | Component library 全量；应用补全回归 |
 | Component menu | 点击修饰键透传、长按与拖拽菜单、实际事件传递 | Component library 全量；workspace navigation 回归 |
+| Base/Component slider | 单值滑块键盘焦点、方向/边界键、用户调整事件及可访问名称 | 两包 library 全量（slider::tests）；应用 settings_sliders_accept_keyboard_changes_and_keep_focus |
 | Component switch/title_bar | 设置开关尺寸、标题栏内容收缩 | Component library 全量；设置滚动/点击回归和原生视觉验收 |
 
 具体行为与升级注意事项见 [编辑补丁说明](EDITOR_PATCH.md) 和 [Component 补丁说明](../vendor/gpui-component/INKSTONE_PATCHES.md)。自动测试不替代原生候选窗、DPI、滚动与输入延迟验收。
@@ -29,6 +30,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令；合入�
 
 
 修改的上游文件：
+
+- `src/slider.rs`（2026-10-06 补充）
 
 
 - `src/input/base/cursor.rs`
@@ -126,6 +129,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令；合入�
 
 
 修改的上游文件：
+
+- `src/slider.rs`（2026-10-06 补充）
 
 
 - `src/input/editor.rs`

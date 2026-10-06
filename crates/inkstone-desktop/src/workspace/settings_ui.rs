@@ -612,14 +612,19 @@ impl Workspace {
         .enumerate()
         .map(|(i, setting)| self.editor_setting_row(setting, i > 0, cx))
         .collect();
-        behavior.push(self.settings_row(
-            "tab-size-row",
-            &format!("制表符宽度  {}", self.ui.prefs.tab_size),
-            "设置制表符对应的空格数。",
-            div().w(px(160.)).child(Slider::new(&self.ui.tab_width)),
-            true,
-            20.,
-        ));
+        behavior.push(
+            self.settings_row(
+                "tab-size-row",
+                &format!("制表符宽度  {}", self.ui.prefs.tab_size),
+                "设置制表符对应的空格数。",
+                div()
+                    .w(px(160.))
+                    .debug_selector(|| "tab-width-slider".into())
+                    .child(Slider::new(&self.ui.tab_width).accessibility_label("制表符宽度")),
+                true,
+                20.,
+            ),
+        );
         let card = crate::theme::palette(self.ui.prefs.light).surface;
         div()
             .flex()

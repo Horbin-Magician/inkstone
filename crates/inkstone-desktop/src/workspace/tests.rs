@@ -5082,3 +5082,90 @@ fn settings_rows_reveal_keyboard_focus_in_both_directions(cx: &mut TestAppContex
         }
     }
 }
+
+#[gpui::test]
+fn settings_sliders_accept_keyboard_changes_and_keep_focus(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    cx.run_until_parked();
+    handle
+        .update(cx, |w, window, cx| {
+            w.add_tab("keyboard.md".into(), Some("原文".into()), false, window, cx)
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(800.), px(500.)));
+    for (tab, selector, minimum, maximum) in [
+        (0, "tab-width-slider", 2., 8.),
+        (5, "font-size-slider", 10., 30.),
+    ] {
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.settings = true;
+                w.ui.settings_tab = tab;
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let mut found = false;
+        for _ in 0..35 {
+            let keystroke = Keystroke::parse("tab").unwrap();
+            visual.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(KeyUpEvent { keystroke });
+            for _ in 0..2 {
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            if visual.debug_bounds("settings-focused-control") == visual.debug_bounds(selector) {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "{selector} must be reachable by Tab");
+        let focus = visual.update(|window, cx| window.focused(cx).unwrap());
+        for (key, expected) in [
+            ("home", minimum),
+            ("right", minimum + 1.),
+            ("end", maximum),
+            ("up", maximum),
+            ("left", maximum - 1.),
+        ] {
+            let keystroke = Keystroke::parse(key).unwrap();
+            visual.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(KeyUpEvent { keystroke });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    assert!(
+                        focus.is_focused(window),
+                        "changing the displayed value must not replace focus"
+                    );
+                    let pane = w.current_pane().unwrap();
+                    if tab == 0 {
+                        assert_eq!(w.ui.prefs.tab_size as f32, expected);
+                        assert_eq!(pane.read(cx).indentation.tab_size as f32, expected);
+                    } else {
+                        assert_eq!(w.ui.prefs.font_size, expected);
+                        assert_eq!(pane.read(cx).font_size, expected);
+                    }
+                    assert_eq!(pane.read(cx).editor.read(cx).value().as_ref(), "原文");
+                })
+                .unwrap();
+        }
+        let keystroke = Keystroke::parse("shift-tab").unwrap();
+        visual.simulate_event(KeyDownEvent {
+            keystroke: keystroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        visual.simulate_event(KeyUpEvent { keystroke });
+        visual.update(|window, _| assert!(!focus.is_focused(window)));
+    }
+}

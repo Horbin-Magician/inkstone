@@ -4,8 +4,8 @@ use std::ops::Range;
 use gpui::{
     AccessibleAction, Along, AnyElement, App, AppContext as _, Axis, Bounds, Context, Div,
     DragMoveEvent, Empty, Entity, EntityId, EventEmitter, InteractiveElement, IntoElement,
-    MouseButton, MouseDownEvent, Orientation, ParentElement, Pixels, Point, Render, RenderOnce,
-    Role, StatefulInteractiveElement, StyleRefinement, Styled, Window, div,
+    KeyDownEvent, MouseButton, MouseDownEvent, Orientation, ParentElement, Pixels, Point, Render,
+    RenderOnce, Role, StatefulInteractiveElement, StyleRefinement, Styled, Window, div,
     prelude::FluentBuilder as _, px,
 };
 
@@ -15,7 +15,7 @@ use crate::{element_ext::ElementExt, geometry::AxisExt};
 pub enum SliderEvent {
     /// Emitted continuously while the slider value is being changed by the user.
     Change(SliderValue),
-    /// Emitted once when the user releases the slider after a drag or click.
+    /// Emitted after a drag/click, or each discrete keyboard/accessibility adjustment.
     Release(SliderValue),
 }
 
@@ -338,6 +338,47 @@ impl SliderState {
         }
     }
 
+    // Discrete user adjustments must notify the same subscribers as pointer
+    // interaction. Keep a range's start intact when adjusting its end.
+    fn adjust_end(&mut self, value: f32, window: &mut Window, cx: &mut Context<Self>) {
+        let minimum = if self.value.is_range() {
+            self.value.start().max(self.min)
+        } else {
+            self.min
+        };
+        let value = value.clamp(minimum, self.max);
+        if value == self.value.end() {
+            return;
+        }
+        let mut next = self.value;
+        next.set_end(value);
+        self.set_value(next, window, cx);
+        cx.emit(SliderEvent::Change(self.value));
+        cx.emit(SliderEvent::Release(self.value));
+    }
+
+    fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let key = &event.keystroke;
+        if key.modifiers.control
+            || key.modifiers.alt
+            || key.modifiers.platform
+            || key.modifiers.shift
+        {
+            return;
+        }
+        let next = match key.key.as_str() {
+            "right" | "up" => self.value.end() + self.step,
+            "left" | "down" => self.value.end() - self.step,
+            "home" => self.min,
+            "end" => self.max,
+            "pageup" => self.value.end() + self.step * 10.,
+            "pagedown" => self.value.end() - self.step * 10.,
+            _ => return,
+        };
+        self.adjust_end(next, window, cx);
+        cx.stop_propagation();
+    }
+
     /// Update value by mouse position
     #[doc(hidden)]
     pub fn update_value_by_position(
@@ -466,11 +507,23 @@ impl Styled for Slider {
     }
 }
 
+impl InteractiveElement for Slider {
+    fn interactivity(&mut self) -> &mut gpui::Interactivity {
+        self.base.interactivity()
+    }
+}
+impl StatefulInteractiveElement for Slider {}
+
 impl RenderOnce for Slider {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let axis = self.axis;
         let entity_id = self.state.entity_id();
+        let focus = window
+            .use_keyed_state(("slider-focus", entity_id), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
         let state = self.state.read(cx);
+        let single = state.value().is_single();
         let slider_state = self.state.clone();
 
         self.base
@@ -486,25 +539,31 @@ impl RenderOnce for Slider {
             } else {
                 Orientation::Horizontal
             })
-            .on_a11y_action(AccessibleAction::Increment, {
-                let state = slider_state.clone();
-                move |_, window, cx| {
-                    state.update(cx, |state, cx| {
-                        let value =
-                            (state.value().end() + state.step_value()).min(state.max_value());
-                        state.set_value(value, window, cx);
-                    });
-                }
-            })
-            .on_a11y_action(AccessibleAction::Decrement, {
-                let state = slider_state.clone();
-                move |_, window, cx| {
-                    state.update(cx, |state, cx| {
-                        let value =
-                            (state.value().end() - state.step_value()).max(state.min_value());
-                        state.set_value(value, window, cx);
-                    });
-                }
+            .when(!self.disabled, |this| {
+                this.when(single, |this| {
+                    this.track_focus(&focus.tab_index(0).tab_stop(true))
+                        .on_key_down(
+                            window.listener_for(&self.state, |state, event, window, cx| {
+                                state.key_down(event, window, cx)
+                            }),
+                        )
+                })
+                .on_a11y_action(AccessibleAction::Increment, {
+                    let state = slider_state.clone();
+                    move |_, window, cx| {
+                        state.update(cx, |state, cx| {
+                            state.adjust_end(state.value().end() + state.step_value(), window, cx)
+                        })
+                    }
+                })
+                .on_a11y_action(AccessibleAction::Decrement, {
+                    let state = slider_state.clone();
+                    move |_, window, cx| {
+                        state.update(cx, |state, cx| {
+                            state.adjust_end(state.value().end() - state.step_value(), window, cx)
+                        })
+                    }
+                })
             })
             .when(!self.disabled, |this| {
                 this.on_mouse_up(
@@ -798,6 +857,128 @@ impl SliderState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct KeyboardSlider {
+        state: Entity<SliderState>,
+        disabled: bool,
+    }
+
+    impl Render for KeyboardSlider {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().child(
+                Slider::new(&self.state)
+                    .disabled(self.disabled)
+                    .w(px(200.))
+                    .h(px(32.)),
+            )
+        }
+    }
+
+    fn press(cx: &mut gpui::VisualTestContext, key: &str) {
+        let keystroke = gpui::Keystroke::parse(key).unwrap();
+        cx.simulate_event(KeyDownEvent {
+            keystroke: keystroke.clone(),
+            is_held: false,
+            prefer_character_input: false,
+        });
+        cx.simulate_event(gpui::KeyUpEvent { keystroke });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    #[gpui::test]
+    fn inkstone_single_slider_keyboard_clamps_and_emits_user_events(cx: &mut gpui::TestAppContext) {
+        let state = cx.new(|_| {
+            SliderState::new()
+                .min(2.)
+                .max(8.)
+                .step(0.5)
+                .default_value(4.)
+        });
+        let (_, cx) = cx.add_window_view(|_, _| KeyboardSlider {
+            state: state.clone(),
+            disabled: false,
+        });
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let _subscription = cx.update(|_, cx| {
+            let events = events.clone();
+            cx.subscribe(&state, move |_, event: &SliderEvent, _| {
+                events.borrow_mut().push(match event {
+                    SliderEvent::Change(v) => ("change", *v),
+                    SliderEvent::Release(v) => ("release", *v),
+                });
+            })
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.focus_next(cx);
+            assert!(window.focused(cx).is_some());
+            window.draw(cx).clear(cx);
+        });
+        for (key, expected) in [
+            ("right", 4.5),
+            ("up", 5.),
+            ("left", 4.5),
+            ("down", 4.),
+            ("end", 8.),
+            ("right", 8.),
+            ("home", 2.),
+            ("left", 2.),
+            ("pageup", 7.),
+            ("pagedown", 2.),
+            ("ctrl-right", 2.),
+            ("shift-right", 2.),
+            ("tab", 2.),
+        ] {
+            press(cx, key);
+            assert_eq!(
+                state.read_with(cx, |s, _| s.value()),
+                SliderValue::Single(expected),
+                "{key}"
+            );
+        }
+        let events = events.borrow();
+        assert_eq!(events.len(), 16);
+        for pair in events.chunks_exact(2) {
+            assert_eq!(pair[0].0, "change");
+            assert_eq!(pair[1], ("release", pair[0].1));
+        }
+    }
+
+    #[gpui::test]
+    fn inkstone_disabled_slider_is_not_a_tab_stop(cx: &mut gpui::TestAppContext) {
+        let state = cx.new(|_| SliderState::new().default_value(4.));
+        let (_, cx) = cx.add_window_view(|_, _| KeyboardSlider {
+            state: state.clone(),
+            disabled: true,
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.focus_next(cx);
+            assert!(window.focused(cx).is_none());
+        });
+        press(cx, "right");
+        assert_eq!(
+            state.read_with(cx, |s, _| s.value()),
+            SliderValue::Single(4.)
+        );
+    }
+
+    #[gpui::test]
+    fn inkstone_discrete_adjustment_preserves_range(cx: &mut gpui::TestAppContext) {
+        let state = cx.new(|_| SliderState::new().min(0.).max(10.).default_value((3., 8.)));
+        let (_, cx) = cx.add_window_view(|_, _| KeyboardSlider {
+            state: state.clone(),
+            disabled: false,
+        });
+        cx.update(|window, cx| {
+            state.update(cx, |s, cx| {
+                s.adjust_end(2., window, cx);
+                assert_eq!(s.value(), SliderValue::Range(3., 3.));
+                s.adjust_end(20., window, cx);
+                assert_eq!(s.value(), SliderValue::Range(3., 10.));
+            })
+        });
+    }
 
     #[test]
     fn legacy_value_conversions_and_clamping_are_preserved() {
