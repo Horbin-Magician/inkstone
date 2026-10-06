@@ -1535,3 +1535,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 清理改用独立取消错误，不再沿用同步的“未发布清单或修改本地文件”文案；取消可能发生在部分删除之后，界面明确不回滚已完成操作。
 - GPUI 新增停止请求、重复请求、退出前互斥、退出后释放/刷新及候选正文保留回归。后端中断恢复回归增加取消类型与文案断言。8 项桌面同步恢复及 9 项清理后端测试通过；全工作区 all-targets Clippy、格式和 diff 检查通过。日志 target/backup-cleanup-audit/sync-cleanup-cancel-{tests,core,clippy}.log。
 - 真实进程中断及新增停止控件原生验收仍待补齐。远端 37453169144 的 macOS 工作区测试失败：恢复键盘滚动回归期望 26 个控件、实际 27 个；两平台 vendor 已通过，Windows 工作区仍在运行。失败日志保留在 target/backup-cleanup-audit/ci-37453169144-macos.log，下一步核对新增预览按钮与测试计数。
+
+
+## 恢复页新增预览按钮的键盘回归计数（2026-10-06）
+
+- 复现远端 macOS 失败：recovery_controls_scroll_into_view_in_both_keyboard_directions 实际遍历 27 个控件，旧断言仍要求 26 个。新增同步保留预览按钮使固定计数过时。
+- 预期改为 24 条恢复记录加刷新、历史、同步保留预览三个控件；仍要求每条记录都被遍历，并在 800×500、16/24 rem、Tab/Shift-Tab 下逐步断言目标位于滚动可视区域。不放宽可见性或完整遍历要求。
+- 修改前定向测试确实失败，修改后对应测试通过；格式与 diff 检查通过。日志 target/backup-cleanup-audit/recovery-preview-focus-{before,tests}.log。此改动仅修正测试预期，不替代新增清理按钮的原生验收。
