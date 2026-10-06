@@ -1656,3 +1656,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 首次定向运行发现测试仅有一个候选，DELETE 后新预览已无候选，准备接口正确拒绝空计划；改为两个候选以验证实际剩余清理。最终核心全量 322 通过、3 个既有手动入口忽略；核心 all-targets Clippy `-D warnings`、格式和 diff 检查通过。最终日志 `target/backup-cleanup-audit/cloud-cleanup-kill-{core-tests,clippy}.log`，早期 `cloud-cleanup-kill-tests.log` 保留失败诊断。
 - 该实验覆盖客户端进程被杀和远端变更结果未知，不模拟服务端进程崩溃、物理断电、真实服务商锁过期调度，也不代替原生 GUI 强退验收。无性能测量、Linux 适配或真实用户数据。
 - [CI 37471917936](https://github.com/Horbin-Magician/inkstone/actions/runs/37471917936) 对应 ad598d5，macOS/Windows 工作区及 vendor 四项全部成功，覆盖清理界面及此前有状态交错；本轮强退用例尚待推送后的远端检查。
+
+## 云端清理 macOS 原生基本流程（2026-10-06）
+
+- 使用 36362e7 release、隔离 XDG_DATA_HOME 与生成笔记库，准备工具仅用于签名/隔离，不做性能测量。测试服务只监听 127.0.0.1，以生成正文及真实 SHA-256 提供一个当前对象和两个旧对象；无真实账号或用户笔记。
+- 在 1200×820 逻辑窗口（截图 2400×1640）中，从地址字段以 Tab 到达预览，Return 打开预览，再 Tab/Return 进入确认。说明及升级警告可换行显示；滚动后确认与取消完整可见。取消后请求日志仅含 5 次 GET/PROPFIND，无远端修改。
+- 编辑器粘贴中文/emoji 标记后保持未保存，重新确认清理，原生界面显示成功删除 2 对象、24 字节。服务状态验证 version 2 / generation 1、仅剩当前引用且锁已释放；请求记录恰有两个 DELETE。AX 中标记与“尚未保存”仍在，原 Markdown SHA-256 未变。随后撤销测试输入至“已保存”并退出，进程列表确认测试应用关闭；测试服务也停止。
+- 证据位于 `target/native-cloud-cleanup-36362e7/`：`preparation.json`、`requests.jsonl`、`remote-state.json`、`verification.txt`、`after-cleanup.ax.txt`、`cleanup-success.png`。构建/准备日志在 `target/backup-cleanup-audit/cloud-cleanup-native-{build,preparation}.log`。
+- 本轮没有触发此前初始加载画面停滞，但不能据此宣称已修复。拖动缩小窗口未改变尺寸，最小窗口未记通过；放大字体、不同 DPI、VoiceOver、执行中停止、原生强退及真实服务商仍待验收。
