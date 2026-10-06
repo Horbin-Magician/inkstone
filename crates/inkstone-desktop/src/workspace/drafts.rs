@@ -36,9 +36,21 @@ impl Workspace {
             if document.persistence.is_saving() || document.editor.read(cx).is_composing() {
                 continue;
             }
+            let dirty = document.persistence.is_dirty();
+            // Most idle tabs need neither a snapshot nor a cleanup. Keep pending
+            // writes/clears on the normal path so a late write is still retired.
+            if !dirty
+                && document
+                    .draft
+                    .borrow()
+                    .as_ref()
+                    .is_none_or(|state| !state.busy && state.completed.as_ref() == Some(&None))
+            {
+                continue;
+            }
             let text = document.editor.read(cx).value();
             let path = document.path.borrow().clone();
-            let target = document.persistence.is_dirty().then_some(text.clone());
+            let target = dirty.then_some(text.clone());
             let mut slot = document.draft.borrow_mut();
             if slot.as_ref().is_none_or(|s| s.path != path) {
                 if target.is_none() {
@@ -167,6 +179,8 @@ mod tests {
         let now = Instant::now();
         handle
             .update(cx, |w, window, cx| {
+                w.tick_drafts_at(now, cx);
+                assert!(w.tabs[0].save.draft.borrow().is_none());
                 let editor = w.tabs[0].save.editor.clone();
                 editor.update(cx, |s, cx| s.set_value("first", window, cx));
                 w.flush_document_views(window, cx);
@@ -280,6 +294,37 @@ mod tests {
                 assert!(w.vault.as_ref().unwrap().recoveries().unwrap().is_empty())
             })
             .unwrap();
+        // A cleared draft may stay idle, then resume protection on a new edit.
+        handle
+            .update(cx, |w, window, cx| {
+                for seconds in 8..12 {
+                    w.tick_drafts_at(now + Duration::from_secs(seconds), cx);
+                }
+                assert!(w.vault.as_ref().unwrap().recoveries().unwrap().is_empty());
+                assert!(!w.tabs[0].save.draft.borrow().as_ref().unwrap().busy);
+                w.tabs[0].save.editor.clone().update(cx, |s, cx| {
+                    s.set_value("new edit after idle", window, cx);
+                });
+                w.flush_document_views(window, cx);
+                w.tick_drafts_at(now + Duration::from_secs(12), cx);
+                w.tick_drafts_at(now + Duration::from_secs(14), cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(
+                    w.vault.as_ref().unwrap().recoveries().unwrap()[0]
+                        .record
+                        .draft,
+                    "new edit after idle"
+                );
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("vault/note.md")).unwrap(),
+            "original"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
     #[gpui::test]
