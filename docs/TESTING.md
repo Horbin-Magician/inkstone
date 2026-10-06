@@ -1302,3 +1302,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - [GitHub Actions run 37435652092](https://github.com/Horbin-Magician/inkstone/actions/runs/37435652092)，精确 HEAD 2b832587b70dc8903a32b1185f5b51fe6fa336be，四项工作区/vendor jobs 全部 completed/success，完整日志 target/ci-all-37435652092.log 已下载核对。
 - macOS 核心 275 通过/3 既有忽略、桌面 349 通过/2 既有忽略；Windows 核心 265 通过/3 既有忽略、桌面 346 通过/2 既有忽略。另两平台各 8 项集成测试、格式及 Clippy 通过；vendor 两平台各 1,808 项通过且无忽略。子进程回归的单独输出不重复计入核心总数。
 - 本轮覆盖大纲共享快照/虚拟化、字数 Rope 缓存和链接更新独占准入，不覆盖 137314d 起的隐藏分类惰性准备、f9bdc1b 活动诊断及 87c35ea 展示正文复用。自动通过不替代原生 IME、真实 WebDAV 或性能预算验收。文档经 diff 检查，无用户笔记进入提交。
+
+## 大纲标题键盘跳转（2026-10-06）
+
+- 大纲标题跳转由普通点击区域改为可聚焦按钮，可访问名称包含标题级别和标题文本；折叠按钮仍独立操作，虚拟列表继续使用固定行高。
+- 扩展 501 个标题的虚拟列表回归：滚动后点击末尾标题仍定位正确；筛选到末尾标题后，从筛选输入按 Tab，再分别按 Enter/Space，均跳转到正确源码位置并将焦点交回编辑器，正文和筛选文字不变；清除筛选后折叠仍正确。
+- outline 筛选共 3 项通过（含 1 项原生图形同名筛选测试），全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/outline-keyboard-tests.log、outline-keyboard-clippy.log。本次是组件事件回归，不替代原生读屏和长列表完整键盘遍历验收；无用户笔记进入提交。
