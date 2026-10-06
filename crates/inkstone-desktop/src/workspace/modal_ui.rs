@@ -820,8 +820,8 @@ mod tests {
                 assert_eq!(reached.len(), 24, "{key}, rem={rem}: {reached:?}");
                 assert_eq!(
                     focused_controls.len(),
-                    26,
-                    "all record controls plus refresh/history"
+                    selectors.len() + 3,
+                    "all record controls plus refresh/history/sync retention preview"
                 );
                 handle
                     .update(&mut visual, |w, _, _| {
