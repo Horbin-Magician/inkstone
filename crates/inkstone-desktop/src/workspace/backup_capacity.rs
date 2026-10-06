@@ -647,7 +647,7 @@ mod tests {
                 for page in 0..3 {
                     let start = page * RECORDS_PER_PAGE;
                     let end = (start + RECORDS_PER_PAGE).min(12);
-                    let mut reached = std::collections::BTreeSet::new();
+                    let mut reached = Vec::new();
                     for _ in 0..65 {
                         key(&mut visual, "tab");
                         if let Some(target) = visual.debug_bounds("settings-focused-control") {
@@ -671,21 +671,35 @@ mod tests {
                                     && target.top() >= row.top()
                                     && target.bottom() <= row.bottom()
                                 {
-                                    reached.insert(i);
+                                    let focus =
+                                        visual.update(|window, cx| window.focused(cx).unwrap());
+                                    if !reached.contains(&(i, focus.clone())) {
+                                        reached.push((i, focus));
+                                    }
                                 }
                             }
                         }
                     }
-                    assert_eq!(
-                        reached,
-                        (start..end).collect(),
-                        "rem={rem}, interrupted={interrupted}, page={page}"
-                    );
-                    assert!(
-                        visual
-                            .debug_bounds(records[if interrupted { 5 } else { end }])
-                            .is_none()
-                    );
+                    for i in start..end {
+                        assert_eq!(
+                            reached.iter().filter(|(row, _)| *row == i).count(),
+                            if interrupted { 2 } else { 1 },
+                            "rem={rem}, interrupted={interrupted}, page={page}, record={i}: every operation must be reachable"
+                        );
+                    }
+                    let selectors = if interrupted {
+                        &interrupted_records
+                    } else {
+                        &records
+                    };
+                    for (i, selector) in selectors.iter().enumerate() {
+                        if !(start..end).contains(&i) {
+                            assert!(
+                                visual.debug_bounds(selector).is_none(),
+                                "off-page record {i} must not be rendered"
+                            );
+                        }
+                    }
                     if page < 2 {
                         let selector = if interrupted {
                             "backup-page-true-true"
@@ -706,7 +720,7 @@ mod tests {
                         assert!(found, "next-page button must be keyboard reachable");
                         key(&mut visual, "enter");
                         handle
-                            .update(&mut visual, |w, _, _| {
+                            .update(&mut visual, |w, window, cx| {
                                 assert_eq!(
                                     if interrupted {
                                         w.ui.backup.capacity.interrupted_page
@@ -714,45 +728,59 @@ mod tests {
                                         w.ui.backup.capacity.inventory_page
                                     },
                                     page + 1
-                                )
+                                );
+                                assert!(
+                                    w.ui.backup.capacity.pager_focus[usize::from(interrupted)]
+                                        .get()
+                                        .unwrap()
+                                        .contains_focused(window, cx)
+                                );
                             })
                             .unwrap();
                     }
                 }
-                // Return from the last page using Shift+Tab and Enter.
-                let selector = if interrupted {
-                    "backup-page-true-false"
-                } else {
-                    "backup-page-false-false"
-                };
-                let mut found = false;
-                for _ in 0..65 {
-                    key(&mut visual, "shift-tab");
-                    if visual
-                        .debug_bounds("settings-focused-control")
-                        .is_some_and(|b| Some(b) == visual.debug_bounds(selector))
-                    {
-                        found = true;
-                        break;
+                // Return through both pages, including the disabled previous-page boundary.
+                for expected in [1, 0] {
+                    let selector = if interrupted {
+                        "backup-page-true-false"
+                    } else {
+                        "backup-page-false-false"
+                    };
+                    let mut found = false;
+                    for _ in 0..65 {
+                        key(&mut visual, "shift-tab");
+                        if visual
+                            .debug_bounds("settings-focused-control")
+                            .is_some_and(|b| Some(b) == visual.debug_bounds(selector))
+                        {
+                            found = true;
+                            break;
+                        }
                     }
+                    assert!(found);
+                    key(&mut visual, "enter");
+                    handle
+                        .update(&mut visual, |w, window, cx| {
+                            assert_eq!(
+                                if interrupted {
+                                    w.ui.backup.capacity.interrupted_page
+                                } else {
+                                    w.ui.backup.capacity.inventory_page
+                                },
+                                expected
+                            );
+                            assert!(
+                                w.ui.backup.capacity.pager_focus[usize::from(interrupted)]
+                                    .get()
+                                    .unwrap()
+                                    .contains_focused(window, cx)
+                            );
+                            assert!(!w.ui.backup.busy && !w.ui.backup.capacity.loading);
+                            assert!(w.ui.backup.pending.is_none());
+                            assert_eq!(w.ui.pending_file_writes, 0);
+                        })
+                        .unwrap();
                 }
-                assert!(found);
-                key(&mut visual, "enter");
-                handle
-                    .update(&mut visual, |w, _, _| {
-                        assert_eq!(
-                            if interrupted {
-                                w.ui.backup.capacity.interrupted_page
-                            } else {
-                                w.ui.backup.capacity.inventory_page
-                            },
-                            1
-                        );
-                        assert!(!w.ui.backup.busy && !w.ui.backup.capacity.loading);
-                        assert!(w.ui.backup.pending.is_none());
-                        assert_eq!(w.ui.pending_file_writes, 0);
-                    })
-                    .unwrap();
             }
         }
     }
