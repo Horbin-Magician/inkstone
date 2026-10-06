@@ -23,6 +23,31 @@ impl Cache {
         ensure!(meta.is_dir() && !is_reparse(&meta), "同步暂存目录无效");
         Ok(Self { directory })
     }
+    /// Call only while holding the vault sync lock, before starting workers.
+    /// Partial objects have never been verified or applied and are not reusable.
+    pub fn discard_partial(&self, cancellation: &Cancellation) -> Result<()> {
+        for entry in fs::read_dir(&self.directory)? {
+            cancellation.check()?;
+            let entry = entry?;
+            let name = entry.file_name();
+            let Some(stem) = name.to_str().and_then(|name| name.strip_suffix(".partial")) else {
+                continue;
+            };
+            let fields: Vec<_> = stem.split('-').collect();
+            if fields.len() != 3
+                || fields
+                    .iter()
+                    .any(|field| field.is_empty() || !field.bytes().all(|b| b.is_ascii_digit()))
+            {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(entry.path())?;
+            if metadata.is_file() && !is_reparse(&metadata) {
+                fs::remove_file(entry.path()).context("无法清理未完成的同步下载")?;
+            }
+        }
+        Ok(())
+    }
     pub fn fetch(
         &self,
         remote: &impl Remote,

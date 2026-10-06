@@ -1036,5 +1036,60 @@ fn killed_download_process_reuses_only_complete_verified_objects() -> Result<()>
     assert_eq!(fs::read(f.b.root.join("complete.md"))?, COMPLETE);
     assert_eq!(fs::read(f.b.root.join("interrupted.md"))?, INCOMPLETE);
     assert!(state.exists());
+    assert_eq!(fs::read_dir(cache)?.count(), 0);
+    Ok(())
+}
+
+#[test]
+fn abandoned_download_cleanup_is_locked_and_confined_to_owned_partial_files() -> Result<()> {
+    let f = Fixture::new();
+    let cache = baseline_path(&f.b, "x").with_extension("downloads");
+    let other = baseline_path(&f.b, "other").with_extension("downloads");
+    let other_vault = baseline_path(&f.a, "x").with_extension("downloads");
+    for dir in [&cache, &other, &other_vault] {
+        fs::create_dir_all(dir)?;
+        fs::write(dir.join("1-2-3.partial"), b"partial")?;
+    }
+    let digest = hash(b"verified");
+    fs::write(cache.join(&digest), b"verified")?;
+    fs::write(cache.join("notes.partial"), b"unknown")?;
+    fs::write(cache.join("1-2.partial"), b"unknown")?;
+    fs::create_dir(cache.join("4-5-6.partial"))?;
+    let recovery = f.b.journal(Path::new("note.md"), None, "unsaved draft")?;
+    let before = fs::read(&recovery)?;
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&recovery, cache.join("7-8-9.partial"))?;
+    let lock_path = f.root.join("recovery/webdav-sync").join(format!(
+        "{}.lock",
+        hash(f.b.root.to_string_lossy().as_bytes())
+    ));
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock_path)?;
+    lock.try_lock()?;
+    assert!(synchronize(&f.b, &Memory::default(), "x").is_err());
+    assert!(cache.join("1-2-3.partial").exists());
+    drop(lock);
+    synchronize(&f.b, &Memory::default(), "x")?;
+    assert!(!cache.join("1-2-3.partial").exists());
+    assert_eq!(fs::read(cache.join(digest))?, b"verified");
+    for path in [
+        cache.join("notes.partial"),
+        cache.join("1-2.partial"),
+        cache.join("4-5-6.partial"),
+        other.join("1-2-3.partial"),
+        other_vault.join("1-2-3.partial"),
+    ] {
+        assert!(path.exists());
+    }
+    assert_eq!(fs::read(recovery)?, before);
+    #[cfg(unix)]
+    assert!(
+        fs::symlink_metadata(cache.join("7-8-9.partial"))?
+            .file_type()
+            .is_symlink()
+    );
     Ok(())
 }

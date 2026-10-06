@@ -541,6 +541,8 @@ pub fn synchronize_cancellable(
         .open(device.join(format!("{vault_id}.lock")))?;
     lock.try_lock().context("该笔记库已有同步任务运行")?;
     let state = baseline_path(vault, identity);
+    let cache = downloads::Cache::new(&state)?;
+    cache.discard_partial(cancellation)?;
     let base = read_baseline(&state)?;
     let local = snapshot_cancellable(vault, Phase::Scanning, &notify, cancellation)?;
     notify(Progress::new(Phase::ReadingManifest, 0));
@@ -570,7 +572,6 @@ pub fn synchronize_cancellable(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let cache = downloads::Cache::new(&state)?;
     let downloaded = Mutex::new((0u64, BTreeMap::new()));
     notify(Progress::new(Phase::Downloading, digests.len()));
     // Fetch each content object only once, even when several paths use it.

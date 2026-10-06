@@ -528,3 +528,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增子进程回归：并发下载两个对象，等待一个已校验发布、另一个只写入部分内容的明确标记，再由父进程直接 kill 并等待退出。确认没有本地文件或成功基线产生；已完成缓存正文完整、未完成对象只存在 `.partial` 文件。
 - 重新打开笔记库后继续同步：远端拒绝重新下载已完成对象，仅允许重新下载被中断对象；验证实际下载调用为一次、两个目标正文完整且成功基线生成，同时证明进程退出后同步锁可重新获取。没有把普通返回错误或丢弃对象当作强退验收。
 - 核心全量 230 项通过、2 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/sync-process-kill-tests.log`、`target/sync-process-kill-clippy.log`、`target/sync-process-kill-fmt.log`。本次仅新增回归，无桌面实现变更。测试使用生成远端而非 WebDAV，不覆盖物理断电、原生 UI 退出或真实网络恢复；强退遗留 `.partial` 不会用于应用，但容量清理仍待实现。未修改用户笔记。
+
+## 同步暂存：清理强退遗留部分文件（2026-10-06）
+
+- 同步取得笔记库独占锁后，在扫描/联网及启动下载工作线程前清理当前远端暂存目录中的未完成文件。仅匹配应用生成的三个非空数字字段加 `.partial`，且必须是普通非链接文件；不递归、不处理完整对象或恢复记录。删除失败报告错误，避免静默跳过积累问题；每个条目前检查取消。
+- 回归覆盖持有同步锁时拒绝第二次同步且不清理、释放锁后清理、其他远端及其他笔记库隔离、完整对象保留、未知名称/目录/符号链接保留、草稿原文保留。真实子进程 kill 回归增加重启同步后暂存目录清空断言，同时保持已完成对象不重新下载的检查。
+- 核心全量 231 项通过、2 项忽略；桌面同步相关 27 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/sync-partial-cleanup-tests.log`、`target/sync-partial-cleanup-desktop-tests.log`、`target/sync-partial-cleanup-clippy.log`、`target/sync-partial-cleanup-fmt.log`。本次仅自动清理不可复用的部分下载；完整对象及恢复记录的容量预览/受保护清理仍待实现。未修改用户笔记。
