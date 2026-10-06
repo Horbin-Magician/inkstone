@@ -1408,3 +1408,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 历史/草稿比较页增加带焦点滚动的“返回文件恢复”按钮；与命令入口共用 show_recovery_hub，回到总览时刷新各类记录、重置总览滚动并恢复弹窗焦点。原路径标题允许换行。刷新递增请求编号，使离开的预览任务失效。
 - 原有 recovery 筛选 22 项全部通过（含历史分页、草稿校验、副本恢复及双向键盘焦点滚动）。新增 recovery_hub_return_invalidates_preview_and_preserves_dirty_document 单独通过，覆盖历史/草稿、加载前/后四种返回时机，验证旧预览不复活、草稿保留、正文未偷偷保存且未保存状态保持。
 - workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/recovery-back-{tests,return,clippy}.log。原生返回按钮与读屏验收仍待补齐；无真实笔记进入提交，性能环节保持跳过。
+
+## 恢复总览往返原生验收与待排查项（2026-10-06）
+
+- 73c901f locked release，隔离目录 target/native-recovery-hub-c097sk3b；沿用生成普通笔记库，仅测试 ordinary.md。通过原生 AX SetValue 与 Cmd+S 创建保存版本 A，再写入未保存 B；总览可找到历史及草稿，历史所选记录的来源、时间、原路径、4331 字节与保留策略均在截图中可见，草稿显示独立记录文件大小。
+- 从历史页和草稿比较页的初始弹窗焦点，Tab 两次、Enter 均返回总览。草稿比较正确显示 B 与磁盘 A 的差异。关闭弹窗后完整 AX 树确认 B 仍在且“尚未保存”；磁盘仍为 A，其余 15 个生成 Markdown 散列不变。验收后仅将测试编辑还原为磁盘 A 再 Cmd+Q，进程退出已核验，未保存 B 未写入 Markdown。证据摘要 acceptance.json/results.json，构建日志 target/backup-cleanup-audit/recovery-hub-release.log。
+- **待排查：** 首次鼠标选择已保存历史记录后，Shift+Tab 两次再 Enter 打开了底层视图模式菜单；尚未证明是焦点逃逸还是操作起点问题，不计为完整键盘验收通过。随后从初始弹窗焦点的正向导航可用，不能抵消该异常。原生完整反向导航、DPI 与读屏仍待验证。
+- 文档 diff 检查通过，无真实用户笔记进入提交；未运行性能测量。
