@@ -861,3 +861,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 将设置模块中的焦点滚动实现移动到 `workspace/focus_reveal.rs`，类型更名为 `FocusReveal`，设置、同步、备份、历史及恢复首页直接依赖此模块。组件只依赖 GPUI，接口限于稳定元素 ID、调用方滚动句柄和子控件；不访问 Workspace、UiState、后台任务或持久化。测试定位名称统一为 `focus-revealed-control`。
 - 对照提交前实现，归一化类型名及测试定位名称后，组件实现逐字一致；保留焦点变化才滚动、普通重绘/手动滚动不抢视口、不增加 Tab 停靠点的行为。本次不增加镜像实现的测试，使用既有跨设置页、备份分页、同步恢复、历史选择及草稿/回收站键盘回归检查提取边界。
 - 恢复相关 17 项回归通过；完整桌面单元测试 332 项通过、2 项既有性能基准忽略（85.28 秒），全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/focus-reveal-recovery-tests.log`、`target/focus-reveal-desktop-tests.log`、`target/focus-reveal-clippy.log`、`target/focus-reveal-fmt.log`。原生验收范围沿用此前记录，本次模块提取不声称新增原生平台覆盖；未修改真实用户笔记。
+
+
+## 原生性能采样：显式稳定期与三轮普通场景（2026-10-06）
+
+- 采样器新增 `--settle-seconds`，稳定期持续核对进程身份，结束后重新读取累计 CPU 基线；输出实际稳定与采样时长。进程状态为已退出/僵尸时拒绝报告，避免 PID 尚未回收被当作存活进程。异常实验先暴露该问题，修复后用真实子进程验证存活采样、未回收退出及短生命周期三种情况；3 项回归通过。日志 `target/performance-idle-sampler-tests.log`。
+- 当前 release 应用在三套独立 corpus v1 库和应用数据下完成普通笔记实时预览静置采样，每轮稳定 30 秒后采样 30 秒，再正常退出获取生命周期 RSS。原始值、机器、构建散列和限制见 `PERFORMANCE_BASELINE.md`；CPU 中位数 1.200%，峰值 RSS 中位数 286.453 MiB。全部夹具正文散列保持不变，三实例已退出。
+- release 构建、采样脚本实际执行、生命周期回归及 diff 检查通过。本次未改 Rust 产品代码，不重复上一提交的全桌面/Clippy 检查；原生输入、滚动、打开耗时及其他场景仍未完成，不将采样能力或单场景观测替代完整性能验收。

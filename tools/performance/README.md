@@ -23,10 +23,10 @@ cargo build --release --locked -p inkstone-desktop
 4. RSS 峰值用平台 profiler 或进程退出时的资源统计获取；注明是否含 GPU 与子进程。下面的轻量采样给出采样 RSS 与累计 CPU 差分，可用于空闲 CPU 初测，不能独自证明峰值预算通过：
 
    ```sh
-   python3 tools/performance/sample_process.py TEST_PID --seconds 30 > target/performance-idle.json
+   python3 tools/performance/sample_process.py TEST_PID --settle-seconds 30 --seconds 30 > target/performance-idle.json
    ```
 
-   明确填入隔离测试实例的 PID。工具不启动、不退出、不操作应用；PID 消失/复用即报错。`observed_peak_rss_kib` 只是采样期间最大 RSS（真实峰值下界），`interval_cpu_percent` 用累计进程 CPU 秒差值除以单调墙钟时间，100% 表示一核，精度受 `ps time` 输出限制；`median_ps_cpu_percent` 是系统定义的平均值，不能替代前者。
+   明确填入隔离测试实例的 PID。工具不启动、不退出、不操作应用；PID 消失/复用或已退出但尚未回收即报错。`--settle-seconds` 默认为 0，正式测量显式传入 30；稳定期持续检查同一进程，结束后重新读取 CPU 基线，JSON 同时记录实际稳定时长与采样时长。`observed_peak_rss_kib` 只是采样期间最大 RSS（真实峰值下界），`interval_cpu_percent` 用累计进程 CPU 秒差值除以单调墙钟时间，100% 表示一核，精度受 `ps time` 输出限制；`median_ps_cpu_percent` 是系统定义的平均值，不能替代前者。
 5. 每轮至少 3 次，逐轮保存原始数据，使用相同统计口径对比。同步、索引/公式首次缓存及草稿写入是否开启均须记录；不能只在优化后关闭后台工作。
 6. 中文 IME 预编辑/提交、撤销/重做、跨 emoji/组合字符选区、源码坐标、模式切换及滚动锚点必须通过行为回归。性能达标不能代替正确性。
 
@@ -61,3 +61,9 @@ SHA-256 `1540f197b3cf2727e5075ff80499196b6e5c46b75ab0b734bff456b45688583b`：
 脚本实测记录：`target/history-read-3y6tqom7`。缓冲方式 RSS 降约 41.5%，耗时增约
 56.8%；保留其减少大日志额外内存副本的取舍。它仍完整解码正文，不是恒定总内存，
 也不代表历史窗口打开、目录扫描、元数据写入或原生编辑性能已达标。
+
+采样器进程生命周期回归（不启动编辑器）：
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/performance -p test_sample_process.py -v
+```

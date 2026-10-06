@@ -22,21 +22,33 @@ def main():
     parser.add_argument("pid", type=int)
     parser.add_argument("--seconds", type=float, default=30)
     parser.add_argument("--interval", type=float, default=0.5)
+    parser.add_argument("--settle-seconds", type=float, default=0, help="observe the same PID before measurement; exclude settling CPU")
     args = parser.parse_args()
-    if args.pid <= 0 or not 0 < args.seconds <= 60 or not 0.1 <= args.interval <= args.seconds:
-        parser.error("require PID > 0, 0 < seconds <= 60, 0.1 <= interval <= seconds")
+    if args.pid <= 0 or not 0 < args.seconds <= 60 or not 0.1 <= args.interval <= args.seconds or not 0 <= args.settle_seconds <= 60:
+        parser.error("require PID > 0, 0 < seconds <= 60, 0.1 <= interval <= seconds, 0 <= settle-seconds <= 60")
     # Start time detects PID reuse instead of sampling an unrelated process.
     def read():
         result = subprocess.run(
-            ["ps", "-p", str(args.pid), "-o", "lstart=", "-o", "rss=", "-o", "%cpu=", "-o", "time="],
+            ["ps", "-p", str(args.pid), "-o", "lstart=", "-o", "rss=", "-o", "%cpu=", "-o", "time=", "-o", "stat="],
             check=True, capture_output=True, text=True,
         )
-        fields = result.stdout.strip().rsplit(None, 3)
-        if len(fields) != 4:
+        fields = result.stdout.strip().rsplit(None, 4)
+        if len(fields) != 5:
             raise RuntimeError("target process no longer exists")
+        if fields[4].startswith(("Z", "X")):
+            raise RuntimeError("target process has exited; discard this run")
         return fields[0], int(fields[1]), float(fields[2]), cpu_seconds(fields[3])
 
-    identity, _, _, first_cpu = read()
+    identity, _, _, _ = read()
+    settle_start = time.monotonic()
+    while time.monotonic() - settle_start < args.settle_seconds:
+        time.sleep(min(args.interval, max(0, args.settle_seconds - (time.monotonic() - settle_start))))
+        if read()[0] != identity:
+            raise RuntimeError("target PID was reused during settling; discard this run")
+    settle_duration = time.monotonic() - settle_start
+    current, _, _, first_cpu = read()
+    if current != identity:
+        raise RuntimeError("target PID was reused before sampling; discard this run")
     start = time.monotonic()
     samples = []
     while True:
@@ -51,6 +63,7 @@ def main():
     print(json.dumps({
         "platform": platform.platform(), "pid": args.pid, "process_start": identity,
         "duration_s": samples[-1]["elapsed_s"], "interval_s": args.interval,
+        "requested_settle_s": args.settle_seconds, "observed_settle_s": settle_duration,
         "observed_peak_rss_kib": max(s["rss_kib"] for s in samples),
         "interval_cpu_percent": (samples[-1]["cumulative_cpu_s"] - first_cpu) / samples[-1]["elapsed_s"] * 100,
         "median_ps_cpu_percent": statistics.median(s["ps_cpu_percent"] for s in samples),
