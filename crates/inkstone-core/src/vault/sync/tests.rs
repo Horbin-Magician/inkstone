@@ -152,6 +152,11 @@ fn failed_publish_and_corrupt_download_do_not_modify_local_files() -> Result<()>
     assert!(synchronize(&f.b, &r, "x").is_err());
     assert!(!f.b.root.join("a.md").exists());
     r.fail.store(false, Ordering::Relaxed);
+    // A damaged staged object must be fetched and verified again.
+    let cached = baseline_path(&f.b, "x")
+        .with_extension("downloads")
+        .join(hash(b"remote"));
+    fs::write(cached, "damaged cache")?;
     r.objects
         .lock()
         .unwrap()
@@ -683,5 +688,145 @@ fn webdav_streams_chunked_objects_and_rejects_truncated_responses() -> Result<()
     assert_eq!(received, b"abcdefg");
     assert!(dav.download_to(&hash(b"short"), &mut io::sink()).is_err());
     assert_eq!(thread.join().unwrap().len(), 2);
+    Ok(())
+}
+
+#[test]
+fn failed_publication_reuses_verified_staging_after_reopening_vault() -> Result<()> {
+    let f = Fixture::new();
+    let r = Memory::default();
+    fs::write(f.a.root.join("a.md"), "remote")?;
+    synchronize(&f.a, &r, "x")?;
+    fs::write(f.b.root.join("b.md"), "local")?;
+    r.fail.store(true, Ordering::Relaxed);
+    assert!(synchronize(&f.b, &r, "x").is_err());
+    let count = r.downloads.load(Ordering::Relaxed);
+    assert_eq!(count, 1);
+    assert!(!f.b.root.join("a.md").exists());
+    r.objects.lock().unwrap().clear(); // Network objects now unavailable.
+    r.fail.store(false, Ordering::Relaxed);
+    let reopened = Vault::open(f.b.root.clone(), f.root.join("recovery"))?;
+    synchronize(&reopened, &r, "x")?;
+    assert_eq!(r.downloads.load(Ordering::Relaxed), count);
+    assert_eq!(fs::read_to_string(f.b.root.join("a.md"))?, "remote");
+    assert_eq!(fs::read_to_string(f.b.root.join("b.md"))?, "local");
+    assert_eq!(
+        fs::read_dir(baseline_path(&f.b, "x").with_extension("downloads"))?.count(),
+        0
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "writes and verifies 576 MiB; run explicitly for large-library acceptance"]
+fn streamed_first_sync_exceeds_former_batch_limit() -> Result<()> {
+    struct Generated {
+        manifest: Manifest,
+        objects: BTreeMap<String, u8>,
+    }
+    const CHUNKS: usize = 1024;
+    impl Remote for Generated {
+        fn manifest(&self) -> Result<(Manifest, Option<String>)> {
+            Ok((self.manifest.clone(), Some("1".into())))
+        }
+        fn download(&self, _: &str) -> Result<Vec<u8>> {
+            panic!("large sync must use the streaming interface")
+        }
+        fn download_to(&self, digest: &str, output: &mut dyn Write) -> Result<u64> {
+            let chunk = [self.objects[digest]; 64 * 1024];
+            for _ in 0..CHUNKS {
+                output.write_all(&chunk)?;
+            }
+            Ok((CHUNKS * chunk.len()) as u64)
+        }
+        fn upload(&self, _: &str, _: &[u8]) -> Result<()> {
+            panic!("unexpected upload")
+        }
+        fn publish(&self, _: &Manifest, _: Option<&str>) -> Result<()> {
+            panic!("unexpected publish")
+        }
+    }
+    let f = Fixture::new();
+    let mut r = Generated {
+        manifest: Manifest::default(),
+        objects: BTreeMap::new(),
+    };
+    for value in 0..9u8 {
+        let mut digest = Sha256::new();
+        for _ in 0..CHUNKS {
+            digest.update([value; 64 * 1024]);
+        }
+        let digest = format!("{:x}", digest.finalize());
+        r.manifest
+            .files
+            .insert(format!("{value}.bin"), digest.clone());
+        r.objects.insert(digest, value);
+    }
+    assert_eq!(synchronize(&f.b, &r, "large")?.downloaded, 9);
+    assert_eq!(snapshot(&f.b)?, r.manifest.files);
+    for value in 0..9u8 {
+        assert_eq!(
+            fs::metadata(f.b.root.join(format!("{value}.bin")))?.len(),
+            64 * 1024 * 1024
+        );
+    }
+    assert_eq!(
+        fs::read_dir(baseline_path(&f.b, "large").with_extension("downloads"))?.count(),
+        0
+    );
+    Ok(())
+}
+
+#[test]
+fn cancelled_stream_removes_partial_and_preserves_verified_objects() -> Result<()> {
+    struct Interrupted<'a>(&'a Cancellation);
+    impl Remote for Interrupted<'_> {
+        fn manifest(&self) -> Result<(Manifest, Option<String>)> {
+            unreachable!()
+        }
+        fn download(&self, _: &str) -> Result<Vec<u8>> {
+            unreachable!()
+        }
+        fn download_to(&self, _: &str, output: &mut dyn Write) -> Result<u64> {
+            output.write_all(b"partial")?;
+            assert!(self.0.request());
+            output.write_all(b"remaining")?;
+            unreachable!()
+        }
+        fn upload(&self, _: &str, _: &[u8]) -> Result<()> {
+            unreachable!()
+        }
+        fn publish(&self, _: &Manifest, _: Option<&str>) -> Result<()> {
+            unreachable!()
+        }
+    }
+    let f = Fixture::new();
+    let state = baseline_path(&f.b, "cancel");
+    fs::create_dir_all(state.parent().unwrap())?;
+    let cache = downloads::Cache::new(&state)?;
+    let r = Memory::default();
+    r.objects
+        .lock()
+        .unwrap()
+        .insert(hash(b"verified"), b"verified".to_vec());
+    let object = cache.fetch(&r, &hash(b"verified"), &Cancellation::default())?;
+    let cancellation = Cancellation::default();
+    let error = cache
+        .fetch(
+            &Interrupted(&cancellation),
+            &hash(b"partialremaining"),
+            &cancellation,
+        )
+        .err()
+        .unwrap();
+    assert!(is_cancelled(&error));
+    assert_eq!(object.read()?, b"verified");
+    assert_eq!(fs::read_dir(state.with_extension("downloads"))?.count(), 1);
+    // A changed staged file is rejected before local application.
+    fs::write(
+        state.with_extension("downloads").join(hash(b"verified")),
+        b"modified",
+    )?;
+    assert!(object.read().is_err());
     Ok(())
 }
