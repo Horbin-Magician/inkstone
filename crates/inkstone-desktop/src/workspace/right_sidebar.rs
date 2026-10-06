@@ -236,19 +236,28 @@ impl Workspace {
                                                     },
                                                 ))
                                                 .child(
-                                                    div()
+                                                    Button::new(("outline-jump", offset))
+                                                        .ghost()
+                                                        .compact()
+                                                        .h(px(27.))
                                                         .flex_1()
                                                         .min_w_0()
-                                                        .truncate()
-                                                        .child(h.title),
+                                                        .justify_start()
+                                                        .accessibility_label(format!(
+                                                            "跳转到 {} 级标题 {}",
+                                                            h.level, h.title
+                                                        ))
+                                                        .child(div().truncate().child(h.title))
+                                                        .on_click(cx.listener(
+                                                            move |_, _, w, cx| {
+                                                                if let Some(pane) = &pane {
+                                                                    pane.update(cx, |p, cx| {
+                                                                        p.jump(offset, w, cx)
+                                                                    });
+                                                                }
+                                                            },
+                                                        )),
                                                 )
-                                                .on_click(cx.listener(move |_, _, w, cx| {
-                                                    if let Some(pane) = &pane {
-                                                        pane.update(cx, |p, cx| {
-                                                            p.jump(h.offset, w, cx)
-                                                        });
-                                                    }
-                                                }))
                                         })
                                         .collect::<Vec<_>>()
                                 }),
@@ -869,17 +878,35 @@ mod outline_tests {
         draw(&mut visual);
         assert!(visual.debug_bounds("outline-row-0").is_some());
         assert!(visual.debug_bounds("outline-row-1").is_none());
-        let filtered = visual.debug_bounds("outline-row-0").unwrap();
-        visual.simulate_click(filtered.center(), Modifiers::default());
-        draw(&mut visual);
-        handle
-            .update(&mut visual, |w, _, cx| {
-                assert_eq!(
-                    w.tabs[0].pane.read(cx).editor.read(cx).selected_range(),
-                    offset..offset
-                );
-            })
-            .unwrap();
+        for activation in ["enter", "space"] {
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    let editor = w.tabs[0].pane.read(cx).editor.clone();
+                    editor.update(cx, |s, cx| s.set_selected_range(0..0, cx));
+                    w.ui.outline_filter.update(cx, |s, cx| s.focus(window, cx));
+                })
+                .unwrap();
+            draw(&mut visual);
+            for key in ["tab", activation] {
+                let keystroke = Keystroke::parse(key).unwrap();
+                visual.simulate_event(KeyDownEvent {
+                    keystroke: keystroke.clone(),
+                    is_held: false,
+                    prefer_character_input: false,
+                });
+                visual.simulate_event(KeyUpEvent { keystroke });
+                draw(&mut visual);
+            }
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    let editor = w.tabs[0].pane.read(cx).editor.read(cx);
+                    assert_eq!(editor.selected_range(), offset..offset);
+                    assert!(editor.focus_handle(cx).is_focused(window));
+                    assert_eq!(editor.value().as_ref(), source);
+                    assert_eq!(w.ui.outline_filter.read(cx).value().as_ref(), "标题499");
+                })
+                .unwrap();
+        }
         handle
             .update(&mut visual, |w, _, cx| {
                 w.ui.outline_filter_open = false;
