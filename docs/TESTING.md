@@ -756,3 +756,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 GPUI 回归：800×500 逻辑窗口、rem 16/24，分别连续派发 45 次 Tab 和 Shift+Tab，每方向至少到达 22 个不同控件，并验证控件完整处于设置视口。使用临时笔记库与仅用于界面的合成清理预览，让确认控件参与导航；未创建删除候选，未执行实际清理。检查未启动备份、恢复选择器或后台容量任务，确认状态保留，正文不变、备份目录仍为空。
 - 备份相关 5 项回归通过，六类设置页 36 个最小窗口布局组合通过；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/backup-settings-related-tests.log`、`target/backup-settings-focus-layout.log`、`target/backup-settings-focus-clippy.log`、`target/backup-settings-focus-fmt.log`。
 - 本轮不覆盖条件出现的“显示结果”按钮导航，以及虚拟列表中的备份目录/清理中断记录按钮；后者需单独处理列表内导航。原生窗口、DPI 和读屏未验收；本测试不替代清理完整性与确认执行测试。未修改真实用户笔记。
+
+
+## 备份记录：分页键盘访问与可变行高（2026-10-06）
+
+- 备份容量与清理中断记录从仅渲染视口内行的虚拟列表改为每页最多五条，分别维护页码并显示上一页/下一页。刷新目录时重新从第一页开始；每页创建的记录控件有上限，行高随内容增长，来源、时间及路径可换行。记录按钮接入设置页焦点滚动，可访问名称包含所属记录。元数据扫描与清理/恢复规则不变。
+- 实际按键回归发现末页下一页按钮禁用后会丢失可导航焦点，现将翻页后的焦点交给持久分页容器，继续 Tab 可进入按钮和记录。两个列表各用十二条合成元数据，在 800×500、rem 16/24 下遍历三页，通过 Tab/Enter 翻页并逐页验证所有记录至少一个操作按钮可到达、焦点控件完整可见，再用 Shift+Tab/Enter 返回上一页。夹具不创建目录或真实备份，断言没有启动备份/容量后台任务或文件写入；不触发记录的实际操作。
+- 新增跨页回归 1 项通过，既有备份相关 5 项通过，六类设置页 36 个布局组合通过；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/backup-paging-navigation.log`、`target/backup-paging-regressions.log`、`target/backup-paging-layout.log`、`target/backup-paging-clippy.log`、`target/backup-paging-fmt.log`。
+- 本轮是 GPUI 自动事件验收，尚未完成原生窗口分页、读屏名称与真实中断记录的键盘执行验收。分页限制渲染数量，不改变元数据扫描成本。未修改真实用户笔记。
