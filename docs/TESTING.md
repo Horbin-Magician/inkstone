@@ -1552,3 +1552,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 随后在原生界面恢复受保护记录，ordinary 同步恢复.md 精确为 26 字节 protected generated backup；原 Markdown、最新与受保护备份保持不变。应用正常退出，进程退出已核验。preparation.json、acceptance.json、results.json 保留于隔离目录，构建日志 target/backup-cleanup-audit/sync-cleanup-native-release.log。
 - 范围限制：未在此轮原生验证清理中停止、进程强退、未保存编辑、大字体/最小窗口矩阵和 Windows 实机；相关自动测试不能代替这些验收。
 - 远端 run 37453169144 已结束：macOS/Windows 工作区仅同一恢复键盘计数断言失败（实际 27、期望 26），两个 vendor 作业通过。该断言已在 3bd4717 修正并本机复现前后结果；等待后续新提交的完整远端检查，不把旧 run 记为通过。
+
+
+## 同步清理被强制终止后的跨进程恢复（2026-10-06）
+
+- 新增 killed_cleanup_is_recovered_by_a_fresh_process：子进程执行真实持锁清理，在移动正文并发布受保护恢复记录后写入就绪标记并停住；父进程使用 Child::kill 强制终止并等待退出，不经过清理栈的 Rust 析构。
+- 随后另启全新进程打开生成笔记库，核对清单完整、最新与受保护记录都在、无可清理候选，再通过正常 restore_copy 获取操作锁并恢复旧正文。原 Markdown、最新正文、受保护备份和恢复副本逐字节核对。父进程检查新进程成功退出及恢复确认文件，最后清理测试生成目录。
+- 10 项清理后端回归通过，包含上述 macOS 子进程强杀路径；全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/sync-cleanup-kill-{tests,clippy}.log。测试子进程有就绪超时和退出守卫，失败不会留下等待中的子进程。
+- 这是实际进程强制终止及新进程恢复测试，但不是 GUI 强退、物理断电或全部落盘间隙覆盖；Windows 执行结果待远端 CI。没有性能测量或真实用户笔记修改。
+- 新远端 run 37455366426 对应 24517f9，检查时仍在运行，不记为通过。
