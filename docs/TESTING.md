@@ -1170,3 +1170,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 校验结果绑定笔记库代次、容量刷新代次及所选记录请求；容量刷新和切库拒绝旧结果。恢复使用独立 FileWrites 凭据，完成时先释放自身计数再检查界面归属，阻止重复启动。成功后显示恢复路径，保留原中断项及后续清理保护。
 - 新 GUI 回归验证有效/缺失分类、拒绝当前库内部目标、重复恢复只启动一次、磁盘副本正确、其他编辑仍为 dirty 且未保存、容量刷新和库代次变化使旧检查失效。初轮测试直接 set_value 后没有先同步文档 dirty 状态，已在操作前 flush_document_views 并立即断言 dirty，修正后定向通过（0.19 秒），未改生产保存行为。
 - 既有容量流程、备份设置键盘导航及三页/字号压力记录导航三项通过；中断记录每项可访问动作预期从两项增至三项，新入口包含记录路径的可访问名称与焦点滚动。日志 target/backup-cleanup-audit/partial-ui-tests.log（含初轮失败）、partial-ui-fixed.log、partial-ui-final-clippy.log。最终 workspace all-targets Clippy -D warnings、格式与 diff 检查通过。新预览页的完整原生键盘与目录选择器验收尚未执行，不宣称已完成；无用户笔记进入提交。
+
+
+## 部分恢复预览的最小窗口键盘分页（2026-10-06）
+
+- 为部分恢复预览提取独立分页控件，使用稳定焦点容器；切换到首末页导致当前按钮禁用时，焦点保留在分页区域。点击处理使用当前预览重新计算页数，文件行仅增加调试选择器。
+- 新 GUI 回归使用 12 个长中英文/emoji 路径和三类校验状态，在 800×500 逻辑窗口、16/24 rem 下经真实 Tab/Shift+Tab/Enter 执行 0→1→2→1→0。每页检查仅当页五条（末页两条）被渲染，分页控件四边在设置滚动视口内，每次翻页后焦点仍属于分页容器；整个过程未打开目录选择器、启动恢复或登记文件写入。
+- 定向回归通过（6.25 秒），workspace all-targets Clippy -D warnings、格式和 diff 检查通过。日志 target/backup-cleanup-audit/partial-preview-keys.log、partial-preview-keys-clippy.log。该结果不替代 macOS/Windows 原生 DPI、读屏或目录选择器验证；用户笔记未进入提交。
