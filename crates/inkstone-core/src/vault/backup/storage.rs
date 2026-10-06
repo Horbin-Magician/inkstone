@@ -59,7 +59,7 @@ pub(super) fn local(path: &Path) -> io::Result<bool> {
     Ok(false)
 }
 
-pub(super) fn require_local(path: &Path) -> io::Result<()> {
+pub(in crate::vault) fn require_local(path: &Path) -> io::Result<()> {
     if !local(path)? {
         return Err(invalid(
             "此位置不是受支持的本地存储，已禁止清理；仍可查看和恢复备份",
