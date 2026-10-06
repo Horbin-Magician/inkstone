@@ -1664,3 +1664,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 编辑器粘贴中文/emoji 标记后保持未保存，重新确认清理，原生界面显示成功删除 2 对象、24 字节。服务状态验证 version 2 / generation 1、仅剩当前引用且锁已释放；请求记录恰有两个 DELETE。AX 中标记与“尚未保存”仍在，原 Markdown SHA-256 未变。随后撤销测试输入至“已保存”并退出，进程列表确认测试应用关闭；测试服务也停止。
 - 证据位于 `target/native-cloud-cleanup-36362e7/`：`preparation.json`、`requests.jsonl`、`remote-state.json`、`verification.txt`、`after-cleanup.ax.txt`、`cleanup-success.png`。构建/准备日志在 `target/backup-cleanup-audit/cloud-cleanup-native-{build,preparation}.log`。
 - 本轮没有触发此前初始加载画面停滞，但不能据此宣称已修复。拖动缩小窗口未改变尺寸，最小窗口未记通过；放大字体、不同 DPI、VoiceOver、执行中停止、原生强退及真实服务商仍待验收。
+
+## 云端清理提示的原生辅助功能（2026-10-06）
+
+- 原生基本流程暴露出清理说明、候选数量、升级警告和结果只是绘制文字，AX 树只含按钮。为这些内容加入稳定 ID 的 Label 节点，完整文字同时用于显示和辅助功能名称；没有添加焦点或点击操作。
+- 定向清理回归 5 项通过；desktop all-targets Clippy `-D warnings`、release 构建、格式及 diff 检查通过。日志 `target/backup-cleanup-audit/cloud-cleanup-a11y-{tests,clippy,build,preparation}.log`。
+- 新隔离 macOS release 原生复验：AX 可见“只读预览…”说明、2 个候选/1 个保留、不可撤销升级警告；实际完成后 AX 显示 2 对象/24 字节结果。从地址字段 9 次 Tab + Return 仍触发预览，随后 Tab + Return 进入确认，新增文字不占用 Tab 路径。确认按钮滚动到可见范围后执行成功。
+- 证据 `target/native-cloud-cleanup-a11y/result.ax.txt`、`result.png` 及该目录 HTTP 日志/准备记录。测试应用和服务均已关闭，只用生成数据。本轮证实原生 AX 暴露，没有进行完整 VoiceOver 导航/播报验收；Windows 原生仍待补。
