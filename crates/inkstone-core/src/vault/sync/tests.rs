@@ -335,7 +335,7 @@ fn local_replacement_and_deletion_leave_identifiable_recovery_copies() -> Result
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
     }
-    apply(
+    apply_bytes(
         &f.a,
         "note.md",
         Some(&hash(b"original")),
@@ -346,7 +346,7 @@ fn local_replacement_and_deletion_leave_identifiable_recovery_copies() -> Result
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
     }
-    apply(&f.a, "note.md", Some(&hash(b"downloaded")), None)?;
+    apply_bytes(&f.a, "note.md", Some(&hash(b"downloaded")), None)?;
     assert!(!path.exists());
     let mut contents = BTreeSet::new();
     for entry in fs::read_dir(&f.a.root)? {
@@ -820,14 +820,16 @@ fn cancelled_stream_removes_partial_and_preserves_verified_objects() -> Result<(
         .err()
         .unwrap();
     assert!(is_cancelled(&error));
-    assert_eq!(object.read()?, b"verified");
+    let mut copied = Vec::new();
+    object.copy_to(&mut copied)?;
+    assert_eq!(copied, b"verified");
     assert_eq!(fs::read_dir(state.with_extension("downloads"))?.count(), 1);
     // A changed staged file is rejected before local application.
     fs::write(
         state.with_extension("downloads").join(hash(b"verified")),
         b"modified",
     )?;
-    assert!(object.read().is_err());
+    assert!(object.copy_to(&mut Vec::new()).is_err());
     Ok(())
 }
 
@@ -851,5 +853,63 @@ fn streaming_fingerprint_preserves_digest_limits_and_cancellation() -> Result<()
     ));
     fs::File::create(&path)?.set_len(MAX_FILE_BYTES + 1)?;
     assert!(fingerprint(&path, &Cancellation::default()).is_err());
+    Ok(())
+}
+
+#[test]
+fn failed_streamed_application_keeps_original_and_cleans_temporary_file() -> Result<()> {
+    let f = Fixture::new();
+    let path = f.b.root.join("note.md");
+    fs::write(&path, "old")?;
+    let error = apply(
+        &f.b,
+        "note.md",
+        Some(&hash(b"old")),
+        Some(&|file| {
+            file.write_all(b"partial")?;
+            bail!("injected destination failure")
+        }),
+    );
+    assert!(error.is_err());
+    assert_eq!(fs::read(&path)?, b"old");
+    assert!(
+        !fs::read_dir(&f.b.root)?.any(|e| e
+            .unwrap()
+            .path()
+            .extension()
+            .is_some_and(|e| e == "tmp"))
+    );
+
+    let r = Memory::default();
+    fs::write(f.a.root.join("note.md"), "old")?;
+    synchronize(&f.a, &r, "x")?;
+    synchronize(&f.b, &r, "x")?;
+    let baseline = fs::read(baseline_path(&f.b, "x"))?;
+    fs::write(f.a.root.join("note.md"), "new")?;
+    synchronize(&f.a, &r, "x")?;
+    let result = synchronize_with_progress(&f.b, &r, "x", |progress| {
+        if progress.phase == Phase::Applying && progress.completed == 0 {
+            // Same length, wrong digest: only the copy's hash can reject this.
+            fs::write(
+                baseline_path(&f.b, "x")
+                    .with_extension("downloads")
+                    .join(hash(b"new")),
+                b"bad",
+            )
+            .unwrap();
+        }
+    });
+    assert!(result.is_err());
+    assert_eq!(fs::read(&path)?, b"old");
+    assert_eq!(fs::read(baseline_path(&f.b, "x"))?, baseline);
+    assert!(
+        !fs::read_dir(&f.b.root)?.any(|e| e
+            .unwrap()
+            .path()
+            .extension()
+            .is_some_and(|e| e == "tmp"))
+    );
+    synchronize(&f.b, &r, "x")?;
+    assert_eq!(fs::read(&path)?, b"new");
     Ok(())
 }

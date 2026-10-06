@@ -646,8 +646,12 @@ pub fn synchronize_cancellable(
     let mut progress = Progress::new(Phase::Applying, downloads.len() + deletions);
     notify(progress.clone());
     for (path, object) in downloads {
-        let bytes = object.read()?;
-        apply(vault, &path, local.get(&path), Some(&bytes))?;
+        apply(
+            vault,
+            &path,
+            local.get(&path),
+            Some(&|file| object.copy_to(file)),
+        )?;
         report.downloaded += 1;
         progress.completed += 1;
         notify(progress.clone());
@@ -680,11 +684,13 @@ pub fn synchronize_cancellable(
     Ok(report)
 }
 
+type ContentWriter<'a> = dyn Fn(&mut fs::File) -> Result<()> + 'a;
+
 fn apply(
     vault: &Vault,
     relative: &str,
     baseline: Option<&String>,
-    bytes: Option<&[u8]>,
+    write: Option<&ContentWriter<'_>>,
 ) -> Result<()> {
     let path = vault.regular_file_path(Path::new(relative))?;
     ensure!(
@@ -708,10 +714,17 @@ fn apply(
             )?,
         )?;
     }
-    if let Some(bytes) = bytes {
+    if let Some(write) = write {
         let temp = parent.join(format!(".inkstone-sync-{}.tmp", unique_id()));
-        write_new_synced(&temp, bytes)?;
+        // Open before the cleanup scope: never remove a pre-existing collision.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
         let result = (|| -> Result<()> {
+            write(&mut file)?;
+            file.sync_all()?;
+            drop(file);
             #[cfg(unix)]
             if baseline.is_some() {
                 fs::set_permissions(&temp, fs::metadata(&path)?.permissions())?;
@@ -745,3 +758,21 @@ fn apply(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+fn apply_bytes(
+    vault: &Vault,
+    relative: &str,
+    baseline: Option<&String>,
+    bytes: Option<&[u8]>,
+) -> Result<()> {
+    match bytes {
+        Some(bytes) => apply(
+            vault,
+            relative,
+            baseline,
+            Some(&|file| Ok(file.write_all(bytes)?)),
+        ),
+        None => apply(vault, relative, baseline, None),
+    }
+}
