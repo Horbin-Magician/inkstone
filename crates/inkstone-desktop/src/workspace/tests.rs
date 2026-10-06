@@ -5023,3 +5023,62 @@ fn settings_minimum_window_scale_matrix_keeps_content_inside_viewport(cx: &mut T
         }
     }
 }
+
+#[gpui::test]
+fn settings_rows_reveal_keyboard_focus_in_both_directions(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(800.), px(500.)));
+    for rem in [16., 24.] {
+        visual.update(|window, _| window.set_rem_size(px(rem)));
+        for (tab, minimum_controls) in [(0, 14), (5, 5), (6, 1)] {
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    w.ui.settings = true;
+                    w.ui.settings_tab = tab;
+                    w.ui.settings_scroll.set_offset(Point::default());
+                    window.focus(&w.ui.modal_focus, cx);
+                })
+                .unwrap();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            for key in ["tab", "shift-tab"] {
+                let mut controls = Vec::new();
+                for _ in 0..40 {
+                    let keystroke = Keystroke::parse(key).unwrap();
+                    visual.simulate_event(KeyDownEvent {
+                        keystroke: keystroke.clone(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    });
+                    visual.simulate_event(KeyUpEvent { keystroke });
+                    for _ in 0..2 {
+                        visual.update(|window, cx| window.draw(cx).clear(cx));
+                    }
+                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                        handle
+                            .update(&mut visual, |w, window, cx| {
+                                let viewport = w.ui.settings_scroll.bounds();
+                                assert!(
+                                    target.top() >= viewport.top()
+                                        && target.bottom() <= viewport.bottom(),
+                                    "tab={tab} rem={rem} {key}: {target:?} outside {viewport:?}"
+                                );
+                                let focus = window.focused(cx).unwrap();
+                                if !controls.contains(&focus) {
+                                    controls.push(focus);
+                                }
+                            })
+                            .unwrap();
+                    }
+                }
+                assert!(
+                    controls.len() >= minimum_controls,
+                    "tab={tab} rem={rem} {key}: only {} controls reached",
+                    controls.len()
+                );
+            }
+        }
+    }
+}

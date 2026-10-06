@@ -20,7 +20,11 @@ pub(super) struct SettingsFocusTarget {
 }
 
 impl SettingsFocusTarget {
-    pub(super) fn new(id: &'static str, scroll: &ScrollHandle, child: impl IntoElement) -> Self {
+    pub(super) fn new(
+        id: impl Into<ElementId>,
+        scroll: &ScrollHandle,
+        child: impl IntoElement,
+    ) -> Self {
         Self {
             id: id.into(),
             scroll: scroll.clone(),
@@ -37,6 +41,9 @@ impl RenderOnce for SettingsFocusTarget {
         let focus = state.read(cx).0.clone();
         let tracked_focus = focus.clone();
         div()
+            .when(focus.contains_focused(window, cx), |target| {
+                target.debug_selector(|| "settings-focused-control".into())
+            })
             .on_children_prepainted(move |bounds, window, cx| {
                 let current = window
                     .focused(cx)
@@ -114,6 +121,7 @@ impl Workspace {
 
     pub(super) fn settings_row(
         &self,
+        id: &'static str,
         name: &str,
         description: &str,
         control: impl IntoElement,
@@ -159,7 +167,11 @@ impl Workspace {
                             .child(description.to_string()),
                     ),
             )
-            .child(div().flex_shrink_0().child(control))
+            .child(SettingsFocusTarget::new(
+                (ElementId::from(id), "focus"),
+                &self.ui.settings_scroll,
+                control,
+            ))
             .into_any_element()
     }
 
@@ -279,7 +291,7 @@ impl Workspace {
                 }
                 this.apply_editor_preferences(window, cx);
             }));
-        self.settings_row(name, description, control, divider, 20.)
+        self.settings_row(id, name, description, control, divider, 20.)
     }
 }
 
@@ -583,6 +595,7 @@ impl Workspace {
         .map(|(i, setting)| self.editor_setting_row(setting, i > 0, cx))
         .collect();
         display.push(self.settings_row(
+            "line-spacing-row",
             "行间距",
             "调整编辑与阅读视图的正文行距，默认为 1.5 倍。",
             line_spacing,
@@ -600,6 +613,7 @@ impl Workspace {
         .map(|(i, setting)| self.editor_setting_row(setting, i > 0, cx))
         .collect();
         behavior.push(self.settings_row(
+            "tab-size-row",
             &format!("制表符宽度  {}", self.ui.prefs.tab_size),
             "设置制表符对应的空格数。",
             div().w(px(160.)).child(Slider::new(&self.ui.tab_width)),
@@ -623,6 +637,7 @@ impl Workspace {
                             .rounded(px(12.))
                             .bg(card)
                             .child(self.settings_row(
+                                "default-view-row",
                                 "新标签页的默认视图",
                                 "选择新标签页使用编辑视图还是阅读视图。",
                                 default_view,
@@ -630,6 +645,7 @@ impl Workspace {
                                 20.,
                             ))
                             .child(self.settings_row(
+                                "default-mode-row",
                                 "默认编辑模式",
                                 "选择编辑视图默认使用实时预览还是源码模式。",
                                 editing_mode,
@@ -639,7 +655,9 @@ impl Workspace {
                     )
                     .child(self.settings_group("显示", display))
                     .child(self.settings_group("行为", behavior))
-                    .child(
+                    .child(SettingsFocusTarget::new(
+                        "settings-recovery-focus",
+                        &self.ui.settings_scroll,
                         Button::new("settings-recovery")
                             .ghost()
                             .label("管理文件恢复")
@@ -647,7 +665,7 @@ impl Workspace {
                                 this.ui.settings = false;
                                 this.execute_command(16, w, cx);
                             })),
-                    ),
+                    )),
             )
             .into_any_element()
     }
