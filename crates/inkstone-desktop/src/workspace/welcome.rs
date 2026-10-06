@@ -1,8 +1,63 @@
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
-use gpui_component::button::*;
+use gpui_component::{Disableable, button::*};
 
 impl Workspace {
+    fn create_first_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.vault.is_some() || self.loading || self.ui.pending_file_writes > 0 {
+            return;
+        }
+        let generation = self.generation;
+        let start = std::env::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let dialog = cx.prompt_for_new_path(&start, Some("我的笔记库"));
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(root))) = dialog.await else {
+                return;
+            };
+            let ready = this
+                .update(cx, |this, cx| {
+                    if this.generation != generation
+                        || this.vault.is_some()
+                        || this.loading
+                        || this.ui.pending_file_writes > 0
+                    {
+                        return false;
+                    }
+                    this.ui.pending_file_writes += 1;
+                    cx.notify();
+                    true
+                })
+                .unwrap_or(false);
+            if !ready {
+                return;
+            }
+            let directory = root.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    // Never merge into or overwrite an existing directory.
+                    std::fs::create_dir(directory)
+                })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                if this.generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(()) => this.load_vault(root, window, cx),
+                    Err(error) => {
+                        this.notifications.publish(format!(
+                            "创建笔记库失败：{error}。请选择尚不存在的文件夹名称。"
+                        ));
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn loading_workspace(&self) -> AnyElement {
         let colors = crate::theme::palette(self.ui.prefs.light);
         div()
@@ -48,9 +103,9 @@ impl Workspace {
         div()
             .id("welcome")
             .debug_selector(|| "welcome".into())
-            .flex_1().min_h_0().flex().flex_col().items_center().justify_center()
-            .px_6().pb(px(64.))
-            .child(div().w(px(360.)).max_w_full().flex().flex_col().gap_3()
+            .flex_1().min_h_0().overflow_y_scroll().flex().flex_col().items_center()
+            .px_6().py_6()
+            .child(div().w(px(440.)).max_w_full().flex_shrink_0().flex().flex_col().gap_3()
                 .child(div().flex().items_center().gap_3().mb_3()
                     .child(div().size(px(42.)).rounded(px(12.)).bg(colors.selected)
                         .flex().items_center().justify_center()
@@ -62,9 +117,13 @@ impl Workspace {
                 .when(!self.notifications.text().is_empty(), |s| s.child(div()
                     .id("welcome-error").debug_selector(|| "welcome-error".into())
                     .text_size(px(MIN_UI_FONT_SIZE)).text_color(colors.muted)
-                    .child(format!("无法打开笔记库：{}", self.notifications.text()))))
-                .child(Button::new("welcome-open-vault").primary().mt_4().h(px(42.)).w_full()
-                    .label("打开笔记库").icon(ui::icon("folder-open"))
+                    .child(self.notifications.text().to_owned())))
+                .child(Button::new("welcome-create-vault").primary().mt_4().h(px(42.)).w_full()
+                    .label("创建新笔记库").accessibility_label("创建新笔记库")
+                    .disabled(self.ui.pending_file_writes > 0)
+                    .on_click(cx.listener(|this, _, window, cx| this.create_first_vault(window, cx))))
+                .child(Button::new("welcome-open-vault").h(px(42.)).w_full()
+                    .label("打开已有笔记库").accessibility_label("打开已有笔记库").disabled(self.ui.pending_file_writes > 0).icon(ui::icon("folder-open"))
                     .on_click(cx.listener(|this, _, window, cx| this.choose_vault(window, cx))))
                 .child(div().text_size(px(MIN_UI_FONT_SIZE)).text_center().text_color(colors.muted)
                     .child("可以选择已有笔记文件夹，也可以选择一个空文件夹")))
@@ -79,13 +138,14 @@ impl Workspace {
             .flex()
             .flex_col()
             .items_center()
-            .justify_center()
+            .overflow_y_scroll()
             .px_4()
-            .pb(px(48.))
+            .py_4()
             .child(
                 div()
-                    .w(px(280.))
+                    .w(px(440.))
                     .max_w_full()
+                    .flex_shrink_0()
                     .flex()
                     .flex_col()
                     .gap_2()
@@ -94,7 +154,7 @@ impl Workspace {
                             .text_size(px(18.))
                             .font_weight(FontWeight::MEDIUM)
                             .mb_1()
-                            .child("新标签页"),
+                            .child(if self.index.notes.is_empty() { "写下第一篇笔记" } else { "新标签页" }),
                     )
                     .child(
                         div()
@@ -107,6 +167,7 @@ impl Workspace {
                         [
                             ("empty-new", "创建新笔记", "file-plus", 0),
                             ("empty-open", "查找笔记", "search", 2),
+                            ("empty-recovery", "文件恢复", "history", 16),
                         ]
                         .into_iter()
                         .map(|(id, label, symbol, command)| {
@@ -136,7 +197,15 @@ impl Workspace {
                                     this.execute_command(command, w, cx)
                                 }))
                         }),
-                    ),
+                    )
+                    .child(div().id("first-note-guide").debug_selector(|| "first-note-guide".into())
+                        .text_size(px(MIN_UI_FONT_SIZE)).text_color(colors.muted).line_height(relative(1.6))
+                        .flex().flex_col().gap_2()
+                        .child(format!("创建笔记后即可写作。{}", if self.hotkey_label(4).is_empty() {
+                            "通过文件菜单中的“保存当前更改”保存 Markdown 文件。".to_owned()
+                        } else { format!("按 {} 保存 Markdown 文件。", self.hotkey_label(4)) }))
+                        .child("顶部模式菜单：实时预览可边写边看排版；源码模式显示 Markdown 标记；阅读视图用于浏览，不修改正文。")
+                        .child("未保存的编辑会另存为恢复草稿，不会定时改写原文件。意外退出后，可从“文件恢复”比较草稿并恢复为副本；最近尚未持久化的输入仍可能丢失。")),
             )
             .into_any_element()
     }
@@ -147,6 +216,64 @@ mod tests {
     use super::Workspace;
     use crate::test_support::PlatformKeys;
     use gpui::{TestAppContext, VisualTestContext};
+
+    #[gpui::test]
+    fn create_first_vault_cancels_rejects_existing_and_opens_new(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-onboarding-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("keep.md"), b"existing").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.create_first_vault(window, cx))
+            .unwrap();
+        cx.simulate_new_path_selection(|_| None);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.vault.is_none());
+                assert_eq!(w.ui.pending_file_writes, 0);
+                w.create_first_vault(window, cx);
+            })
+            .unwrap();
+        cx.simulate_new_path_selection(|_| Some(root.clone()));
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.vault.is_none());
+                assert!(w.notifications.text().contains("创建笔记库失败"));
+                assert_eq!(w.ui.pending_file_writes, 0);
+                w.create_first_vault(window, cx);
+            })
+            .unwrap();
+        cx.simulate_new_path_selection(|_| Some(root.join("new")));
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(
+                    w.vault.as_ref().unwrap().root,
+                    std::fs::canonicalize(root.join("new")).unwrap()
+                );
+                assert_eq!(w.ui.pending_file_writes, 0);
+                assert!(w.index.notes.is_empty());
+                w.execute_command(16, window, cx);
+                assert!(w.ui.trash_open);
+                w.watcher = None;
+                w.watch_events = None;
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(root.join("keep.md")).unwrap(), b"existing");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn welcome_hides_workspace_chrome_but_keeps_settings_accessible(cx: &mut TestAppContext) {
