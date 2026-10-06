@@ -93,6 +93,7 @@ pub(super) struct UiState {
     pub settings_filter: Entity<InputState>,
     _settings_filter_subscription: Subscription,
     pub hotkey_recording: Option<usize>,
+    pub hotkey_recording_focus: Option<FocusHandle>,
     pub hotkey_message: String,
     pub hotkey_filter: Entity<InputState>,
     _hotkey_subscription: Subscription,
@@ -427,6 +428,7 @@ impl UiState {
             settings_tab: 0,
             focus_mode: false,
             hotkey_recording: None,
+            hotkey_recording_focus: None,
             hotkey_message: String::new(),
             hotkey_filter,
             settings_filter,
@@ -1141,6 +1143,7 @@ impl Workspace {
         self.ui.name_mode = None;
         self.ui.settings = false;
         self.ui.hotkey_recording = None;
+        self.ui.hotkey_recording_focus = None;
         self.ui.property_open = false;
         self.ui.property_error.clear();
         self.ui.property_baseline = None;
