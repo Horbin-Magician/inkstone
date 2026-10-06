@@ -1330,3 +1330,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生调用栈仍出现 update_presentation 的全文相等判断。新增组件正文修订号读取接口，展示更新按实体及修订号复用已有 SharedString，替代每次空闲通知的 Rope/字符串逐字比较。仅减少读取成本，不屏蔽光标、几何或焦点通知；IME 分支不变。
 - Base 新测试覆盖选区/通知不推进、静默等长赋值、编辑、撤销/重做、预编辑与提交推进；应用新测试覆盖选区移动不重新解析、等长静默标题替换和撤销后正确语法。editor:: 117 项通过、2 项既有手工基准忽略；完整 vendor Base 1,237 + Component 572 项通过，无忽略；workspace all-targets Clippy -D warnings、workspace 与修改 vendor 文件格式、diff 检查通过。
 - 日志 target/backup-cleanup-audit/text-revision-editor.log、text-revision-vendor.log、text-revision-clippy.log。原生收益及此次改动的 Windows CI 待测，4.5982% 最近 CPU 中位数仍按未达标记录。补丁接口契约与验证入口已加入 EDITOR_PATCH.md；无用户笔记进入提交。
+
+## 字数缓存按正文修订号命中（2026-10-06）
+
+- text_counts 使用 (EntityId, text_revision) 与有效选区判断缓存命中，避免工作区重绘时逐字比较两个 Rope；CountSnapshot 只保留修订标识、选区和计数，不再持有正文。需要重算时仍克隆共享 Rope，大文档保持 200 ms 防抖、后台展平/计算及过期结果拒绝。
+- counts 筛选 5 项通过（3 项编辑器计数、1 项分屏计数、1 项同名筛选的容量测试），覆盖未变化内容不重启防抖、同长度静默替换、选区/阅读模式、过期任务与非活动分屏；workspace all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/count-revision-tests.log、count-revision-clippy.log。
+- 本次依赖 e9a7e7b 已完成 vendor 全量验证的修订号契约；未改变 vendor。原生收益待复测，不据缓存命中宣布 CPU 达标。旧 run 37439067537 的 macOS 工作区/vendor 已成功，Windows 两项本次核对仍运行；该运行只覆盖到 0a12ad6，不覆盖修订号改动。无用户笔记进入提交。
