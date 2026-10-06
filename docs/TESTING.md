@@ -1072,3 +1072,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 
 - 按用户“不需要 Linux 适配”的要求，清除 STATUS 已知限制中残留的 Linux 桌面/同步验收待办，使其与 macOS/Windows CI 和当前实施范围一致。历史证据不改写。
 - 检查 STATUS 的 Linux 引用仅说明排除范围，diff 检查通过；仅修改文档，未修改产品代码或用户笔记。
+
+
+## 长段落原生资源观察（2026-10-06）
+
+- release 构建通过；生成 corpus v1 的 1,010,014 字节长段落执行三次独立启动、30 秒稳定加 30 秒采样、正常退出和全部生成 Markdown 散列复核。数据见 PERFORMANCE_BASELINE 的长段落条目及 `target/native-long-paragraph-xuaku_4x/results.json`。
+- 记录画面/AX 不一致、窗口缩放干预、未持续确认焦点与一次退出后工具意外重启，排除首轮可见性不明的采样；不宣称预算、启动时延或原生输入/滚动验收通过。增加隔离 bundle 环境兜底与退出核对操作要求。
+- 仅提交测量结论与操作文档，diff 检查通过；生成库、原始日志及用户笔记均不进入提交。
