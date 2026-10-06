@@ -13,6 +13,7 @@ pub(super) struct State {
     preview: Option<retention::Preview>,
     cleanup_confirmation: Option<retention::Preview>,
     cleaning: bool,
+    cancellation: Option<std::sync::Arc<inkstone_core::vault::sync::Cancellation>>,
     page: usize,
     pager_focus: std::cell::OnceCell<FocusHandle>,
     inventory: Inventory,
@@ -111,11 +112,12 @@ impl Workspace {
         };
         let vault = self.vault.clone().unwrap();
         let generation = self.generation;
+        let cancellation = std::sync::Arc::new(inkstone_core::vault::sync::Cancellation::default());
+        self.ui.sync_recovery.cancellation = Some(cancellation.clone());
         self.ui.sync_recovery.cleaning = true;
         self.ui.sync_recovery.preview = None;
         self.ui.sync_recovery.message = "正在核验并清理同步备份……".into();
         let task = cx.background_executor().spawn(async move {
-            let cancellation = inkstone_core::vault::sync::Cancellation::default();
             recovery::cleanup::prepare(&vault, &preview, &Default::default(), &cancellation)?
                 .execute(&cancellation)
         });
@@ -128,6 +130,7 @@ impl Workspace {
                 this.refresh_sync_recovery(cx);
                 let message = match result {
                     Ok(report) => format!("已清理 {} 条同步备份，正文共 {} 字节。", report.removed, report.bytes),
+                    Err(error) if recovery::cleanup::is_cancelled(&error) => "同步备份清理已停止。已完成的删除不会撤销，请检查刷新后的列表；剩余受保护记录仍可恢复为副本。".into(),
                     Err(error) => format!("同步备份清理未完成：{error}。部分候选可能已清理，请检查刷新后的列表；剩余受保护记录仍可恢复为副本。"),
                 };
                 this.ui.sync_recovery.message = message.clone();
@@ -136,6 +139,18 @@ impl Workspace {
             });
         }).detach();
         cx.notify();
+    }
+    fn stop_sync_cleanup(&mut self, cx: &mut Context<Self>) {
+        let state = &mut self.ui.sync_recovery;
+        if state.generation != self.generation || !state.cleaning {
+            return;
+        }
+        if let Some(cancellation) = &state.cancellation {
+            cancellation.request();
+            state.message = "已请求停止，正在等待当前步骤结束；已完成的删除不会撤销。".into();
+            // Keep the exclusive ticket until the background task actually exits.
+            cx.notify();
+        }
     }
     fn restore_sync_backup(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.generation != self.ui.sync_recovery.generation
@@ -235,6 +250,15 @@ impl Workspace {
             .when(!state.message.is_empty(), |s| {
                 s.child(state.message.clone())
             })
+            .when(state.cleaning, |panel| panel.child(FocusReveal::new(
+                "sync-cleanup-stop-focus", &self.ui.recovery_scroll,
+                Button::new("sync-cleanup-stop")
+                    .label(if state.cancellation.as_ref().is_some_and(|c| c.is_requested()) {
+                        "正在停止清理……"
+                    } else { "停止后续清理" })
+                    .disabled(state.cancellation.as_ref().is_none_or(|c| c.is_requested()))
+                    .on_click(cx.listener(|this, _, _, cx| this.stop_sync_cleanup(cx))),
+            )))
             .child(FocusReveal::new(
                 "sync-retention-preview-focus",
                 &self.ui.recovery_scroll,
@@ -507,6 +531,61 @@ mod tests {
         );
         assert!(!vault.root.join(".inkstone-sync-old.backup").exists());
         assert!(!vault.root.join("note 同步恢复.md").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn stopping_cleanup_keeps_ticket_until_completion_and_preserves_candidates(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let (root, vault) = cleanup_fixture();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, _, cx| {
+                w.vault = Some(vault.clone());
+                w.preview_sync_retention(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.request_sync_cleanup(cx);
+                w.execute_sync_cleanup(cx);
+                let cancellation = w.ui.sync_recovery.cancellation.as_ref().unwrap().clone();
+                assert!(!cancellation.is_requested());
+                w.stop_sync_cleanup(cx);
+                w.stop_sync_cleanup(cx);
+                assert!(cancellation.is_requested());
+                assert!(w.ui.sync_recovery.cleaning);
+                assert!(w.file_writes.operation_active());
+                assert_eq!(w.file_writes.pending(), 1);
+                w.restore_sync_backup(0, cx);
+                w.execute_sync_cleanup(cx);
+                assert_eq!(w.file_writes.pending(), 1);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.file_writes.pending(), 0);
+                assert!(!w.ui.sync_recovery.cleaning);
+                assert!(w.ui.sync_recovery.cancellation.is_none());
+                assert_eq!(w.ui.sync_recovery.inventory.entries.len(), 2);
+                assert!(w.ui.sync_recovery.message.contains("清理已停止"));
+                let message = w.ui.sync_recovery.message.clone();
+                w.stop_sync_cleanup(cx);
+                assert_eq!(w.ui.sync_recovery.message, message);
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read(vault.root.join(".inkstone-sync-old.backup")).unwrap(),
+            b"older"
+        );
+        assert_eq!(
+            std::fs::read(vault.root.join("note.md")).unwrap(),
+            b"current"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

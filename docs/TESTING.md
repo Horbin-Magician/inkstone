@@ -1527,3 +1527,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 日志 target/backup-cleanup-audit/sync-cleanup-ui-{tests,clippy}.log。原生新按钮/确认焦点、Windows 实机及清理中途强退仍待验收；未运行性能测量，未修改真实用户笔记。
 
 - 本轮验证：7 项桌面同步恢复回归通过；全工作区 all-targets Clippy -D warnings、格式及 diff 检查通过。
+
+
+## 同步备份清理的协作取消（2026-10-06）
+
+- 后台与恢复面板共享每次执行独立的取消令牌，执行中显示“停止后续清理”。请求停止后禁用重复停止，继续持有工作区独占票据，直到后台真正退出才刷新清单和释放任务准入。
+- 清理改用独立取消错误，不再沿用同步的“未发布清单或修改本地文件”文案；取消可能发生在部分删除之后，界面明确不回滚已完成操作。
+- GPUI 新增停止请求、重复请求、退出前互斥、退出后释放/刷新及候选正文保留回归。后端中断恢复回归增加取消类型与文案断言。8 项桌面同步恢复及 9 项清理后端测试通过；全工作区 all-targets Clippy、格式和 diff 检查通过。日志 target/backup-cleanup-audit/sync-cleanup-cancel-{tests,core,clippy}.log。
+- 真实进程中断及新增停止控件原生验收仍待补齐。远端 37453169144 的 macOS 工作区测试失败：恢复键盘滚动回归期望 26 个控件、实际 27 个；两平台 vendor 已通过，Windows 工作区仍在运行。失败日志保留在 target/backup-cleanup-audit/ci-37453169144-macos.log，下一步核对新增预览按钮与测试计数。
