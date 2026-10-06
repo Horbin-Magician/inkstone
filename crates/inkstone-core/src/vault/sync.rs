@@ -187,22 +187,6 @@ fn validate_manifest(manifest: &Manifest) -> Result<()> {
     }
     Ok(())
 }
-fn read_file(path: &Path) -> Result<Option<Vec<u8>>> {
-    use std::io::Read;
-    let file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
-    ensure!(file.metadata()?.is_file(), "同步目标不是普通文件");
-    let mut bytes = Vec::new();
-    file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() as u64 <= MAX_FILE_BYTES,
-        "单个同步文件超过 128 MiB"
-    );
-    Ok(Some(bytes))
-}
 // Hashing does not need a complete copy of the file in memory.
 fn fingerprint(path: &Path, cancellation: &Cancellation) -> Result<Option<(String, u64)>> {
     cancellation.check()?;
@@ -626,15 +610,15 @@ pub fn synchronize_cancellable(
     notify(upload_progress.lock().unwrap().clone());
     transfer(&uploads, |(path, digest)| {
         cancellation.check()?;
-        let bytes =
-            read_file(&vault.regular_file_path(Path::new(path))?)?.context("上传期间文件被删除")?;
-        ensure!(hash(&bytes) == **digest, "上传期间文件已变化：{path}");
-        cancellation.check()?;
-        remote.upload(digest, &bytes)?;
-        cancellation.check()?;
+        let bytes = cache.upload(
+            &vault.regular_file_path(Path::new(path))?,
+            digest,
+            remote,
+            cancellation,
+        )?;
         let mut progress = upload_progress.lock().unwrap();
         progress.completed += 1;
-        progress.bytes += bytes.len() as u64;
+        progress.bytes += bytes;
         notify(progress.clone());
         Ok(())
     })?;
