@@ -190,12 +190,15 @@ impl Workspace {
                             .skip(state.page * RECORDS_PER_PAGE)
                             .take(RECORDS_PER_PAGE)
                             .map(|(i, entry)| {
-                                let time: chrono::DateTime<chrono::Local> = entry.modified.into();
                                 let description = format!(
-                                    "同步备份 · {} · {} · {:.1} KiB",
+                                    "{} · 原路径：{}",
+                                    super::recovery_metadata::Metadata {
+                                        source: super::recovery_metadata::Source::SyncBackup,
+                                        modified: Some(entry.modified),
+                                        bytes: Some(entry.bytes),
+                                    }
+                                    .label(),
                                     entry.original.display(),
-                                    time.format("%Y-%m-%d %H:%M:%S"),
-                                    entry.bytes as f64 / 1024.
                                 );
                                 div()
                                     .debug_selector(move || format!("sync-recovery-record-{i}"))

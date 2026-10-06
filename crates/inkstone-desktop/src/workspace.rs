@@ -44,6 +44,7 @@ mod link_health;
 mod link_updates;
 mod navigation;
 mod recovery;
+mod recovery_metadata;
 mod remote_check;
 mod search_tools;
 mod sync_recovery;
