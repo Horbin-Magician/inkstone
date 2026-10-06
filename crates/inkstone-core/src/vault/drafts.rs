@@ -91,6 +91,7 @@ impl Vault {
     pub fn discard_draft(&self, entry: &RecoveryEntry) -> Result<(), VaultError> {
         self.validate_draft(entry)?;
         fs::remove_file(&entry.journal)?;
+        history::records::forget(self, &entry.journal);
         Ok(())
     }
 }
@@ -163,8 +164,14 @@ impl DraftSession {
     fn remove_obsolete(&mut self) -> Result<(), VaultError> {
         let mut error = None;
         self.obsolete.retain(|path| match fs::remove_file(path) {
-            Ok(()) => false,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => false,
+            Ok(()) => {
+                history::records::forget(&self.vault, path);
+                false
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                history::records::forget(&self.vault, path);
+                false
+            }
             Err(e) => {
                 error = Some(e);
                 true

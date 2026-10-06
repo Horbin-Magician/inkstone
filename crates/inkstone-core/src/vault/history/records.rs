@@ -36,6 +36,32 @@ fn cache_path(vault: &Vault, identity: &Path) -> Option<PathBuf> {
     let key = serde_json::to_vec(identity).ok()?;
     Some(directory.join(format!("{:x}.json", Sha256::digest(key))))
 }
+/// Retire only the disposable metadata for a journal already removed by its owner.
+/// Never create cache directories or let cache cleanup change the journal result.
+pub(in crate::vault) fn forget(vault: &Vault, journal: &Path) {
+    if journal.parent() != Some(vault.recovery_dir.as_path())
+        || journal
+            .extension()
+            .is_none_or(|e| e != "json" && e != "saved")
+    {
+        return;
+    }
+    let index = vault.recovery_dir.join(".history-index");
+    let directory = index.join("records");
+    for path in [&index, &directory] {
+        if !fs::symlink_metadata(path).is_ok_and(|m| m.is_dir() && !is_reparse(&m)) {
+            return;
+        }
+    }
+    let Ok(key) = serde_json::to_vec(&journal.with_extension("")) else {
+        return;
+    };
+    let path = directory.join(format!("{:x}.json", Sha256::digest(key)));
+    if fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && !is_reparse(&m)) {
+        let _ = fs::remove_file(path);
+    }
+}
+
 pub(in crate::vault) fn scope(vault: &Vault, path: &Path, meta: &fs::Metadata) -> Option<Scope> {
     scope_with(vault, path, meta, || {
         // Validate the complete legacy record, but retain only its ownership.
@@ -138,6 +164,142 @@ fn store(path: Option<PathBuf>, identity: PathBuf, bytes: u64, modified: SystemT
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vault::drafts::DraftSession;
+    #[test]
+    fn draft_retirement_and_discard_remove_only_owned_metadata() {
+        let root = std::env::temp_dir().join(format!("inkstone-retired-metadata-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let unrelated = vault.journal(Path::new("other.md"), None, "keep").unwrap();
+        let unrelated_cache = cache_path(&vault, &unrelated.with_extension("")).unwrap();
+        let mut session = DraftSession::new(vault.clone(), "note.md".into()).unwrap();
+        session.persist(None, "first").unwrap();
+        let first = vault
+            .recovery_summaries()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.relative == Path::new("note.md"))
+            .unwrap();
+        let first_cache = cache_path(&vault, &first.journal.with_extension("")).unwrap();
+        assert!(first_cache.is_file());
+        session.persist(None, "second").unwrap();
+        assert!(!first.journal.exists() && !first_cache.exists());
+        let second = vault
+            .recovery_summaries()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.relative == Path::new("note.md"))
+            .unwrap();
+        let second_cache = cache_path(&vault, &second.journal.with_extension("")).unwrap();
+        // A failed journal retirement must keep its metadata and remain retryable.
+        let bytes = fs::read(&second.journal).unwrap();
+        fs::remove_file(&second.journal).unwrap();
+        fs::create_dir(&second.journal).unwrap();
+        assert!(session.clear().is_err());
+        assert!(second_cache.is_file());
+        fs::remove_dir(&second.journal).unwrap();
+        session.clear().unwrap(); // Already-missing journal still retires its cache.
+        assert!(!second_cache.exists());
+        fs::write(&second.journal, bytes).unwrap();
+        let restored = vault
+            .recoveries()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.journal == second.journal)
+            .unwrap();
+        vault.recovery_summaries().unwrap();
+        assert!(second_cache.is_file());
+        vault.discard_draft(&restored).unwrap();
+        assert!(!second_cache.exists());
+        assert!(unrelated.is_file() && unrelated_cache.is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn history_pruning_retires_metadata_but_keeps_latest_and_pending_records() {
+        let root = std::env::temp_dir().join(format!("inkstone-pruned-metadata-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let note = Path::new("note.md");
+        vault.save(note, None, "one").unwrap();
+        vault.save(note, Some("one"), "two").unwrap();
+        vault.save(note, Some("two"), "three").unwrap();
+        let entries = vault.history(note).unwrap();
+        assert_eq!(entries.len(), 3);
+        let pending = vault
+            .journal(Path::new("other.md"), None, "pending")
+            .unwrap();
+        let pending_cache = cache_path(&vault, &pending.with_extension("")).unwrap();
+        vault
+            .cleanup_history_with_policy(std::time::Duration::ZERO, 0)
+            .unwrap();
+        assert_eq!(vault.history(note).unwrap().len(), 1);
+        for entry in entries {
+            let cache = cache_path(&vault, &entry.journal.with_extension("")).unwrap();
+            assert_eq!(cache.exists(), entry.journal.exists());
+        }
+        assert!(pending.is_file() && pending_cache.is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn metadata_cleanup_failure_does_not_fail_discard_or_create_directories() {
+        let root = std::env::temp_dir().join(format!("inkstone-cache-cleanup-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        forget(&vault, &vault.recovery_dir.join("missing.json"));
+        assert!(!vault.recovery_dir.join(".history-index").exists());
+        let journal = vault.journal(Path::new("note.md"), None, "draft").unwrap();
+        let cache = cache_path(&vault, &journal.with_extension("")).unwrap();
+        fs::remove_file(&cache).unwrap();
+        fs::create_dir(&cache).unwrap();
+        vault
+            .discard_draft(&vault.recoveries().unwrap().remove(0))
+            .unwrap();
+        assert!(!journal.exists());
+        assert!(cache.is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_retirement_does_not_follow_linked_cache_directories() {
+        let root =
+            std::env::temp_dir().join(format!("inkstone-retire-linked-cache-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let journal = vault.journal(Path::new("note.md"), None, "keep").unwrap();
+        let cache = cache_path(&vault, &journal.with_extension("")).unwrap();
+        let original = fs::read(&cache).unwrap();
+        let records = cache.parent().unwrap();
+        let outside = root.join("outside-records");
+        fs::rename(records, &outside).unwrap();
+        std::os::unix::fs::symlink(&outside, records).unwrap();
+        forget(&vault, &journal);
+        assert_eq!(
+            fs::read(outside.join(cache.file_name().unwrap())).unwrap(),
+            original
+        );
+        fs::remove_file(records).unwrap();
+        fs::rename(&outside, records).unwrap();
+        let index = records.parent().unwrap();
+        let outside_index = root.join("outside-index");
+        fs::rename(index, &outside_index).unwrap();
+        std::os::unix::fs::symlink(&outside_index, index).unwrap();
+        forget(&vault, &journal);
+        assert_eq!(
+            fs::read(
+                outside_index
+                    .join("records")
+                    .join(cache.file_name().unwrap())
+            )
+            .unwrap(),
+            original
+        );
+        assert!(journal.is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn cache_reuses_old_journals_and_publication_without_reading_bodies() {
         let root = std::env::temp_dir().join(format!("inkstone-history-records-{}", unique_id()));

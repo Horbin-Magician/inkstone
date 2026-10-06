@@ -543,11 +543,12 @@ impl Vault {
                 // Never follow or remove unexpected entries.
                 Ok(_) => continue,
             }
-            match fs::remove_file(journal) {
+            match fs::remove_file(&journal) {
                 Ok(()) => total = total.saturating_sub(size),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error),
             }
+            history::records::forget(self, &journal);
         }
         Ok(())
     }
