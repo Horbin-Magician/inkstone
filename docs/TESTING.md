@@ -1353,3 +1353,8 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - e1f8710 原生调用栈 3/idle-stack.txt 的 live_lists::overlay 和 live_rules::overlay 下均出现 Rope::to_string。代码确认两个 canvas 的 prepaint 无条件读取 value，即使 marker/rule 列表为空也会分配全文。
 - 两处改为捕获该编辑实体的正文修订号，点击时修订不一致即拒绝旧坐标；列表圆点不再需要正文，分隔线仅在实际有效点击时读取正文以确定行首/行尾。保留视口过滤、绘制、选择与焦点行为，不改变语法投影。
 - editor:: 117 项通过、2 项既有手工性能基准忽略，包含列表嵌套/任务边界、分隔线点击与搜索源码揭示、IME/撤销及坐标回归；workspace all-targets Clippy -D warnings、格式/diff 检查通过。日志 target/backup-cleanup-audit/overlay-revision-tests.log、overlay-revision-clippy.log。原生收益待复测，4.4317% 最近 CPU 仍按未达标记录；无用户笔记进入提交。
+
+## 标记绘制分配优化的原生复测与 CI（2026-10-06）
+
+- 627d780 locked release 构建及三轮原生输入/撤销、活动状态、退出与生成库散列核验通过；CPU 中位数 4.0661%，仍未达 2% 预算。原始证据 target/native-overlay-revision-ahfjqa_d；详细边界见 PERFORMANCE_BASELINE.md。
+- 精确提交 627d780fa1bad078cfa39a0a254ed77141910605 已推送现有验证分支，GitHub Actions run 37441574346 已确认运行中，覆盖正文修订号、字数缓存和标记绘制改动；结果待核对。文档 diff 检查通过，无真实笔记进入提交。
