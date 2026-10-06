@@ -14,7 +14,7 @@ pub struct Entry {
     /// Baseline recorded before sync, not a claim that backup bytes were verified.
     /// A concurrent external edit can make the preserved backup differ from it.
     pub expected_sha256: String,
-    /// Explicit recovery protection, including future interrupted cleanup records.
+    /// Explicit or unknown-format protection; never eligible for retention cleanup.
     pub protected: bool,
 }
 #[derive(Clone, Debug, Default)]
@@ -39,11 +39,15 @@ struct Descriptor {
     sha256: String,
     #[serde(default)]
     protected: bool,
+    // Preserve read/restore compatibility while refusing to infer cleanup safety
+    // from fields introduced by a newer format or external recovery tool.
+    #[serde(flatten)]
+    unknown: BTreeMap<String, serde_json::Value>,
 }
 fn is_descriptor(name: &str) -> bool {
     name.starts_with(".inkstone-sync-") && name.ends_with(".backup.json")
 }
-fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
+fn read_descriptor(vault: &Vault, relative: &Path) -> Result<Descriptor> {
     let path = vault.regular_file_path(relative)?;
     let descriptor_meta = fs::symlink_metadata(&path)?;
     ensure!(
@@ -58,7 +62,15 @@ fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
             .is_some_and(is_descriptor),
         "备份描述文件名称无效"
     );
-    let descriptor: Descriptor = serde_json::from_slice(&fs::read(&path)?)?;
+    let mut bytes = Vec::new();
+    fs::File::open(&path)?
+        .take(16 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
+    ensure!(bytes.len() <= 16 * 1024, "备份描述文件过大");
+    Ok(serde_json::from_slice(&bytes)?)
+}
+fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
+    let descriptor = read_descriptor(vault, relative)?;
     validate_path(&descriptor.original)?;
     ensure!(valid_hash(&descriptor.sha256), "备份校验信息无效");
     let original = PathBuf::from(&descriptor.original);
@@ -80,7 +92,7 @@ fn inspect(vault: &Vault, relative: &Path) -> Result<Entry> {
         modified: meta.modified()?,
         bytes: meta.len(),
         expected_sha256: descriptor.sha256,
-        protected: descriptor.protected,
+        protected: descriptor.protected || !descriptor.unknown.is_empty(),
     })
 }
 

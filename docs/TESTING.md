@@ -1499,3 +1499,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 日志 target/backup-cleanup-audit/sync-protected-record-{tests,ui-tests,clippy}.log。原生受保护标签验收待完成。
 - 远端 run 37448687675（1a28db5）已完成，macOS/Windows 全工作区与 vendor 四项检查全部通过；不覆盖本轮及之后尚未推送的提交。
 - 本轮验证：53 项核心同步测试及 4 项桌面恢复回归通过，2 个既有手动入口忽略；全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。
+
+## 未知同步备份元数据的清理保护（2026-10-06）
+
+- 描述读取保留未知字段检测：旧格式兼容；包含未知字段的记录仍可读取、恢复为副本，但推导为受保护，不直接列为清理候选。清理核验对候选及保留记录均拒绝未知字段，避免未来版本新增保护/恢复规则被当前版本忽略。
+- 统一描述读取入口并将实际读取限制为 16 KiB + 1 字节，读取后再次检查长度，避免只依赖读取前 metadata.len。
+- 新增 unknown_metadata_protects_records_but_keeps_copy_recovery_available：旧记录出现未来策略字段后受保护、旧预览失效、副本内容正确、原描述未知字段逐值保留；最新保留记录包含未知版本字段时，其他候选虽存在也无法通过整批核验。原件保持不变。
+- 日志 target/backup-cleanup-audit/sync-unknown-metadata-{tests,clippy}.log。没有增加删除入口。
+- 验证：54 项核心同步测试通过，2 个既有手动入口忽略；全工作区 all-targets Clippy -D warnings、格式和 diff 检查通过。
