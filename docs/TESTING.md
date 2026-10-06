@@ -1037,3 +1037,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - GitHub runner 为 macOS 26.6.2 (25G83)、macos-26-arm64 镜像 20260907.0351.1；rustup 根据仓库配置下载安装 Rust 1.97.0-aarch64-apple-darwin。工作区格式、all-targets Clippy（`-D warnings`）和全测试通过：核心 266 项/3 项既有手动入口忽略，桌面 340 项/2 项既有手动性能入口忽略（162.46 秒），集成 5+1+2=8 项。中断测试子进程的 1 项输出不重复计数。
 - 独立 vendor 正式脚本通过：Base 1,236 项（44.50 秒）、Component 572 项（8.08 秒），无失败/忽略，合计 1,808 项。未复用本机依赖或编译目录，没有第三方 Rust cache action；SDK/系统组件来自 GitHub runner 镜像，并非自行安装的裸系统。
 - 证据：`target/ci-macos-workspace-37420330322.log`、`target/ci-macos-vendor-37420330322.log`、`target/ci-run-37420330322.json`。Windows 工作区已记录失败和修复、其 vendor 仍在运行；新提交的运行 37421293815 仍在进行，不将单平台成功称为整个工作流成功。未执行原生交互验收或合并 master。本次只补充验收记录，diff 检查通过，真实用户笔记未改动。
+
+
+## Windows GitHub runner vendor 检查通过（2026-10-06）
+
+- 运行 37420330322 的最后一个任务 Windows vendor job 112128021149 已 completed/success，正式脚本全部通过：Base 1,237 项（51.13 秒）、Component 571 项（5.98 秒），无失败/忽略，共 1,808 项。平台条件用例导致分包数量与 macOS 不同，不能直接套用本机数量。
+- 环境：Microsoft Windows Server 2025 Datacenter 10.0.26100，windows-2025-vs2026 镜像 20260925.250.1，仓库固定 Rust 1.97.0。证据为 `target/ci-windows-vendor-37420330322.log` 和终态 `target/ci-run-37420330322.json`。
+- 此次运行最终为 failure：macOS 工作区与两平台 vendor 三项成功，Windows 工作区因前述同步基线问题失败；不能因 vendor 双平台通过而视为整体通过。修复提交 db042e8 的新运行 37421293815 仍在进行，未替换或覆盖旧运行证据。仅更新验收记录，diff 检查通过，未改真实用户笔记。
