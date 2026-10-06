@@ -33,3 +33,31 @@ cargo build --release --locked -p inkstone-desktop
 ## 当前证据边界
 
 已有 `frame_benchmark.rs` 为无头 GUI CPU 测量，样本和端到端范围与这里不同。已开始 release 原生资源初测，见 `docs/PERFORMANCE_BASELINE.md`；五场景完整基线、原生输入到显示帧与滚动数据仍待采集，不能据工具可运行判定性能验收完成。
+
+## 旧历史记录解析的内存取舍
+
+此微基准独立于编辑器五场景验收。macOS 上执行：
+
+```sh
+cargo build --locked --release -p inkstone-core --example history_read_benchmark
+python3 tools/performance/history_read.py
+```
+
+脚本在新的 `target/history-read-*` 目录生成一份旧格式日志，包含两段各约
+32 MiB 的混合 Unicode/转义正文；不读取真实笔记。每种方式以独立子进程运行三轮，
+交错顺序，保存原始 `/usr/bin/time -l` 输出、夹具/二进制散列和结果 JSON。
+`whole` 重现原有整文件读取，`buffered` 使用现有 64 KiB 缓冲解析。
+峰值 RSS 是子进程全程峰值，耗时覆盖文件读取和反序列化，不包括进程启动。
+不强制清空系统文件缓存，不能将结果称为冷磁盘延迟。
+
+2026-10-06，macOS 27.0.1 arm64 / Rust 1.97.0，夹具 77,276,882 字节，
+SHA-256 `1540f197b3cf2727e5075ff80499196b6e5c46b75ab0b734bff456b45688583b`：
+
+| 读取方式 | 三轮耗时中位数 | 峰值 RSS 中位数 |
+| --- | ---: | ---: |
+| 整文件 + from_slice | 118.868 ms | 177.297 MiB |
+| BufReader + from_reader | 186.337 ms | 103.641 MiB |
+
+脚本实测记录：`target/history-read-3y6tqom7`。缓冲方式 RSS 降约 41.5%，耗时增约
+56.8%；保留其减少大日志额外内存副本的取舍。它仍完整解码正文，不是恒定总内存，
+也不代表历史窗口打开、目录扫描、元数据写入或原生编辑性能已达标。
