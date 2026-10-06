@@ -1746,3 +1746,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - `cargo test --locked -p inkstone-desktop settings_` 共 13 项通过，包括 800×500、1/1.5/2 比例与 rem 16/24 的布局矩阵、设置键盘显隐、滑块、云同步等待与备份设置导航。desktop all-targets Clippy `-D warnings`、release 构建、格式和 diff 检查通过；日志 `target/backup-cleanup-audit/settings-label-{tests,clippy,release}.log`。
 - 新隔离应用 `target/native-settings-labels` 在 macOS release 下实测 Cmd+, 打开设置，AX 可读到“选择新标签页使用编辑视图还是阅读视图”“选择编辑视图默认使用实时预览还是源码模式”及严格换行、折叠、缩进、补全等标题和说明。证据 `editor-settings.ax.txt`、`editor-settings.png`；未改笔记或设置，已关闭测试应用。此为原生 AX 核验，不等同完整 VoiceOver 验收。
 - 本轮曾在旧隔离测试窗口尝试拖动原生边缘，窗口未改变尺寸，故未获得最小窗口原生结论；上述小窗口/字号/比例结果仍仅为 GPUI 自动回归。没有性能测量或 Linux 适配。
+
+
+### 2026-10-07：整库历史目录元数据与辅助功能文本
+
+- 列表展示每个归属路径的精确总字节数及最近记录文件更新时间，时间来自已有目录元数据，不读取历史正文，不将文件更新时间称为笔记编辑时间。
+- 标题、说明、页码、记录摘要和加载/错误/空状态使用具名 Label；原有查看按钮与焦点顺序保持一致。
+- `cargo test --locked -p inkstone-desktop history_catalog_`：2 项通过。覆盖关闭/切库过期请求，以及 800×500、16/24 rem、12 个长路径条目、三页往返和 Tab/Shift+Tab 可达性。
+- 桌面 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志在 `target/backup-cleanup-audit/history-catalog-label-{tests,clippy}.log`，不纳入提交。
+- 本次未进行原生 VoiceOver 验收或性能测量；Linux 不在范围内。

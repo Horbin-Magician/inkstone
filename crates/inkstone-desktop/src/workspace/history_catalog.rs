@@ -5,6 +5,18 @@ use gpui_component::{Disableable, button::Button};
 use inkstone_core::vault::HistoryNote;
 
 const PER_PAGE: usize = 5;
+
+fn catalog_text(id: impl Into<ElementId>, value: impl Into<String>) -> gpui::Stateful<gpui::Div> {
+    let value = value.into();
+    div()
+        .id(id)
+        .role(Role::Label)
+        .aria_label(value.clone())
+        .min_w_0()
+        .whitespace_normal()
+        .child(value)
+}
+
 #[derive(Default)]
 pub(super) struct State {
     notes: Vec<HistoryNote>,
@@ -55,19 +67,32 @@ impl Workspace {
             .flex_col()
             .gap_2()
             .p_2()
-            .child("整库历史 · 包含已删除或外部重命名后的旧路径")
+            .child(catalog_text(
+                "history-catalog-title",
+                "整库历史 · 包含已删除或外部重命名后的旧路径",
+            ))
             .child(
-                div().text_sm().whitespace_normal().child(
+                catalog_text(
+                    "history-catalog-help",
                     "按记录归属查找；外部重命名不会自动绑定新文件。恢复为副本，保留现有文件。",
-                ),
+                )
+                .text_sm(),
             )
-            .when(state.loading, |s| s.child("正在读取历史目录……"))
+            .when(state.loading, |s| {
+                s.child(catalog_text(
+                    "history-catalog-loading",
+                    "正在读取历史目录……",
+                ))
+            })
             .when(!state.message.is_empty(), |s| {
-                s.child(state.message.clone())
+                s.child(catalog_text(
+                    "history-catalog-message",
+                    state.message.clone(),
+                ))
             })
             .when(
                 !state.loading && state.message.is_empty() && state.notes.is_empty(),
-                |s| s.child("暂无历史记录"),
+                |s| s.child(catalog_text("history-catalog-empty", "暂无历史记录")),
             )
             .when(pages > 0, |s| {
                 s.child(
@@ -76,7 +101,10 @@ impl Workspace {
                         .flex()
                         .flex_wrap()
                         .gap_2()
-                        .child(format!("历史目录：第 {} / {pages} 页", state.page + 1))
+                        .child(catalog_text(
+                            "history-catalog-page-status",
+                            format!("历史目录：第 {} / {pages} 页", state.page + 1),
+                        ))
                         .children([false, true].into_iter().map(|next| {
                             let focus = focus.clone();
                             let id = ("history-catalog-page", usize::from(next));
@@ -127,12 +155,24 @@ impl Workspace {
                             .flex()
                             .flex_col()
                             .gap_1()
-                            .child(div().whitespace_normal().child(format!(
-                                "{} · {} 条记录 · {:.1} KiB",
-                                path.display(),
-                                note.records,
-                                note.bytes as f64 / 1024.
-                            )))
+                            .child(catalog_text(
+                                ("history-catalog-summary", i),
+                                format!(
+                                    "{} · {} 条记录 · {} 字节（{:.1} KiB）",
+                                    path.display(),
+                                    note.records,
+                                    note.bytes,
+                                    note.bytes as f64 / 1024.
+                                ),
+                            ))
+                            .child(catalog_text(
+                                ("history-catalog-modified", i),
+                                format!(
+                                    "最近记录文件更新时间：{}",
+                                    chrono::DateTime::<chrono::Local>::from(note.modified)
+                                        .format("%Y-%m-%d %H:%M:%S")
+                                ),
+                            ))
                             .child(FocusReveal::new(
                                 (ElementId::from(id), "focus"),
                                 &self.ui.recovery_scroll,
