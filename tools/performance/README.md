@@ -49,6 +49,16 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/performance -p t
 
 已有 `frame_benchmark.rs` 为无头 GUI CPU 测量，样本和端到端范围与这里不同。已开始 release 原生资源初测，见 `docs/PERFORMANCE_BASELINE.md`；五场景完整基线、原生输入到显示帧与滚动数据仍待采集，不能据工具可运行判定性能验收完成。
 
+## 多笔记历史目录基准
+
+```sh
+cargo run --release --locked -p inkstone-core --example history_catalog_benchmark -- target/history-catalog-new-run
+```
+
+输出目录必须不存在（包括符号链接），父目录需存在。工具只生成 1,000 篇笔记 × 10 版本的旧格式日志，不读取用户笔记，保留夹具与 `results.json` 供复查。正文包含中文、组合字符和 emoji。分别记录一次无元数据缓存的冷导入、三次暖目录扫描、一次只有逐记录缓存的单篇查询、三次单篇索引命中；每轮核对笔记数、版本数和总字节数，正文按需读取在计时之外验证。
+
+这里的“冷”指应用元数据缓存为空，操作系统页缓存未清空。仅测后端墙钟时间，不包含原生历史窗口或输入延迟。比较改动时使用同机、同 release 参数和新输出目录，另记 Git 提交、编译器及二进制散列；不要将首次导入与暖缓存结果混合平均。
+
 ## 旧历史记录解析的内存取舍
 
 此微基准独立于编辑器五场景验收。macOS 上执行：
