@@ -1587,3 +1587,8 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 取消确认、启动清理以及请求停止的点击/键盘执行回调，均将焦点交给稳定存在的 modal_focus；防止当前按钮被移除或禁用后焦点滞留于失效控件。新增测试同时确认没有启动文件任务、旧备份仍存在。
 - 9 项同步恢复桌面回归通过，全工作区 all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/sync-cleanup-focus-{before,tests,clippy}.log。此修改的原生 release 验收尚待执行，不宣称修复首次加载画面停滞。
 - 远端 37455366426（24517f9）的 Windows 工作区检查已通过，其余三个作业在本轮检查时仍运行；不覆盖本提交。
+
+## 性能工作范围记录一致性（2026-10-06）
+
+- 按用户要求跳过第 3 项剩余性能优化及测量，保留既有提交和历史数据；统一 STATUS 中仍标为进行中或待测的入口，避免重新启动已跳过工作。输入正确性及其他事项验收继续，Linux 不在范围内。
+- 仅调整文档；核对范围说明并通过 `git diff --check`，不运行产品测试或性能测量，未修改用户笔记。
