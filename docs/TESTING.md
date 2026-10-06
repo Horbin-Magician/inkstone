@@ -1029,3 +1029,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 审查共同基线提交路径发现先 `fs::write` 再用只读 `File::open` 调用 sync_all。Windows [FlushFileBuffers 文档](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers) 要求句柄具有写权限。改为在同一写入句柄上 write_all + sync_all，关闭句柄后重命名提交；持久化顺序保持，新增创建/写入/刷盘/提交错误上下文。未跳过失败用例，也未降低持久化要求。
 - 本机核心全量 266 项通过、3 项既有手动入口忽略（2.74 秒）；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/sync-baseline-flush-tests.log`、`target/sync-baseline-flush-clippy.log`、`target/sync-baseline-flush-fmt.log`。复用既有完整同步回归验证，不增加仅镜像实现的测试。
 - 本机 macOS 通过不能证明 Windows 已修复；修复提交将更新独立 CI 分支，Windows 需复跑原失败回归和完整工作区。旧运行的其余任务继续收集结果，不将单平台失败当作整个运行已经停止。未修改真实用户笔记。
+
+
+## macOS GitHub runner 完整检查通过（2026-10-06）
+
+- [运行 37420330322](https://github.com/Horbin-Magician/inkstone/actions/runs/37420330322) 对应提交 `b5fca64d0dfe8329433a1c41c46e90a94ab9cdea`，macOS 工作区 job 112128021373 和 vendor job 112128021342 均为 completed/success，分别读取并保留完整日志。此提交早于 Windows 同步基线句柄修复 db042e8，不用它证明修复提交已完成远端检查。
+- GitHub runner 为 macOS 26.6.2 (25G83)、macos-26-arm64 镜像 20260907.0351.1；rustup 根据仓库配置下载安装 Rust 1.97.0-aarch64-apple-darwin。工作区格式、all-targets Clippy（`-D warnings`）和全测试通过：核心 266 项/3 项既有手动入口忽略，桌面 340 项/2 项既有手动性能入口忽略（162.46 秒），集成 5+1+2=8 项。中断测试子进程的 1 项输出不重复计数。
+- 独立 vendor 正式脚本通过：Base 1,236 项（44.50 秒）、Component 572 项（8.08 秒），无失败/忽略，合计 1,808 项。未复用本机依赖或编译目录，没有第三方 Rust cache action；SDK/系统组件来自 GitHub runner 镜像，并非自行安装的裸系统。
+- 证据：`target/ci-macos-workspace-37420330322.log`、`target/ci-macos-vendor-37420330322.log`、`target/ci-run-37420330322.json`。Windows 工作区已记录失败和修复、其 vendor 仍在运行；新提交的运行 37421293815 仍在进行，不将单平台成功称为整个工作流成功。未执行原生交互验收或合并 master。本次只补充验收记录，diff 检查通过，真实用户笔记未改动。
