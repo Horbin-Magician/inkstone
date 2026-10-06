@@ -225,3 +225,11 @@ release f9bdc1b，包含大纲虚拟化、字数 Rope 缓存及隐藏侧栏分�
 CPU 中位数 4.065%，仍高于 2% 预算，第一轮低值未丢弃或冒充稳定结果。采样 RSS 中位数 353.938 MiB 是生命周期峰值下界，不能证明峰值预算通过。第二轮正式采样后另取五秒调用栈，可见 Window::draw、Taffy 布局、字数内容比较和光标闪烁任务；下步排查空闲重绘范围，不把采样次数当精确 CPU 占比。输入/滚动可见帧、其余场景与完整前后对照仍待完成，加载呈现异常未据此宣称修复。
 
 原始记录 target/native-activity-nfm28n_r：run.json、results.json、各轮 preparation.json（签名后二进制散列）、activity.jsonl、idle.json、pid，第二轮 idle-stack.txt/sample.log。三进程正常 Cmd+Q 后 PID 均已消失，三份库各 16 个 Markdown 长度和 SHA-256 全部不变。未退出其他用户应用、未清系统缓存，采样期间无本地编译/测试。构建日志 target/backup-cleanup-audit/activity-release.log；文档经 diff 检查。未触及真实用户笔记。
+
+## 大纲结果缓存后的首轮原生复测（2026-10-06，待补齐三轮）
+
+release 0a12ad6，沿用 f9bdc1b 活动诊断协议和同机 corpus v1 large-document/live：1200×820 逻辑窗口、默认字号、左右栏打开、zoom 往返、相同位置键入 x 后 Cmd+Z 回到“已保存”，稳定 30 秒后采样 30 秒。正文截图确认可见，原生 AX 已显示带级别和标题的大纲跳转按钮。
+
+第一轮 PID 2285：实际稳定 30.0150 秒、采样 30.0120 秒，单核 CPU 4.5982%，采样最大 RSS 351.1094 MiB（真实峰值下界）。正式区间 15 条活动记录全部为窗口激活、编辑器获焦、加载完成。仍高于 2% 预算；只有一轮，不计算改善比例、不判定总体退化，也不替代输入/滚动验收。采样期间没有本地编译/测试，未退出其他用户应用或清空系统缓存。
+
+原始目录 target/native-outline-cache-ffyja39l：run.json、第一轮 preparation.json/idle.json/activity.jsonl/audit.json/pid；生成库全部 16 个 Markdown 长度与 SHA-256 未变，Cmd+Q 后 PID 已消失。第二、三轮已准备但尚未启动。构建日志 target/backup-cleanup-audit/outline-cache-release.log。后续补齐剩余轮次并定位持续重绘开销。
