@@ -1,5 +1,6 @@
 //! Versioned, checksummed directory backups. Publication/restoration never overwrites.
 pub mod capacity;
+mod origin;
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, io::Read};
@@ -15,6 +16,10 @@ pub struct Manifest {
     pub version: u32,
     pub created: u64,
     pub source_name: String,
+    /// Filesystem source identity for conservative retention grouping. Old
+    /// backups and sources without reliable identity remain unclassified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
     pub directories: Vec<PathBuf>,
     pub files: Vec<Entry>,
 }
@@ -179,6 +184,7 @@ pub fn create(vault: &Vault, destination: &Path) -> io::Result<Manifest> {
             .unwrap_or_default()
             .to_string_lossy()
             .into(),
+        source_id: origin::id(&vault.root)?,
         directories,
         files: vec![],
     };
@@ -231,6 +237,13 @@ fn inspect_metadata(source: &Path) -> io::Result<Manifest> {
     let manifest: Manifest = serde_json::from_reader(fs::File::open(path)?)?;
     if manifest.version != 1 {
         return Err(invalid("不支持此备份格式版本"));
+    }
+    if manifest
+        .source_id
+        .as_ref()
+        .is_some_and(|id| id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return Err(invalid("无效的备份来源标识"));
     }
     let mut paths = BTreeSet::new();
     for path in manifest
@@ -380,6 +393,52 @@ mod tests {
             fs::read(first.join("files/image.bin")).unwrap(),
             [9, 8, 7, 6]
         );
+    }
+
+    #[test]
+    fn backup_origin_distinguishes_same_names_and_preserves_legacy_restore() {
+        let f = Fixture::new();
+        let first = create(&f.1, &f.0.join("first")).unwrap();
+        let repeated = create(&f.1, &f.0.join("repeat")).unwrap();
+        assert_eq!(first.source_id, repeated.source_id);
+        let other_root = f.0.join("other/vault");
+        fs::create_dir_all(&other_root).unwrap();
+        let other = Vault::open(&other_root, f.0.join("other-recovery")).unwrap();
+        let second = create(&other, &f.0.join("second")).unwrap();
+        assert_eq!(first.source_name, second.source_name);
+        if fs::metadata(&f.1.root).unwrap().created().is_ok()
+            && fs::metadata(&other.root).unwrap().created().is_ok()
+        {
+            assert!(first.source_id.is_some());
+            assert_ne!(first.source_id, second.source_id);
+        }
+        fs::rename(&f.1.root, f.0.join("old-vault")).unwrap();
+        fs::create_dir(&f.1.root).unwrap();
+        let replacement = create(&f.1, &f.0.join("replacement")).unwrap();
+        if first.source_id.is_some() && replacement.source_id.is_some() {
+            assert_ne!(first.source_id, replacement.source_id);
+        }
+        let path = f.0.join("first/manifest.json");
+        let mut legacy = serde_json::to_value(&first).unwrap();
+        legacy.as_object_mut().unwrap().remove("source_id");
+        fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let legacy_manifest = inspect(&f.0.join("first")).unwrap();
+        assert!(legacy_manifest.source_id.is_none());
+        assert!(
+            capacity::summarize(&f.0.join("first"))
+                .unwrap()
+                .source_id
+                .is_none()
+        );
+        restore(&f.0.join("first"), &f.0.join("restored"), &legacy_manifest).unwrap();
+        assert_eq!(
+            fs::read(f.0.join("restored/image.bin")).unwrap(),
+            [0, 255, 128, 3]
+        );
+        legacy["source_id"] = serde_json::Value::String("invalid".into());
+        fs::write(path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert!(inspect(&f.0.join("first")).is_err());
+        assert!(capacity::summarize(&f.0.join("first")).is_err());
     }
 
     #[test]
