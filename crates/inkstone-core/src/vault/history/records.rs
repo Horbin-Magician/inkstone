@@ -38,18 +38,24 @@ fn cache_path(vault: &Vault, identity: &Path) -> Option<PathBuf> {
 }
 pub(super) fn scope(vault: &Vault, path: &Path, meta: &fs::Metadata) -> Option<Scope> {
     scope_with(vault, path, meta, || {
-        // Cold imports still validate the complete legacy record. Read through a
-        // bounded buffer instead of retaining the serialized file alongside both
-        // decoded bodies; warm lookups continue using metadata only.
+        // Validate the complete legacy record, but retain only its ownership.
+        // The JSON decoder reuses scratch space instead of keeping both bodies.
         let file = fs::File::open(path).ok()?;
-        serde_json::from_reader::<_, Recovery>(io::BufReader::with_capacity(64 * 1024, file)).ok()
+        let metadata = serde_json::from_reader::<_, super::metadata::Metadata>(
+            io::BufReader::with_capacity(64 * 1024, file),
+        )
+        .ok()?;
+        Some(Scope {
+            root: metadata.root,
+            relative: metadata.relative,
+        })
     })
 }
 fn scope_with(
     vault: &Vault,
     path: &Path,
     meta: &fs::Metadata,
-    read: impl FnOnce() -> Option<Recovery>,
+    read: impl FnOnce() -> Option<Scope>,
 ) -> Option<Scope> {
     if !meta.is_file() || is_reparse(meta) {
         return None;
@@ -72,7 +78,7 @@ fn scope_with(
     {
         return Some(cache.record.scope);
     }
-    let recovery = read()?;
+    let scope = read()?;
     let current = fs::symlink_metadata(path).ok()?;
     if !current.is_file()
         || is_reparse(&current)
@@ -81,10 +87,6 @@ fn scope_with(
     {
         return None;
     }
-    let scope = Scope {
-        root: recovery.root,
-        relative: recovery.relative,
-    };
     store(cache_path, identity, meta.len(), modified, scope.clone());
     Some(scope)
 }
@@ -229,6 +231,43 @@ mod tests {
             assert!(scope(&vault, &path, &fs::symlink_metadata(&path).unwrap()).is_some());
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn metadata_decoder_matches_legacy_schema_and_string_validation() {
+        let cases: &[&[u8]] = &[
+            br#"{"root":"/vault","relative":"note.md","draft":""}"#,
+            br#"{"root":"/vault","relative":"note.md","baseline":null,"draft":"new"}"#,
+            br#"{"root":"/vault","relative":"note.md","baseline":"old","draft":"\u4e2d\ud83d\ude00\n\"\\"}"#,
+            br#"{"draft":"new","unknown":{"nested":[1,true,null]},"relative":"note.md","root":"/vault"}"#,
+            br#"{"root":"/vault","relative":"note.md"}"#,
+            br#"{"root":"/vault","draft":"new"}"#,
+            br#"{"relative":"note.md","draft":"new"}"#,
+            br#"{"root":"/vault","relative":"note.md","draft":null}"#,
+            br#"{"root":"/vault","relative":"note.md","draft":42}"#,
+            br#"{"root":"/vault","relative":"note.md","draft":[]}"#,
+            br#"{"root":"/vault","relative":"note.md","draft":{}}"#,
+            br#"{"root":"/vault","relative":"note.md","baseline":false,"draft":"new"}"#,
+            br#"{"root":"/vault","relative":"note.md","baseline":["old"],"draft":"new"}"#,
+            br#"{"root":"/vault","relative":"note.md","draft":"\ud800"}"#,
+            br#"{"root":"/vault","relative":"note.md","draft":"\udc00"}"#,
+            br#"{"root":"/vault","relative":"note.md","draft":"\q"}"#,
+            b"{\"root\":\"/vault\",\"relative\":\"note.md\",\"draft\":\"\xff\"}",
+            b"{\"root\":\"/vault\",\"relative\":\"note.md\",\"draft\":\"\n\"}",
+            br#"{"root":"/vault","relative":"note.md","draft":"one","draft":"two"}"#,
+            br#"{"root":"/vault","relative":"note.md","baseline":null,"baseline":"old","draft":"new"}"#,
+            br#"{"root":"/vault","relative":"note.md","draft":"new"} trailing"#,
+            br#"{"root":"/vault","relative":"note.md","draft":"truncated"#,
+        ];
+        for input in cases {
+            let original = serde_json::from_reader::<_, Recovery>(*input);
+            let metadata = serde_json::from_reader::<_, super::super::metadata::Metadata>(*input);
+            assert_eq!(original.is_ok(), metadata.is_ok(), "{input:?}");
+            if let (Ok(original), Ok(metadata)) = (original, metadata) {
+                assert_eq!(original.root, metadata.root);
+                assert_eq!(original.relative, metadata.relative);
+            }
+        }
     }
 
     #[cfg(unix)]

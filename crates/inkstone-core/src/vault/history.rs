@@ -1,6 +1,7 @@
 use super::*;
 mod index;
 pub(super) mod links;
+mod metadata;
 mod records;
 
 pub(super) fn cache_journal(vault: &Vault, path: &Path, recovery: &Recovery) {
