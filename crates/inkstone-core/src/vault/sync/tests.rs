@@ -542,6 +542,47 @@ fn webdav_uses_unversioned_directory_and_manifest_version() -> Result<()> {
 }
 
 #[test]
+fn unsupported_remote_version_preserves_local_edits_and_baseline() -> Result<()> {
+    struct FutureRemote(u32);
+    impl Remote for FutureRemote {
+        fn manifest(&self) -> Result<(Manifest, Option<String>)> {
+            Ok((
+                Manifest {
+                    version: self.0,
+                    files: BTreeMap::from([("remote.md".into(), hash(b"remote"))]),
+                },
+                Some("future-revision".into()),
+            ))
+        }
+        fn download(&self, _: &str) -> Result<Vec<u8>> {
+            panic!("unsupported protocol must not download")
+        }
+        fn upload(&self, _: &str, _: &[u8]) -> Result<()> {
+            panic!("unsupported protocol must not upload")
+        }
+        fn publish(&self, _: &Manifest, _: Option<&str>) -> Result<()> {
+            panic!("unsupported protocol must not publish")
+        }
+    }
+    let fixture = Fixture::new();
+    let path = fixture.a.root.join("note.md");
+    fs::write(&path, "saved baseline")?;
+    synchronize(&fixture.a, &Memory::default(), "version-gate")?;
+    let baseline = baseline_path(&fixture.a, "version-gate");
+    let saved_baseline = fs::read(&baseline)?;
+    fs::write(&path, "local edit 中文 👩‍💻")?;
+    let local = snapshot(&fixture.a)?;
+    for version in [0, 2, u32::MAX] {
+        let error = synchronize(&fixture.a, &FutureRemote(version), "version-gate").unwrap_err();
+        assert!(error.to_string().contains("不支持的云端同步格式"));
+        assert_eq!(snapshot(&fixture.a)?, local);
+        assert_eq!(fs::read(&baseline)?, saved_baseline);
+        assert!(!fixture.a.root.join("remote.md").exists());
+    }
+    Ok(())
+}
+
+#[test]
 fn older_settings_default_to_five_minute_remote_checks() {
     let settings: Settings =
         serde_json::from_str(r#"{"url":"https://example.test/dav/","username":"user"}"#).unwrap();

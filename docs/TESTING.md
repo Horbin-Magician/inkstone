@@ -1592,3 +1592,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 
 - 按用户要求跳过第 3 项剩余性能优化及测量，保留既有提交和历史数据；统一 STATUS 中仍标为进行中或待测的入口，避免重新启动已跳过工作。输入正确性及其他事项验收继续，Linux 不在范围内。
 - 仅调整文档；核对范围说明并通过 `git diff --check`，不运行产品测试或性能测量，未修改用户笔记。
+
+## 云端清理协议前置回归与跨平台检查（2026-10-06）
+
+- 核对实际上传、条件发布和容量统计流程，记录上传后发布前删除导致清单引用缺失对象的竞争，以及旧客户端、ETag ABA、在途请求、恢复保护等必须解决的边界，见 [云端清理协议边界](CLOUD_CLEANUP.md)。没有开放云端删除，不将此审查视为清理完成。
+- 新增完整同步入口回归 `unsupported_remote_version_preserves_local_edits_and_baseline`：已有基线之后修改中文/Unicode 正文，远端分别返回版本 0、2、u32::MAX；均明确拒绝，不进入下载、上传或发布，本地快照和基线字节不变。
+- 定向测试 1 项通过，核心库 all-targets Clippy `-D warnings`、全工作区格式及 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-protocol-gate-{tests,clippy}.log`。未做性能测量、Linux 适配或真实用户笔记修改。
+- 已核实 [CI 37455366426](https://github.com/Horbin-Magician/inkstone/actions/runs/37455366426) 对应 24517f9，macOS/Windows 工作区与两平台 vendor 四项全部成功；此结果不覆盖之后的强退恢复及焦点回归。后续提交截至 8cd98b9 已推送既有验证分支，[CI 37462290852](https://github.com/Horbin-Magician/inkstone/actions/runs/37462290852) 当前四项运行中，待其终态核验；该运行不包含本次新增协议测试。
