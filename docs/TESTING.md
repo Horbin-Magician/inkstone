@@ -1154,3 +1154,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增通用共享读者回归：拒绝排他写者、释放一个读者后仍拒绝写者、最后一个读者释放后允许写者、写者存在时拒绝读者、释放后恢复读取。既有 macOS 子进程 exec 前释放回归继续从备份入口覆盖共同守卫。
 - 生产接入后的核心全量 269 通过 / 3 既有入口忽略（3.85 秒），随后新增共享读者定向测试通过；最终 workspace all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/shared-lock-core.log、shared-lock-readers.log、shared-lock-clippy-final.log。无用户笔记或 Linux 适配。
 - 远端 run 37427417590 的四项检查仍在运行，验证的是此前提交 07e235e，不包含本次公共守卫扩展；不能用该运行证明本次 Windows 验收。
+
+
+## 清理中断的部分文件恢复后端（2026-10-06）
+
+- 新增 backup::interrupted 的逐文件预览与 restore_verified：仅接受所选备份位置的直接清理中断子项，先验证清单格式/路径/校验值，再将每个清单文件分类为已校验、缺失或不可用。清单外文件不恢复、不删除；报告不是完整备份校验通过。
+- 恢复时持有共享操作锁，重新比较预览，只复制已校验文件到源外暂存目录；复制时复核字节与散列，发布前再次检查源预览，最终使用 no-replace 发布到全新目录。无可恢复文件、预览变化或已有目标均不提交，不恢复空目录。原残留、原清单、损坏和额外内容均保留；恢复不会解除后续保留清理的中断保护。
+- 四项新回归覆盖缺失/损坏/有效文件分类及 Unicode 副本、额外文件保留、原清单不变、仍列为中断、已有目标保护、预览过期、全部缺失且无暂存残留、非法归属/清单路径和链接载荷拒绝。备份定向 22 项通过（0.59 秒），workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/partial-backup.log、partial-clippy.log。
+- 本次只交付可独立验证的后端，界面选择/预览/恢复入口和原生验收尚待接入；不宣称部分残留管理全部完成。未纳入用户笔记，不增加 Linux 适配。

@@ -1,6 +1,7 @@
 //! Versioned, checksummed directory backups. Publication/restoration never overwrites.
 pub mod capacity;
 pub mod cleanup;
+pub mod interrupted;
 mod locking;
 mod origin;
 pub mod retention;
@@ -231,7 +232,7 @@ pub fn create(vault: &Vault, destination: &Path) -> io::Result<Manifest> {
     Ok(manifest)
 }
 
-fn inspect_metadata(source: &Path) -> io::Result<Manifest> {
+fn read_manifest(source: &Path) -> io::Result<Manifest> {
     let metadata = fs::symlink_metadata(source)?;
     if !metadata.is_dir() || is_reparse(&metadata) {
         return Err(invalid("备份位置必须是普通目录"));
@@ -275,6 +276,11 @@ fn inspect_metadata(source: &Path) -> io::Result<Manifest> {
             .checked_add(entry.bytes)
             .ok_or_else(|| invalid("备份大小溢出"))?;
     }
+    Ok(manifest)
+}
+
+fn inspect_metadata(source: &Path) -> io::Result<Manifest> {
+    let manifest = read_manifest(source)?;
     let payload = safe_path(source, Path::new("files"))?;
     let (dirs, files) = inventory(&payload)?;
     let mut expected_dirs = manifest.directories.clone();
