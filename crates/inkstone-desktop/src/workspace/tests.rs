@@ -5276,6 +5276,19 @@ fn stale_file_moves_release_only_their_own_operation_guard(cx: &mut TestAppConte
                     cx,
                 );
                 let document = w.tabs[0].save.clone();
+                let background = w.file_writes.begin();
+                if folder {
+                    w.manage_folder("old".into(), Some("new".into()), window, cx);
+                } else {
+                    w.manage_named_note(w.tabs[0].id, false, "new.md".into(), window, cx);
+                }
+                assert_eq!(w.file_writes.pending(), 1);
+                assert!(!w.file_writes.operation_active());
+                assert!(!document.persistence.is_saving());
+                assert!(root.join("vault/old/note.md").exists());
+                assert!(!root.join("vault/new.md").exists());
+                assert!(!root.join("vault/new").exists());
+                assert!(w.file_writes.finish(background));
                 if folder {
                     w.manage_folder("old".into(), Some("new".into()), window, cx);
                 } else {
