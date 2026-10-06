@@ -1415,3 +1415,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 从历史页和草稿比较页的初始弹窗焦点，Tab 两次、Enter 均返回总览。草稿比较正确显示 B 与磁盘 A 的差异。关闭弹窗后完整 AX 树确认 B 仍在且“尚未保存”；磁盘仍为 A，其余 15 个生成 Markdown 散列不变。验收后仅将测试编辑还原为磁盘 A 再 Cmd+Q，进程退出已核验，未保存 B 未写入 Markdown。证据摘要 acceptance.json/results.json，构建日志 target/backup-cleanup-audit/recovery-hub-release.log。
 - **待排查：** 首次鼠标选择已保存历史记录后，Shift+Tab 两次再 Enter 打开了底层视图模式菜单；尚未证明是焦点逃逸还是操作起点问题，不计为完整键盘验收通过。随后从初始弹窗焦点的正向导航可用，不能抵消该异常。原生完整反向导航、DPI 与读屏仍待验证。
 - 文档 diff 检查通过，无真实用户笔记进入提交；未运行性能测量。
+
+## 历史弹窗焦点回落保护（2026-10-06）
+
+- 73c901f 隔离 release 中，用可见坐标点击第二条历史记录，再按一次 Shift+Tab，截图显示焦点框落在底层“尚未保存”。因此原生异常已复现，不能归因于 AX 点击路径。退出弹窗后未保存 B 仍在，磁盘仍为 A；其余 15 份生成样本 SHA-256 不变。验收后将编辑器还原到 A 并退出应用，未使用真实用户笔记。
+- 工作区根节点收到 Tab 时，如有弹窗则使用同一弹窗范围导航；共享 modal_is_open 判定用于渲染和导航，避免条件漂移。弹窗内已有处理仍会停止冒泡。
+- 新增 history_mouse_selection_keeps_reverse_tab_inside_dialog：鼠标选择历史后主动让焦点回落工作区，分别执行 12 次 Tab 与 Shift+Tab，验证焦点仍在弹窗、选择和磁盘正文不变。移除根节点保护后在第一次正向 Tab 确定性失败；恢复保护后 11 项恢复回归全部通过，全工作区 all-targets Clippy -D warnings、格式和 diff 检查通过。此测试模拟失焦条件，不声称复现所有原生事件细节。
+- 自动检查日志：target/backup-cleanup-audit/history-mouse-focus-before.log、history-focus-recovery-tests.log、history-mouse-focus-clippy.log。修复后的 release 原生反向导航、Windows、DPI 与读屏验收仍待完成；本轮没有性能测量。

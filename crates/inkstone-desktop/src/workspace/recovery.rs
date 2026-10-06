@@ -773,6 +773,66 @@ mod tests {
     }
 
     #[gpui::test]
+    fn history_mouse_selection_keeps_reverse_tab_inside_dialog(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-history-mouse-focus-{stamp}"));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let path = PathBuf::from("note.md");
+        vault.save(&path, None, "saved").unwrap();
+        vault.journal(&path, Some("saved"), "draft").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.add_tab(path.clone(), Some("saved".into()), false, window, cx);
+                w.open_history(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1200.), px(820.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let row = visual.debug_bounds("history-version-1").unwrap();
+        visual.simulate_click(row.center(), Modifiers::default());
+        visual.run_until_parked();
+        // Native pointer/accessibility transitions can leave focus at the workspace
+        // root. Either Tab direction must re-enter the dialog, not its background.
+        for key in ["tab", "shift-tab"] {
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    window.focus(&w.ui.workspace_focus, cx);
+                })
+                .unwrap();
+            for step in 0..12 {
+                let keystroke = Keystroke::parse(key).unwrap();
+                visual.simulate_event(KeyDownEvent {
+                    keystroke: keystroke.clone(),
+                    is_held: false,
+                    prefer_character_input: false,
+                });
+                visual.simulate_event(KeyUpEvent { keystroke });
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        assert_eq!(w.ui.history.as_ref().unwrap().selected, Some(1));
+                        assert!(
+                            w.ui.modal_focus.contains_focused(window, cx),
+                            "focus escaped after mouse selection / {key} {step}"
+                        );
+                    })
+                    .unwrap();
+            }
+        }
+        assert_eq!(vault.read(&path).unwrap().as_deref(), Some("saved"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn recovery_hub_return_invalidates_preview_and_preserves_dirty_document(
         cx: &mut TestAppContext,
     ) {

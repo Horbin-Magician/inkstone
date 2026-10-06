@@ -8,7 +8,17 @@ use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::{Disableable, button::*};
 
 impl Workspace {
-    fn navigate_modal_tab(
+    pub(super) fn modal_is_open(&self) -> bool {
+        self.command_open
+            || self.ui.quick_open
+            || self.ui.name_mode.is_some()
+            || self.ui.property_open
+            || self.ui.settings
+            || self.ui.trash_open
+            || self.ui.link_update.is_some()
+    }
+
+    pub(super) fn navigate_modal_tab(
         &self,
         event: &KeyDownEvent,
         window: &mut Window,
