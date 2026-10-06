@@ -982,3 +982,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新核心回归覆盖大 Unicode 草稿、跨库过滤、损坏记录保留、错误原路径、元数据变化及转为已保存的记录；新 GPUI 回归覆盖列表生成后记录变化，确认比较显示错误、正文与已审阅记录为空、恢复/放弃不执行，原文件和变化后的记录都保留。既有比较/恢复/确认放弃、重新刷新及双向键盘导航测试继续通过。
 - 最终串行验收：核心 260 项通过、3 项既有手动入口忽略；桌面 340 项通过、2 项既有手动性能入口忽略（107.01 秒）；8 项集成测试通过；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/lazy-draft-core.log`、`target/lazy-draft-desktop-final.log`、`target/lazy-draft-clippy.log`、`target/lazy-draft-fmt.log`。
 - 初次并行检查中未改动的 WebDAV 容量 HTTP 测试出现 5 秒 socket 读取超时，保留在 `target/lazy-draft-core-first.log`；随后两次串行核心全量均通过，未放宽超时或跳过测试。新增 UI 测试曾因 GPUI Path 与 std::path::Path 命名冲突编译失败，已改为明确路径类型并通过最终全量。本轮未新增 release 内存测量或原生界面验收，不把持有类型变化量化为测得的 RSS 改善；仍有冷导入/目录扫描和完整恢复模型待推进，真实用户笔记未改动。
+
+
+## 删除恢复记录时退休对应元数据（2026-10-06）
+
+- 修复草稿会话退休/清理、显式放弃和成功历史保留清理只删除正文记录、遗留逐记录缓存的问题。记录删除成功后按现有身份散列清理对应 `.history-index/records` 文件；会话重试发现记录已不存在时也会清理。删除失败保留缓存；缓存清理为尽力执行，不将正式保存、放弃或历史清理成功误报为失败。
+- 清理不创建不存在的缓存目录，不跟随链接的索引/records 目录，不删除非普通缓存文件。四项新回归覆盖连续草稿退休、失败后重试/已缺失、显式放弃、成功历史保留最新版本、未保存及无关记录保护、缓存删除异常不影响放弃，以及 Unix 两级目录链接目标不被删除。只处理对应逐记录元数据，不触碰逐笔记索引或重命名映射。
+- 核心全量 264 项通过、3 项既有手动入口忽略（3.73 秒）；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/metadata-retirement-tests.log`、`target/metadata-retirement-clippy.log`、`target/metadata-retirement-fmt.log`。未修改 UI 或 vendor，本轮没有新增原生验收；未修改真实用户笔记。
+- 此路径避免常规记录删除继续遗留对应缓存；不涵盖旧版本、手工删除和并发列表读取重新发布的孤立缓存，完整整理仍待后续独立实施。初次编译遗漏测试中 DraftSession 的明确导入，已修正并纳入最终全量检查。
