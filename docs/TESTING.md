@@ -1296,3 +1296,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生空闲调用栈仍见 Window::draw；代码追踪确认 BlinkCursor 通知 InputState，再经 EditorPane 观察者请求更新。该观察者也承载滚动、选区和布局响应，本次不按猜测屏蔽通知。
 - update_presentation 在非 IME 预编辑路径中先比较借用的 Rope 与 parse_source，正文相同时直接复用已有 SharedString，避免每次光标/几何更新先展平全文；内容不同仍取新正文，上下文版本、选区、搜索和外观的后续判断保持原状。预编辑重定位路径不变。相等判断仍扫描内容，不以长度替代，也不宣称减少重绘次数。
 - editor:: 筛选 116 项通过，2 项既有手工性能基准忽略；workspace all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/presentation-source-tests.log、presentation-source-clippy.log。原生性能幅度尚未复测，保留 4.065% 最近基线与预算未通过状态；无用户笔记进入提交。
+
+## 大纲、字数缓存与链接准入的两平台远端结果（2026-10-06）
+
+- [GitHub Actions run 37435652092](https://github.com/Horbin-Magician/inkstone/actions/runs/37435652092)，精确 HEAD 2b832587b70dc8903a32b1185f5b51fe6fa336be，四项工作区/vendor jobs 全部 completed/success，完整日志 target/ci-all-37435652092.log 已下载核对。
+- macOS 核心 275 通过/3 既有忽略、桌面 349 通过/2 既有忽略；Windows 核心 265 通过/3 既有忽略、桌面 346 通过/2 既有忽略。另两平台各 8 项集成测试、格式及 Clippy 通过；vendor 两平台各 1,808 项通过且无忽略。子进程回归的单独输出不重复计入核心总数。
+- 本轮覆盖大纲共享快照/虚拟化、字数 Rope 缓存和链接更新独占准入，不覆盖 137314d 起的隐藏分类惰性准备、f9bdc1b 活动诊断及 87c35ea 展示正文复用。自动通过不替代原生 IME、真实 WebDAV 或性能预算验收。文档经 diff 检查，无用户笔记进入提交。
