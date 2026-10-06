@@ -556,6 +556,20 @@ pub fn synchronize_with_progress(
     synchronize_cancellable(vault, remote, identity, &Cancellation::default(), notify)
 }
 
+/// Coordinate sync and backup recovery within this device recovery directory.
+/// Keep the legacy lock path so existing processes remain mutually exclusive.
+pub(super) fn lock_operation(vault: &Vault) -> Result<super::file_lock::FileLock> {
+    let device = vault.recovery_dir.join("webdav-sync");
+    fs::create_dir_all(&device)?;
+    let vault_id = hash(vault.root.to_string_lossy().as_bytes());
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(device.join(format!("{vault_id}.lock")))?;
+    super::file_lock::FileLock::acquire(lock, true).context("该笔记库已有同步或备份恢复任务运行")
+}
+
 /// In-flight network calls finish before cancellation returns; no new transfers
 /// are started after observing cancellation. Use a fresh token for each attempt.
 pub fn synchronize_cancellable(
@@ -566,16 +580,7 @@ pub fn synchronize_cancellable(
     notify: impl Fn(Progress) + Sync,
 ) -> Result<Report> {
     cancellation.check()?;
-    let device = vault.recovery_dir.join("webdav-sync");
-    fs::create_dir_all(&device)?;
-    let vault_id = hash(vault.root.to_string_lossy().as_bytes());
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(device.join(format!("{vault_id}.lock")))?;
-    let _lock =
-        super::file_lock::FileLock::acquire(lock, true).context("该笔记库已有同步任务运行")?;
+    let _lock = lock_operation(vault)?;
     let state = baseline_path(vault, identity);
     let cache = downloads::Cache::new(&state)?;
     cache.discard_partial(cancellation)?;
