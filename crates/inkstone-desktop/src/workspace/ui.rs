@@ -659,10 +659,11 @@ pub(super) fn icon(name: &str) -> Icon {
         .path(format!("icons/{name}.svg"))
         .size(px(17.))
 }
-pub(super) fn tool(id: &'static str, name: &str, tip: &'static str) -> Button {
+pub(super) fn tool(id: &'static str, name: &str, tip: impl Into<SharedString>) -> Button {
+    let tip = tip.into();
     Button::new(id)
         .accessibility_id(id)
-        .accessibility_label(tip)
+        .accessibility_label(tip.clone())
         .ghost()
         .compact()
         .icon(icon(name))
@@ -1423,8 +1424,12 @@ impl Workspace {
                     })),
             )
             .child(
-                tool("add-tab", "plus", "新建标签页 Ctrl+T")
-                    .on_click(cx.listener(|this, _, w, cx| this.new_blank(w, cx))),
+                tool(
+                    "add-tab",
+                    "plus",
+                    format!("新建标签页 {}", self.hotkey_label(34)),
+                )
+                .on_click(cx.listener(|this, _, w, cx| this.new_blank(w, cx))),
             )
             .child(
                 tool("list-tabs", "chevron-down", "显示所有标签页").dropdown_menu(
@@ -1515,7 +1520,7 @@ impl Workspace {
                                 tool(
                                     "read-mode",
                                     if reading { "pencil" } else { "book-open" },
-                                    "切换阅读视图 Ctrl+E",
+                                    format!("切换阅读视图 {}", self.hotkey_label(6)),
                                 )
                                 .when(active.is_none(), |s| s.hidden())
                                 .on_click(

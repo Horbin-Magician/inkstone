@@ -33,7 +33,9 @@ impl Workspace {
             return vec!["cmd-shift-l".into()];
         }
         if id == 39 {
-            return vec!["ctrl-p".into(), "ctrl-shift-p".into()];
+            return ["ctrl-p", "ctrl-shift-p"]
+                .map(crate::shortcuts::command_default)
+                .into();
         }
         commands::COMMANDS
             .iter()
@@ -42,7 +44,9 @@ impl Workspace {
                 if c.2.is_empty() {
                     vec![]
                 } else {
-                    vec![c.2.to_lowercase().replace('+', "-")]
+                    vec![crate::shortcuts::command_default(
+                        &c.2.to_lowercase().replace('+', "-"),
+                    )]
                 }
             })
             .unwrap_or_default()
@@ -98,7 +102,7 @@ impl Workspace {
                 "control" | "shift" | "alt" | "platform" | "function"
             )
         {
-            return Err("请使用 Ctrl、Alt 组合键或 F1–F24，避免覆盖普通输入。".into());
+            return Err("请使用 Ctrl、Cmd、Alt 组合键或 F1–F24，避免覆盖普通输入。".into());
         }
         if [
             "ctrl-a",
@@ -364,6 +368,44 @@ mod tests {
     use super::*;
     use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn platform_defaults_are_unique_and_saved_control_bindings_remain_literal(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, _, _| {
+                let mut used = std::collections::HashMap::new();
+                for (id, _, _) in commands::COMMANDS {
+                    for key in Workspace::default_hotkeys(*id) {
+                        assert!(
+                            used.insert(key.clone(), *id).is_none(),
+                            "duplicate default: {key}"
+                        );
+                    }
+                }
+                assert_eq!(
+                    w.hotkeys(4),
+                    vec![if cfg!(target_os = "macos") {
+                        "cmd-s"
+                    } else {
+                        "ctrl-s"
+                    }]
+                );
+                assert_eq!(w.hotkeys(40), vec!["ctrl-tab"]);
+                if cfg!(target_os = "macos") {
+                    assert_eq!(w.hotkeys(23), vec!["cmd-alt-f"]);
+                }
+                w.ui.prefs.hotkeys.insert(4, vec!["ctrl-s".into()]);
+                assert_eq!(w.hotkeys(4), vec!["ctrl-s"]);
+                assert_eq!(w.hotkey_label(4), "Ctrl+S");
+                w.ui.prefs.hotkeys.insert(4, vec![]);
+                assert!(w.hotkeys(4).is_empty());
+            })
+            .unwrap();
+    }
+
     #[cfg(target_os = "macos")]
     #[gpui::test]
     fn native_editing_and_application_keys_cannot_be_shadowed(cx: &mut TestAppContext) {
@@ -894,7 +936,9 @@ mod tests {
         visual.simulate_platform_keystrokes("ctrl-z");
         handle
             .update(&mut visual, |w, _, cx| {
-                w.ui.prefs.hotkeys.insert(26, vec!["ctrl-k".into()]);
+                w.ui.prefs
+                    .hotkeys
+                    .insert(26, vec![crate::test_support::keys("ctrl-k")]);
                 w.current_pane()
                     .unwrap()
                     .update(cx, |p, _| p.set_paths(Arc::new(vec!["/中文😀".into()])));
@@ -957,8 +1001,11 @@ mod tests {
                     serde_json::from_str(&json).unwrap();
                 assert_eq!(restored.hotkeys, w.ui.prefs.hotkeys);
                 w.ui.prefs.hotkeys.insert(4, vec![]);
-                w.assign_hotkey(34, &Keystroke::parse("ctrl-s").unwrap())
-                    .unwrap();
+                w.assign_hotkey(
+                    34,
+                    &Keystroke::parse(&crate::test_support::keys("ctrl-s")).unwrap(),
+                )
+                .unwrap();
                 assert!(w.reset_hotkeys(4).is_err());
                 assert!(w.hotkeys(4).is_empty());
                 assert!(

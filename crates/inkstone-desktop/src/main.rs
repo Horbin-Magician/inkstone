@@ -9,6 +9,7 @@ mod editor;
 mod editor_links;
 mod native_graphics;
 mod product;
+mod shortcuts;
 #[cfg(test)]
 mod test_support;
 mod theme;
@@ -31,28 +32,96 @@ fn main() {
             gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
             gpui_component::set_locale("zh-CN");
             cx.bind_keys([
-                KeyBinding::new("ctrl-s", workspace::Save, None),
-                KeyBinding::new("ctrl-shift-o", workspace::OpenVault, None),
-                KeyBinding::new("ctrl-o", workspace::QuickOpen, None),
-                KeyBinding::new("ctrl-p", workspace::CommandPalette, None),
-                KeyBinding::new("ctrl-shift-f", workspace::FullSearch, None),
-                KeyBinding::new("ctrl-shift-p", workspace::CommandPalette, None),
-                KeyBinding::new("ctrl-n", workspace::NewNote, None),
-                KeyBinding::new("ctrl-\\", workspace::SplitRight, None),
-                KeyBinding::new("ctrl-t", workspace::NewTab, None),
-                KeyBinding::new("ctrl-w", workspace::CloseTab, None),
-                KeyBinding::new("ctrl-shift-r", workspace::ToggleRight, None),
-                KeyBinding::new("ctrl-,", workspace::Settings, None),
+                KeyBinding::new(&shortcuts::command_default("ctrl-s"), workspace::Save, None),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-shift-o"),
+                    workspace::OpenVault,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-o"),
+                    workspace::QuickOpen,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-p"),
+                    workspace::CommandPalette,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-shift-f"),
+                    workspace::FullSearch,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-shift-p"),
+                    workspace::CommandPalette,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-n"),
+                    workspace::NewNote,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-\\"),
+                    workspace::SplitRight,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-t"),
+                    workspace::NewTab,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-w"),
+                    workspace::CloseTab,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-shift-r"),
+                    workspace::ToggleRight,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-,"),
+                    workspace::Settings,
+                    None,
+                ),
                 KeyBinding::new("alt-left", workspace::NavigateBack, None),
                 KeyBinding::new("alt-right", workspace::NavigateForward, None),
-                KeyBinding::new("ctrl-tab", workspace::NextTab, None),
-                KeyBinding::new("ctrl-shift-tab", workspace::PreviousTab, None),
-                KeyBinding::new("ctrl-shift-t", workspace::ReopenTab, None),
-                KeyBinding::new("ctrl-e", workspace::ToggleReading, None),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-tab"),
+                    workspace::NextTab,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-shift-tab"),
+                    workspace::PreviousTab,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-shift-t"),
+                    workspace::ReopenTab,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-e"),
+                    workspace::ToggleReading,
+                    None,
+                ),
                 KeyBinding::new("f2", workspace::RenameNote, None),
-                KeyBinding::new("ctrl-b", workspace::Bold, None),
-                KeyBinding::new("ctrl-i", workspace::Italic, None),
-                KeyBinding::new("ctrl-k", workspace::InsertLink, None),
+                KeyBinding::new(&shortcuts::command_default("ctrl-b"), workspace::Bold, None),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-i"),
+                    workspace::Italic,
+                    None,
+                ),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-k"),
+                    workspace::InsertLink,
+                    None,
+                ),
                 KeyBinding::new(
                     if cfg!(target_os = "macos") {
                         "cmd-z"
@@ -71,7 +140,11 @@ fn main() {
                     gpui_component::input::Redo,
                     None,
                 ),
-                KeyBinding::new("ctrl-l", workspace::ToggleTaskLine, None),
+                KeyBinding::new(
+                    &shortcuts::command_default("ctrl-l"),
+                    workspace::ToggleTaskLine,
+                    None,
+                ),
                 KeyBinding::new("escape", workspace::ClosePalette, None),
                 KeyBinding::new(
                     "ctrl-enter",
