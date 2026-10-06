@@ -1857,6 +1857,22 @@ impl Render for Workspace {
         });
         div()
             .id("workspace")
+            .tab_group()
+            .on_key_down(|event, window, cx| {
+                let key = &event.keystroke;
+                if key.key == "tab"
+                    && !key.modifiers.control
+                    && !key.modifiers.alt
+                    && !key.modifiers.platform
+                {
+                    if key.modifiers.shift {
+                        window.focus_prev(cx);
+                    } else {
+                        window.focus_next(cx);
+                    }
+                    cx.stop_propagation();
+                }
+            })
             .track_focus(&self.ui.workspace_focus)
             .relative()
             .flex()

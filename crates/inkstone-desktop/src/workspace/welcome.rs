@@ -299,6 +299,77 @@ mod tests {
     }
 
     #[gpui::test]
+    fn welcome_tab_order_reaches_creation_and_existing_vault_dialogs(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        // Header settings, then creation, then existing vault.
+        for key in "tab tab enter".split_whitespace() {
+            let keystroke = gpui::Keystroke::parse(key).unwrap();
+            visual.simulate_event(gpui::KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(gpui::KeyUpEvent { keystroke });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        assert!(
+            visual.did_prompt_for_new_path(),
+            "creation must be keyboard reachable; existing dialog={}",
+            visual.did_prompt_for_paths()
+        );
+        visual.simulate_new_path_selection(|_| None);
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                window.focus(&w.ui.workspace_focus, cx)
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        for key in "tab tab tab enter".split_whitespace() {
+            let keystroke = gpui::Keystroke::parse(key).unwrap();
+            visual.simulate_event(gpui::KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(gpui::KeyUpEvent { keystroke });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        assert!(
+            visual.did_prompt_for_paths(),
+            "existing vault must be keyboard reachable"
+        );
+        visual.simulate_path_prompt_response(|_| None);
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                window.focus(&w.ui.workspace_focus, cx)
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        for key in "tab tab tab shift-tab enter".split_whitespace() {
+            let keystroke = gpui::Keystroke::parse(key).unwrap();
+            visual.simulate_event(gpui::KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(gpui::KeyUpEvent { keystroke });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        assert!(
+            visual.did_prompt_for_new_path(),
+            "reverse traversal must return to creation"
+        );
+        visual.simulate_new_path_selection(|_| None);
+        visual.run_until_parked();
+    }
+
+    #[gpui::test]
     fn welcome_hides_workspace_chrome_but_keeps_settings_accessible(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
