@@ -1246,3 +1246,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - GitHub Actions run 37429373295，精确 HEAD e96db5c1b138c42f7c5210076020135b163be6b1，四项工作区/vendor jobs 全部 completed/success。日志 target/ci-all-37429373295.log。
 - macOS 核心 274 通过/3 既有忽略，桌面 345 通过/2 既有忽略；Windows 核心 264 通过/3 既有忽略，桌面 342 通过/2 既有忽略。两平台另各 8 项集成测试、格式和 Clippy 通过；vendor 各 1,808 项通过且无忽略。
 - 逐项确认两平台部分残留恢复的未保存保护、过期检查拒绝和最小窗口键盘分页均通过，macOS 子进程 exec 前释放锁回归通过。该轮不含 c94a5a1 起的 AX 文本、任务准入及 00cfb16 历史缓存优化，后者需新一轮验证。状态与验证文档更新经 diff 检查，无用户笔记进入提交。
+
+## 大纲回调共享不可变标题快照（2026-10-06）
+
+- 大文档原生空闲调用栈出现 String/Heading 克隆；代码检查发现 right_panel 为每个大纲行复制含全部标题的 fold_key，形成每次重绘 O(n²) 标题复制。改为 Rc 共享本次渲染的不可变路径/标题快照，行回调与折叠状态仅复制引用；快照值比较、文档/标题变更后的折叠重置、每次点击的状态修改保持原有语义。
+- 两项 outline 定向回归、workspace all-targets Clippy -D warnings、格式与 diff 检查通过，日志 target/backup-cleanup-audit/outline-share-tests.log、outline-share-clippy.log。本次只移除平方级快照复制，没有将大纲列表虚拟化，也未证明持续重绘的唯一来源。
+- 原生三轮 CPU 对照尚待下一步执行，仍按大文档 22.96% 基线保留预算未通过状态，不以结构性优化替代性能实测。无用户笔记进入提交。
