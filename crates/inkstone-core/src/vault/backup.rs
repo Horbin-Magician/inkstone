@@ -4,6 +4,7 @@ pub mod cleanup;
 mod locking;
 mod origin;
 pub mod retention;
+mod storage;
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, io::Read};
