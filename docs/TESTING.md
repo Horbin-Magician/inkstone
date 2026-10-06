@@ -1051,3 +1051,18 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 为 macOS/Windows 工作区和 vendor 两个矩阵的全部四个 job 设置 45 分钟总上限，防止异常编译或测试长期占用 runner。保留原全部命令、fail-fast=false、四项名称及必需检查配置，超时不会被当作成功或跳过回归。
 - 已取得的成功冷构建任务约 9–13 分钟；45 分钟为留有余量的执行边界，并非 Windows 当前任务卡死的判断或产品性能承诺。运行 37421293815 的 Windows 工作区仍在进行；本轮未取消它，也未为超时配置重复启动新运行。此配置只作用于后续运行。
 - YAML 解析确认两矩阵均为 macOS/Windows、各有 timeout-minutes=45，测试入口和 job 名称保持一致；diff 检查通过。配置解析记录：`target/ci-timeout-validation.log`。本提交未改产品代码或真实用户笔记；不将静态配置检查写为已实际触发超时验收。
+
+
+## Windows 同步修复及双平台完整 CI 通过（2026-10-06）
+
+- [运行 37421293815](https://github.com/Horbin-Magician/inkstone/actions/runs/37421293815) 对应产品代码提交 `db042e8f71fca10f81df30bda8eeb0a274614e17`，四项任务及整个运行均 completed/success。macOS 和 Windows 全工作区格式、all-targets Clippy（`-D warnings`）、全部测试及两个独立 vendor 脚本通过。主分支未推送或合并，验证在 codex/quality-and-recovery-ci 分支完成。
+
+| 平台 | 核心测试 | 桌面测试 | 集成测试 | Vendor |
+| --- | --- | --- | --- | --- |
+| macOS arm64 | 266 通过 / 3 既有手动入口忽略，8.95 秒 | 340 通过 / 2 既有手动性能入口忽略，218.41 秒 | 8 通过 | Base 1,236 + Component 572，无忽略 |
+| Windows x64 | 258 通过 / 3 既有手动入口忽略，13.52 秒 | 337 通过 / 2 既有手动性能入口忽略，272.16 秒 | 8 通过 | Base 1,237 + Component 571，无忽略 |
+
+- 依据旧失败日志提取 Windows 18 项失败用例名，与此次完整日志的通过行逐项比较，全部恢复通过，缺失通过项为空；据此验证同步基线写句柄刷盘修复，不仅检查总数。平台条件用例导致数量不同，中断子进程单测不重复计数。
+- 重新读取提交 check runs 和 master 分支保护，四项 required checks 的名称及 GitHub Actions app id 15368 均对应 completed/success；strict 和管理员保护配置仍保留。此证据确认成功检查与门槛匹配，不通过实际合并或改写 master 测试保护。
+- 证据：`target/ci-run-37421293815.json`、`target/ci-macos-workspace-37421293815.log`、`target/ci-windows-workspace-37421293815.log`、`target/ci-macos-vendor-37421293815.log`、`target/ci-windows-vendor-37421293815.log`、`target/ci-sync-regression-comparison.json`、`target/ci-db042e8-checks.json`、`target/ci-master-protection-final.json`。观察进程已以退出码 0 结束，没有取消或重启这次运行。
+- 此后本地仅新增文档及 CI 的 45 分钟执行上限；远端成功结果严格归属于 db042e8，不宣称该后续配置已经运行。未新增原生 IME、性能或交互验收，整体 1–8 项待办仍在继续；真实用户笔记未修改。本提交为验收记录，diff 检查通过。
