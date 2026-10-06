@@ -1626,3 +1626,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 收紧清单响应为单一强 ETag：拒绝重复字段、标签列表、弱标签和引号内空白；发布前也校验修订。此前仅检查首尾引号，会把标签列表用作 If-Match，扩大可接受修订。合法空标签、标签内逗号/反斜线保持原样，不自行转义或拆分。
 - HTTP 回归使用有效清单正文，覆盖拒绝分支和合法标签的读回/条件 PUT；WebDAV 子集 18 项通过，核心 all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志 `target/backup-cleanup-audit/cloud-etag-{tests,clippy}.log`。语法依据 [RFC 9110 §8.8.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.3)。
 - [CI 37465343868](https://github.com/Horbin-Magician/inkstone/actions/runs/37465343868) 对应 d867396，macOS/Windows 工作区及两平台 vendor 四项全部通过；不覆盖之后的清理预览和本次 ETag 修复。
+
+## 云端清理删除执行与部分完成记录（2026-10-06）
+
+- 新增消费式 `CheckedCloudCleanup::execute`：执行前重新确认锁和精确快照；逐个续期、检查取消，携带锁条件 DELETE；只在 204 后通过带条件 HEAD 确认 404 才计入完成数量和字节。最后核对剩余清单/列表并显式释放锁，没有自动重试不确定删除。
+- 新增 `CloudCleanupReport`、`CloudCleanupFailure` 及取消识别 API，保留已确认完成前缀，区分一个未确认请求、取消及释放失败。已开始的删除在取消后仍完成确认，随后停止后续对象；不回滚维护代次。
+- 5 项新增 HTTP 回归覆盖只删除候选/保留引用、失效锁、过期快照、执行前和已删除一个后的取消、第二个请求丢失响应/202/207/412/423/500、HEAD 未确认及释放失败。脚本服务验证条件头和路径，不替代真实多客户端条件执行或服务商验收；界面尚未接入。
+- WebDAV 子集 23 项通过；核心全量 316 项通过、3 个既有手动入口忽略；全工作区 all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-cleanup-execute-{tests,core-tests,clippy}.log`。仅使用生成数据，未访问或删除真实云端对象，未修改用户笔记，未做性能测量。

@@ -12,7 +12,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
 };
 pub use webdav::{
-    CheckedCloudCleanup, CloudCapacity, CloudCleanupPreview, MaintenanceLock, WebDav,
+    CheckedCloudCleanup, CloudCapacity, CloudCleanupFailure, CloudCleanupPreview,
+    CloudCleanupReport, MaintenanceLock, WebDav, is_cloud_cleanup_cancelled,
 };
 
 pub const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
