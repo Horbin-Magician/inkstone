@@ -1517,3 +1517,13 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 59 项核心同步测试通过，2 个既有手动入口忽略；全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/sync-cleanup-execute-{tests,clippy}.log。
 - 边界：尚无界面删除操作；异常后的残留描述仍可使清单不完整并阻止后续清理，自动处置入口待补。上述中断为确定性错误注入，不替代真实进程强退、物理断电、Windows 原生或不遵守锁的外部写入竞争验收。没有进行性能优化或测量。
 - 远端 run 37453169144（5bc3de6）检查时仍在运行，未记为通过；不覆盖本轮改动。
+
+
+## 同步备份清理确认与后台执行（2026-10-06）
+
+- 恢复页预览后提供清理入口，另行显示候选数量、正文容量、不可撤销与本地存储/外部协作条件，用户确认后才开始核验和删除。刷新、恢复副本及执行均使旧确认失效。
+- 执行通过 FileWrites 独占准入，不触发保存；后台使用持锁 prepare/execute，重复点击和并行恢复被阻止。结束时释放本任务票据，并按库 generation 丢弃旧回调；成功/失败均重新读取清单，错误明确说明可能存在已删除前缀及受保护剩余记录。
+- 新增三个 GPUI 回归：无确认/有在途任务不能执行，刷新撤销确认，重复执行与恢复互斥，dirty 编辑正文及原 Markdown 不变；确认后磁盘变化拒绝删除并刷新；旧 generation 完成只释放票据、不覆盖新界面状态。既有恢复、预览失效和分页键盘回归一起执行。
+- 日志 target/backup-cleanup-audit/sync-cleanup-ui-{tests,clippy}.log。原生新按钮/确认焦点、Windows 实机及清理中途强退仍待验收；未运行性能测量，未修改真实用户笔记。
+
+- 本轮验证：7 项桌面同步恢复回归通过；全工作区 all-targets Clippy -D warnings、格式及 diff 检查通过。

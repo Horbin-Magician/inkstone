@@ -11,6 +11,8 @@ pub(super) struct State {
     generation: u64,
     request: u64,
     preview: Option<retention::Preview>,
+    cleanup_confirmation: Option<retention::Preview>,
+    cleaning: bool,
     page: usize,
     pager_focus: std::cell::OnceCell<FocusHandle>,
     inventory: Inventory,
@@ -28,6 +30,9 @@ impl Workspace {
         self.load_sync_recovery(true, cx);
     }
     fn load_sync_recovery(&mut self, preview: bool, cx: &mut Context<Self>) {
+        if self.ui.sync_recovery.cleaning {
+            return;
+        }
         let Some(vault) = self.vault.clone() else {
             return;
         };
@@ -73,6 +78,65 @@ impl Workspace {
         .detach();
         cx.notify();
     }
+    fn can_clean_sync_backups(&self) -> bool {
+        let state = &self.ui.sync_recovery;
+        self.vault.is_some()
+            && state.generation == self.generation
+            && !state.loading
+            && !state.cleaning
+            && self.file_writes.can_start_exclusive_operation()
+            && state
+                .preview
+                .as_ref()
+                .is_some_and(|preview| preview.candidates > 0)
+    }
+    fn request_sync_cleanup(&mut self, cx: &mut Context<Self>) {
+        if self.can_clean_sync_backups() {
+            self.ui.sync_recovery.cleanup_confirmation = self.ui.sync_recovery.preview.clone();
+            cx.notify();
+        }
+    }
+    fn execute_sync_cleanup(&mut self, cx: &mut Context<Self>) {
+        if !self.can_clean_sync_backups() {
+            return;
+        }
+        let Some(preview) = self.ui.sync_recovery.cleanup_confirmation.take() else {
+            return;
+        };
+        if self.ui.sync_recovery.preview.as_ref() != Some(&preview) {
+            return;
+        }
+        let Some(ticket) = self.file_writes.try_begin_exclusive_operation() else {
+            return;
+        };
+        let vault = self.vault.clone().unwrap();
+        let generation = self.generation;
+        self.ui.sync_recovery.cleaning = true;
+        self.ui.sync_recovery.preview = None;
+        self.ui.sync_recovery.message = "正在核验并清理同步备份……".into();
+        let task = cx.background_executor().spawn(async move {
+            let cancellation = inkstone_core::vault::sync::Cancellation::default();
+            recovery::cleanup::prepare(&vault, &preview, &Default::default(), &cancellation)?
+                .execute(&cancellation)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.file_writes.finish(ticket);
+                if this.generation != generation { return; }
+                this.ui.sync_recovery.cleaning = false;
+                this.refresh_sync_recovery(cx);
+                let message = match result {
+                    Ok(report) => format!("已清理 {} 条同步备份，正文共 {} 字节。", report.removed, report.bytes),
+                    Err(error) => format!("同步备份清理未完成：{error}。部分候选可能已清理，请检查刷新后的列表；剩余受保护记录仍可恢复为副本。"),
+                };
+                this.ui.sync_recovery.message = message.clone();
+                this.notifications.publish(message);
+                cx.notify();
+            });
+        }).detach();
+        cx.notify();
+    }
     fn restore_sync_backup(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.generation != self.ui.sync_recovery.generation
             || self.file_writes.operation_active()
@@ -95,6 +159,7 @@ impl Workspace {
         let generation = self.generation;
         let write_ticket = self.file_writes.begin();
         self.ui.sync_recovery.preview = None;
+        self.ui.sync_recovery.cleanup_confirmation = None;
         self.ui.sync_recovery.message = "正在恢复副本……".into();
         let task = cx
             .background_executor()
@@ -180,10 +245,29 @@ impl Workspace {
             ))
             .when_some(state.preview.as_ref(), |panel, preview| {
                 panel.child(div().whitespace_normal().child(format!(
-                    "保留预览：{} 条待核验候选，正文共 {} 字节。每个原路径保留最新 1 份及同时间记录；清单不完整时全部保留。仅供审阅，尚不执行删除。",
+                    "保留预览：{} 条待核验候选，正文共 {} 字节。每个原路径保留最新 1 份及同时间记录；清单不完整时全部保留。预览不会删除；清理需要另行确认并校验正文。",
                     preview.candidates, preview.candidate_bytes
                 )))
             })
+            .when(state.preview.as_ref().is_some_and(|p| p.candidates > 0), |panel| panel
+                .child(FocusReveal::new("sync-cleanup-review-focus", &self.ui.recovery_scroll,
+                    Button::new("sync-cleanup-review").label("清理预览中的同步备份……")
+                        .disabled(!self.can_clean_sync_backups())
+                        .on_click(cx.listener(|this, _, _, cx| this.request_sync_cleanup(cx))))))
+            .when_some(state.cleanup_confirmation.as_ref(), |panel, preview| panel
+                .child(div().whitespace_normal().child(format!(
+                    "确认删除 {} 条旧同步备份（正文 {} 字节）？此操作无法撤销。每篇最新备份及受保护记录保留，原笔记不受影响。",
+                    preview.candidates, preview.candidate_bytes)))
+                .child(div().whitespace_normal().child("仅在已停止其他用户、设备或云盘工具修改此笔记库后执行；只支持可确认的本地存储。核验失败会停止后续清理。"))
+                .child(FocusReveal::new("sync-cleanup-confirm-focus", &self.ui.recovery_scroll,
+                    Button::new("sync-cleanup-confirm").label("确认清理旧同步备份")
+                        .disabled(!self.can_clean_sync_backups())
+                        .on_click(cx.listener(|this, _, _, cx| this.execute_sync_cleanup(cx)))))
+                .child(FocusReveal::new("sync-cleanup-cancel-focus", &self.ui.recovery_scroll,
+                    Button::new("sync-cleanup-cancel").label("取消清理")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.ui.sync_recovery.cleanup_confirmation = None; cx.notify();
+                        })))))
             .when(!state.inventory.entries.is_empty(), |panel| {
                 let focus = state.pager_focus.get_or_init(|| cx.focus_handle()).clone();
                 let pages = state.inventory.entries.len().div_ceil(RECORDS_PER_PAGE);
@@ -321,6 +405,192 @@ mod tests {
             .unwrap();
         (root, vault)
     }
+    fn cleanup_fixture() -> (PathBuf, Vault) {
+        use sha2::{Digest, Sha256};
+        let (root, vault) = fixture();
+        for (name, body, seconds) in [("test", "backup", 2), ("old", "older", 1)] {
+            let file = format!(".inkstone-sync-{name}.backup");
+            let path = vault.root.join(&file);
+            std::fs::write(&path, body).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(
+                    std::fs::FileTimes::new()
+                        .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(seconds)),
+                )
+                .unwrap();
+            std::fs::write(
+                vault.root.join(format!("{file}.json")),
+                serde_json::to_vec(&serde_json::json!({"original":"note.md", "backup":file,
+                    "sha256":format!("{:x}", Sha256::digest(body.as_bytes()))}))
+                .unwrap(),
+            )
+            .unwrap();
+        }
+        (root, vault)
+    }
+
+    #[gpui::test]
+    fn cleanup_requires_current_confirmation_and_preserves_dirty_notes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (root, vault) = cleanup_fixture();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.add_tab("note.md".into(), Some("current".into()), false, window, cx);
+                w.tabs[0].save.editor.update(cx, |editor, cx| {
+                    editor.set_value("unsaved 中文", window, cx)
+                });
+                w.flush_document_views(window, cx);
+                w.preview_sync_retention(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.execute_sync_cleanup(cx);
+                assert_eq!(w.file_writes.pending(), 0);
+                let ticket = w.file_writes.begin();
+                w.request_sync_cleanup(cx);
+                assert!(w.ui.sync_recovery.cleanup_confirmation.is_none());
+                w.file_writes.finish(ticket);
+                w.request_sync_cleanup(cx);
+                assert!(w.ui.sync_recovery.cleanup_confirmation.is_some());
+                w.refresh_sync_recovery(cx);
+                assert!(w.ui.sync_recovery.cleanup_confirmation.is_none());
+                w.execute_sync_cleanup(cx);
+                assert_eq!(w.file_writes.pending(), 0);
+                w.preview_sync_retention(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.request_sync_cleanup(cx);
+                w.execute_sync_cleanup(cx);
+                w.execute_sync_cleanup(cx);
+                w.restore_sync_backup(0, cx);
+                assert_eq!(w.file_writes.pending(), 1);
+                assert!(w.file_writes.operation_active());
+                assert!(w.ui.sync_recovery.cleaning);
+                assert!(w.ui.sync_recovery.preview.is_none());
+                w.refresh_sync_recovery(cx);
+                assert!(w.ui.sync_recovery.cleaning);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.file_writes.pending(), 0);
+                assert!(!w.ui.sync_recovery.cleaning);
+                assert!(!w.ui.sync_recovery.loading);
+                assert!(
+                    w.ui.sync_recovery.message.contains("已清理 1 条"),
+                    "{}",
+                    w.ui.sync_recovery.message
+                );
+                assert_eq!(w.ui.sync_recovery.inventory.entries.len(), 1);
+                assert!(w.tabs[0].save.persistence.is_dirty());
+                assert_eq!(w.tabs[0].save.editor.read(cx).value(), "unsaved 中文");
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read(vault.root.join("note.md")).unwrap(),
+            b"current"
+        );
+        assert_eq!(
+            std::fs::read(vault.root.join(".inkstone-sync-test.backup")).unwrap(),
+            b"backup"
+        );
+        assert!(!vault.root.join(".inkstone-sync-old.backup").exists());
+        assert!(!vault.root.join("note 同步恢复.md").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn cleanup_stale_disk_preview_fails_and_refreshes_without_deletion(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (root, vault) = cleanup_fixture();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, _, cx| {
+                w.vault = Some(vault.clone());
+                w.preview_sync_retention(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.request_sync_cleanup(cx);
+                std::fs::write(vault.root.join(".inkstone-sync-test.backup"), b"changed").unwrap();
+                w.execute_sync_cleanup(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(w.file_writes.pending(), 0);
+                assert!(w.ui.sync_recovery.message.contains("清理未完成"));
+                assert_eq!(w.ui.sync_recovery.inventory.entries.len(), 2);
+                assert!(w.ui.sync_recovery.preview.is_none());
+                assert!(w.ui.sync_recovery.cleanup_confirmation.is_none());
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read(vault.root.join(".inkstone-sync-old.backup")).unwrap(),
+            b"older"
+        );
+        assert_eq!(
+            std::fs::read(vault.root.join("note.md")).unwrap(),
+            b"current"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn old_cleanup_completion_releases_ticket_without_overwriting_new_vault_state(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let (root, vault) = cleanup_fixture();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, _, cx| {
+                w.vault = Some(vault.clone());
+                w.preview_sync_retention(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.request_sync_cleanup(cx);
+                w.execute_sync_cleanup(cx);
+                assert!(!w.file_writes.can_start_exclusive_operation());
+                // Normal switching waits for the ticket. Simulate stale completion
+                // explicitly to verify the final callback's generation boundary.
+                w.generation = w.generation.wrapping_add(1);
+                w.ui.sync_recovery = State {
+                    generation: w.generation,
+                    message: "new vault".into(),
+                    ..Default::default()
+                };
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(w.file_writes.pending(), 0);
+                assert_eq!(w.ui.sync_recovery.message, "new vault");
+                assert!(w.ui.sync_recovery.inventory.entries.is_empty());
+            })
+            .unwrap();
+        assert!(!vault.root.join(".inkstone-sync-old.backup").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[gpui::test]
     fn hub_loads_sync_backups_and_restores_without_overwriting(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
