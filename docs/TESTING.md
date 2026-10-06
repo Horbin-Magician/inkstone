@@ -499,3 +499,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 Remote::download_to 接口，WebDAV 固定 64 KiB 缓冲写入调用方目标，保留单文件大小限制与网络错误行为；旧 Remote 实现有兼容回退。云端已存在对象的校验改为边接收边计算摘要，避免额外保留完整正文。
 - 新测试覆盖短写入、多缓冲传输、实际字节超限、目标写入失败，以及真实 HTTP 分块响应与截断响应。核心全量 225 项通过、1 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/sync-stream-api-tests.log`、`target/sync-stream-api-clippy.log`、`target/sync-stream-api-fmt.log`。同步主流程仍整批驻留内存，512 MiB 限制尚未移除；本提交不是大库首次同步验收，也未做峰值内存测量。未修改用户笔记。
+
+
+## 大库同步第二步：磁盘暂存与完整对象复用（2026-10-06）
+
+- 下载正文改为库外暂存，流式计算摘要并检查大小/返回字节数，全部准备完后才进入原提交流程；应用前再次校验。失败/取消保留完整对象，普通退出清除当前部分文件；基线成功后清除本次使用对象。删除整批 512 MiB 限制，仍保留单文件 128 MiB 限制。
+- 回归新增失败发布后重新打开笔记库复用对象（远端对象不可用且下载次数不增）、损坏暂存强制重新下载并拒绝损坏远端、取消清除部分文件并保留已校验对象、应用前对象变更拒绝。核心全量 227 项通过、2 项忽略；桌面同步相关 27 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 大库用例 `vault::sync::tests::streamed_first_sync_exceeds_former_batch_limit` 默认忽略，显式 release 执行通过：生成 9 个不同的 64 MiB 对象（576 MiB），流式 Remote 禁止 Vec 下载，逐个检查实际文件长度并核对整个库哈希，成功后确认暂存清空。命令：`cargo test --locked --release -p inkstone-core streamed_first_sync_exceeds_former_batch_limit -- --ignored`。本次直接运行构建出的 release 测试二进制，用 `/usr/bin/time -l` 测得 3.93 秒、峰值 RSS 1,219,395,584 字节（约 1.14 GiB），包含样本生成、同步及完整扫描校验；这是内存优化前基线，尚未达到内存受控验收。
+- 日志：`target/sync-staging-tests.log`、`target/sync-staging-desktop-tests.log`、`target/sync-staging-clippy.log`、`target/sync-staging-fmt.log`、`target/sync-staging-large-tests.log`。没有真实 WebDAV 大库、强退/断电及原生界面验收；遗留对象清理、部分下载续传与扫描/应用内存优化待继续。未修改用户笔记。

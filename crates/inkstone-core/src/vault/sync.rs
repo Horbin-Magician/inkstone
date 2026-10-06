@@ -1,5 +1,6 @@
 //! Versioned, content-addressed WebDAV sync. Only the manifest is mutable remotely.
 //! Local baselines are device-owned; credentials never enter a manifest or baseline.
+mod downloads;
 pub mod recovery;
 mod webdav;
 use super::*;
@@ -7,13 +8,12 @@ use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{
-    Arc, Mutex,
+    Mutex,
     atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
 };
 pub use webdav::WebDav;
 
 pub const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
-const MAX_TOTAL_BYTES: usize = 512 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 type Files = BTreeMap<String, String>;
 
@@ -544,50 +544,37 @@ pub fn synchronize_cancellable(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let downloaded = Mutex::new((0usize, BTreeMap::new()));
+    let cache = downloads::Cache::new(&state)?;
+    let downloaded = Mutex::new((0u64, BTreeMap::new()));
     notify(Progress::new(Phase::Downloading, digests.len()));
     // Fetch each content object only once, even when several paths use it.
     transfer(&digests, |digest| {
         cancellation.check()?;
-        let bytes = remote.download(digest)?;
+        let object = cache.fetch(remote, digest, cancellation)?;
         cancellation.check()?;
-        ensure!(
-            bytes.len() as u64 <= MAX_FILE_BYTES && hash(&bytes) == **digest,
-            "云端文件校验失败：{digest}"
-        );
         let mut downloaded = downloaded.lock().unwrap();
-        ensure!(
-            downloaded.0 + bytes.len() <= MAX_TOTAL_BYTES,
-            "本次下载超过 512 MiB，当前版本暂不支持"
-        );
-        downloaded.0 += bytes.len();
-        downloaded.1.insert((*digest).clone(), Arc::new(bytes));
+        downloaded.0 += object.bytes;
+        downloaded.1.insert((*digest).clone(), object);
         notify(Progress {
             phase: Phase::Downloading,
             completed: downloaded.1.len(),
             total: digests.len(),
-            bytes: downloaded.0 as u64,
+            bytes: downloaded.0,
         });
         Ok(())
     })?;
     let (_, objects) = downloaded.into_inner().unwrap();
     let mut downloads = BTreeMap::new();
-    let mut total = 0;
     // Validate every target before publishing or changing local files.
     for (path, digest) in needed {
         cancellation.check()?;
-        let bytes = objects.get(digest).unwrap().clone();
-        total += bytes.len();
-        ensure!(
-            total <= MAX_TOTAL_BYTES,
-            "本次下载超过 512 MiB，当前版本暂不支持"
-        );
+        let object = objects.get(digest).unwrap().clone();
         let target = vault.regular_file_path(Path::new(path))?;
         ensure!(
             read_file(&target)?.as_ref().map(|b| hash(b)).as_ref() == local.get(path),
             "本地文件已变化：{path}"
         );
-        downloads.insert(path.clone(), bytes);
+        downloads.insert(path.clone(), object);
     }
     let known: BTreeSet<_> = previous.files.values().collect();
     let mut uploaded = BTreeSet::new();
@@ -629,7 +616,8 @@ pub fn synchronize_cancellable(
         .count();
     let mut progress = Progress::new(Phase::Applying, downloads.len() + deletions);
     notify(progress.clone());
-    for (path, bytes) in downloads {
+    for (path, object) in downloads {
+        let bytes = object.read()?;
         apply(vault, &path, local.get(&path), Some(&bytes))?;
         report.downloaded += 1;
         progress.completed += 1;
@@ -655,6 +643,9 @@ pub fn synchronize_cancellable(
     fs::write(&temp, serde_json::to_vec(&record)?)?;
     fs::File::open(&temp)?.sync_all()?;
     fs::rename(temp, state)?;
+    for object in objects.values() {
+        object.remove();
+    }
     report.completed_at_ms = completed_at_ms;
     notify(Progress::new(Phase::Complete, 0));
     Ok(report)
