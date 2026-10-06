@@ -1686,3 +1686,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新 GPUI 回归用 12 个实际生成描述文件，检查 800×500、rem 16/24 下三页往返、只绘制当页记录、分页按钮焦点可见、末页按钮禁用后的焦点保留、刷新复位及原笔记/全部描述保留。同步恢复 UI 子集 10 项通过，desktop all-targets Clippy `-D warnings`、格式及 diff 检查通过；日志 `target/backup-cleanup-audit/sync-missing-ui-{tests,clippy}.log`。
 - 原生定位及视觉验收、残留显式处置仍待完成。本轮没有添加删除/归档接口，没有性能测量或 Linux 适配。
 - [CI 37476352495](https://github.com/Horbin-Magician/inkstone/actions/runs/37476352495) 对应 36362e7，macOS/Windows 工作区与 vendor 四项全部成功，覆盖云端清理客户端强退测试；不覆盖之后的辅助功能和正文缺失分类/界面。
+
+## 缺失正文描述文件的保留归档后端（2026-10-06）
+
+- 新增显式 `residue::retain` 后台接口：要求本地存储并取得既有同步/恢复操作锁，核对用户看到的缺失记录、描述字节 SHA-256、大小/时间及文件身份；移动前再次确认正文不存在。将描述文件无覆盖改名为原名称加 `.retained`，完整保留受保护标记和全部字节，不写原笔记或正文。
+- 新增 `retained_descriptors` 清单及占用统计，保留归档仍计入 `stored_bytes`。有效且正文缺失的已归档描述不再阻断其他备份清理；异常归档继续计为不可读。正文重新出现时，归档成为异常记录且正文计为无索引，两者均保留并阻断清理。
+- 3 项回归覆盖原字节/保护标记/占用保留、同名归档拒绝覆盖、正文重现、描述变化（含同大小同时间不同内容）、同步锁互斥和结束释放。核心全量 326 项通过、3 个既有手动入口忽略；全工作区 all-targets Clippy `-D warnings`、格式与 diff 检查通过。最终日志 `target/backup-cleanup-audit/sync-residue-retain-{core-tests,clippy}.log`；子集日志为前两项测试结果。
+- 当前只是后台接口，没有界面调用或自动归档。确认交互、归档列表及原生验收待接入；同用户协作锁不替代其他用户或外部程序协调，不宣称物理断电持久性。未操作真实笔记，未做性能测量或 Linux 适配。
