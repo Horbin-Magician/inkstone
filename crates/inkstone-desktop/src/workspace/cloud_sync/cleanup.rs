@@ -5,6 +5,19 @@ use super::capacity::Key;
 use super::*;
 use std::sync::Arc;
 
+// Painted strings alone are absent from the native accessibility tree.
+// Keep warnings and results readable without adding keyboard tab stops.
+fn cleanup_text(id: &'static str, text: impl Into<String>) -> gpui::Stateful<gpui::Div> {
+    let text = text.into();
+    div()
+        .id(id)
+        .role(gpui::Role::Label)
+        .aria_label(text.clone())
+        .min_w_0()
+        .whitespace_normal()
+        .child(text)
+}
+
 #[derive(Default)]
 pub(super) struct State {
     request: u64,
@@ -217,21 +230,21 @@ impl Workspace {
         let state = &self.ui.cloud_sync.cleanup;
         let current = state.key == Some(self.cloud_capacity_key(cx));
         div().flex().flex_col().gap_2().min_w_0().whitespace_normal()
-            .child("云端旧对象清理")
-            .child("只读预览按当前连接表单读取，不保存配置或笔记。清理需服务器支持独占维护，期间其他设备的同步可能暂时失败，稍后可重试。")
+            .child(cleanup_text("cloud-cleanup-title", "云端旧对象清理"))
+            .child(cleanup_text("cloud-cleanup-help", "只读预览按当前连接表单读取，不保存配置或笔记。清理需服务器支持独占维护，期间其他设备的同步可能暂时失败，稍后可重试。"))
             .child(FocusReveal::new("cloud-cleanup-preview-focus", &self.ui.settings_scroll,
                 div().debug_selector(|| "cloud-cleanup-preview-control".into()).child(Button::new("cloud-cleanup-preview").label("预览云端清理")
                     .disabled(self.cloud_settings_disabled() || state.loading)
                     .on_click(cx.listener(|this, _, _, cx| this.refresh_cloud_cleanup(cx))))))
-            .when(current && !state.message.is_empty(), |s| s.child(state.message.clone()))
+            .when(current && !state.message.is_empty(), |s| s.child(cleanup_text("cloud-cleanup-status", state.message.clone())))
             .when_some(state.preview.as_ref().filter(|_| current), |s, preview| s
-                .child(format!("预计清理：{} 个旧对象 · {:.2} MiB；保留当前引用：{} 个对象 · {:.2} MiB", preview.candidates, preview.candidate_bytes as f64 / 1048576., preview.retained, preview.retained_bytes as f64 / 1048576.))
+                .child(cleanup_text("cloud-cleanup-summary", format!("预计清理：{} 个旧对象 · {:.2} MiB；保留当前引用：{} 个对象 · {:.2} MiB", preview.candidates, preview.candidate_bytes as f64 / 1048576., preview.retained, preview.retained_bytes as f64 / 1048576.)))
                 .when(preview.candidates > 0 && !state.confirmation, |s| s.child(FocusReveal::new("cloud-cleanup-review-focus", &self.ui.settings_scroll,
                     div().debug_selector(|| "cloud-cleanup-review-control".into()).child(Button::new("cloud-cleanup-review").label("查看清理确认")
                         .disabled(!self.can_clean_cloud(cx))
                         .on_click(cx.listener(|this, _, window, cx| { this.request_cloud_cleanup(cx); window.focus(&this.ui.modal_focus, cx); })))))))
             .when(current && state.confirmation, |s| s
-                .child("请先更新所有设备的墨砚。首次清理会升级云端格式，旧版本将无法继续同步；升级及删除不能撤销。本地笔记与恢复记录保留。")
+                .child(cleanup_text("cloud-cleanup-warning", "请先更新所有设备的墨砚。首次清理会升级云端格式，旧版本将无法继续同步；升级及删除不能撤销。本地笔记与恢复记录保留。"))
                 .child(FocusReveal::new("cloud-cleanup-confirm-focus", &self.ui.settings_scroll,
                     div().debug_selector(|| "cloud-cleanup-confirm-control".into()).child(Button::new("cloud-cleanup-confirm").label("确认清理").danger()
                         .disabled(!self.can_clean_cloud(cx))
@@ -240,7 +253,7 @@ impl Workspace {
                     div().debug_selector(|| "cloud-cleanup-cancel-control".into()).child(Button::new("cloud-cleanup-cancel").label("取消")
                         .on_click(cx.listener(|this, _, window, cx| { this.ui.cloud_sync.cleanup.confirmation = false; window.focus(&this.ui.modal_focus, cx); cx.notify(); }))))))
             .when_some(state.run.as_ref(), |s, run| s
-                .when(!current, |s| s.child("原连接的云端清理正在停止，请等待当前请求结束。"))
+                .when(!current, |s| s.child(cleanup_text("cloud-cleanup-stale-status", "原连接的云端清理正在停止，请等待当前请求结束。")))
                 .child(FocusReveal::new("cloud-cleanup-stop-focus", &self.ui.settings_scroll,
                     div().debug_selector(|| "cloud-cleanup-stop-control".into()).child(Button::new("cloud-cleanup-stop").label(if run.cancellation.is_requested() { "正在停止" } else { "停止后续清理" })
                         .disabled(run.cancellation.is_requested())
