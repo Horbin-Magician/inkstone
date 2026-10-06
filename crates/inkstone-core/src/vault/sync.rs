@@ -77,6 +77,15 @@ pub trait Remote: Sync {
         Ok(bytes.len() as u64)
     }
     fn upload(&self, hash: &str, bytes: &[u8]) -> Result<()>;
+    /// Upload a private, immutable snapshot owned by the caller. Transports
+    /// should override this compatibility fallback to stream the file.
+    fn upload_file(&self, hash: &str, mut file: fs::File) -> Result<()> {
+        std::io::Seek::rewind(&mut file)?;
+        let mut bytes = Vec::new();
+        file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+        ensure!(bytes.len() as u64 <= MAX_FILE_BYTES, "上传文件超过大小限制");
+        self.upload(hash, &bytes)
+    }
     fn publish(&self, manifest: &Manifest, revision: Option<&str>) -> Result<()>;
 }
 

@@ -1,10 +1,13 @@
 use super::*;
 use reqwest::{
     Method, StatusCode, Url,
-    blocking::{Client, Response},
+    blocking::{Body, Client, Response},
     header,
 };
-use std::{io::Read, time::Duration};
+use std::{
+    io::{Read, Seek},
+    time::Duration,
+};
 
 pub(super) fn parse_url(settings: &Settings) -> Result<Url> {
     let mut root = Url::parse(settings.url.trim()).context("请输入完整的 WebDAV 目录地址")?;
@@ -165,23 +168,22 @@ impl Remote for WebDav {
             valid_hash(digest) && hash(bytes) == digest,
             "上传内容校验失败"
         );
-        let response = self.send(
-            self.request(Method::PUT, &format!("inkstone/objects/{digest}"))
-                .header(header::IF_NONE_MATCH, "*")
-                .header(header::CONTENT_TYPE, "application/octet-stream")
-                .body(bytes.to_vec()),
-        )?;
-        if response.status() == StatusCode::PRECONDITION_FAILED {
-            let mut sink = DigestSink(Sha256::new());
-            self.download_to(digest, &mut sink)?;
-            ensure!(
-                format!("{:x}", sink.0.finalize()) == digest,
-                "已有云端对象校验失败"
-            );
-        } else {
-            Self::status(response)?;
-        }
-        Ok(())
+        self.put_object(digest, Body::from(bytes.to_vec()))
+    }
+    fn upload_file(&self, digest: &str, mut file: fs::File) -> Result<()> {
+        ensure!(valid_hash(digest), "无效的对象校验值");
+        let metadata = file.metadata()?;
+        ensure!(metadata.is_file(), "上传目标不是普通文件");
+        ensure!(metadata.len() <= MAX_FILE_BYTES, "上传文件超过大小限制");
+        file.rewind()?;
+        let mut sink = DigestSink(Sha256::new());
+        let bytes = copy_limited(&mut file, &mut sink, MAX_FILE_BYTES)?;
+        ensure!(
+            format!("{:x}", sink.0.finalize()) == digest,
+            "上传内容校验失败"
+        );
+        file.rewind()?;
+        self.put_object(digest, Body::sized(file, bytes))
     }
     fn publish(&self, manifest: &Manifest, revision: Option<&str>) -> Result<()> {
         validate_manifest(manifest)?;
@@ -199,6 +201,28 @@ impl Remote for WebDav {
             None => request.header(header::IF_NONE_MATCH, "*"),
         };
         Self::status(self.send(request)?)?;
+        Ok(())
+    }
+}
+
+impl WebDav {
+    fn put_object(&self, digest: &str, body: Body) -> Result<()> {
+        let response = self.send(
+            self.request(Method::PUT, &format!("inkstone/objects/{digest}"))
+                .header(header::IF_NONE_MATCH, "*")
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(body),
+        )?;
+        if response.status() == StatusCode::PRECONDITION_FAILED {
+            let mut sink = DigestSink(Sha256::new());
+            self.download_to(digest, &mut sink)?;
+            ensure!(
+                format!("{:x}", sink.0.finalize()) == digest,
+                "已有云端对象校验失败"
+            );
+        } else {
+            Self::status(response)?;
+        }
         Ok(())
     }
 }

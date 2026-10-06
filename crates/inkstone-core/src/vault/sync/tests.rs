@@ -1093,3 +1093,62 @@ fn abandoned_download_cleanup_is_locked_and_confined_to_owned_partial_files() ->
     );
     Ok(())
 }
+
+#[test]
+fn webdav_file_upload_streams_full_snapshot_and_verifies_existing_objects() -> Result<()> {
+    use std::io::Seek;
+    let f = Fixture::new();
+    let path = f.root.join("upload.snapshot");
+    let bytes = vec![b'x'; 200_003];
+    fs::write(&path, &bytes)?;
+    let (settings, thread) = server(vec![
+        "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    ]);
+    let dav = WebDav::new(&settings, "pass")?;
+    let mut file = fs::File::open(&path)?;
+    file.seek(std::io::SeekFrom::Start(17))?;
+    dav.upload_file(&hash(&bytes), file)?;
+    let requests = thread.join().unwrap();
+    assert_eq!(requests.len(), 1);
+    let (headers, body) = requests[0].split_once("\r\n\r\n").unwrap();
+    assert!(headers.starts_with(&format!("PUT /dav/inkstone/objects/{} ", hash(&bytes))));
+    assert!(headers.to_lowercase().contains("content-length: 200003"));
+    assert!(headers.to_lowercase().contains("if-none-match: *"));
+    assert_eq!(body.as_bytes(), bytes);
+    // Reject wrong digests and oversized files before making a request.
+    assert!(
+        dav.upload_file(&hash(b"different"), fs::File::open(&path)?)
+            .is_err()
+    );
+    fs::File::create(&path)?.set_len(MAX_FILE_BYTES + 1)?;
+    assert!(
+        dav.upload_file(&hash(b"x"), fs::File::open(&path)?)
+            .is_err()
+    );
+    fs::write(&path, b"x")?;
+    for (reply, expected) in [
+        (
+            "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx",
+            true,
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nConnection: close\r\n\r\ny",
+            false,
+        ),
+    ] {
+        let (settings, thread) = server(vec![
+            "HTTP/1.1 412 Precondition Failed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            reply,
+        ]);
+        assert_eq!(
+            WebDav::new(&settings, "pass")?
+                .upload_file(&hash(b"x"), fs::File::open(&path)?)
+                .is_ok(),
+            expected
+        );
+        let requests = thread.join().unwrap();
+        assert!(requests[0].starts_with("PUT "));
+        assert!(requests[1].starts_with("GET "));
+    }
+    Ok(())
+}
