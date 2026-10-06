@@ -5,6 +5,7 @@ use gpui_component::{Disableable, button::*};
 use inkstone_core::vault::sync::recovery::{self, Inventory, retention};
 
 mod missing;
+mod residue;
 
 const RECORDS_PER_PAGE: usize = 5;
 
@@ -18,6 +19,10 @@ pub(super) struct State {
     cancellation: Option<std::sync::Arc<inkstone_core::vault::sync::Cancellation>>,
     page: usize,
     missing_page: usize,
+    retained_page: usize,
+    retained_focus: std::cell::OnceCell<FocusHandle>,
+    retaining: bool,
+    retain_confirmation: Option<recovery::MissingPayload>,
     missing_focus: std::cell::OnceCell<FocusHandle>,
     pager_focus: std::cell::OnceCell<FocusHandle>,
     inventory: Inventory,
@@ -35,7 +40,7 @@ impl Workspace {
         self.load_sync_recovery(true, cx);
     }
     fn load_sync_recovery(&mut self, preview: bool, cx: &mut Context<Self>) {
-        if self.ui.sync_recovery.cleaning {
+        if self.ui.sync_recovery.cleaning || self.ui.sync_recovery.retaining {
             return;
         }
         let Some(vault) = self.vault.clone() else {
@@ -242,6 +247,7 @@ impl Workspace {
                 )))
             })
             .child(self.missing_sync_payload_panel(cx))
+            .child(self.sync_residue_panel(cx))
             .when(state.loading, |s| s.child("正在读取同步备份……"))
             .when(!state.loading && state.inventory.entries.is_empty(), |s| {
                 s.child("暂无可直接恢复的同步备份记录")
@@ -253,7 +259,7 @@ impl Workspace {
                 ))
             })
             .when(!state.message.is_empty(), |s| {
-                s.child(state.message.clone())
+                s.child(missing::text("sync-recovery-status", state.message.clone()))
             })
             .when(state.cleaning, |panel| panel.child(FocusReveal::new(
                 "sync-cleanup-stop-focus", &self.ui.recovery_scroll,
