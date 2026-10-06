@@ -626,3 +626,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 修复恢复校验完成后等待确认/选择目标时占用状态提前释放的问题，这段等待期间也阻止清理启动。
 - GPUI 临时夹具回归覆盖无确认不执行、刷新失效、busy/picker 阻止、重复执行仅一个任务、实际删除三个候选后保留最新及受保护记录、原笔记正文不变；桌面备份相关 4 项通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过，日志为 `target/backup-cleanup-ui-tests.log`、`target/backup-cleanup-ui-clippy.log`、`target/backup-cleanup-ui-fmt.log`。核心执行逻辑未变，沿用前次 247 项核心回归证据。
 - 未做原生窗口、字体/DPI、键盘及跨平台界面验收；外部写入排除依赖用户确认，不能检测或锁住任意云盘工具。仅删除测试夹具，未操作真实用户备份或笔记。
+
+## 首次使用：建库与空标签页引导（2026-10-06）
+
+- 欢迎页区分创建新库与打开已有库；新建目录在后台使用 create_dir，不合并或覆盖现有位置，按工作区代次拒绝过期回填，计入待完成写入后再打开新库。取消不创建文件，失败留在欢迎页并提示。
+- 空标签页增加首篇笔记标题、三种编辑模式说明、实际配置的保存快捷键和文件恢复按钮；解释独立草稿与手动保存的区别。欢迎页和空标签页允许垂直滚动，正文区域不收缩；原有文件保持不变。
+- GPUI 欢迎页相关 6 项通过，新增回归覆盖取消、已有目录拒绝、成功建库、待完成写入释放、恢复入口及旧文件正文保留。全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/onboarding-tests.log`、`target/onboarding-clippy.log`、`target/onboarding-fmt.log`。
+- 本次未覆盖真实平台路径选择器、最小窗口/DPI、首次写作保存全流程及键盘/读屏操作；这些仍须原生验收。仅操作临时测试夹具，未修改用户笔记。
