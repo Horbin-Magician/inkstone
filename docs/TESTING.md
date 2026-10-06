@@ -957,3 +957,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 依次执行 `rustup show active-toolchain`、`cargo clippy --locked -p inkstone-core --all-targets -- -D warnings`、`cargo test --locked -p inkstone-core`。工具链报告由隔离目录的 rust-toolchain.toml 覆盖为 1.97.0-aarch64-apple-darwin；依赖从空缓存下载后 Clippy 通过（27.94 秒），测试编译 22.89 秒、主测试集 259 项通过/3 项既有手动入口忽略（3.42 秒）。测试日志还包含中断回归启动的子进程单测，不能将其重复计入总数。
 - 后续 `cargo tree --locked -p inkstone-core --prefix none` 证实核心依赖树不含 GPUI，Cargo.lock 的 SHA-256 与开始时完全一致。所有命令退出码为零。原始日志 `toolchain.log`、`clippy.log`、`tests.log`、`dependency-tree.log`、`results.json` 位于上述隔离根目录，保留用于复核。
 - 这是同一 macOS 主机的干净源码/依赖/构建验证，仍复用本机已安装的 Rustup/Rust 工具链、SDK 和系统工具；不代表全新操作系统安装、工具链下载、Linux/Windows、桌面及 vendor 全量在新环境已经通过。远端新工作流和必需合入检查仍未验收。本次只更新证据记录，未改产品代码或真实用户笔记，diff 检查通过。
+
+
+## 全工作区检查：macOS 空缓存构建验收（2026-10-06）
+
+- 从提交 `79503b1` 导出全工作区构建所需的 Cargo 清单/锁、固定工具链、crates、vendor、packaging、licenses、LICENSE 和 tools，放入全新 `target/clean-workspace-ez1afjt1/source`。独立的 CARGO_HOME 与 CARGO_TARGET_DIR 开始均为空；没有复制原工作区构建结果、Cargo 缓存或真实笔记。新依赖实际下载并编译，没有设置 Rust compiler wrapper。源码归档和锁文件散列见 `run.json`，主机/SDK/工具链信息见 `environment.json`。
+- 同一隔离目录依次运行固定工具链检查、`cargo fmt --all --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`，全部退出码为零。Clippy 总耗时 76.03 秒，测试含编译总耗时 246.52 秒；这些是执行记录，不是应用性能预算。核心 259 项通过/3 项既有手动入口忽略，桌面 339 项通过/2 项既有手动性能基准忽略，独立集成测试 8 项通过；子进程回归输出不重复计入总数。
+- 最终 Cargo.lock 散列不变。完整 `toolchain.log`、`fmt.log`、`clippy.log`、`tests.log`、`results.json`、`final-verification.json` 保留在隔离根目录。验证结束后仅清理本次及上次 `clean-core-_f35j_b2` 的可再生 build/cargo-home，保留 source、source.tar、所有日志与 JSON 证据；清理记录分别为 `cache-cleanup.json`。
+- 本机为 macOS 27.0.1 (26A434)、Apple Silicon、Command Line Tools `/Library/Developer/CommandLineTools`、SDK 27.0、仓库固定 Rust 1.97.0。仍使用已安装的系统 SDK/工具链，不代表裸系统安装流程、Windows/Linux 或远端 CI 已通过。工作区测试并不包含独立 vendor 全量回归；分支合入门槛也仍未启用。本次仅提交验收记录，未改产品代码或真实用户笔记，diff 检查通过。
