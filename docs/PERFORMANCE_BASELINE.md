@@ -165,3 +165,19 @@ CPU 中位数 0.0667%，峰值 RSS 中位数 580.703 MiB。CPU 为累计时间�
 退出第一轮后查询旧窗口导致工具另起了未携带隔离环境的测试进程，读取了默认最近库；发现后立即退出，未发出正文编辑或保存命令，也未将其纳入数据。此后只用 PID 和启动包装进程核对退出，第二、三轮均确认隔离库后采样；测试操作指南补充此陷阱及 bundle 环境兜底要求。不能宣称本轮完全没有访问真实库。
 
 原始记录 `target/native-long-paragraph-xuaku_4x/run.json`、`results.json`、各轮 idle/resources/stdout/PID/exit-code；首轮额外有 `idle-before-visible-unverified.json` 和诊断 sample。构建日志 `target/native-long-paragraph-build.log`。三个测量进程均 Cmd+Q 退出、退出码 0、PID 已消失，每轮 16 个生成 Markdown 的长度与 SHA-256 全部复核一致。原生显示异常及受控焦点测量仍需继续，未据此完成第 3 项。
+
+## 大文档实时预览原生空闲基线（2026-10-06）
+
+Apple M4 / 24 GiB / macOS 27.0.1 arm64，Rust 1.97.0 release dbe55e1，固定 corpus v1 的 large-document.md。三个全新独立 bundle/XDG/生成库，默认字号 16、实时预览、左右栏展开、1200×820 逻辑窗口（截图 2400×1640）。每轮先以原生 AX 核对标签和正文，再点击编辑区域并截图确认正文可见，未输入或保存；随后稳定 30 秒、连续采样 30 秒。未连续记录系统前台和光标焦点，不据此宣称完整前台输入性能；未关闭其他用户程序及待人工 IME 验收实例，未清系统缓存，采样期间没有本地编译/测试。
+
+| 轮次 / PID | 单核 CPU 区间均值 | 采样最大 RSS |
+| --- | ---: | ---: |
+| 1 / 95569 | 22.956% | 366.984 MiB |
+| 2 / 95717 | 22.788% | 365.703 MiB |
+| 3 / 95872 | 22.956% | 371.172 MiB |
+
+CPU 中位数 22.956%，超过原定 2% 空闲预算，不能通过验收。RSS 为采样期间下界，未取得整个进程生命周期峰值，不能证明峰值预算通过。尚未测输入到可见帧、滚动和打开可编辑时延。
+
+第三轮正式采样结束后另以系统 sample 采集五秒调用栈；栈中可见 Workspace 渲染、outline_rows/Heading 与 String 克隆、Taffy 布局及 text_counts 的正文转字符串。下一步针对重复渲染与大纲/文本复制排查，不能把这些样本直接当成各项耗时百分比或唯一根因。
+
+原始记录 target/native-large-idle-cfwnybki 的 run.json、results.json、每轮 preparation.json（签名后构建散列）、idle.json 与 pid，第三轮 idle-stack.txt/sample.log；构建日志 target/backup-cleanup-audit/large-native-build.log。三进程均 Cmd+Q 后确认 PID 消失；三份库的全部 16 个 Markdown 均与 corpus 逐字节相同，未触及用户笔记。文档更新通过 diff 检查。
