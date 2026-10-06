@@ -557,7 +557,8 @@ mod tests {
         create(&f.1, &parent.join("new")).unwrap();
         assert!(cleanup::prepare(&parent, &plan, &BTreeSet::new()).is_err());
         for name in ["1", "2", "new"] {
-            assert!(inspect(&parent.join(name)).is_ok());
+            inspect(&parent.join(name))
+                .expect("backup must remain readable after cleanup validation");
         }
     }
 
@@ -594,7 +595,7 @@ mod tests {
         fs::rename(parent.join("1"), f.0.join("displaced")).unwrap();
         fs::rename(replacement, parent.join("1")).unwrap();
         assert!(checked.execute().is_err());
-        assert!(inspect(&parent.join("1")).is_ok());
+        inspect(&parent.join("1")).expect("backup must remain readable after cleanup validation");
         let checked = cleanup::prepare(&parent, &plan, &BTreeSet::new()).unwrap();
         fs::write(parent.join("2/files/image.bin"), [9, 8, 7, 6]).unwrap();
         assert!(checked.execute().is_err());
@@ -609,9 +610,9 @@ mod tests {
             (1, plan.candidate_bytes)
         );
         assert!(!parent.join("1").exists());
-        assert!(inspect(&parent.join("0")).is_ok());
-        assert!(inspect(&parent.join("2")).is_ok());
-        assert!(inspect(&f.0.join("displaced")).is_ok());
+        inspect(&parent.join("0")).expect("protected unclassified backup must remain readable");
+        inspect(&parent.join("2")).expect("newest protected backup must remain readable");
+        inspect(&f.0.join("displaced")).expect("replaced backup must remain readable");
         assert_eq!(fs::read_dir(parent).unwrap().count(), 2);
         assert_eq!(
             fs::read(f.1.root.join("image.bin")).unwrap(),
@@ -666,7 +667,8 @@ mod tests {
                     b"late external write"
                 );
             }
-            assert!(inspect(&parent.join("2")).is_ok());
+            inspect(&parent.join("2"))
+                .expect("backup must remain readable after cleanup validation");
         }
     }
 
@@ -726,7 +728,7 @@ mod tests {
             inventory.interrupted
         );
         assert!(isolated.join("files/image.bin").exists());
-        assert!(inspect(&parent.join("3")).is_ok());
+        inspect(&parent.join("3")).expect("backup must remain readable after cleanup validation");
     }
 
     #[test]
@@ -753,8 +755,8 @@ mod tests {
         assert!(!isolated.exists());
         assert_eq!(retained.parent(), Some(parent.as_path()));
         assert!(capacity::summarize(&retained).unwrap().protected);
-        assert!(inspect(&retained).is_ok());
-        assert!(inspect(&newest).is_ok());
+        inspect(&retained).expect("backup must remain readable after cleanup validation");
+        inspect(&newest).expect("backup must remain readable after cleanup validation");
         let inventory = capacity::list(&parent).unwrap();
         assert!(inventory.interrupted.is_empty());
         let preview = retention::preview(&inventory, 1, &BTreeSet::new()).unwrap();
