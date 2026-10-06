@@ -567,3 +567,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新回归验证同源重复备份一致、同名不同目录分离、原路径重建目录分离、去掉字段的旧清单可校验/统计/完整恢复、非法标识拒绝。核心全量最终 236 项通过、3 项忽略；桌面备份相关 4 项及全工作区 all-targets Clippy（`-D warnings`）、格式、diff 检查通过。
 - 首次全量出现已有同步用例 `failed_streamed_application_keeps_original_and_cleans_temporary_file` 的同步锁占用错误；单独重跑全量及随后三轮并发全量均通过（每轮 236 项）。目前未定位该间歇性锁错误，不宣称已经修复，后续并发回归仍需关注。
 - 日志：`target/backup-origin-tests.log`（首次失败）、`target/backup-origin-tests-rerun.log`、`target/backup-origin-repeat-tests.log`、`target/backup-origin-desktop-tests.log`、`target/backup-origin-clippy.log`、`target/backup-origin-fmt.log`。未做 Windows 实机验证或实现删除操作，未修改用户笔记。
+
+## 整库备份：保留规则与清理预览模型（2026-10-06）
+
+- 新增只读预览模型，返回候选、近期保留、正在使用、来源不明、清单不完整五类原因。按来源至少保留一份，支持保留多份及截止时间并列保护；未知来源/异常清单不生成可删除候选。计算候选正文+清单逻辑字节数并检查溢出。
+- 规则回归覆盖乱序输入、同名不同来源、时间并列、正在使用的旧备份、旧格式、零保留自动提高为一份、超出记录数的保留数量、空清单、读取异常及容量溢出。核心全量 238 项通过、3 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。本轮未复现上一轮记录的间歇同步锁错误。
+- 日志：`target/backup-retention-tests.log`、`target/backup-retention-clippy.log`、`target/backup-retention-fmt.log`。本提交仅为纯规则模型，未接入 UI、任务锁或删除执行；预览不代表内容已校验或磁盘实际可释放量，执行前的完整校验和恢复保护仍须补齐。未修改用户笔记。

@@ -1,6 +1,7 @@
 //! Versioned, checksummed directory backups. Publication/restoration never overwrites.
 pub mod capacity;
 mod origin;
+pub mod retention;
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, io::Read};
