@@ -220,3 +220,9 @@
 `vendor/gpui-base/src/input/base/state.rs` 公开只读 `text_revision()`，复用组件已有 document_revision；default_value 初始化也推进修订号。静默 set_value、编辑、撤销/重做及 IME 正文替换经过现有 push_history 推进，焦点、光标和布局通知不推进。它只在同一实体内用于相等比较，允许等内容替换推进和 u64 回绕，不能持久化或当作内容散列。
 
 应用展示更新以 (EntityId, text_revision) 复用 parse_source，避免空闲通知先逐字比较 Rope 与全文；IME 预编辑分支仍先执行，不跳过其对象重定位。验证入口：Base `test_text_revision_tracks_silent_history_and_composition_edits`、桌面 `presentation_revision_handles_silent_same_length_replacement`，以及完整 vendor 与 editor:: 回归。
+
+## 字体未变时保留折叠与行高映射（2026-10-06）
+
+`input/editor/display_map/{text_wrapper,wrap_map,display_map}.rs`：TextWrapper::set_font 将已有的字体/字号相等判断结果返回给 WrapMap，DisplayMap 只在确实变化时重建折叠和行高映射。TextElement 每次 prepaint 都传入字体；此前下层跳过换行计算后，上层仍遍历全部行样式及折叠映射。正文、行样式、折叠、内联宽度和窗口宽度变化仍通过各自入口重建，不依赖字体更新触发。
+
+Base `unchanged_font_preserves_projection_and_font_resize_rebuilds_it` 覆盖长文带行高与折叠、60 次相同字体保留现有映射，以及增大字号后与新建映射的行数、总高度及逐行坐标一致。完整 vendor 和应用 editor:: 回归为验证入口；原生 CPU 收益另测。

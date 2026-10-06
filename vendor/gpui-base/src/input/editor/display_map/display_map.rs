@@ -316,8 +316,11 @@ impl DisplayMap {
 
     /// Set font parameters
     pub fn set_font(&mut self, font: Font, font_size: Pixels, cx: &mut App) {
-        self.wrap_map.set_font(font, font_size, cx);
-        self.rebuild_fold_projection();
+        // TextElement supplies the current font on every prepaint, including
+        // cursor blinks. Unchanged wrapping also means unchanged fold heights.
+        if self.wrap_map.set_font(font, font_size, cx) {
+            self.rebuild_fold_projection();
+        }
     }
 
     /// Ensure text is prepared (initializes wrapper if needed)
@@ -483,5 +486,54 @@ impl DisplayMap {
     #[inline]
     pub fn buffer_line_count(&self) -> usize {
         self.wrap_map.buffer_line_count()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{TestAppContext, px};
+
+    #[gpui::test]
+    fn unchanged_font_preserves_projection_and_font_resize_rebuilds_it(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            let text = Rope::from(format!("{}\nhidden\nend", "中文 paragraph ".repeat(100)));
+            let font = Font {
+                family: "Arial".into(),
+                ..Default::default()
+            };
+            let make_map = |size, cx: &mut App| {
+                let mut map = DisplayMap::new(font.clone(), size, Some(px(200.)));
+                map.set_text(&text, cx);
+                map.set_line_typography(
+                    vec![crate::input::LineTypography::new(0..6, 1., 2.)].into(),
+                    cx,
+                );
+                map.set_fold_candidates(vec![FoldRange::new(0, 1)]);
+                map.set_folded(0, true);
+                map
+            };
+            let mut map = make_map(px(16.), cx);
+            assert!(!map.heights.is_empty());
+            let heights = map.heights.as_ptr();
+            let rows = map.display_row_count();
+            let height = map.height(px(24.));
+            for _ in 0..60 {
+                map.set_font(font.clone(), px(16.), cx);
+                assert_eq!(map.heights.as_ptr(), heights);
+                assert_eq!(map.display_row_count(), rows);
+                assert_eq!(map.height(px(24.)), height);
+            }
+            map.set_font(font.clone(), px(32.), cx);
+            let fresh = make_map(px(32.), cx);
+            assert!(map.wrap_row_count() > rows);
+            assert_eq!(map.display_row_count(), fresh.display_row_count());
+            assert_eq!(map.height(px(48.)), fresh.height(px(48.)));
+            for row in 0..=map.display_row_count() {
+                let y = map.row_top(row, px(48.));
+                assert_eq!(y, fresh.row_top(row, px(48.)));
+                assert_eq!(map.row_at_y(y, px(48.)), fresh.row_at_y(y, px(48.)));
+            }
+        });
     }
 }
