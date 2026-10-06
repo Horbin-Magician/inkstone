@@ -3,6 +3,7 @@ pub mod attachments;
 pub mod backup;
 pub mod drafts;
 pub mod export;
+mod file_lock;
 mod history;
 pub mod sync;
 mod trash_metadata;

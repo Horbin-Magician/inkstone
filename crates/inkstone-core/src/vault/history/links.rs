@@ -74,7 +74,7 @@ impl Ownership {
     }
 }
 
-fn lock(vault: &Vault) -> Result<fs::File, VaultError> {
+fn lock(vault: &Vault) -> Result<crate::vault::file_lock::FileLock, VaultError> {
     let lock_path = path(vault).with_extension("history-lock");
     if let Ok(meta) = fs::symlink_metadata(&lock_path)
         && (!meta.is_file() || is_reparse(&meta))
@@ -86,8 +86,9 @@ fn lock(vault: &Vault) -> Result<fs::File, VaultError> {
         .truncate(false)
         .write(true)
         .open(lock_path)?;
-    lock.try_lock().map_err(io::Error::other)?;
-    Ok(lock)
+    crate::vault::file_lock::FileLock::acquire(lock, true)
+        .map_err(io::Error::other)
+        .map_err(Into::into)
 }
 
 /// Stage metadata before moving. Publication failure rolls the note back.

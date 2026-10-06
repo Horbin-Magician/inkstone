@@ -1,19 +1,9 @@
 //! Local-user coordination, stored outside backup media so read-only backups work.
 use super::*;
 
-/// Owns the operation's lock; the underlying handle must not escape or be cloned.
-#[derive(Debug)]
-pub(super) struct Lock(fs::File);
+use crate::vault::file_lock::FileLock;
 
-impl Drop for Lock {
-    fn drop(&mut self) {
-        // Closing alone can leave the lock held by an unrelated forked child
-        // until it execs. End ownership explicitly; close remains the fallback.
-        let _ = self.0.unlock();
-    }
-}
-
-pub(super) fn acquire(directory: &Path, exclusive: bool) -> io::Result<Lock> {
+pub(super) fn acquire(directory: &Path, exclusive: bool) -> io::Result<FileLock> {
     let directory = fs::canonicalize(directory)?;
     let mut digest = Sha256::new();
     digest.update(directory.as_os_str().as_encoded_bytes());
@@ -57,19 +47,13 @@ pub(super) fn acquire(directory: &Path, exclusive: bool) -> io::Result<Lock> {
         .create(true)
         .truncate(false)
         .open(path)?;
-    let result = if exclusive {
-        file.try_lock()
-    } else {
-        file.try_lock_shared()
-    };
-    result.map_err(|error| match error {
+    FileLock::acquire(file, exclusive).map_err(|error| match error {
         fs::TryLockError::WouldBlock => io::Error::new(
             io::ErrorKind::WouldBlock,
             "备份位置有其他备份、校验、恢复或清理任务",
         ),
         fs::TryLockError::Error(error) => error,
-    })?;
-    Ok(Lock(file))
+    })
 }
 
 #[cfg(all(test, target_os = "macos"))]
