@@ -226,10 +226,20 @@ CPU 中位数 4.065%，仍高于 2% 预算，第一轮低值未丢弃或冒充�
 
 原始记录 target/native-activity-nfm28n_r：run.json、results.json、各轮 preparation.json（签名后二进制散列）、activity.jsonl、idle.json、pid，第二轮 idle-stack.txt/sample.log。三进程正常 Cmd+Q 后 PID 均已消失，三份库各 16 个 Markdown 长度和 SHA-256 全部不变。未退出其他用户应用、未清系统缓存，采样期间无本地编译/测试。构建日志 target/backup-cleanup-audit/activity-release.log；文档经 diff 检查。未触及真实用户笔记。
 
-## 大纲结果缓存后的首轮原生复测（2026-10-06，待补齐三轮）
+## 大纲结果缓存后的原生复测（2026-10-06，三轮已完成）
 
 release 0a12ad6，沿用 f9bdc1b 活动诊断协议和同机 corpus v1 large-document/live：1200×820 逻辑窗口、默认字号、左右栏打开、zoom 往返、相同位置键入 x 后 Cmd+Z 回到“已保存”，稳定 30 秒后采样 30 秒。正文截图确认可见，原生 AX 已显示带级别和标题的大纲跳转按钮。
 
 第一轮 PID 2285：实际稳定 30.0150 秒、采样 30.0120 秒，单核 CPU 4.5982%，采样最大 RSS 351.1094 MiB（真实峰值下界）。正式区间 15 条活动记录全部为窗口激活、编辑器获焦、加载完成。仍高于 2% 预算；只有一轮，不计算改善比例、不判定总体退化，也不替代输入/滚动验收。采样期间没有本地编译/测试，未退出其他用户应用或清空系统缓存。
 
-原始目录 target/native-outline-cache-ffyja39l：run.json、第一轮 preparation.json/idle.json/activity.jsonl/audit.json/pid；生成库全部 16 个 Markdown 长度与 SHA-256 未变，Cmd+Q 后 PID 已消失。第二、三轮已准备但尚未启动。构建日志 target/backup-cleanup-audit/outline-cache-release.log。后续补齐剩余轮次并定位持续重绘开销。
+原始目录 target/native-outline-cache-ffyja39l：run.json、第一轮 preparation.json/idle.json/activity.jsonl/audit.json/pid；生成库全部 16 个 Markdown 长度与 SHA-256 未变，Cmd+Q 后 PID 已消失。第二、三轮随后完成，汇总如下。构建日志 target/backup-cleanup-audit/outline-cache-release.log。后续定位持续重绘开销。
+
+| 轮次 | PID | 单核 CPU | 采样最大 RSS | 活动样本数 |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 2285 | 4.5982% | 351.1094 MiB | 15 |
+| 2 | 2578 | 4.6644% | 355.4688 MiB | 15 |
+| 3 | 2732 | 3.6648% | 370.4375 MiB | 14 |
+
+中位 CPU 4.5982%、采样最大 RSS 中位数 355.4688 MiB。三轮所有活动样本均为激活/获焦/加载完成，最大相邻间隔 2,101/2,101/2,102 ms；间隔采样不是连续焦点追踪。第二、三轮使用与第一轮相同的缩放、单字符预热、撤销及 30 秒稳定/30 秒采样规程。三个 PID 均正常退出，三份生成库各 16 个 Markdown 散列不变；各轮 audit.json 和根目录 results.json 已保存。
+
+同协议 f9bdc1b 的中位数为 4.0649%，本轮没有显示 CPU 改善，仍未达到 2% 预算；多项变更及轮次波动不能单独归因于大纲缓存。第二轮正式计量结束后另采五秒调用栈（2/idle-stack.txt、sample.log），可见 Window::draw、布局、update_presentation 的正文相等判断；这些是定位线索，不是各模块 CPU 占比。下一步检查光标闪烁触发的更新范围，保留全部样本而不剔除不利结果。
