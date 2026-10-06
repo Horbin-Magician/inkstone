@@ -15,6 +15,8 @@ pub struct Summary {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Inventory {
     pub entries: Vec<Summary>,
+    /// Interrupted cleanup locations, possibly incomplete. Never counted or pruned.
+    pub interrupted: Vec<PathBuf>,
     pub payload_bytes: u64,
     pub manifest_bytes: u64,
     /// Invalid backups, unreadable children and refused links; excluded from totals.
@@ -54,6 +56,13 @@ pub fn list(directory: &Path) -> io::Result<Inventory> {
         };
         let path = item.path();
         let name = item.file_name();
+        if name
+            .to_string_lossy()
+            .starts_with(".inkstone-backup-cleanup-")
+        {
+            result.interrupted.push(path);
+            continue;
+        }
         if name.to_string_lossy().starts_with('.') {
             continue;
         }
@@ -101,6 +110,7 @@ pub fn list(directory: &Path) -> io::Result<Inventory> {
             Err(_) => result.unreadable += 1,
         }
     }
+    result.interrupted.sort();
     result.entries.sort_by(|a, b| {
         b.created
             .cmp(&a.created)

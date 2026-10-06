@@ -599,3 +599,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 预检保存完整清单和目录身份；执行消费持锁结果，重验全部备份并比较快照，拒绝预检后等内容目录替换、清单变化或保留副本损坏。候选原子移到同父目录隔离名称，复核身份/正文/目录结构后移除；复核失败尝试不覆盖回滚，发生名称占用则保留隔离内容和新占用者，错误中报告位置及已清理数量。
 - 新回归覆盖等内容目录替换拒绝、预检后保留副本同长度损坏拒绝、成功清理计数/逻辑字节数、最新及未知来源保留、原笔记不变。隔离阶段注入外部写入，分别验证能回滚且内容保留、原位置被占用时两侧均保留。核心全量 243 项通过、3 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/backup-cleanup-execute-tests.log`、`target/backup-cleanup-execute-clippy.log`、`target/backup-cleanup-execute-fmt.log`。后端契约限本机遵守锁协议的并发任务；任意外部持续写入、跨机器共享目录及 Windows 实机尚未验证。强退隔离目录枚举/处理、界面确认和执行入口待补齐，当前没有从 UI 删除真实备份。测试仅操作临时夹具，未修改用户笔记。
+
+## 清理中断：隔离记录枚举与保护（2026-10-06）
+
+- 容量清单单独返回 `.inkstone-backup-cleanup-*` 遗留路径，不读取其正文、不要求清单完整、不跟随目标；不计入有效备份容量，也不自动删除。任意遗留都会使保留预览保护全部备份并拒绝清理预检。设置页显示中断警告与可见行目录检查入口。
+- 新真实子进程回归在隔离后直接 exit(74)，父进程确认记录可枚举、新清理候选为零、预检拒绝；完整隔离备份仍能校验并恢复到新库，移除清单后残留继续显示且正文保留，最新备份仍有效。GPUI 回归新增遗留记录回填及全部保护状态检查。
+- 核心全量 244 项通过、3 项忽略；桌面备份相关 4 项、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/backup-cleanup-interrupted-tests.log`、`target/backup-cleanup-interrupted-ui-tests.log`、`target/backup-cleanup-interrupted-clippy.log`、`target/backup-cleanup-interrupted-fmt.log`。
+- 本次覆盖隔离后、移除前进程退出，未模拟正在递归移除时的断电；部分残留不承诺可完整恢复。原路径映射、专门处理流程、原生界面确认与共享目录保护仍待继续。测试仅使用临时夹具，未修改用户笔记。
