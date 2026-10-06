@@ -1202,3 +1202,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 系统设置只读核对：输入源为 ABC 和简体拼音，Control+Space（上一个输入法）及 Control+Option+Space（下一个输入法）均已启用；没有修改任何系统键盘设置，检查后关闭系统设置。
 - 两条自动化切换路径配合逐字母按键均仅显示普通 ni/nihao，没有观察到候选框或可确认的 marked text。因此无法证明 IME 预编辑不进入草稿；不将普通字母、粘贴中文或既有无头测试视为这项原生验收。底层原因尚未确定，不能归为产品输入法缺陷。
 - 文件复核原 Markdown 保持基线，应用生成自身恢复日志。记录 ime-attempt.json 保留具体范围；已请求可选的人工候选态输入，测试实例暂留以供配合，不触及用户笔记。本提交仅记录验收边界，diff 检查通过。
+
+## 部分恢复结果的可访问文本（2026-10-06）
+
+- 原生部分恢复验收发现 AX 树只有操作按钮，没有显示中的路径和校验结果。为来源、加载状态、结果提示、统计、逐文件路径与结论、页码增加显式 Label 角色与完整文本标签；不增加点击动作或 Tab 停靠点。
+- 长中文/emoji 路径与三类结论的可访问节点契约检查通过；既有 800×500、16/24 rem 键盘分页回归通过（6.06 秒）。初轮检查错误地假设 write_a11y_info 写入角色，已按 GPUI 的 a11y_role 与属性写入分工修正检查，生产实现未因该失败调整。
+- workspace all-targets Clippy -D warnings、cargo fmt --all --check、git diff --check 通过。日志 target/backup-cleanup-audit/partial-a11y-fixed.log、partial-a11y-keys.log、partial-a11y-final-clippy.log；初轮失败保留在 partial-a11y.log。本次尚未复验原生 AX/VoiceOver，不将节点检查计为完整读屏验收；无用户笔记进入提交。
