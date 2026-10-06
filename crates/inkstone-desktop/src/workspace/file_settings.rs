@@ -1,3 +1,4 @@
+use super::settings_ui::SettingsFocusTarget;
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
@@ -154,14 +155,14 @@ impl Workspace {
         ];
         let format = self.ui.prefs.link_format;
         let weak = cx.entity().downgrade();
+        let format_label = formats
+            .iter()
+            .find(|(value, _)| *value == format)
+            .unwrap()
+            .1;
         let link_format = Button::new("new-link-format")
-            .label(
-                formats
-                    .iter()
-                    .find(|(value, _)| *value == format)
-                    .unwrap()
-                    .1,
-            )
+            .accessibility_label(format!("内部链接类型：{format_label}"))
+            .label(format_label)
             .dropdown_menu(move |mut menu, _, _| {
                 for (value, label) in formats {
                     let weak = weak.clone();
@@ -199,6 +200,14 @@ impl Workspace {
                 "note-location"
             })
             .label(label)
+            .accessibility_label(format!(
+                "{}：{label}",
+                if attachment {
+                    "附件默认存放路径"
+                } else {
+                    "新建笔记的存放位置"
+                }
+            ))
             .dropdown_menu(move |mut menu, _, _| {
                 for (value, label) in modes
                     .into_iter()
@@ -255,7 +264,15 @@ impl Workspace {
                                         }),
                                 ),
                         )
-                        .child(div().flex_shrink_0().child(selector)),
+                        .child(SettingsFocusTarget::new(
+                            if attachment {
+                                "attachment-location-focus"
+                            } else {
+                                "note-location-focus"
+                            },
+                            &self.ui.settings_scroll,
+                            selector,
+                        )),
                 )
                 .when(
                     matches!(mode, Location::Folder | Location::Subfolder),
@@ -271,11 +288,19 @@ impl Workspace {
                                 } else {
                                     "存放新建笔记的文件夹"
                                 }))
-                                .child(div().w(px(190.)).child(Input::new(if attachment {
-                                    &self.ui.attachment_folder_input
-                                } else {
-                                    &self.ui.note_folder_input
-                                }))),
+                                .child(SettingsFocusTarget::new(
+                                    if attachment {
+                                        "attachment-folder-focus"
+                                    } else {
+                                        "note-folder-focus"
+                                    },
+                                    &self.ui.settings_scroll,
+                                    div().w(px(190.)).child(Input::new(if attachment {
+                                        &self.ui.attachment_folder_input
+                                    } else {
+                                        &self.ui.note_folder_input
+                                    })),
+                                )),
                         )
                     },
                 )
@@ -321,7 +346,11 @@ impl Workspace {
                                         .child("设置链接到库内文件时使用的路径格式。"),
                                 ),
                             )
-                            .child(div().flex_shrink_0().child(link_format)),
+                            .child(SettingsFocusTarget::new(
+                                "link-format-focus",
+                                &self.ui.settings_scroll,
+                                link_format,
+                            )),
                     )
                     .child(
                         div()
@@ -329,7 +358,9 @@ impl Workspace {
                             .items_center()
                             .justify_between()
                             .child("使用双链语法")
-                            .child(
+                            .child(SettingsFocusTarget::new(
+                                "use-wikilinks-focus",
+                                &self.ui.settings_scroll,
                                 super::settings_ui::setting_switch("use-wikilinks")
                                     .accessibility_label("使用双链语法")
                                     .checked(!self.ui.prefs.use_markdown_links)
@@ -339,7 +370,7 @@ impl Workspace {
                                         s.persist_workspace(cx);
                                         cx.notify();
                                     })),
-                            ),
+                            )),
                     )
                     .child(
                         div()
@@ -354,7 +385,9 @@ impl Workspace {
                                         .child("关闭时，重命名或移动后会询问是否更新链接。"),
                                 ),
                             )
-                            .child(
+                            .child(SettingsFocusTarget::new(
+                                "always-update-links-focus",
+                                &self.ui.settings_scroll,
                                 super::settings_ui::setting_switch("always-update-links")
                                     .accessibility_label("自动更新内部链接")
                                     .checked(self.ui.prefs.always_update_links)
@@ -363,7 +396,7 @@ impl Workspace {
                                         s.persist_workspace(cx);
                                         cx.notify();
                                     })),
-                            ),
+                            )),
                     )
                     .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(
                         "文件夹路径相对于当前笔记库。位置设置只影响之后创建的笔记和导入的附件。",
