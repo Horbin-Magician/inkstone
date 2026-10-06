@@ -1708,3 +1708,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 增加真实按键取消归档确认的回归：Tab 到取消、Enter 取消后焦点留在恢复弹窗，Escape 正常关闭；未启动后台任务、描述原字节保留、没有生成归档或改写笔记。为该按钮外层添加测试定位标识，产品动作保持不变。
 - 同步恢复 UI 子集 15 项通过，desktop all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志 `target/backup-cleanup-audit/sync-retained-keys-{tests,suite,clippy}.log`（tests 为归档分页单项，suite 为最终完整子集）。
 - 此为 GPUI 自动键盘矩阵，不能替代 macOS/Windows 原生视觉、系统定位、VoiceOver 或进程强退验收。没有性能测量、Linux 适配或真实笔记修改。
+
+## 描述归档改名前后的进程强退（2026-10-06）
+
+- 新增真实子进程强杀回归：分别暂停在改名前和无覆盖改名后、接口返回前，父进程 kill 并 wait。检查前者保留原缺失记录、后者识别归档；两者都完整保留描述字节、保护标记和占用。随后启动另一个进程重新读取清单并完成或识别已完成归档，验证操作锁可重新取得、原笔记不变。
+- 等待检查点与新进程退出均有 15 秒上限，失败路径通过守卫终止并回收子进程。不是线程异常模拟，不宣称物理断电或网络文件系统持久性。
+- [CI 37485652867](https://github.com/Horbin-Magician/inkstone/actions/runs/37485652867) 对应 75913b7：macOS 工作区及两平台 vendor 成功，Windows 工作区失败于残留测试在已打开 SaveGuard 时写入描述，返回 Windows 共享冲突 32。原因是 Windows 产品保护主动拒绝写入，测试把写入必定成功作为前提。
+- 修正测试时序：Windows 在打开保护前验证过期描述（含同大小同时间不同内容）；Unix 保留打开后写入的竞争检查。另加 Windows 专用回归明确断言保护期间写入返回 32、随后归档保留原字节。未放松产品保护或忽略失败。
+- 本机同步恢复子集 26 项通过，核心 all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志 `target/backup-cleanup-audit/sync-residue-kill-{tests,clippy}.log`；Windows 新回归仍需新 CI 验证。原生 GUI 强退仍待补，无性能测量或 Linux 适配。
