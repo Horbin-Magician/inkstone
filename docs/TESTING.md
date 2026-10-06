@@ -1347,3 +1347,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - GitHub Actions run 37439067537，精确 HEAD 0a12ad66bf3933de4864a9c5e27c9d308c4410ff，四项工作区/vendor jobs 全部 completed/success，完整日志 target/ci-all-37439067537.log 已下载核对。
 - macOS 核心 275 通过/3 既有忽略、桌面 351 通过/2 既有忽略；Windows 核心 265 通过/3 既有忽略、桌面 348 通过/2 既有忽略。两平台各 8 项集成测试、格式及 Clippy 通过；vendor 两平台各 1,808 项通过，无忽略。子进程回归单独输出不重复计数。
 - 覆盖隐藏侧栏惰性准备、活动诊断、展示源码复用、大纲键盘跳转及大纲结果缓存；不覆盖随后 e9a7e7b/e1f8710 正文修订号改动。自动通过不替代原生性能/IME/真实服务商验收。文档 diff 检查通过。
+
+## 列表与分隔线绘制不再展平全文（2026-10-06）
+
+- e1f8710 原生调用栈 3/idle-stack.txt 的 live_lists::overlay 和 live_rules::overlay 下均出现 Rope::to_string。代码确认两个 canvas 的 prepaint 无条件读取 value，即使 marker/rule 列表为空也会分配全文。
+- 两处改为捕获该编辑实体的正文修订号，点击时修订不一致即拒绝旧坐标；列表圆点不再需要正文，分隔线仅在实际有效点击时读取正文以确定行首/行尾。保留视口过滤、绘制、选择与焦点行为，不改变语法投影。
+- editor:: 117 项通过、2 项既有手工性能基准忽略，包含列表嵌套/任务边界、分隔线点击与搜索源码揭示、IME/撤销及坐标回归；workspace all-targets Clippy -D warnings、格式/diff 检查通过。日志 target/backup-cleanup-audit/overlay-revision-tests.log、overlay-revision-clippy.log。原生收益待复测，4.4317% 最近 CPU 仍按未达标记录；无用户笔记进入提交。

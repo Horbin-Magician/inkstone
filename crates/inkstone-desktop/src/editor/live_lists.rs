@@ -9,7 +9,7 @@ pub(super) fn overlay(
     canvas(
         move |_, window, cx| {
             let viewport = editor.read(cx).input_bounds();
-            let baseline = editor.read(cx).value();
+            let revision = editor.read(cx).text_revision();
             let visible: Vec<_> = markers
                 .iter()
                 .filter_map(|range| {
@@ -25,7 +25,6 @@ pub(super) fn overlay(
                 for (range, bounds) in visible {
                     let offset = range.start;
                     let editor = editor.clone();
-                    let baseline = baseline.clone();
                     let width = bounds.size.width;
                     let mut element = div()
                         .id(("live-list", offset))
@@ -40,7 +39,7 @@ pub(super) fn overlay(
                         .on_click(move |_, window, cx| {
                             cx.stop_propagation();
                             editor.update(cx, |state, cx| {
-                                if state.value() != baseline {
+                                if state.text_revision() != revision {
                                     return;
                                 }
                                 state.set_selected_range(offset..offset + 1, cx);
