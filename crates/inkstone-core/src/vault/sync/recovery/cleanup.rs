@@ -403,6 +403,103 @@ mod tests {
     }
 
     #[test]
+    fn killed_cleanup_is_recovered_by_a_fresh_process() {
+        const ROOT: &str = "INKSTONE_SYNC_CLEANUP_PROCESS_ROOT";
+        const MODE: &str = "INKSTONE_SYNC_CLEANUP_PROCESS_MODE";
+        const TEST: &str =
+            "vault::sync::recovery::cleanup::tests::killed_cleanup_is_recovered_by_a_fresh_process";
+        if let Some(root) = std::env::var_os(ROOT) {
+            let root = PathBuf::from(root);
+            let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+            if std::env::var(MODE).unwrap() == "cleanup" {
+                let preview =
+                    retention::preview(&inventory(&vault).unwrap(), 1, &BTreeSet::new()).unwrap();
+                let cancellation = Cancellation::default();
+                prepare(&vault, &preview, &BTreeSet::new(), &cancellation)
+                    .unwrap()
+                    .execute_with(&cancellation, |_| {
+                        write_new_synced(&root.join("ready"), b"protected move complete")?;
+                        // Parent terminates this process. No Rust destructor runs.
+                        loop {
+                            std::thread::park();
+                        }
+                    })
+                    .unwrap();
+                unreachable!();
+            }
+            let fresh = inventory(&vault).unwrap();
+            assert_eq!(fresh.entries.len(), 2);
+            assert_eq!(
+                fresh.unreadable + fresh.unindexed_files + fresh.unmeasured_files,
+                0
+            );
+            let protected = fresh.entries.iter().find(|e| e.protected).unwrap();
+            assert_eq!(
+                retention::preview(&fresh, 1, &BTreeSet::new())
+                    .unwrap()
+                    .candidates,
+                0
+            );
+            let restored = restore_copy(&vault, protected, &[]).unwrap();
+            assert_eq!(
+                fs::read(vault.root.join(&restored.relative)).unwrap(),
+                b"old"
+            );
+            assert_eq!(
+                fs::read(vault.root.join(&protected.backup)).unwrap(),
+                b"old"
+            );
+            assert_eq!(fs::read(vault.root.join("note.md")).unwrap(), b"current");
+            assert_eq!(
+                fs::read(vault.root.join(".inkstone-sync-new.backup")).unwrap(),
+                b"new"
+            );
+            write_new_synced(
+                &root.join("recovered"),
+                restored.relative.to_string_lossy().as_bytes(),
+            )
+            .unwrap();
+            return;
+        }
+        let (root, _, _) = fixture();
+        fn command(root: &Path, mode: &str) -> std::process::Command {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", TEST])
+                .env(ROOT, root)
+                .env(MODE, mode)
+                .stdout(std::process::Stdio::null());
+            command
+        }
+        struct Child(std::process::Child);
+        impl Drop for Child {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let mut child = Child(command(&root, "cleanup").spawn().unwrap());
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while !root.join("ready").exists() {
+            assert!(
+                child.0.try_wait().unwrap().is_none(),
+                "cleanup exited before protected move"
+            );
+            assert!(
+                std::time::Instant::now() < deadline,
+                "cleanup did not reach protected move"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        child.0.kill().unwrap();
+        assert!(!child.0.wait().unwrap().success());
+        drop(child);
+        assert!(command(&root, "recover").status().unwrap().success());
+        assert!(root.join("recovered").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn execution_rechecks_prepared_snapshot_before_any_mutation() {
         for cancel in [false, true] {
             let (root, vault, preview) = fixture();
