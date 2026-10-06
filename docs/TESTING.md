@@ -1284,3 +1284,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - right_panel 之前无论选择哪个分类，都会复制标题、链接和调用 properties；后者每次先通过 value 将全文转成字符串，即使当前只显示大纲。现在只在大纲模式读取标题/筛选文本，在出链模式复制链接，在属性模式读取属性，切换分类后的正常渲染仍读取当前编辑器内容。
 - 保留大纲折叠状态的原键和值；隐藏分类不重置状态。3 项大纲回归、6 项属性回归、workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/sidebar-lazy-outline.log、sidebar-lazy-properties.log、sidebar-lazy-clippy.log。没有新增仅复述分类条件的测试；原生分类切换和性能对照仍待补齐。
 - 启动加载成功与失败路径已经调用 cx.notify，单凭当前截图证据不足以认定缺少重绘通知，未加入猜测性刷新。此前改动已推送既有验证分支，run 37435652092 的精确 HEAD 为 2b832587b70dc8903a32b1185f5b51fe6fa336be，启动时处于 in_progress；不覆盖本次惰性分类改动，也不提前计为通过。无用户笔记进入提交。
+
+## 原生活动状态的显式诊断记录（2026-10-06）
+
+- 最新 137314d release 第一轮隔离大文档确认正文显示、单字符 x 原生键入和撤销至“已保存”；稳定 30 秒再采样 30 秒。原始记录 target/native-sidebar-lazy-n4ww13o9/1，PID 99324 正常退出，16 个生成 Markdown SHA-256 不变。CPU 约 0.100%、采样 RSS 最大 363.813 MiB，缺少采样期窗口活动记录，仍不据此证明前台预算或优化比例。第二、三实例只准备未启动，暂缓重复相同证据缺口的测量。
+- 新增显式 INKSTONE_TRACE_ACTIVITY 诊断开关，现有两秒定时器记录窗口激活/编辑焦点/加载状态及时间戳，不包含文档数据；新建文件、拒绝覆盖、最多 1,800 条、写入失败后关闭，默认无日志。prepare_macos --trace-activity 将日志绑定到隔离目录；CPU 采样增加可对齐的 Unix 毫秒边界，计算仍使用单调时钟。
+- 1 项 Rust 记录字段/上限/拒绝覆盖测试、4 项真实签名准备工具测试、workspace all-targets Clippy -D warnings、格式/diff 与 Python 语法检查通过。日志 target/backup-cleanup-audit/activity-trace-tests.log、activity-trace-prepare.log、activity-trace-clippy.log。新记录器原生对齐验收待下一轮 release 执行；间隔记录不是连续事件追踪，不能独自证明输入/滚动延迟。

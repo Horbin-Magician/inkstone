@@ -16,7 +16,7 @@ import corpus
 MODES = ("live", "source", "reading")
 
 
-def prepare(output, binary, scenario, mode):
+def prepare(output, binary, scenario, mode, trace_activity=False):
     data = corpus.manifest()
     # Fail before creating output if the generator has drifted from the fixed corpus.
     expected = json.loads(Path(__file__).with_name("corpus-v1.json").read_text())
@@ -64,6 +64,8 @@ def prepare(output, binary, scenario, mode):
         CFBundlePackageType="APPL", CFBundleVersion="1", CFBundleShortVersionString="0.1.0",
         NSHighResolutionCapable=True, LSEnvironment={"XDG_DATA_HOME": str(app_data)},
     )
+    if trace_activity:
+        info["LSEnvironment"]["INKSTONE_TRACE_ACTIVITY"] = str(output / "activity.jsonl")
     (contents / "Info.plist").write_bytes(plistlib.dumps(info))
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(bundle)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
@@ -84,10 +86,11 @@ def main():
     parser.add_argument("--binary", type=Path, default=Path("target/release/inkstone"))
     parser.add_argument("--scenario", choices=corpus.manifest()["scenarios"], required=True)
     parser.add_argument("--mode", choices=MODES, default="live")
+    parser.add_argument("--trace-activity", action="store_true", help="opt in to bounded window/focus samples in the isolated output")
     args = parser.parse_args()
     if sys.platform != "darwin":
         parser.error("this preparation tool requires macOS codesign")
-    print(json.dumps(prepare(args.output, args.binary, args.scenario, args.mode), indent=2))
+    print(json.dumps(prepare(args.output, args.binary, args.scenario, args.mode, args.trace_activity), indent=2))
 
 
 if __name__ == "__main__":

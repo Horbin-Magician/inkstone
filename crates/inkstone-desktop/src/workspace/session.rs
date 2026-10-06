@@ -46,7 +46,26 @@ impl Workspace {
             loop {
                 cx.background_executor().timer(Duration::from_secs(2)).await;
                 if this
-                    .update_in(cx, |this, window, cx| this.tick(window, cx))
+                    .update_in(cx, |this, window, cx| {
+                        if this.activity_trace.is_some() {
+                            let focused = this.current_pane().is_some_and(|pane| {
+                                pane.read(cx)
+                                    .editor
+                                    .read(cx)
+                                    .focus_handle(cx)
+                                    .is_focused(window)
+                            });
+                            let keep = this.activity_trace.as_mut().unwrap().record(
+                                window.is_window_active(),
+                                focused,
+                                this.loading,
+                            );
+                            if !keep {
+                                this.activity_trace = None;
+                            }
+                        }
+                        this.tick(window, cx)
+                    })
                     .is_err()
                 {
                     break;
@@ -77,6 +96,7 @@ impl Workspace {
         .detach();
         let ui = ui::UiState::new(window, cx);
         Self {
+            activity_trace: activity_trace::ActivityTrace::from_env(),
             settings_save: Default::default(),
             file_writes: Default::default(),
             ui,

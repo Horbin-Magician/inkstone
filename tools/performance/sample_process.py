@@ -50,6 +50,7 @@ def main():
     if current != identity:
         raise RuntimeError("target PID was reused before sampling; discard this run")
     start = time.monotonic()
+    sample_start_unix_ms = time.time_ns() // 1_000_000
     samples = []
     while True:
         current, rss, cpu, cumulative = read()
@@ -63,6 +64,8 @@ def main():
     print(json.dumps({
         "platform": platform.platform(), "pid": args.pid, "process_start": identity,
         "duration_s": samples[-1]["elapsed_s"], "interval_s": args.interval,
+        "sample_start_unix_ms": sample_start_unix_ms,
+        "sample_end_unix_ms": time.time_ns() // 1_000_000,
         "requested_settle_s": args.settle_seconds, "observed_settle_s": settle_duration,
         "observed_peak_rss_kib": max(s["rss_kib"] for s in samples),
         "interval_cpu_percent": (samples[-1]["cumulative_cpu_s"] - first_cpu) / samples[-1]["elapsed_s"] * 100,
