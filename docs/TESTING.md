@@ -838,3 +838,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 GPUI 实际按键回归：800×500、rem 16/24，十二条记录逐页从第一页到第三页再返回第一页，使用 Tab/Shift+Tab/Enter，要求每页所有恢复按钮可达且完整处于滚动视口，页外记录不渲染，每次翻页后焦点留在分页容器。导航不产生待写文件、不执行恢复；临时库原文不变，也没有生成恢复副本。
 - 同步恢复相关 3 项回归通过（含既有副本不覆盖、切库结果隔离），全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/sync-recovery-paging-tests.log`、`target/sync-recovery-paging-clippy.log`、`target/sync-recovery-paging-fmt.log`。恢复后端保护规则未改变；测试只使用临时夹具。
 - 本次仅覆盖同步备份列表；历史版本列表和其他恢复控件的完整键盘路径仍需继续补齐。新增分页尚未完成原生窗口、VoiceOver 或 DPI 矩阵验收，分页也不改变清单扫描成本。未修改真实用户笔记。
+
+
+## 历史版本：分页选择与预览保护（2026-10-06）
+
+- 历史版本从固定高度虚拟列表改为每页最多五条，版本带列表编号，选择区显示所选记录编号。翻页仅改变浏览页，不切换所选内容、不读取其他正文、不取消已进行的预览；显式选择版本才沿用现有异步读取及过期结果保护。首页/末页按钮禁用后保留分页容器焦点，历史面板新增滚动句柄，版本、分页、比较、恢复及草稿放弃按钮接入焦点滚动；比较按钮行允许换行。
+- 新增真实历史夹具回归：隔离测试库连续保存十二个含 Unicode 的版本，在 800×500、rem 16/24 下通过 Tab/Shift+Tab/Enter 往返三页，逐页验证所有版本可达、焦点按钮完整处于视口、页外版本不渲染、首尾分页继续导航。翻页期间当前选择及正文记录保留；再用 Enter 选择末页最后一条，验证所选编号、异步加载正文与预览均匹配实际历史文件。磁盘原文保持最新版本，未产生恢复副本或待写操作。
+- 历史模块 7 项回归、恢复相关 16 项回归通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-paging-tests.log`、`target/history-paging-recovery-regressions.log`、`target/history-paging-clippy.log`、`target/history-paging-fmt.log`。所有新增记录均在临时目录，未修改真实用户笔记。
+- 本轮是 GPUI 自动按键和真实历史读取验收，尚未完成新增分页的原生窗口、读屏与 DPI 矩阵；草稿放弃按钮保留既有确认回归，其完整原生键盘路径仍待验证。分页只限制渲染数量，不改变历史清单查询成本。

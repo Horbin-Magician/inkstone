@@ -1,3 +1,4 @@
+use super::settings_ui::SettingsFocusTarget;
 use super::*;
 use gpui_component::{
     Disableable, Selectable,
@@ -6,7 +7,12 @@ use gpui_component::{
 };
 use inkstone_core::vault::{HistoryEntry, Recovery};
 
+const VERSIONS_PER_PAGE: usize = 5;
+
 pub(super) struct Browser {
+    page: usize,
+    scroll: ScrollHandle,
+    pager_focus: FocusHandle,
     path: PathBuf,
     current: SharedString,
     entries: Vec<HistoryEntry>,
@@ -116,6 +122,9 @@ impl Workspace {
             state
         });
         self.ui.history = Some(Browser {
+            page: 0,
+            scroll: ScrollHandle::new(),
+            pager_focus: cx.focus_handle(),
             path: entry.record.relative.clone(),
             current: "".into(),
             entries: vec![],
@@ -303,6 +312,9 @@ impl Workspace {
             state
         });
         self.ui.history = Some(Browser {
+            page: 0,
+            scroll: ScrollHandle::new(),
+            pager_focus: cx.focus_handle(),
             path: path.clone(),
             current,
             entries: vec![],
@@ -358,6 +370,7 @@ impl Workspace {
             return;
         };
         browser.selected = Some(index);
+        browser.page = index / VERSIONS_PER_PAGE;
         browser.record = None;
         browser.loading = true;
         browser.message.clear();
@@ -513,6 +526,7 @@ impl Workspace {
         let bytes: u64 = browser.entries.iter().map(|e| e.bytes).sum();
         div()
             .id("history-content")
+            .track_scroll(&browser.scroll)
             .overflow_y_scroll()
             .flex()
             .flex_col()
@@ -545,7 +559,8 @@ impl Workspace {
             }))
             .when_some(browser.selected.and_then(|i| browser.entries.get(i)), |s, entry| {
                 s.child(div().text_sm().whitespace_normal().child(format!(
-                    "所选记录 · {} · 记录文件 {} 字节（{:.1} KiB）",
+                    "所选记录 {} · {} · 记录文件 {} 字节（{:.1} KiB）",
+                    browser.selected.unwrap_or_default() + 1,
                     if entry.saved { "保存历史" } else { "未保存恢复记录" },
                     entry.bytes,
                     entry.bytes as f64 / 1024.
@@ -561,48 +576,44 @@ impl Workspace {
             .when(browser.entries.is_empty() && !browser.loading, |s| {
                 s.child("这篇笔记尚无可用历史。修改并保存后会记录版本。")
             })
-            .child(
-                uniform_list(
-                    "history-versions",
-                    browser.entries.len(),
-                    cx.processor(|this, range: std::ops::Range<usize>, _, cx| {
-                        let Some(browser) = &this.ui.history else {
-                            return vec![];
-                        };
-                        range
-                            .map(|i| {
-                                let entry = &browser.entries[i];
-                                let date: chrono::DateTime<chrono::Local> = entry.modified.into();
-                                Button::new(("history-version", i))
-                                    .ghost()
-                                    .when(browser.selected == Some(i), |b| b.primary())
-                                    .selected(browser.selected == Some(i))
-                                    .label(format!(
-                                        "{} · {}",
-                                        date.format("%Y-%m-%d %H:%M:%S%.3f"),
-                                        if entry.saved {
-                                            "已保存"
-                                        } else {
-                                            "恢复草稿"
-                                        }
-                                    ))
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.select_history(i, w, cx)
-                                    }))
-                                    .into_any_element()
-                            })
-                            .collect()
-                    }),
-                )
-                .h(px(120.))
-                .w_full(),
-            )
+            .when(!browser.entries.is_empty(), |panel| {
+                let pages = browser.entries.len().div_ceil(VERSIONS_PER_PAGE);
+                panel.child(div().track_focus(&browser.pager_focus).flex().flex_wrap().gap_2()
+                    .child(format!("历史：第 {} / {pages} 页，每页最多 {VERSIONS_PER_PAGE} 条", browser.page + 1))
+                    .children([false, true].into_iter().map(|next| {
+                        let id = ("history-page", usize::from(next));
+                        div().debug_selector(move || format!("history-page-{next}"))
+                            .child(SettingsFocusTarget::new((ElementId::from(id), "focus"), &browser.scroll,
+                                Button::new(id).label(if next { "历史下一页" } else { "历史上一页" })
+                                    .disabled(if next { browser.page + 1 >= pages } else { browser.page == 0 })
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        let Some(browser) = &mut this.ui.history else { return; };
+                                        let last = browser.entries.len().saturating_sub(1) / VERSIONS_PER_PAGE;
+                                        browser.page = if next { browser.page.saturating_add(1).min(last) } else { browser.page.saturating_sub(1) };
+                                        // Paging does not select/read another version or cancel its preview.
+                                        window.focus(&browser.pager_focus, cx);
+                                        cx.notify();
+                                    }))))
+                    })))
+                    .children(browser.entries.iter().enumerate()
+                        .skip(browser.page * VERSIONS_PER_PAGE).take(VERSIONS_PER_PAGE)
+                        .map(|(i, entry)| {
+                            let date: chrono::DateTime<chrono::Local> = entry.modified.into();
+                            div().debug_selector(move || format!("history-version-{i}"))
+                                .child(SettingsFocusTarget::new((ElementId::from(("history-version", i)), "focus"), &browser.scroll,
+                                    Button::new(("history-version", i)).ghost()
+                                        .when(browser.selected == Some(i), |b| b.primary())
+                                        .selected(browser.selected == Some(i))
+                                        .label(format!("{} · {} · {}", i + 1, date.format("%Y-%m-%d %H:%M:%S%.3f"), if entry.saved { "已保存" } else { "恢复草稿" }))
+                                        .on_click(cx.listener(move |this, _, window, cx| this.select_history(i, window, cx)))))
+                        }))
+            })
             .child(
                 div()
                     .flex()
+                    .flex_wrap()
                     .gap_2()
-                    .child(
-                        Button::new("history-before")
+                    .child(SettingsFocusTarget::new("history-before-focus", &browser.scroll, Button::new("history-before")
                             .label("保存前内容")
                             .when(browser.baseline, |b| b.primary())
                             .selected(browser.baseline)
@@ -612,10 +623,8 @@ impl Workspace {
                                     browser.baseline = true;
                                 }
                                 this.update_history_preview(w, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("history-draft")
+                            }))),)
+                    .child(SettingsFocusTarget::new("history-draft-focus", &browser.scroll, Button::new("history-draft")
                             .label("记录内容")
                             .when(!browser.baseline, |b| b.primary())
                             .selected(!browser.baseline)
@@ -625,10 +634,8 @@ impl Workspace {
                                     browser.baseline = false;
                                 }
                                 this.update_history_preview(w, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("history-diff")
+                            }))),)
+                    .child(SettingsFocusTarget::new("history-diff-focus", &browser.scroll, Button::new("history-diff")
                             .label(if browser.draft_entry.is_some() {
                                 "与磁盘正文比较"
                             } else {
@@ -642,8 +649,7 @@ impl Workspace {
                                     browser.difference = !browser.difference;
                                 }
                                 this.update_history_preview(w, cx);
-                            })),
-                    ),
+                            }))),),
             )
             .child(Textarea::new(&browser.preview).readonly(true).h(px(240.)))
             .child(div().text_sm().child(if browser.draft_entry.is_some() {
@@ -651,8 +657,7 @@ impl Workspace {
             } else {
                 "差异以打开历史时的正文为准；恢复会新建笔记并保留原文件。"
             }))
-            .child(
-                Button::new("history-restore")
+            .child(SettingsFocusTarget::new("history-restore-focus", &browser.scroll, Button::new("history-restore")
                     .primary()
                     .label(if browser.draft_entry.is_some() {
                         "恢复草稿为副本"
@@ -660,11 +665,9 @@ impl Workspace {
                         "恢复所选内容为新笔记"
                     })
                     .disabled(browser.record.is_none() || browser.loading)
-                    .on_click(cx.listener(|this, _, w, cx| this.restore_history(w, cx))),
-            )
+                    .on_click(cx.listener(|this, _, w, cx| this.restore_history(w, cx)))),)
             .when(browser.draft_entry.is_some(), |s| {
-                s.child(
-                    Button::new("draft-discard")
+                s.child(SettingsFocusTarget::new("draft-discard-focus", &browser.scroll, Button::new("draft-discard")
                         .label(if browser.confirm_discard {
                             "确认放弃这一条草稿"
                         } else {
@@ -673,8 +676,7 @@ impl Workspace {
                         .disabled(browser.loading || browser.record.is_none())
                         .on_click(
                             cx.listener(|this, _, w, cx| this.finish_draft_review(true, w, cx)),
-                        ),
-                )
+                        )),)
             })
             .into_any_element()
     }
@@ -724,6 +726,211 @@ mod tests {
         assert!(shown.len() <= 128 * 1024);
         assert!(preview.contains("恢复副本仍包含完整正文"));
         assert_eq!(preview_text("a\r\n😀"), "a\r\n😀");
+    }
+
+    #[gpui::test]
+    fn history_pages_reveal_versions_and_load_the_selected_record(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-history-pages-{stamp}"));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let path = PathBuf::from("历史.md");
+        let mut current = None;
+        for i in 0..12 {
+            let text = format!("版本 {i} 👩‍💻 e\u{301}");
+            vault.save(&path, current.as_deref(), &text).unwrap();
+            current = Some(text);
+        }
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.add_tab(path.clone(), current.clone(), false, window, cx);
+                w.open_history(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let expected = handle
+            .update(cx, |w, _, _| {
+                let browser = w.ui.history.as_ref().unwrap();
+                assert_eq!(browser.entries.len(), 12);
+                assert!(!browser.loading);
+                vault
+                    .read_history(&path, &browser.entries[11].journal)
+                    .unwrap()
+                    .draft
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(800.), px(500.)));
+        fn key(v: &mut VisualTestContext, key: &str) {
+            let keystroke = Keystroke::parse(key).unwrap();
+            v.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            v.simulate_event(KeyUpEvent { keystroke });
+            for _ in 0..2 {
+                v.update(|w, cx| w.draw(cx).clear(cx));
+            }
+        }
+        let selectors = [
+            "history-version-0",
+            "history-version-1",
+            "history-version-2",
+            "history-version-3",
+            "history-version-4",
+            "history-version-5",
+            "history-version-6",
+            "history-version-7",
+            "history-version-8",
+            "history-version-9",
+            "history-version-10",
+            "history-version-11",
+        ];
+        for rem in [16., 24.] {
+            visual.update(|w, _| w.set_rem_size(px(rem)));
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    w.ui.history.as_mut().unwrap().page = 0;
+                    window.focus(&w.ui.modal_focus, cx);
+                })
+                .unwrap();
+            for (step, page) in [0, 1, 2, 1, 0].into_iter().enumerate() {
+                let navigation = if step < 2 { "tab" } else { "shift-tab" };
+                let mut reached = std::collections::BTreeSet::new();
+                for _ in 0..30 {
+                    key(&mut visual, navigation);
+                    if let Some(target) = visual.debug_bounds("settings-focused-control") {
+                        handle
+                            .update(&mut visual, |w, _, _| {
+                                let viewport = w.ui.history.as_ref().unwrap().scroll.bounds();
+                                assert!(
+                                    target.top() >= viewport.top()
+                                        && target.bottom() <= viewport.bottom(),
+                                    "rem={rem}: {target:?} outside {viewport:?}"
+                                );
+                            })
+                            .unwrap();
+                        for (i, selector) in selectors.iter().enumerate() {
+                            if let Some(row) = visual.debug_bounds(selector)
+                                && target.top() >= row.top()
+                                && target.bottom() <= row.bottom()
+                            {
+                                reached.insert(i);
+                            }
+                        }
+                    }
+                }
+                let start = page * VERSIONS_PER_PAGE;
+                let end = (start + VERSIONS_PER_PAGE).min(12);
+                assert_eq!(reached, (start..end).collect());
+                for (i, selector) in selectors.iter().enumerate() {
+                    assert_eq!(
+                        visual.debug_bounds(selector).is_some(),
+                        (start..end).contains(&i)
+                    );
+                }
+                // Walk forward to the last page, then backward to the first.
+                handle
+                    .update(&mut visual, |w, _, _| {
+                        assert_eq!(w.ui.history.as_mut().unwrap().page, page);
+                        assert_eq!(w.ui.history.as_ref().unwrap().selected, Some(0));
+                        assert!(w.ui.history.as_ref().unwrap().record.is_some());
+                        assert_eq!(w.ui.pending_file_writes, 0);
+                        assert!(w.ui.history.as_ref().unwrap().message.is_empty());
+                    })
+                    .unwrap();
+                if step == 4 {
+                    break;
+                }
+                let forward = step < 2;
+                let selector = if forward {
+                    "history-page-true"
+                } else {
+                    "history-page-false"
+                };
+                let mut found = false;
+                for _ in 0..30 {
+                    key(&mut visual, navigation);
+                    if let (Some(target), Some(button)) = (
+                        visual.debug_bounds("settings-focused-control"),
+                        visual.debug_bounds(selector),
+                    ) && target.top() >= button.top()
+                        && target.bottom() <= button.bottom()
+                        && target.left() >= button.left()
+                        && target.right() <= button.right()
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                assert!(found);
+                key(&mut visual, "enter");
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        assert!(
+                            w.ui.history
+                                .as_ref()
+                                .unwrap()
+                                .pager_focus
+                                .contains_focused(window, cx)
+                        );
+                    })
+                    .unwrap();
+            }
+        }
+        // Navigate to the final page, then activate its last real version.
+        handle
+            .update(&mut visual, |w, window, cx| {
+                let browser = w.ui.history.as_mut().unwrap();
+                browser.page = 2;
+                window.focus(&browser.pager_focus, cx);
+            })
+            .unwrap();
+        let mut found = false;
+        for _ in 0..30 {
+            key(&mut visual, "tab");
+            if let (Some(target), Some(row)) = (
+                visual.debug_bounds("settings-focused-control"),
+                visual.debug_bounds("history-version-11"),
+            ) && target.top() >= row.top()
+                && target.bottom() <= row.bottom()
+            {
+                found = true;
+                break;
+            }
+        }
+        assert!(found);
+        key(&mut visual, "enter");
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                let browser = w.ui.history.as_ref().unwrap();
+                assert_eq!(browser.selected, Some(11));
+                assert_eq!(browser.page, 2);
+                assert!(!browser.loading);
+                assert_eq!(browser.record.as_ref().unwrap().draft, expected);
+                assert_eq!(browser.preview.read(cx).value().as_ref(), expected);
+                assert_eq!(w.ui.pending_file_writes, 0);
+            })
+            .unwrap();
+        assert_eq!(vault.read(&path).unwrap(), current);
+        assert_eq!(
+            std::fs::read_dir(&vault.root)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+                .count(),
+            1
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[gpui::test]
