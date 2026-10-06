@@ -899,3 +899,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 release 示例，使用实际 `synchronize_cancellable` 入口，记录 Scanning 内枚举、文件处理和清单校验时间，在 ReadingManifest 回调取消。全部 Remote 方法为不可到达断言，恢复目录要求全新创建，避免碰触已有部分下载缓存；不修改生产同步实现。
 - 固定生成器创建一万个 1 KiB 文件和九个 64 MiB 文件，交错各运行三个独立进程，记录峰值 RSS、每轮耗时、文件数/字节数、源码与二进制散列，最后在计时外复核全部正文散列。六次完整执行通过，扫描总计中位数分别为 222.130 ms / 1070.431 ms；分项、内存口径与限制见 `PERFORMANCE_BASELINE.md`。
 - release 构建、脚本完整执行、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/sync-scan-benchmark-build.log`、`target/sync-scan-benchmark-run.log`、`target/sync-scan-benchmark-clippy.log`、`target/sync-scan-benchmark-fmt.log`。不宣称冷磁盘性能或网络吞吐；未连接远端、未读取真实用户笔记。本轮只建立优化依据，没有引入元数据缓存或修改同步安全边界。
+
+
+## 大库同步：有界并行扫描（2026-10-06）
+
+- 扫描及发布前复扫最多四路读取/哈希，每路 64 KiB；有界通道只保留结果元数据。调用线程维护清单与进度回调，首个错误停止领取新任务；取消/失败先释放接收端再等待线程退出，仍逐缓冲检查外部取消，所有结果通过后才校验并返回完整清单。未引入文件元数据缓存或改变远端发布规则。
+- 新增 73 个不同长度 Unicode 文件与独立摘要对照，使用非 Sync 回调验证通知始终处于调用线程、完成数及字节数单调；新增第一次文件完成时取消、取消后重试、枚举后删除全部文件及空库重试，验证不能返回部分清单。完整核心测试 258 项通过，3 项既有手动基准/夹具入口忽略；包含已有同步中断、文件限制、流式应用、上传和恢复回归。
+- 相同机器/样本 release 三轮对照：一万小文件扫描中位数 222.130 → 95.470 ms，576 MiB 库 1070.431 → 376.359 ms；全部夹具与基线逐文件路径/大小/散列一致，测量后内容复核通过。完整数值、内存及限制见 PERFORMANCE_BASELINE.md。
+- release 构建、完整基准执行、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/parallel-scan-tests.log`、`target/parallel-scan-build.log`、`target/parallel-scan-run.log`、`target/parallel-scan-clippy.log`、`target/parallel-scan-fmt.log`。无远端访问、无真实用户笔记改动；原生长期同步和真实服务商验收仍未完成。

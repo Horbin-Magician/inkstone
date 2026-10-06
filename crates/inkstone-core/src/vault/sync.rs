@@ -243,21 +243,63 @@ fn snapshot_cancellable(
         .collect();
     let mut progress = Progress::new(phase, paths.len());
     notify(progress.clone());
-    let mut files = Files::new();
-    for path in paths {
-        cancellation.check()?;
-        let name = path
-            .to_str()
-            .context("同步文件名必须是 UTF-8")?
-            .replace('\\', "/");
-        validate_path(&name)?;
-        let (digest, bytes) = fingerprint(&vault.regular_file_path(&path)?, cancellation)?
-            .context("扫描期间文件被删除，请重试")?;
-        files.insert(name, digest);
-        progress.completed += 1;
-        progress.bytes += bytes;
-        notify(progress.clone());
-    }
+    // Keep callbacks on the caller's thread; only file reads/hash computations
+    // run concurrently. The bounded channel holds metadata, never file bodies.
+    let next = AtomicUsize::new(0);
+    let stopped = AtomicBool::new(false);
+    let files = std::thread::scope(|scope| {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(4);
+        for _ in 0..paths.len().min(4) {
+            let sender = sender.clone();
+            let paths = &paths;
+            let next = &next;
+            let stopped = &stopped;
+            scope.spawn(move || {
+                while !stopped.load(Ordering::Acquire) {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(path) = paths.get(index) else { break };
+                    let result = (|| -> Result<_> {
+                        cancellation.check()?;
+                        let name = path
+                            .to_str()
+                            .context("同步文件名必须是 UTF-8")?
+                            .replace('\\', "/");
+                        validate_path(&name)?;
+                        let (digest, bytes) =
+                            fingerprint(&vault.regular_file_path(path)?, cancellation)?
+                                .context("扫描期间文件被删除，请重试")?;
+                        Ok((name, digest, bytes))
+                    })();
+                    let failed = result.is_err();
+                    if failed {
+                        stopped.store(true, Ordering::Release);
+                    }
+                    if sender.send(result).is_err() || failed {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(sender);
+        let result = (|| -> Result<Files> {
+            let mut files = Files::new();
+            for result in &receiver {
+                cancellation.check()?;
+                let (name, digest, bytes) = result?;
+                files.insert(name, digest);
+                progress.completed += 1;
+                progress.bytes += bytes;
+                notify(progress.clone());
+            }
+            cancellation.check()?;
+            Ok(files)
+        })();
+        stopped.store(true, Ordering::Release);
+        // Release any blocked sender before scope waits for all workers. An
+        // error/cancellation never leaves detached reads behind the caller.
+        drop(receiver);
+        result
+    })?;
     validate_manifest(&Manifest {
         version: 1,
         files: files.clone(),

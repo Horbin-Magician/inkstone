@@ -1296,3 +1296,65 @@ fn streamed_upload_uses_file_snapshots_for_large_library() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn concurrent_scan_matches_content_and_reports_on_calling_thread() -> Result<()> {
+    let f = Fixture::new();
+    let mut expected = Files::new();
+    let mut expected_bytes = 0;
+    for index in 0..73 {
+        let name = format!("文件-{index}.md");
+        let body = "中文🙂".repeat(1 + index * 103);
+        fs::write(f.a.root.join(&name), &body)?;
+        expected.insert(name, hash(body.as_bytes()));
+        expected_bytes += body.len() as u64;
+    }
+    // RefCell deliberately makes this callback non-Sync. No UI-facing callback
+    // may migrate to a hashing worker, and progress remains monotonic.
+    let events = std::cell::RefCell::new(Vec::new());
+    let caller = std::thread::current().id();
+    let actual = snapshot_with_progress(&f.a, Phase::Scanning, &|event| {
+        assert_eq!(std::thread::current().id(), caller);
+        events.borrow_mut().push(event);
+    })?;
+    assert_eq!(actual, expected);
+    let events = events.into_inner();
+    assert_eq!(events.last().unwrap().bytes, expected_bytes);
+    assert_eq!(events.last().unwrap().completed, 73);
+    for pair in events[1..].windows(2) {
+        assert_eq!(pair[1].completed, pair[0].completed + 1);
+        assert!(pair[1].bytes > pair[0].bytes);
+    }
+    Ok(())
+}
+
+#[test]
+fn concurrent_scan_cancellation_and_removed_files_never_return_partial_manifest() -> Result<()> {
+    let f = Fixture::new();
+    for index in 0..40 {
+        fs::write(f.a.root.join(format!("{index}.md")), "content")?;
+    }
+    let token = Cancellation::default();
+    let result = snapshot_cancellable(
+        &f.a,
+        Phase::Scanning,
+        &|event| {
+            if event.completed == 1 {
+                token.request();
+            }
+        },
+        &token,
+    );
+    assert!(is_cancelled(&result.unwrap_err()));
+    assert_eq!(snapshot(&f.a)?.len(), 40);
+    let result = snapshot_with_progress(&f.a, Phase::Scanning, &|event| {
+        if event.total == 40 && event.completed == 0 {
+            for index in 0..40 {
+                fs::remove_file(f.a.root.join(format!("{index}.md"))).unwrap();
+            }
+        }
+    });
+    assert!(result.is_err());
+    assert!(snapshot(&f.a)?.is_empty());
+    Ok(())
+}
