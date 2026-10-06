@@ -1452,3 +1452,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 文件恢复截图确认：1 条可恢复记录，备份/描述总计 206 字节，另有 2 个缺少可用记录的备份共 37 字节；显示 1 个路径无法安全统计、总字节不完整，以及 1 条记录读取异常。文本可换行，恢复按钮可见且可操作。该窗口为 1200×820 逻辑尺寸 / 2× 显示；不推断其他 DPI 或最小窗口通过。
 - 点击有效记录“恢复为副本”成功创建 ordinary 同步恢复.md，内容逐字节等于 preserved backup。原有 16 份生成笔记、5 份备份/描述文件和样本清单合计 22 文件 SHA-256 未变；链接和库外生成目标保留。工作区偏好属于会话状态，不纳入散列不变断言。应用正常退出。
 - preparation.json、acceptance.json 和 results.json 保留在隔离目录。release 构建日志 target/backup-cleanup-audit/backup-accounting-release.log。此次没有测量性能，也没有执行清理。Windows 原生、最小窗口及完整 DPI/读屏矩阵仍待验收。
+
+## 同步备份保留预览规则（2026-10-06）
+
+- 新增 sync::recovery::retention::preview，纯计算输入 Inventory 和正在查看/恢复的库内备份相对路径。按记录原路径分组，保留数下限为 1，边界时间相同的记录全部保留；不会因为原文件已删除或旧路径已重命名而取消最后一份保护。
+- unreadable、unindexed_files、unmeasured_files 任一非零时，全部已知记录标为清单不完整，不产生候选。候选容量仅为正文逻辑字节，累加溢出返回错误；不承诺实际释放空间。
+- 三项规则回归覆盖多笔记隔离、保留数为零/超大、边界并列、使用中记录、空清单、三类不完整状态与容量溢出；与五项现有同步备份恢复测试一起运行。日志 target/backup-cleanup-audit/sync-retention-preview-{tests,clippy}.log。
+- 该提交只提供可独立验证的后端预览基础，尚无 UI 或删除入口。后续执行必须重新取得同步互斥、复扫清单、检查候选正文完整性和恢复保护，不能直接删除缓存预览中的路径；云端旧对象仍仅统计、不清理。
+- 验证：8 项同步备份恢复/保留测试、全工作区 all-targets Clippy -D warnings、格式与 diff 检查通过。
