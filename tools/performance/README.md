@@ -67,3 +67,16 @@ SHA-256 `1540f197b3cf2727e5075ff80499196b6e5c46b75ab0b734bff456b45688583b`：
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/performance -p test_sample_process.py -v
 ```
+
+## 同步扫描与文件处理成本
+
+macOS / Python 3.11+：
+
+```sh
+cargo build --release --locked -p inkstone-core --example sync_scan_benchmark
+python3 tools/performance/sync_scan.py
+```
+
+脚本在新的 `target/sync-scan-*` 目录生成两种固定夹具：一万个 1 KiB 文件、九个 64 MiB 文件（576 MiB），逐文件记录 SHA-256。每种夹具以独立子进程运行三轮，每轮使用全新的恢复目录；不要把示例指向用户笔记或已有恢复目录。示例调用实际同步入口，在 Scanning 完成后、读取远端清单之前取消，任何远端方法被调用都会失败，不上传或发布。
+
+记录目录枚举、文件处理、清单校验与总扫描耗时；文件处理包含路径检查、打开、读取、SHA-256 和结果插入，不能称为纯哈希计算时间。测量不含同步锁/缓存初始化、网络、验证复扫及应用阶段；进程峰值 RSS 则包含示例整个生命周期。脚本在计量进程外生成夹具并最终重新校验所有正文。文件系统缓存不清空，第一次运行也不是冷磁盘延迟。原始输出、time 日志、二进制/源码散列及各轮统计保存在生成目录。
