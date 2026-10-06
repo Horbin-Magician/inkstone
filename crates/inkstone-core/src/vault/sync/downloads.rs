@@ -48,6 +48,56 @@ impl Cache {
         }
         Ok(())
     }
+    /// Snapshot before passing a file handle to the transport: the live note
+    /// may be edited while the upload is in progress.
+    pub fn upload(
+        &self,
+        source: &Path,
+        digest: &str,
+        remote: &impl Remote,
+        cancellation: &Cancellation,
+    ) -> Result<u64> {
+        cancellation.check()?;
+        let mut source = fs::File::open(source).context("上传期间文件不可读")?;
+        let metadata = source.metadata()?;
+        ensure!(
+            metadata.is_file() && metadata.len() <= MAX_FILE_BYTES,
+            "上传文件类型或大小无效"
+        );
+        let temp = self.directory.join(format!("{}.partial", unique_id()));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
+        let result = (|| -> Result<u64> {
+            let mut buffer = [0u8; 64 * 1024];
+            let mut hash = Sha256::new();
+            let mut bytes = 0u64;
+            loop {
+                cancellation.check()?;
+                let count = source.read(&mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                bytes += count as u64;
+                ensure!(bytes <= MAX_FILE_BYTES, "上传文件超过大小限制");
+                hash.update(&buffer[..count]);
+                file.write_all(&buffer[..count])?;
+            }
+            ensure!(
+                format!("{:x}", hash.finalize()) == digest,
+                "上传期间文件已变化"
+            );
+            file.sync_all()?;
+            drop(file);
+            cancellation.check()?;
+            remote.upload_file(digest, fs::File::open(&temp)?)?;
+            cancellation.check()?;
+            Ok(bytes)
+        })();
+        let _ = fs::remove_file(temp);
+        result
+    }
     pub fn fetch(
         &self,
         remote: &impl Remote,

@@ -1152,3 +1152,147 @@ fn webdav_file_upload_streams_full_snapshot_and_verifies_existing_objects() -> R
     }
     Ok(())
 }
+
+#[test]
+fn upload_snapshot_isolated_from_live_edits_and_removed_after_failure() -> Result<()> {
+    struct EditingRemote {
+        memory: Memory,
+        source: PathBuf,
+    }
+    impl Remote for EditingRemote {
+        fn manifest(&self) -> Result<(Manifest, Option<String>)> {
+            self.memory.manifest()
+        }
+        fn download(&self, digest: &str) -> Result<Vec<u8>> {
+            self.memory.download(digest)
+        }
+        fn upload(&self, _: &str, _: &[u8]) -> Result<()> {
+            panic!("sync must upload file snapshots")
+        }
+        fn upload_file(&self, digest: &str, mut file: fs::File) -> Result<()> {
+            fs::write(&self.source, b"edited during transfer")?;
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes)?;
+            ensure!(hash(&bytes) == digest, "snapshot changed with live file");
+            self.memory.upload(digest, &bytes)
+        }
+        fn publish(&self, m: &Manifest, revision: Option<&str>) -> Result<()> {
+            self.memory.publish(m, revision)
+        }
+    }
+    let f = Fixture::new();
+    let source = f.b.root.join("note.md");
+    fs::write(&source, b"snapshot content")?;
+    let r = EditingRemote {
+        memory: Memory::default(),
+        source: source.clone(),
+    };
+    assert!(synchronize(&f.b, &r, "x").is_err());
+    assert_eq!(
+        r.memory.objects.lock().unwrap()[&hash(b"snapshot content")],
+        b"snapshot content"
+    );
+    assert!(r.memory.manifest.lock().unwrap().files.is_empty());
+    assert_eq!(fs::read(&source)?, b"edited during transfer");
+    assert!(!baseline_path(&f.b, "x").exists());
+    let cache = baseline_path(&f.b, "x").with_extension("downloads");
+    assert_eq!(fs::read_dir(&cache)?.count(), 0);
+    r.memory.fail_upload.store(true, Ordering::Relaxed);
+    assert!(synchronize(&f.b, &r, "x").is_err());
+    assert_eq!(fs::read_dir(&cache)?.count(), 0);
+    r.memory.fail_upload.store(false, Ordering::Relaxed);
+    synchronize(&f.b, &r, "x")?;
+    assert_eq!(
+        r.memory.manifest.lock().unwrap().files["note.md"],
+        hash(b"edited during transfer")
+    );
+    assert_eq!(fs::read_dir(cache)?.count(), 0);
+    Ok(())
+}
+
+#[test]
+fn upload_snapshot_rejects_stale_content_before_transport() -> Result<()> {
+    let f = Fixture::new();
+    let state = baseline_path(&f.b, "x");
+    fs::create_dir_all(state.parent().unwrap())?;
+    let cache = downloads::Cache::new(&state)?;
+    let path = f.b.root.join("note.md");
+    fs::write(&path, "new content")?;
+    let r = Memory::default();
+    assert!(
+        cache
+            .upload(&path, &hash(b"old content"), &r, &Cancellation::default())
+            .is_err()
+    );
+    assert_eq!(r.uploads.load(Ordering::Relaxed), 0);
+    assert_eq!(fs::read_dir(state.with_extension("downloads"))?.count(), 0);
+    Ok(())
+}
+
+#[test]
+#[ignore = "writes and uploads 576 MiB; run explicitly for large-library acceptance"]
+fn streamed_upload_uses_file_snapshots_for_large_library() -> Result<()> {
+    struct StreamingRemote {
+        uploaded: Mutex<BTreeSet<String>>,
+        published: Mutex<Option<Manifest>>,
+    }
+    impl Remote for StreamingRemote {
+        fn manifest(&self) -> Result<(Manifest, Option<String>)> {
+            Ok((Manifest::default(), None))
+        }
+        fn download(&self, _: &str) -> Result<Vec<u8>> {
+            unreachable!()
+        }
+        fn upload(&self, _: &str, _: &[u8]) -> Result<()> {
+            panic!("must use file snapshot")
+        }
+        fn upload_file(&self, digest: &str, mut file: fs::File) -> Result<()> {
+            let mut buffer = [0u8; 64 * 1024];
+            let mut hash = Sha256::new();
+            let mut bytes = 0;
+            loop {
+                let count = file.read(&mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                bytes += count;
+                hash.update(&buffer[..count]);
+            }
+            assert_eq!(bytes, 64 * 1024 * 1024);
+            assert_eq!(format!("{:x}", hash.finalize()), digest);
+            self.uploaded.lock().unwrap().insert(digest.into());
+            Ok(())
+        }
+        fn publish(&self, manifest: &Manifest, revision: Option<&str>) -> Result<()> {
+            assert!(revision.is_none());
+            assert_eq!(manifest.files.len(), 9);
+            assert_eq!(
+                manifest.files.values().cloned().collect::<BTreeSet<_>>(),
+                *self.uploaded.lock().unwrap()
+            );
+            *self.published.lock().unwrap() = Some(manifest.clone());
+            Ok(())
+        }
+    }
+    let f = Fixture::new();
+    for value in 0..9u8 {
+        let mut file = fs::File::create(f.b.root.join(format!("{value}.bin")))?;
+        for _ in 0..1024 {
+            file.write_all(&[value; 64 * 1024])?;
+        }
+    }
+    let remote = StreamingRemote {
+        uploaded: Mutex::new(BTreeSet::new()),
+        published: Mutex::new(None),
+    };
+    assert_eq!(synchronize(&f.b, &remote, "large-upload")?.uploaded, 9);
+    assert_eq!(
+        snapshot(&f.b)?,
+        remote.published.lock().unwrap().as_ref().unwrap().files
+    );
+    assert_eq!(
+        fs::read_dir(baseline_path(&f.b, "large-upload").with_extension("downloads"))?.count(),
+        0
+    );
+    Ok(())
+}

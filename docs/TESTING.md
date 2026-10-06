@@ -540,3 +540,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 `Remote::upload_file`，契约要求调用方提供私有不可变文件快照。WebDAV 按固定缓冲校验摘要/大小，复位文件游标，通过有明确长度的文件 Body 发送，避免传输接口再复制整份正文；原切片接口保留，二者共用条件创建和 412 已存在对象校验。主同步流程尚未调用新接口，上传内存验收尚未完成，后续须先构造隔离用户编辑的快照。
 - 真实本地 HTTP 回归覆盖 200,003 字节完整请求正文、非零初始游标复位、Content-Length、If-None-Match、错误摘要及超限拒绝，以及已存在对象正确/损坏的复核结果。核心全量 232 项通过、2 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
 - 日志：`target/sync-upload-file-tests.log`、`target/sync-upload-file-clippy.log`、`target/sync-upload-file-fmt.log`。未做真实 WebDAV 服务商或大文件上传峰值验收，未修改用户笔记。
+
+## 大库上传第二步：隔离编辑的磁盘快照（2026-10-06）
+
+- 主同步流程使用固定 64 KiB 缓冲在库外构造上传快照，核对扫描摘要、同步临时文件并关闭写入句柄后，调用文件上传接口；删除原逐文件正文 Vec 读取。最多四个上传任务并发，正常完成/失败/取消清理临时快照，强退遗留沿用下次同步锁内部分文件清理。上传后仍重新扫描本地，发现继续编辑就不发布清单。
+- 新回归在收到上传快照后改写原笔记，确认传输的仍是原扫描正文、本地编辑保留、清单/成功基线不前进；覆盖上传失败清理、重试收敛、旧摘要在传输前拒绝。核心 debug 全量 234 项通过；新增忽略的大库样本后 release 全量 234 项通过、3 项忽略。桌面同步相关 27 项、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 新增显式 release 用例 `streamed_upload_uses_file_snapshots_for_large_library`：生成 9 个不同的 64 MiB 文件，总计 576 MiB；远端禁止切片上传并逐块核对接收摘要，验证全部对象完成后才发布、基线/本地内容一致、暂存目录清空。构建和其他测试结束后 `/usr/bin/time -l` 测得 4.11 秒、峰值 RSS 9,224,192 字节（约 8.80 MiB），包含生成和最终扫描；不是 HTTP/WebDAV 服务商峰值测量。
+- 日志：`target/sync-upload-snapshot-tests.log`、`target/sync-upload-snapshot-release-tests.log`、`target/sync-upload-snapshot-desktop-tests.log`、`target/sync-upload-snapshot-clippy.log`、`target/sync-upload-snapshot-fmt.log`、`target/sync-upload-snapshot-large-tests.log`。快照磁盘上限为并发数×单文件上限（当前 512 MiB），不含下载对象；总体磁盘预算、真实远端和容量治理仍待完成。未修改用户笔记。
