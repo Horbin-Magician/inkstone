@@ -1208,3 +1208,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生部分恢复验收发现 AX 树只有操作按钮，没有显示中的路径和校验结果。为来源、加载状态、结果提示、统计、逐文件路径与结论、页码增加显式 Label 角色与完整文本标签；不增加点击动作或 Tab 停靠点。
 - 长中文/emoji 路径与三类结论的可访问节点契约检查通过；既有 800×500、16/24 rem 键盘分页回归通过（6.06 秒）。初轮检查错误地假设 write_a11y_info 写入角色，已按 GPUI 的 a11y_role 与属性写入分工修正检查，生产实现未因该失败调整。
 - workspace all-targets Clippy -D warnings、cargo fmt --all --check、git diff --check 通过。日志 target/backup-cleanup-audit/partial-a11y-fixed.log、partial-a11y-keys.log、partial-a11y-final-clippy.log；初轮失败保留在 partial-a11y.log。本次尚未复验原生 AX/VoiceOver，不将节点检查计为完整读屏验收；无用户笔记进入提交。
+
+### 原生 AX 复验
+
+- release c94a5a1 在新隔离实例 target/native-partial-ax-edhfu87k/case 通过：来源路径、12 项中 4 项有效的统计与保护说明、完整中文/emoji 文件路径、可恢复/缺失/内容校验失败三类结论，均以原生 text 节点出现。
+- Tab/Shift+Tab/Enter 翻页 1→2→3，系统可访问树移除上一页文件文本，展示当前五条/末页两条，并更新页码。未打开恢复选择器或执行文件写入。Cmd+Q 后进程检查确认退出；复制的残留 10 个文件与原夹具散列相同，生成的 corpus 笔记全部不变。记录 native-ax-acceptance.json，构建日志 target/backup-cleanup-audit/partial-a11y-native-build.log。
+- 该复验覆盖 macOS 原生 AX 数据，不包含 VoiceOver 朗读/导航、Windows 或其他 DPI；这些验收仍保留。仅提交本记录，diff 检查通过。
