@@ -55,6 +55,14 @@ fn retain_with(
     expected: &MissingPayload,
     before_move: impl FnOnce(),
 ) -> Result<RetainedDescriptor> {
+    retain_with_hooks(vault, expected, before_move, || {})
+}
+fn retain_with_hooks(
+    vault: &Vault,
+    expected: &MissingPayload,
+    before_move: impl FnOnce(),
+    after_move: impl FnOnce(),
+) -> Result<RetainedDescriptor> {
     crate::vault::backup::storage::require_local(&vault.root)?;
     let _operation = super::super::lock_operation(vault)?;
     let path = vault.regular_file_path(&expected.metadata)?;
@@ -81,6 +89,7 @@ fn retain_with(
         "归档前记录或正文状态已变化"
     );
     move_no_replace(&path, &destination)?;
+    after_move();
     // No rollback over a newly created source. A post-move failure preserves the
     // moved bytes; inventory will expose an abnormal archive and block cleanup.
     ensure!(
@@ -93,6 +102,7 @@ fn retain_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     fn fixture() -> Result<(PathBuf, Vault, MissingPayload, Vec<u8>)> {
         let root = std::env::temp_dir().join(format!("inkstone-residue-{}", unique_id()));
         fs::create_dir_all(root.join("vault"))?;
@@ -152,17 +162,10 @@ mod tests {
                 "{}.retained",
                 path.file_name().unwrap().to_str().unwrap()
             ));
-            let result = retain_with(&vault, &missing, || match case {
-                0 => {
+            let change_descriptor = || {
+                if case == 0 {
                     fs::write(&path, b"{}").unwrap();
-                }
-                1 => {
-                    fs::write(&archive, b"existing").unwrap();
-                }
-                2 => {
-                    fs::write(vault.root.join(&missing.backup), b"returned").unwrap();
-                }
-                _ => {
+                } else {
                     let value = String::from_utf8(bytes.clone())
                         .unwrap()
                         .replace(&hash(b"gone"), &hash(b"other"));
@@ -174,12 +177,160 @@ mod tests {
                         .set_times(fs::FileTimes::new().set_modified(missing.modified))
                         .unwrap();
                 }
+            };
+            // Windows denies in-place writes while SaveGuard is open. Test
+            // stale content before admission there; Unix also tests the gap.
+            #[cfg(windows)]
+            if case == 0 || case == 3 {
+                change_descriptor();
+            }
+            let result = retain_with(&vault, &missing, || match case {
+                1 => {
+                    fs::write(&archive, b"existing").unwrap();
+                }
+                2 => {
+                    fs::write(vault.root.join(&missing.backup), b"returned").unwrap();
+                }
+                _ => {
+                    #[cfg(not(windows))]
+                    change_descriptor();
+                }
             });
             assert!(result.is_err(), "case {case}");
             assert!(path.exists());
             if case == 1 {
                 assert_eq!(fs::read(&archive)?, b"existing");
             }
+            assert_eq!(fs::read(vault.root.join("note.md"))?, b"current");
+            fs::remove_dir_all(root)?;
+        }
+        Ok(())
+    }
+    #[cfg(windows)]
+    #[test]
+    fn windows_guard_denies_descriptor_write_during_retention() -> Result<()> {
+        let (root, vault, missing, bytes) = fixture()?;
+        let path = vault.root.join(&missing.metadata);
+        let record = retain_with(&vault, &missing, || {
+            let error = fs::write(&path, b"changed").unwrap_err();
+            assert_eq!(error.raw_os_error(), Some(32));
+        })?;
+        assert_eq!(fs::read(vault.root.join(record.metadata))?, bytes);
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn killed_retention_preserves_metadata_and_fresh_process_can_continue() -> Result<()> {
+        const ROOT: &str = "INKSTONE_TEST_RETAIN_KILL_ROOT";
+        const MODE: &str = "INKSTONE_TEST_RETAIN_KILL_MODE";
+        const TEST: &str = "vault::sync::recovery::residue::tests::killed_retention_preserves_metadata_and_fresh_process_can_continue";
+        if let Some(root) = std::env::var_os(ROOT) {
+            let root = PathBuf::from(root);
+            let vault = Vault::open(root.join("vault"), root.join("recovery"))?;
+            let mode = std::env::var(MODE)?;
+            let mut report = inventory(&vault)?;
+            if mode == "resume" {
+                if let Some(missing) = report.missing_payloads.pop() {
+                    retain(&vault, &missing)?;
+                }
+                let report = inventory(&vault)?;
+                ensure!(
+                    report.missing_payloads.is_empty()
+                        && report.retained_descriptors.len() == 1
+                        && report.unreadable == 0,
+                    "unexpected resumed inventory"
+                );
+                // Reopening in this new process also proves the old process's
+                // OS locks did not remain held after forced termination.
+                drop(super::super::super::lock_operation(&vault)?);
+                fs::write(root.join("resumed"), b"ok")?;
+                return Ok(());
+            }
+            let pause = || {
+                fs::write(root.join("checkpoint"), mode.as_bytes()).unwrap();
+                loop {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            };
+            let missing = report.missing_payloads.remove(0);
+            retain_with_hooks(
+                &vault,
+                &missing,
+                || {
+                    if mode == "before" {
+                        pause();
+                    }
+                },
+                || {
+                    if mode == "after" {
+                        pause();
+                    }
+                },
+            )?;
+            anyhow::bail!("child was not killed at checkpoint");
+        }
+        struct Child(std::process::Child);
+        impl Drop for Child {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        fn spawn(root: &Path, mode: &str) -> Result<Child> {
+            Ok(Child(
+                std::process::Command::new(std::env::current_exe()?)
+                    .args(["--exact", TEST])
+                    .env(ROOT, root)
+                    .env(MODE, mode)
+                    .stdout(std::process::Stdio::null())
+                    .spawn()?,
+            ))
+        }
+        for mode in ["before", "after"] {
+            let (root, vault, missing, bytes) = fixture()?;
+            let mut child = spawn(&root, mode)?;
+            let deadline = std::time::Instant::now() + Duration::from_secs(15);
+            while !root.join("checkpoint").exists() {
+                ensure!(
+                    child.0.try_wait()?.is_none(),
+                    "child exited before checkpoint"
+                );
+                ensure!(std::time::Instant::now() < deadline, "checkpoint timed out");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            child.0.kill()?;
+            ensure!(!child.0.wait()?.success(), "child not terminated");
+            let report = inventory(&vault)?;
+            assert_eq!(report.missing_payloads.len(), usize::from(mode == "before"));
+            assert_eq!(
+                report.retained_descriptors.len(),
+                usize::from(mode == "after")
+            );
+            assert_eq!(report.stored_bytes, bytes.len() as u64);
+            let preserved = if mode == "before" {
+                missing.metadata.clone()
+            } else {
+                report.retained_descriptors[0].metadata.clone()
+            };
+            assert_eq!(fs::read(vault.root.join(preserved))?, bytes);
+            let mut resumed = spawn(&root, "resume")?;
+            let deadline = std::time::Instant::now() + Duration::from_secs(15);
+            loop {
+                if let Some(status) = resumed.0.try_wait()? {
+                    ensure!(status.success(), "resume failed");
+                    break;
+                }
+                ensure!(std::time::Instant::now() < deadline, "resume timed out");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert!(root.join("resumed").exists());
+            let report = inventory(&vault)?;
+            assert_eq!(report.retained_descriptors.len(), 1);
+            assert_eq!(
+                fs::read(vault.root.join(&report.retained_descriptors[0].metadata))?,
+                bytes
+            );
             assert_eq!(fs::read(vault.root.join("note.md"))?, b"current");
             fs::remove_dir_all(root)?;
         }
