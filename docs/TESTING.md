@@ -876,3 +876,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 增加多行富文本与完整解析对照，覆盖 Unicode、emoji/组合字符、制表符、链接、多行行内代码、强调与硬换行；每个案例要求实际接纳足够多的局部编辑，并逐项比较完整 AST、样式及结构正文，不能靠全部回退通过。独立覆盖文末根节点列更新及结构变化拒绝。
 - 核心测试 254 项通过、3 项既有手动基准/夹具入口忽略；编辑器相关 112 项通过、2 项手动帧基准忽略；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/multiline-block-core-tests.log`、`target/multiline-block-editor-tests.log`、`target/multiline-block-clippy.log`、`target/multiline-block-fmt.log`。
 - 同机 release 三轮同输入 CPU 对照支持保留改动，详细派生样本、逐轮值、测量范围见 `PERFORMANCE_BASELINE.md`。大文档 p95 三轮中位数完整解析 120.478 ms、局部 2.899 ms；不代表原生输入延迟达标，新增/删除换行和更广块类型仍待优化。所有新夹具位于 target 或测试内存，未修改真实用户笔记。
+
+
+## 增量解析：段落内部软换行及后续行号（2026-10-06）
+
+- 扩大局部段落更新到内部软换行插入/删除，保持“重新解析后仍为一个完整同类型块”的边界。用新旧块解析位置推导行差，再更新后续 AST 行号/字节偏移和末行列，兼容 CRLF 拆分、连接及混合换行；不按编辑片段中的换行字符个数估算。生成多个段落、标题/列表结构变化、跨块编辑及全局语法仍回退。
+- 新增 LF/CRLF/CR、多行代码/链接、硬换行、Unicode 与文末/后续嵌套块的完整 AST 和样式对照，既要求实际接纳局部更新，也验证结构变化拒绝。新增编辑器回归覆盖换行插入后实时语法、标题/任务坐标，以及撤销后原文与坐标一致。
+- 核心 255 项通过、3 项既有手动基准/夹具入口忽略；编辑器 113 项通过、2 项手动帧基准忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/paragraph-newline-core-tests.log`、`target/paragraph-newline-editor-tests.log`、`target/paragraph-newline-clippy.log`、`target/paragraph-newline-fmt.log`。
+- release 基准支持可选插入前缀，三轮同输入对照已执行；大文档换行插入解析 p95 中位数完整 115.973 ms、局部 2.955 ms。测量条件及原始路径见 `PERFORMANCE_BASELINE.md`。结果支持保留此路径，但不替代原生 IME、输入/滚动帧、选区和模式矩阵验收。未修改真实用户笔记。

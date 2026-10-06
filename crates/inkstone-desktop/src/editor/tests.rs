@@ -35,6 +35,46 @@ fn plain_edits_keep_following_live_syntax_and_undo_coordinates(cx: &mut TestAppC
         .unwrap();
 }
 
+#[gpui::test]
+fn paragraph_line_breaks_keep_following_styles_and_undo_coordinates(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for replacement in ["中文😀\nprose", "中文\r\nprose", "中文\rprose"] {
+        let source = "# Heading\n\nText **bold** ordinary end\n\n## Later\n\n- [x] task\n\n**bold** [[note]]";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        cx.run_until_parked();
+        handle
+            .update(cx, |pane, window, cx| {
+                let start = source.find("ordinary").unwrap();
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(start..start + 8, cx);
+                    state.replace(replacement, window, cx);
+                });
+                pane.update_presentation(cx);
+                let current = pane.editor.read(cx).value();
+                assert_eq!(
+                    pane.syntax_snapshot.as_ref().unwrap().ast,
+                    inkstone_core::syntax::Snapshot::new(&current).ast
+                );
+                assert_eq!(pane.spans, markdown::spans(&current));
+                assert_eq!(pane.parsed.tasks, index::parse(&current).tasks);
+                assert_eq!(pane.parsed.headings, index::parse(&current).headings);
+                pane.editor.update(cx, |state, cx| {
+                    state.undo(&gpui_component::input::Undo, window, cx)
+                });
+                pane.update_presentation(cx);
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+                assert_eq!(
+                    pane.syntax_snapshot.as_ref().unwrap().ast,
+                    inkstone_core::syntax::Snapshot::new(source).ast
+                );
+                assert_eq!(pane.spans, markdown::spans(source));
+                assert_eq!(pane.parsed.tasks, index::parse(source).tasks);
+                assert_eq!(pane.parsed.headings, index::parse(source).headings);
+            })
+            .unwrap();
+    }
+}
+
 /// Editing and reading wrap in the same column, so a line holds the same text.
 #[gpui::test]
 fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {

@@ -30,11 +30,6 @@ impl Snapshot {
             .sum();
         let old_end = old.len() - suffix;
         let new_end = source.len() - suffix;
-        if old[start..old_end].contains(['\r', '\n'])
-            || source[start..new_end].contains(['\r', '\n'])
-        {
-            return None;
-        }
         let ast = self.ast.as_deref()?;
         if has_definitions(ast) {
             return None;
@@ -43,7 +38,8 @@ impl Snapshot {
             return None;
         };
         // Reparse the entire paragraph even when only one of its lines changed.
-        // With line terminators unchanged, subsequent nodes keep their line numbers.
+        // A changed paragraph must remain one complete block; its parsed line span
+        // determines how later nodes move, including mixed CR/LF boundaries.
         let (index, block) = root.children.iter().enumerate().find(|(_, node)| {
             matches!(node, Node::Paragraph(_) | Node::Heading(_))
                 && node.position().is_some_and(|p| {
@@ -71,9 +67,17 @@ impl Snapshot {
             return None;
         }
         relocate(&mut replacement, &position.start);
+        let line_delta = replacement.position()?.end.line as isize - position.end.line as isize;
         let mut ast = ast.clone();
         ast.children_mut()?.remove(index);
-        shift(&mut ast, old_end, delta, position.end.line, source);
+        shift(
+            &mut ast,
+            old_end,
+            delta,
+            position.end.line,
+            line_delta,
+            source,
+        );
         ast.children_mut()?.insert(index, replacement);
         let source: Arc<str> = source.into();
         Some(Self {
@@ -104,13 +108,15 @@ fn relocate(node: &mut Node, origin: &Point) {
         }
     }
 }
-fn shift(node: &mut Node, at: usize, delta: isize, line: usize, source: &str) {
+fn shift(node: &mut Node, at: usize, delta: isize, line: usize, line_delta: isize, source: &str) {
     if let Some(p) = node.position_mut() {
         for point in [&mut p.start, &mut p.end] {
+            let last_edited_line = point.line == line;
             if point.offset >= at {
                 point.offset = point.offset.checked_add_signed(delta).unwrap();
+                point.line = point.line.checked_add_signed(line_delta).unwrap();
             }
-            if point.line == line {
+            if last_edited_line {
                 let start = source[..point.offset]
                     .rfind(['\r', '\n'])
                     .map_or(0, |i| i + 1);
@@ -126,7 +132,7 @@ fn shift(node: &mut Node, at: usize, delta: isize, line: usize, source: &str) {
     }
     if let Some(children) = node.children_mut() {
         for child in children {
-            shift(child, at, delta, line, source);
+            shift(child, at, delta, line, line_delta, source);
         }
     }
 }
@@ -265,6 +271,77 @@ mod tests {
     }
 
     #[test]
+    fn paragraph_line_break_edits_match_full_coordinates_and_styles() {
+        for newline in ["\n", "\r\n", "\r"] {
+            for following in [
+                "",
+                "\n\n# Following\n\n> quote\n\n- item\n- next\n\n```rust\nlet x = 1;\n```\n",
+            ] {
+                for block in [
+                    "Text **bold** and 中文😀 end",
+                    "Text `multi\nline code` and **bold**\nlast [link](note.md) end",
+                ] {
+                    let block = block.replace('\n', newline);
+                    let before = format!(
+                        "# Before{newline}{newline}{block}{}",
+                        following.replace('\n', newline)
+                    );
+                    let origin = before.find(&block).unwrap();
+                    let snapshot = Snapshot::new(&before);
+                    let mut accepted = 0;
+                    for (at, ch) in block.char_indices().skip(1) {
+                        // Also split/join CRLF pairs: line deltas must come from the
+                        // parsed block, not counts in the changed substring alone.
+                        for inserted in [
+                            "\n",
+                            "\r\n",
+                            "\r",
+                            "\n\n",
+                            "",
+                            "\n中文\n",
+                            "  \n",
+                            "\n# heading\n",
+                        ] {
+                            for width in [0, ch.len_utf8()] {
+                                let mut after = before.clone();
+                                after.replace_range(origin + at..origin + at + width, inserted);
+                                if let Some(updated) = snapshot.update_block(&after) {
+                                    accepted += 1;
+                                    let full = Snapshot::new(&after);
+                                    assert_eq!(updated.ast, full.ast, "{before:?} -> {after:?}");
+                                    assert_eq!(
+                                        crate::markdown::spans_snapshot(&updated),
+                                        crate::markdown::spans_snapshot(&full),
+                                        "{after:?}"
+                                    );
+                                    assert_eq!(updated.structural, full.structural);
+                                }
+                            }
+                        }
+                    }
+                    assert!(accepted > 50, "must exercise successful line edits");
+                }
+            }
+        }
+        for (before, after) in [
+            ("Text **bold**", "Text\n**bold**"),
+            (
+                "Text **bold**\nanother line\nlast line",
+                "Text **bold**another line\nlast line",
+            ),
+            (
+                "Text **bold**\r\nanother line",
+                "Text **bold**\nanother line",
+            ),
+        ] {
+            let updated = Snapshot::new(before)
+                .update_block(after)
+                .expect("soft line edit must be local");
+            assert_eq!(updated.ast, Snapshot::new(after).ast);
+        }
+    }
+
+    #[test]
     fn multiline_structure_changes_still_fall_back() {
         for (before, after) in [
             (
@@ -278,10 +355,6 @@ mod tests {
             (
                 "Text **bold**\nanother line\nlast line",
                 "Text **bold**\n\nanother line\nlast line",
-            ),
-            (
-                "Text **bold**\nanother line\nlast line",
-                "Text **bold**another line\nlast line",
             ),
             (
                 "Text **bold**\nanother line\nlast line",
@@ -306,7 +379,6 @@ mod tests {
     #[test]
     fn global_and_block_structure_edits_fall_back() {
         for (before, after) in [
-            ("Text **bold**", "Text\n**bold**"),
             ("Text **bold**", "Text %%bold%%"),
             ("Text **bold**", "Text ^[bold]"),
             ("Text [r]\n\n[r]: old.md", "Text [r] next\n\n[r]: old.md"),
