@@ -1605,3 +1605,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增后台阻塞 API `WebDav::lock_maintenance` / `MaintenanceLock`：请求已有同步根的递归独占写锁，校验有界 XML、单一令牌/根/范围/有限期限；续期失败使句柄失效；显式释放报告错误，Drop 仅尝试一次有超时的释放。没有接入云端删除或改变现有同步路径。
 - 5 项 HTTP 回归覆盖实际请求头/正文、续期不带创建正文、失败续期后的禁止复用、释放失败不隐式重试、共享/浅层/过长期限/错误根/重复属性/错误令牌/损坏 XML 拒绝，以及不支持或被锁服务器。HTTP 模拟不能替代真实服务端互斥验收。
 - 完整核心同步回归 66 通过、2 个既有手动入口忽略；全工作区 all-targets Clippy `-D warnings`、格式和 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-maintenance-{tests,sync-tests,clippy}.log`。未做性能测量，未改用户笔记；清单隔离、清理执行和 UI 仍未完成。
+
+## 云端清单永久版本隔离（2026-10-06）
+
+- version 1 默认序列化字节保持兼容；新增 version 2 非零维护代次。普通同步保留远端版本/代次，发现代次回退或未知字段则停止；本地基线从包含成功时间的记录中显式读取清单，兼容既有记录。
+- 新增持锁 `advance_manifest`：同一发布请求同时携带锁条件与清单修订条件，文件映射不变；读回要求完整相等且强 ETag 已变化。失败使句柄失效，不回滚不确定的已提交结果。仅新增后台 API，未调用真实远端、未接入删除或界面。
+- 新增 5 项回归覆盖旧格式字节、有效/无效代次、双端同步保留新版本、基线回退保护、旧修订发布失败、HTTP 双重条件、首次清单创建、失败发布/错误读回/相同 ETag/代次溢出；未知版本回归更新为 0、3、u32::MAX，version 2 缺失代次仍由格式校验拒绝。
+- 核心全量 305 通过、3 个既有手动入口忽略；同步子集 71 通过、2 个忽略；全工作区 all-targets Clippy `-D warnings`、格式和 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-generation-{tests,core-tests,clippy}.log`。未做性能测量或 Linux 适配，未修改用户笔记。
+- [CI 37462290852](https://github.com/Horbin-Magician/inkstone/actions/runs/37462290852) 对应 8cd98b9，macOS/Windows 工作区与两平台 vendor 四项已全部成功，覆盖强退后同步备份恢复及恢复面板焦点修复；不包含后续云端维护 API。

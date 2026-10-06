@@ -180,3 +180,139 @@ fn drop_releases_valid_guard_and_rejects_ambiguous_tokens() -> Result<()> {
     }
     Ok(())
 }
+
+fn manifest_reply(manifest: &Manifest, etag: &str) -> (u16, String, String) {
+    (
+        200,
+        format!("ETag: \"{etag}\"\r\n"),
+        serde_json::to_string(manifest).unwrap(),
+    )
+}
+
+#[test]
+fn maintenance_advances_manifest_under_both_lock_and_revision_conditions() -> Result<()> {
+    for generation in [None, Some(7)] {
+        let before = Manifest {
+            version: if generation.is_some() { 2 } else { 1 },
+            generation,
+            files: BTreeMap::from([("note.md".into(), hash(b"unchanged body"))]),
+            ..Manifest::default()
+        };
+        let after = Manifest {
+            version: 2,
+            generation: Some(generation.unwrap_or(0) + 1),
+            ..before.clone()
+        };
+        let (remote, task) = server(vec![
+            grant(body()),
+            reply(404),
+            manifest_reply(&before, "before"),
+            reply(204),
+            reply(404),
+            manifest_reply(&after, "after"),
+            reply(204),
+        ]);
+        let mut lock = remote.lock_maintenance()?;
+        let (confirmed, revision) = lock.advance_manifest()?;
+        assert_eq!(confirmed, after);
+        assert_eq!(revision, "\"after\"");
+        lock.release()?;
+        let requests = task.join().unwrap();
+        assert_eq!(requests.len(), 7);
+        let publish = requests[3].to_lowercase();
+        assert!(publish.starts_with("put /dav/inkstone/manifest.json http/1.1\r\n"));
+        assert!(publish.contains("if-match: \"before\"\r\n"));
+        assert!(publish.contains(&format!("if: <{}inkstone/> ({TOKEN})\r\n", remote.root)));
+        let published: Manifest =
+            serde_json::from_str(requests[3].split_once("\r\n\r\n").unwrap().1)?;
+        assert_eq!(published, after);
+    }
+    Ok(())
+}
+
+#[test]
+fn maintenance_rejects_failed_publication_readback_and_generation_overflow() -> Result<()> {
+    let before = Manifest::default();
+    let after = Manifest {
+        version: 2,
+        generation: Some(1),
+        ..before.clone()
+    };
+    for (confirmed, etag) in [(before.clone(), "after"), (after.clone(), "before")] {
+        let (remote, task) = server(vec![
+            grant(body()),
+            reply(404),
+            manifest_reply(&before, "before"),
+            reply(204),
+            reply(404),
+            manifest_reply(&confirmed, etag),
+            reply(204),
+        ]);
+        let mut lock = remote.lock_maintenance()?;
+        assert!(lock.advance_manifest().is_err());
+        assert!(lock.condition().is_err());
+        assert!(lock.advance_manifest().is_err());
+        lock.release()?;
+        let requests = task.join().unwrap();
+        assert_eq!(requests.iter().filter(|r| r.starts_with("PUT ")).count(), 1); // No rollback.
+    }
+    for status in [207, 412, 423, 500] {
+        let (remote, task) = server(vec![
+            grant(body()),
+            reply(404),
+            manifest_reply(&before, "before"),
+            reply(status),
+            reply(204),
+        ]);
+        let mut lock = remote.lock_maintenance()?;
+        assert!(lock.advance_manifest().is_err());
+        assert!(lock.condition().is_err());
+        lock.release()?;
+        assert_eq!(task.join().unwrap().len(), 5);
+    }
+    let overflow = Manifest {
+        version: 2,
+        generation: Some(u64::MAX),
+        ..before
+    };
+    let (remote, task) = server(vec![
+        grant(body()),
+        reply(404),
+        manifest_reply(&overflow, "before"),
+        reply(204),
+    ]);
+    let mut lock = remote.lock_maintenance()?;
+    assert!(
+        lock.advance_manifest()
+            .unwrap_err()
+            .to_string()
+            .contains("代次已耗尽")
+    );
+    lock.release()?;
+    assert!(task.join().unwrap().iter().all(|r| !r.starts_with("PUT ")));
+    Ok(())
+}
+
+#[test]
+fn first_manifest_is_fenced_with_create_only_precondition() -> Result<()> {
+    let after = Manifest {
+        version: 2,
+        generation: Some(1),
+        ..Manifest::default()
+    };
+    let (remote, task) = server(vec![
+        grant(body()),
+        reply(404),
+        reply(404),
+        reply(201),
+        reply(404),
+        manifest_reply(&after, "created"),
+        reply(204),
+    ]);
+    let mut lock = remote.lock_maintenance()?;
+    assert_eq!(lock.advance_manifest()?.0, after);
+    lock.release()?;
+    let requests = task.join().unwrap();
+    assert!(requests[3].to_lowercase().contains("if-none-match: *\r\n"));
+    Ok(())
+}

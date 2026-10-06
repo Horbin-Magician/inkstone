@@ -190,6 +190,7 @@ fn rejects_unsafe_paths_aliases_missing_manifest_and_endpoint_confusion() -> Res
         let m = Manifest {
             version: 1,
             files: names.into_iter().map(|p| (p.into(), hash(b"x"))).collect(),
+            ..Manifest::default()
         };
         assert!(validate_manifest(&m).is_err());
     }
@@ -534,7 +535,8 @@ fn webdav_uses_unversioned_directory_and_manifest_version() -> Result<()> {
     assert!(
         validate_manifest(&Manifest {
             version: 2,
-            files: Files::new()
+            files: Files::new(),
+            ..Manifest::default()
         })
         .is_err()
     );
@@ -550,6 +552,7 @@ fn unsupported_remote_version_preserves_local_edits_and_baseline() -> Result<()>
                 Manifest {
                     version: self.0,
                     files: BTreeMap::from([("remote.md".into(), hash(b"remote"))]),
+                    ..Manifest::default()
                 },
                 Some("future-revision".into()),
             ))
@@ -572,7 +575,7 @@ fn unsupported_remote_version_preserves_local_edits_and_baseline() -> Result<()>
     let saved_baseline = fs::read(&baseline)?;
     fs::write(&path, "local edit 中文 👩‍💻")?;
     let local = snapshot(&fixture.a)?;
-    for version in [0, 2, u32::MAX] {
+    for version in [0, 3, u32::MAX] {
         let error = synchronize(&fixture.a, &FutureRemote(version), "version-gate").unwrap_err();
         assert!(error.to_string().contains("不支持的云端同步格式"));
         assert_eq!(snapshot(&fixture.a)?, local);
@@ -975,6 +978,7 @@ fn killed_download_process_reuses_only_complete_verified_objects() -> Result<()>
                         ("interrupted.md".into(), hash(INCOMPLETE)),
                     ]
                     .into(),
+                    ..Manifest::default()
                 },
                 Some("1".into()),
             ))
@@ -1438,5 +1442,84 @@ fn canonical_vault_alias_uses_the_same_operation_lock() -> Result<()> {
     assert!(lock_operation(&other).is_err());
     drop(owner);
     drop(lock_operation(&other)?);
+    Ok(())
+}
+
+#[test]
+fn manifest_generation_validation_preserves_legacy_wire_format() -> Result<()> {
+    let legacy = r#"{"version":1,"files":{}}"#;
+    assert_eq!(serde_json::to_string(&Manifest::default())?, legacy);
+    validate_manifest(&serde_json::from_str(legacy)?)?;
+    for invalid in [
+        r#"{"version":1,"files":{},"generation":1}"#,
+        r#"{"version":2,"files":{}}"#,
+        r#"{"version":2,"files":{},"generation":0}"#,
+        r#"{"version":2,"files":{},"generation":1,"protected_objects":[]}"#,
+        r#"{"version":1,"files":{},"future_protection":true}"#,
+    ] {
+        assert!(validate_manifest(&serde_json::from_str(invalid)?).is_err());
+    }
+    validate_manifest(&serde_json::from_str(
+        r#"{"version":2,"files":{},"generation":1}"#,
+    )?)?;
+    Ok(())
+}
+
+#[test]
+fn version_two_sync_preserves_generation_and_rejects_remote_rollback() -> Result<()> {
+    let fixture = Fixture::new();
+    let remote = Memory::default();
+    *remote.manifest.lock().unwrap() = Manifest {
+        version: 2,
+        generation: Some(7),
+        ..Manifest::default()
+    };
+    remote.revision.store(1, Ordering::Relaxed);
+    fs::write(fixture.a.root.join("note.md"), "first")?;
+    synchronize(&fixture.a, &remote, "generation")?;
+    synchronize(&fixture.b, &remote, "generation")?;
+    fs::write(fixture.b.root.join("note.md"), "second")?;
+    synchronize(&fixture.b, &remote, "generation")?;
+    synchronize(&fixture.a, &remote, "generation")?;
+    assert_eq!(snapshot(&fixture.a)?, snapshot(&fixture.b)?);
+    let (current, revision) = remote.manifest()?;
+    assert_eq!((current.version, current.generation), (2, Some(7)));
+    // Maintenance changes only the generation. A writer holding the old revision
+    // cannot publish after that transition, even with the same file map.
+    remote.publish(
+        &Manifest {
+            generation: Some(8),
+            ..current.clone()
+        },
+        revision.as_deref(),
+    )?;
+    assert!(remote.publish(&current, revision.as_deref()).is_err());
+    synchronize(&fixture.a, &remote, "generation")?;
+    let path = baseline_path(&fixture.a, "generation");
+    let baseline = read_baseline(&path)?;
+    assert_eq!((baseline.version, baseline.generation), (2, Some(8)));
+    assert!(baseline.extensions.is_empty());
+    assert!(last_success(&fixture.a, "generation")?.is_some());
+    let saved = fs::read(&path)?;
+    fs::write(
+        fixture.a.root.join("note.md"),
+        "local edit after maintenance",
+    )?;
+    let local = snapshot(&fixture.a)?;
+    for generation in [None, Some(7)] {
+        {
+            let mut manifest = remote.manifest.lock().unwrap();
+            manifest.version = if generation.is_some() { 2 } else { 1 };
+            manifest.generation = generation;
+        }
+        let uploads = remote.uploads.load(Ordering::Relaxed);
+        let downloads = remote.downloads.load(Ordering::Relaxed);
+        let error = synchronize(&fixture.a, &remote, "generation").unwrap_err();
+        assert!(error.to_string().contains("维护代次回退"));
+        assert_eq!(fs::read(&path)?, saved);
+        assert_eq!(snapshot(&fixture.a)?, local);
+        assert_eq!(remote.uploads.load(Ordering::Relaxed), uploads);
+        assert_eq!(remote.downloads.load(Ordering::Relaxed), downloads);
+    }
     Ok(())
 }

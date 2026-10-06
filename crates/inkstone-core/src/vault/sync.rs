@@ -49,16 +49,23 @@ impl Settings {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     version: u32,
     files: Files,
+    /// Version 2 keeps an irreversible maintenance generation in every publish.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    generation: Option<u64>,
+    #[serde(flatten)]
+    extensions: BTreeMap<String, serde_json::Value>,
 }
 impl Default for Manifest {
     fn default() -> Self {
         Self {
             version: 1,
             files: Files::new(),
+            generation: None,
+            extensions: BTreeMap::new(),
         }
     }
 }
@@ -164,7 +171,18 @@ fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 fn validate_manifest(manifest: &Manifest) -> Result<()> {
-    ensure!(manifest.version == 1, "不支持的云端同步格式");
+    ensure!(matches!(manifest.version, 1 | 2), "不支持的云端同步格式");
+    ensure!(
+        matches!(
+            (manifest.version, manifest.generation),
+            (1, None) | (2, Some(1..))
+        ),
+        "云端同步维护代次无效"
+    );
+    ensure!(
+        manifest.extensions.is_empty(),
+        "云端同步清单包含未知字段，请更新应用后重试"
+    );
     ensure!(manifest.files.len() <= 100_000, "同步文件数量超过限制");
     let mut names = BTreeSet::new();
     for (path, digest) in &manifest.files {
@@ -301,8 +319,8 @@ fn snapshot_cancellable(
         result
     })?;
     validate_manifest(&Manifest {
-        version: 1,
         files: files.clone(),
+        ..Manifest::default()
     })?;
     Ok(files)
 }
@@ -357,8 +375,8 @@ fn merge(base: &Files, local: &Files, remote: &Files) -> Result<(Files, Vec<Stri
     }
     merged.extend(copies);
     validate_manifest(&Manifest {
-        version: 1,
         files: merged.clone(),
+        ..Manifest::default()
     })?;
     Ok((merged, conflicts))
 }
@@ -424,7 +442,9 @@ pub fn last_success(vault: &Vault, identity: &str) -> Result<Option<u64>> {
 fn read_baseline(path: &Path) -> Result<Manifest> {
     let base: Manifest = match fs::read(path) {
         Ok(bytes) => {
-            serde_json::from_slice(&bytes).context("本地同步记录损坏，请保留记录并检查")?
+            serde_json::from_slice::<LocalBaseline>(&bytes)
+                .context("本地同步记录损坏，请保留记录并检查")?
+                .manifest
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => Manifest::default(),
         Err(e) => return Err(e.into()),
@@ -611,7 +631,16 @@ pub fn synchronize_cancellable(
         "云端清单缺失，已停止同步；请检查服务器目录"
     );
     let (files, conflicts) = merge(&base.files, &local, &previous.files)?;
-    let manifest = Manifest { version: 1, files };
+    ensure!(
+        base.generation.is_none_or(|generation| previous
+            .generation
+            .is_some_and(|current| current >= generation)),
+        "云端同步维护代次回退，已停止同步；请检查服务器目录"
+    );
+    let manifest = Manifest {
+        files,
+        ..previous.clone()
+    };
     let mut report = Report {
         conflicts,
         ..Default::default()
