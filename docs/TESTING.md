@@ -1364,3 +1364,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - target/native-text-revision-e4pxewzh/3/idle-stack.txt 中行树 seek 的调用方是 DisplayMap::rebuild_fold_projection。代码确认 prepaint 每次调用 set_font，TextWrapper 在字体相同下提前返回，但 DisplayMap 仍无条件重建。现将底层变化布尔值向上传递，仅字体确实改变时重建。
 - 新 vendor 测试验证相同字体 60 次不重建，字号改变后折叠、行高和逐行坐标与新建结果一致。完整 vendor Base 1,238 + Component 572 项通过，无忽略；editor:: 117 项通过、2 项既有手工基准忽略；workspace all-targets Clippy -D warnings、workspace 与三个 vendor 文件格式、diff 检查通过。
 - 日志 target/backup-cleanup-audit/font-projection-vendor.log、font-projection-editor.log、font-projection-clippy.log。补丁目的与入口已加入 EDITOR_PATCH.md；原生收益待复测，最近 4.0661% CPU 中位数仍未达标；无用户笔记进入提交。
+
+## 字体投影优化的原生复测（2026-10-06）
+
+- cbb5372 locked release 构建及三轮原生输入/撤销、活动状态、退出和生成库散列核验通过。CPU 3.7984%/3.7986%/3.7981%，中位数 3.7984%，仍未达 2% 预算；采样 RSS 与边界详见 PERFORMANCE_BASELINE.md，原始证据 target/native-font-projection-srkzmhop。
+- GitHub Actions run 37441574346，精确 HEAD 627d780fa1bad078cfa39a0a254ed77141910605，macOS/Windows 工作区及 vendor 四项 jobs 均 completed/success；不覆盖 cbb5372 字体投影改动。自动检查不替代原生 IME、真实服务商及完整性能验收。
+- 文档 diff 检查通过。仅测试生成库，真实用户笔记未进入提交。
