@@ -667,3 +667,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生 AX 检查发现每行“添加/清除/默认”按钮缺少所属命令信息，已补上命令名称。重建 release 后实际 AX 树显示“为新建标签页添加快捷键”“清除新建标签页的快捷键”“恢复新建标签页的默认快捷键”；其他命令行同样具名。
 - 快捷键相关 15 项通过，全工作区 all-targets Clippy、格式/diff 检查通过；日志：`target/hotkey-accessibility-tests.log`、`target/hotkey-accessibility-clippy.log`、`target/hotkey-accessibility-fmt.log`、`target/hotkey-accessibility-release.log`。未改动真实用户笔记。
 - 菜单打开时当前截图接口不可用，AX 文本未给出快捷键列，故本轮证明实际按键、持久化与工具栏提示，不宣称已肉眼验收原生菜单快捷键列。Tab 顺序和读屏完整路径也仍待验证。
+
+## 设置布局：最小窗口与比例矩阵（2026-10-06）
+
+- 新增 GPUI 布局回归：800×500 逻辑窗口，1×/1.5×/2× scale factor，基础 rem 16/24，共 36 个页面/比例组合。覆盖编辑器、文件与链接、外观、界面、备份恢复和云同步六个主内容页，检查滚动视口及直接子内容横向边界、最后一项底部可达，并将自动同步开关滚动到视口内验证完整可见。快捷键页使用独立滚动结构，不在此矩阵内。
+- 初始 max_offset.x 断言观测到 56px，但定位为覆盖式滚动条占满容器后与 padding 叠加的范围计算，直接内容边界正常；回归改验实际子项边界，不将该计算值视为裁切证据。
+- 同步说明删除已过时的整批 512 MiB 限制，保留单文件 128 MiB，并说明本地暂存及已校验下载复用。
+- 矩阵回归 1 项通过，全工作区 all-targets Clippy、格式/diff 检查通过。日志：`target/settings-scale-matrix-tests.log`、`target/settings-scale-matrix-clippy.log`、`target/settings-scale-matrix-fmt.log`。rem 压力不会放大显式 px 文本，不能当作所有界面文字放大验收；真实多 DPI、字体/读屏和键盘操作仍需原生检查。未修改用户笔记。

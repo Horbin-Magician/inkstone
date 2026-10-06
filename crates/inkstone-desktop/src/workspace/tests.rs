@@ -4926,3 +4926,100 @@ fn gpui_create_edit_save_reopen_and_external_conflict(cx: &mut TestAppContext) {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[gpui::test]
+fn settings_minimum_window_scale_matrix_keeps_content_inside_viewport(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    cx.run_until_parked();
+    handle
+        .update(cx, |w, _, _| {
+            w.ui.settings = true;
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(800.), px(500.)));
+    for (scale, rem) in [
+        (1., 16.),
+        (1.5, 16.),
+        (2., 16.),
+        (1., 24.),
+        (1.5, 24.),
+        (2., 24.),
+    ] {
+        visual.simulate_scale_factor_change(scale);
+        visual.update(|window, _| window.set_rem_size(px(rem)));
+        for tab in [0, 2, 5, 6, 7, 8] {
+            handle
+                .update(&mut visual, |w, _, _| {
+                    w.ui.settings_tab = tab;
+                    w.ui.settings_scroll.set_offset(Point::default());
+                })
+                .unwrap();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |w, _, _| {
+                    let scroll = &w.ui.settings_scroll;
+                    let bounds = scroll.bounds();
+                    assert!(
+                        bounds.left() >= px(0.) && bounds.right() <= px(800.),
+                        "scale={scale} tab={tab} {bounds:?}"
+                    );
+                    assert!(
+                        bounds.top() >= px(0.)
+                            && bounds.bottom() <= px(500.)
+                            && bounds.size.height > px(0.),
+                        "scale={scale} tab={tab} {bounds:?}"
+                    );
+                    // The overlay scrollbar contributes full width to GPUI's
+                    // padded scroll extent; check actual children, not that extent.
+                    for i in 0..scroll.children_count() {
+                        let child = scroll.bounds_for_item(i).unwrap();
+                        assert!(
+                            child.left() >= bounds.left() - px(1.)
+                                && child.right() <= bounds.right() + px(1.),
+                            "clipped child scale={scale} tab={tab}: {child:?} in {bounds:?}"
+                        );
+                    }
+                    scroll.scroll_to_bottom();
+                })
+                .unwrap();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |w, _, _| {
+                    let scroll = &w.ui.settings_scroll;
+                    let last = scroll.bounds_for_item(scroll.children_count() - 1).unwrap();
+                    assert!(
+                        last.bottom() + scroll.offset().y <= scroll.bounds().bottom() + px(1.),
+                        "unreachable bottom scale={scale} tab={tab}"
+                    );
+                })
+                .unwrap();
+            if tab == 8 {
+                let control = visual
+                    .debug_bounds("webdav-auto-control")
+                    .expect("auto sync control must be rendered");
+                let bounds = handle
+                    .update(&mut visual, |w, _, _| w.ui.settings_scroll.bounds())
+                    .unwrap();
+                assert!(control.left() >= bounds.left() && control.right() <= bounds.right());
+                assert!(control.size.width > px(0.) && control.size.height > px(0.));
+                handle
+                    .update(&mut visual, |w, _, _| {
+                        let scroll = &w.ui.settings_scroll;
+                        scroll.set_offset(point(
+                            px(0.),
+                            scroll.offset().y + bounds.center().y - control.center().y,
+                        ));
+                    })
+                    .unwrap();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+                let visible = visual.debug_bounds("webdav-auto-control").unwrap();
+                assert!(
+                    visible.top() >= bounds.top() && visible.bottom() <= bounds.bottom(),
+                    "auto sync cannot be scrolled into view: {visible:?} in {bounds:?}"
+                );
+            }
+        }
+    }
+}
