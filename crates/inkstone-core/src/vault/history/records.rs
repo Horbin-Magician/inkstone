@@ -212,7 +212,17 @@ fn store(path: Option<PathBuf>, identity: PathBuf, bytes: u64, modified: SystemT
         && let Ok(bytes) = serde_json::to_vec(&Cache { record, checksum })
     {
         let temp = path.with_extension(format!("{}.tmp", unique_id()));
-        if write_new_synced(&temp, &bytes).is_ok() {
+        // This checksum-validated metadata is disposable: missing/truncated
+        // caches are rebuilt from the durable journal. Syncing each tiny cache
+        // made a cold import wait for one disk flush per historical version.
+        // Keep exclusive temp creation and publish only a complete write; never
+        // apply this policy to journals or authoritative rename ownership.
+        let written = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .and_then(|mut file| file.write_all(&bytes));
+        if written.is_ok() {
             let _ = fs::rename(&temp, &path);
         }
         let _ = fs::remove_file(temp);

@@ -1233,3 +1233,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - macOS 27.0.1 arm64、Rust 1.97.0 release，生产基线 ee2c5f4；target/history-catalog-baseline-ee2c5f4 保留夹具、results.json 与 environment.json（二进制及基准源码 SHA-256）。10,000 条日志共 39,878,900 字节：无元数据缓存冷导入 45,981.54 ms；暖目录三轮 285.49 / 235.71 / 220.86 ms；单篇首次查询 224.47 ms，单篇索引命中三轮 0.050 / 0.047 / 0.038 ms。
 - 冷导入逐条生成带同步刷盘的可重建元数据，后续应优先评估这部分写入成本；此处尚未归因或声称优化。冷指应用缓存为空，未清操作系统页缓存；不代表原生历史窗口、编辑性能或峰值内存验收。
 - release 实测及重复输出目录拒绝检查通过，定向 Clippy -D warnings、格式与 diff 检查通过。日志 target/backup-cleanup-audit/history-catalog-baseline.log、history-catalog-refuse-existing.log、history-catalog-clippy.log；生成夹具未纳入提交，无用户笔记。
+
+## 历史冷导入减少缓存刷盘（2026-10-06）
+
+- 仅逐记录可重建元数据缓存取消 sync_all，仍以 create_new 独占临时文件、write_all 完整写入、关闭句柄后 rename 发布；读取仍检查版本、身份、大小/时间与 SHA-256，缺失或损坏则从日志重建。恢复日志、草稿、正式正文和重命名归属记录的刷盘策略未改变。
+- 同机、相同 release 参数与基准代码复测，target/history-catalog-no-cache-fsync 保存结果和环境/源码/二进制散列：冷导入 1,929.51 ms，较基线 45,981.54 ms 降约 95.8%；暖目录三轮 240.78 / 246.06 / 223.53 ms，单篇首次 236.53 ms。两组正文与记录数一致；新生成目录绝对路径短两字节，因此每条 JSON 少两字节，总体 39,858,900 字节，未宣称字节完全相同或暖扫描有改善。
+- 新回归模拟重命名后元数据文件交替丢失/截断，目录重建仍归属新路径，全部版本可读且原日志逐字节不变。26 项历史回归、workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/history-cache-final-tests.log、history-cache-final-clippy.log、history-catalog-no-cache-fsync.log。
+- 这是一次后端冷导入对比，不是原生性能验收；暖全目录扫描、更多样本与平台仍待继续。崩溃后可丢失缓存并重新付出索引成本，不能丢失权威恢复数据。无用户笔记进入提交。
