@@ -162,3 +162,51 @@ impl Checked {
         Ok(report)
     }
 }
+
+const PROTECTION_FILE: &str = ".inkstone-backup-protected";
+const PROTECTION: &[u8] = b"inkstone recovered backup protection v1\n";
+pub(super) fn is_protected(directory: &Path) -> io::Result<bool> {
+    let path = directory.join(PROTECTION_FILE);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if !metadata.is_file() || is_reparse(&metadata) || metadata.len() != PROTECTION.len() as u64 {
+        return Err(invalid("备份保护标记无效"));
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(PROTECTION.len() as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes != PROTECTION {
+        return Err(invalid("备份保护标记无效"));
+    }
+    Ok(true)
+}
+
+/// Preserve a complete interrupted cleanup record as a protected backup under a
+/// fresh name. Partial records stay untouched and must be inspected manually.
+pub fn retain_interrupted(directory: &Path, selected: &Path) -> io::Result<PathBuf> {
+    let _lock = locking::acquire(directory, true)?;
+    if selected.parent() != Some(directory)
+        || !selected.file_name().is_some_and(|name| {
+            name.to_string_lossy()
+                .starts_with(".inkstone-backup-cleanup-")
+        })
+    {
+        return Err(invalid("无效的清理中断记录"));
+    }
+    let manifest = inspect_unlocked(selected)?;
+    let identity = origin::id(selected)?.ok_or_else(|| invalid("无法确认中断记录身份"))?;
+    if !is_protected(selected)? {
+        write_new_synced(&selected.join(PROTECTION_FILE), PROTECTION)?;
+    }
+    if origin::id(selected)?.as_ref() != Some(&identity) || inspect_unlocked(selected)? != manifest
+    {
+        return Err(invalid("保留期间备份发生变化，记录保持隔离"));
+    }
+    let destination = directory.join(format!("inkstone-backup-recovered-{}", unique_id()));
+    move_no_replace(selected, &destination)?;
+    Ok(destination)
+}

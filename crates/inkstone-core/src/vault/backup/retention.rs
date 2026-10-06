@@ -8,6 +8,7 @@ pub enum Decision {
     Candidate,
     Recent,
     InUse,
+    Protected,
     UnknownSource,
     IncompleteInventory,
 }
@@ -57,6 +58,8 @@ pub fn preview(
     for backup in &inventory.entries {
         let decision = if inventory.unreadable > 0 || !inventory.interrupted.is_empty() {
             Decision::IncompleteInventory
+        } else if backup.protected {
+            Decision::Protected
         } else if in_use.contains(&backup.directory) {
             Decision::InUse
         } else if let Some(id) = &backup.source_id {
@@ -91,6 +94,7 @@ mod tests {
         Summary {
             directory: path.into(),
             source_id: source.map(str::to_owned),
+            protected: false,
             source_name: "同名笔记库".into(),
             created,
             files: 1,
