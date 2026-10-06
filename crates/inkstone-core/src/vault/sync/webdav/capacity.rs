@@ -21,6 +21,25 @@ impl WebDav {
     /// No collection creation, object download, publication or deletion is performed.
     pub fn capacity(&self) -> Result<CloudCapacity> {
         let (before, revision) = self.manifest()?;
+        let listing = self.object_listing()?;
+        let report = summarize(&before, listing.objects, listing.unrecognized)?;
+        let (after, current_revision) = self.manifest()?;
+        ensure!(
+            revision == current_revision && before == after,
+            "统计期间云端清单发生变化，请重新刷新容量"
+        );
+        Ok(report)
+    }
+}
+
+#[derive(Default)]
+pub(super) struct Listing {
+    pub objects: BTreeMap<String, u64>,
+    pub unrecognized: usize,
+}
+
+impl WebDav {
+    pub(super) fn object_listing(&self) -> Result<Listing> {
         let response = self.send(
             self.request(Method::from_bytes(b"PROPFIND")?, "inkstone/objects/")
                 .header("Depth", "1")
@@ -28,8 +47,8 @@ impl WebDav {
                 .header(header::CACHE_CONTROL, "no-cache")
                 .body("<?xml version=\"1.0\"?><d:propfind xmlns:d=\"DAV:\"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>"),
         )?;
-        let report = if response.status() == StatusCode::NOT_FOUND {
-            summarize(&before, BTreeMap::new(), 0)?
+        if response.status() == StatusCode::NOT_FOUND {
+            Ok(Listing::default())
         } else {
             let response = Self::status(response)?;
             ensure!(
@@ -37,14 +56,8 @@ impl WebDav {
                 "服务器未返回 WebDAV 对象列表"
             );
             let bytes = Self::body(response, MAX_LISTING_BYTES)?;
-            parse_listing(&self.root.join("inkstone/objects/")?, &before, &bytes)?
-        };
-        let (after, current_revision) = self.manifest()?;
-        ensure!(
-            revision == current_revision && before == after,
-            "统计期间云端清单发生变化，请重新刷新容量"
-        );
-        Ok(report)
+            parse_objects(&self.root.join("inkstone/objects/")?, &bytes)
+        }
     }
 }
 
@@ -79,7 +92,13 @@ fn summarize(
     Ok(report)
 }
 
+#[cfg(test)]
 fn parse_listing(directory: &Url, manifest: &Manifest, bytes: &[u8]) -> Result<CloudCapacity> {
+    let listing = parse_objects(directory, bytes)?;
+    summarize(manifest, listing.objects, listing.unrecognized)
+}
+
+pub(super) fn parse_objects(directory: &Url, bytes: &[u8]) -> Result<Listing> {
     let text = std::str::from_utf8(bytes).context("WebDAV 对象列表不是 UTF-8")?;
     let document = roxmltree::Document::parse_with_options(
         text,
@@ -97,10 +116,11 @@ fn parse_listing(directory: &Url, manifest: &Manifest, bytes: &[u8]) -> Result<C
     let mut objects = BTreeMap::new();
     let mut seen = BTreeSet::new();
     let mut unknown = 0;
-    for response in root
-        .children()
-        .filter(|n| n.has_tag_name(("DAV:", "response")))
-    {
+    for response in root.children().filter(|n| n.is_element()) {
+        if !response.has_tag_name(("DAV:", "response")) {
+            unknown += 1;
+            continue;
+        }
         let hrefs: Vec<_> = response
             .children()
             .filter(|n| n.has_tag_name(("DAV:", "href")))
@@ -135,16 +155,21 @@ fn parse_listing(directory: &Url, manifest: &Manifest, bytes: &[u8]) -> Result<C
         let mut length = None;
         let mut collection = false;
         let mut type_known = false;
-        let mut invalid_length = false;
+        let mut invalid_length = response
+            .children()
+            .any(|n| n.has_tag_name(("DAV:", "status")));
         for propstat in response
             .children()
             .filter(|n| n.has_tag_name(("DAV:", "propstat")))
         {
-            let status = propstat
+            let mut statuses = propstat
                 .children()
-                .find(|n| n.has_tag_name(("DAV:", "status")))
-                .and_then(|n| n.text());
-            if status.and_then(|s| s.split_whitespace().nth(1)) != Some("200") {
+                .filter(|n| n.has_tag_name(("DAV:", "status")));
+            let status = statuses.next().and_then(|n| n.text());
+            if status.and_then(|s| s.split_whitespace().nth(1)) != Some("200")
+                || statuses.next().is_some()
+            {
+                invalid_length = true;
                 continue;
             }
             for prop in propstat
@@ -159,10 +184,12 @@ fn parse_listing(directory: &Url, manifest: &Manifest, bytes: &[u8]) -> Result<C
                         }
                         length = parsed;
                     } else if property.has_tag_name(("DAV:", "resourcetype")) {
+                        invalid_length |= type_known;
                         type_known = true;
-                        collection |= property
-                            .children()
-                            .any(|n| n.has_tag_name(("DAV:", "collection")));
+                        // Only an empty resource type denotes an ordinary object.
+                        // Unknown DAV extension types must never become cleanup candidates.
+                        collection |= property.children().any(|n| n.is_element())
+                            || property.text().is_some_and(|s| !s.trim().is_empty());
                     }
                 }
             }
@@ -173,7 +200,10 @@ fn parse_listing(directory: &Url, manifest: &Manifest, bytes: &[u8]) -> Result<C
             unknown += 1;
         }
     }
-    summarize(manifest, objects, unknown)
+    Ok(Listing {
+        objects,
+        unrecognized: unknown,
+    })
 }
 
 #[cfg(test)]

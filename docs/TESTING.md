@@ -1613,3 +1613,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 5 项回归覆盖旧格式字节、有效/无效代次、双端同步保留新版本、基线回退保护、旧修订发布失败、HTTP 双重条件、首次清单创建、失败发布/错误读回/相同 ETag/代次溢出；未知版本回归更新为 0、3、u32::MAX，version 2 缺失代次仍由格式校验拒绝。
 - 核心全量 305 通过、3 个既有手动入口忽略；同步子集 71 通过、2 个忽略；全工作区 all-targets Clippy `-D warnings`、格式和 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-generation-{tests,core-tests,clippy}.log`。未做性能测量或 Linux 适配，未修改用户笔记。
 - [CI 37462290852](https://github.com/Horbin-Magician/inkstone/actions/runs/37462290852) 对应 8cd98b9，macOS/Windows 工作区与两平台 vendor 四项已全部成功，覆盖强退后同步备份恢复及恢复面板焦点修复；不包含后续云端维护 API。
+
+## 云端清理预览与持锁核验（2026-10-06）
+
+- 新增只读 `preview_cloud_cleanup`，绑定远端身份、完整清单及对象映射；新增后台 `prepare_cloud_cleanup`，锁内重新比对快照，逐个续期并流式验证候选和保留正文，最后推进代次并再次核对清单/列表/锁。当前没有 DELETE 或界面入口。
+- 复用对象列表读取，并保守拒绝未知资源类型、重复类型/状态、同时出现响应状态与属性状态等歧义记录。缺失引用或异常大小不能生成清理预览。容量统计仍保留未知记录计数。
+- 5 项新增回归覆盖只读预览、重复正文去重、全部正文先验证再发布、错远端与过期快照、候选/保留正文损坏、中途取消和推进代次后取消、异常列表。HTTP 测试辅助服务共用有界等待及确定性观察钩子；只使用生成数据。
+- WebDAV 子集 17 项通过；核心全量 310 项通过、3 个既有手动入口忽略；全工作区 all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-cleanup-preview-{tests,core-tests,clippy}.log`。没有性能测量、Linux 适配或真实服务商删除验收。
