@@ -115,7 +115,7 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        if self.ui.file_operation || self.ui.pending_file_writes > 0 {
+        if self.ui.file_operation || self.file_writes.pending() > 0 {
             return;
         }
         self.flush_document_views(window, cx);
@@ -156,7 +156,7 @@ impl Workspace {
             return;
         }
         self.ui.file_operation = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
         let expected_local = local.clone();
@@ -174,7 +174,7 @@ impl Workspace {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.ui.file_operation = false;
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 document.persistence.finish_operation();
                 if this.generation != generation {
                     return;

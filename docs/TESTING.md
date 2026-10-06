@@ -915,3 +915,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增与旧 Recovery 解码器逐项对照，覆盖有效 Unicode/代理对、缺失字段、null/错误类型、未知字段、重复字段、非法 UTF-8/转义/代理项、控制字符、截断和尾随输入。既有大旧记录冷导入、缓存损坏重建、暖缓存不读取正文、实际历史正文读取和跨库/链接保护回归一并执行；完整核心 259 项通过，3 项既有手动入口忽略。
 - release 同夹具三种读取方式、各三轮独立进程测量完成，解码输出和夹具散列验证通过；相对原缓冲实现峰值 RSS 103.641 → 39.609 MiB，耗时中位数 188.513 → 182.877 ms。生产解码源码直接用于示例，具体数值和限制见 PERFORMANCE_BASELINE.md；不代替历史目录扫描或原生窗口验收。
 - 全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-metadata-tests.log`、`target/history-metadata-build.log`、`target/history-metadata-run.log`、`target/history-metadata-clippy.log`、`target/history-metadata-fmt.log`。所有生成数据位于 target 或测试临时目录，未读取或改动真实用户笔记。
+
+
+## 工作区文件任务登记：独立状态与完成凭据（2026-10-06）
+
+- 将 UiState 的公开 pending_file_writes 整数移为 Workspace 持有的独立 `FileWrites`。后台任务启动前取得不可克隆 Ticket，完成时只释放匹配工作区身份和任务编号的记录；各操作/视图只读取 pending 数量，原有关闭、切库、冲突、备份和同步启动条件保持不变。任务实际结束后仍先释放自身凭据，再检查 generation / Run 身份是否允许更新 UI；切库不重置登记集合，丢弃凭据不自动宣布后台任务结束。
+- 所有原计数加减路径均迁移，包括同步/连接测试、重命名/链接更新、批量编辑、恢复、附件清理、备份/清理、导出及首次建库。首次建库对话框取消仍不登记任务；成功取得凭据后才创建目录。文档普通保存状态及 file_operation 互斥策略不属于本次提取。
+- 新增独立回归覆盖乱序完成、旧凭据重复完成不得释放新任务、其他工作区相同编号不能释放本地任务。补强 GPUI 的旧同步 Run 完成回归，在替换 Run 后登记新的写入保护，要求旧回调完成后仍保留新任务，再显式结束新任务。
+- 完整桌面单元测试 337 项通过、2 项既有手动性能基准忽略（93.48 秒），独立集成测试 8 项通过；补强后的旧 Run 回归单独执行通过。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/file-writes-desktop-tests.log`、`target/file-writes-replaced-run-tests.log`、`target/file-writes-clippy.log`、`target/file-writes-fmt.log`。本次未新增原生验收，不代表全部文件操作服务拆分完成；未改动真实用户笔记。

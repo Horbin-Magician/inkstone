@@ -78,6 +78,7 @@ impl Workspace {
         let ui = ui::UiState::new(window, cx);
         Self {
             settings_save: Default::default(),
+            file_writes: Default::default(),
             ui,
             #[cfg(target_os = "macos")]
             quit_requested: false,
@@ -141,7 +142,7 @@ impl Workspace {
     }
 
     pub(super) fn choose_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.pending_file_writes > 0
+        if self.file_writes.pending() > 0
             || self
                 .tabs
                 .iter()
@@ -174,7 +175,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.pending_file_writes > 0
+        if self.file_writes.pending() > 0
             || self.ui.backup.pending.is_some()
             || self
                 .tabs
@@ -258,7 +259,7 @@ impl Workspace {
                     return;
                 }
                 this.loading = false;
-                if this.ui.pending_file_writes > 0
+                if this.file_writes.pending() > 0
                     || this
                         .tabs
                         .iter()

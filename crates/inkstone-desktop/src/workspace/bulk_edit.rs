@@ -113,7 +113,7 @@ impl Workspace {
         };
         self.flush_document_views(window, cx);
         if self.ui.file_operation
-            || self.ui.pending_file_writes > 0
+            || self.file_writes.pending() > 0
             || self.tabs.iter().any(|t| {
                 t.save.persistence.is_dirty()
                     || t.save.persistence.is_saving()
@@ -218,7 +218,7 @@ impl Workspace {
         .detach();
     }
     fn apply_bulk_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.file_operation || self.ui.pending_file_writes > 0 {
+        if self.ui.file_operation || self.file_writes.pending() > 0 {
             return;
         }
         self.flush_document_views(window, cx);
@@ -259,7 +259,7 @@ impl Workspace {
             return;
         };
         self.ui.file_operation = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let generation = self.generation;
         if let Some(r) = &mut self.ui.bulk_edit {
             r.loading = true;
@@ -271,7 +271,7 @@ impl Workspace {
             .background_executor()
             .spawn(async move { batch::apply(&vault, edits) });
         cx.spawn_in(window,async move|this,cx|{let result=task.await;let _=this.update_in(cx,|this,w,cx|{
-            this.ui.file_operation=false;this.ui.pending_file_writes=this.ui.pending_file_writes.saturating_sub(1);if this.generation!=generation{return;}
+            this.ui.file_operation=false;this.file_writes.finish(write_ticket);if this.generation!=generation{return;}
             this.flush_document_views(w,cx);
             let mut changed=vec![];let mut conflicts=0;
             for edit in &result.written {
@@ -383,7 +383,7 @@ mod tests {
                     "typed while applying"
                 );
                 assert!(w.tabs[0].save.persistence.has_conflict());
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert!(
                     w.ui.bulk_edit
                         .as_ref()

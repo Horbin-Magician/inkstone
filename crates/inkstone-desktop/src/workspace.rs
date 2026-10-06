@@ -1,4 +1,5 @@
 mod file_sync;
+mod file_writes;
 mod focus_reveal;
 mod left_sidebar;
 mod links;
@@ -107,6 +108,7 @@ struct Tab {
 }
 pub struct Workspace {
     settings_save: settings_save::State,
+    file_writes: file_writes::FileWrites,
     #[cfg(target_os = "macos")]
     quit_requested: bool,
     vault: Option<Vault>,

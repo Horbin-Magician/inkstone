@@ -51,7 +51,7 @@ impl Workspace {
     fn restore_sync_backup(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.generation != self.ui.sync_recovery.generation
             || self.ui.file_operation
-            || self.ui.pending_file_writes > 0
+            || self.file_writes.pending() > 0
             || self.ui.sync_recovery.loading
         {
             return;
@@ -68,7 +68,7 @@ impl Workspace {
             .map(|tab| tab.path.clone())
             .collect::<Vec<_>>();
         let generation = self.generation;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         self.ui.sync_recovery.message = "正在恢复副本……".into();
         let task = cx
             .background_executor()
@@ -76,7 +76,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -215,7 +215,7 @@ impl Workspace {
                                             ))
                                             .disabled(
                                                 self.ui.file_operation
-                                                    || self.ui.pending_file_writes > 0
+                                                    || self.file_writes.pending() > 0
                                                     || state.loading,
                                             )
                                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -272,19 +272,19 @@ mod tests {
                 assert!(w.ui.trash_open);
                 assert_eq!(w.ui.sync_recovery.inventory.entries.len(), 1);
                 assert!(!w.ui.sync_recovery.loading);
-                w.ui.pending_file_writes = 1;
+                let pending = w.file_writes.begin();
                 w.restore_sync_backup(0, cx);
-                assert_eq!(w.ui.pending_file_writes, 1);
-                w.ui.pending_file_writes = 0;
+                assert_eq!(w.file_writes.pending(), 1);
+                w.file_writes.finish(pending);
                 w.restore_sync_backup(0, cx);
                 w.restore_sync_backup(0, cx);
-                assert_eq!(w.ui.pending_file_writes, 1);
+                assert_eq!(w.file_writes.pending(), 1);
             })
             .unwrap();
         cx.run_until_parked();
         window
             .update(cx, |w, _, _| {
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert!(
                     w.ui.sync_recovery.message.contains("已恢复副本"),
                     "{}",
@@ -403,7 +403,7 @@ mod tests {
                 handle
                     .update(&mut visual, |w, _, _| {
                         assert_eq!(w.ui.sync_recovery.page, page);
-                        assert_eq!(w.ui.pending_file_writes, 0);
+                        assert_eq!(w.file_writes.pending(), 0);
                         assert!(w.ui.sync_recovery.message.is_empty());
                     })
                     .unwrap();

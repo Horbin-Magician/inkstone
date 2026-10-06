@@ -108,7 +108,7 @@ impl Workspace {
         let directory = self.ui.prefs.backup.directory.clone().unwrap();
         let generation = self.generation;
         self.ui.backup.busy = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         self.ui.backup.capacity.message = "正在校验并清理备份，请等待完成……".into();
         let task = cx.background_executor().spawn(async move {
             inkstone_core::vault::backup::cleanup::prepare(
@@ -121,7 +121,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -168,7 +168,7 @@ impl Workspace {
             return;
         };
         self.ui.backup.busy = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         self.ui.backup.capacity.message = "正在完整校验并保留中断备份……".into();
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {
@@ -177,7 +177,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -446,14 +446,14 @@ mod tests {
                 );
                 w.retain_interrupted_backup(0, cx);
                 w.retain_interrupted_backup(0, cx);
-                assert_eq!(w.ui.pending_file_writes, 1);
+                assert_eq!(w.file_writes.pending(), 1);
             })
             .unwrap();
         cx.run_until_parked();
         handle
             .update(cx, |w, _, cx| {
                 assert!(!w.ui.backup.busy);
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 let inventory = w.ui.backup.capacity.inventory.as_ref().unwrap();
                 assert!(inventory.interrupted.is_empty());
                 assert_eq!(inventory.entries.iter().filter(|e| e.protected).count(), 1);
@@ -476,7 +476,7 @@ mod tests {
             .update(cx, |w, _, cx| {
                 // An execution call without explicit confirmation has no effect.
                 w.execute_backup_cleanup(cx);
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 w.request_backup_cleanup(cx);
                 assert!(w.ui.backup.capacity.cleanup_confirmation.is_some());
                 // Refresh invalidates the confirmation even if contents are unchanged.
@@ -498,14 +498,14 @@ mod tests {
                 w.request_backup_cleanup(cx);
                 w.execute_backup_cleanup(cx);
                 w.execute_backup_cleanup(cx);
-                assert_eq!(w.ui.pending_file_writes, 1);
+                assert_eq!(w.file_writes.pending(), 1);
             })
             .unwrap();
         cx.run_until_parked();
         handle
             .update(cx, |w, _, cx| {
                 assert!(!w.ui.backup.busy);
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert!(w.ui.backup.capacity.message.contains("已清理 3 份"));
                 let inventory = w.ui.backup.capacity.inventory.as_ref().unwrap();
                 assert_eq!(inventory.entries.len(), 2);
@@ -777,7 +777,7 @@ mod tests {
                             );
                             assert!(!w.ui.backup.busy && !w.ui.backup.capacity.loading);
                             assert!(w.ui.backup.pending.is_none());
-                            assert_eq!(w.ui.pending_file_writes, 0);
+                            assert_eq!(w.file_writes.pending(), 0);
                         })
                         .unwrap();
                 }
@@ -881,7 +881,7 @@ mod tests {
                 assert!(w.ui.backup.pending.is_none());
                 assert!(!w.ui.backup.capacity.loading);
                 assert!(w.ui.backup.capacity.cleanup_confirmation.is_some());
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
             })
             .unwrap();
         assert_eq!(
