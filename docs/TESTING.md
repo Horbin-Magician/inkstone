@@ -1716,3 +1716,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - [CI 37485652867](https://github.com/Horbin-Magician/inkstone/actions/runs/37485652867) 对应 75913b7：macOS 工作区及两平台 vendor 成功，Windows 工作区失败于残留测试在已打开 SaveGuard 时写入描述，返回 Windows 共享冲突 32。原因是 Windows 产品保护主动拒绝写入，测试把写入必定成功作为前提。
 - 修正测试时序：Windows 在打开保护前验证过期描述（含同大小同时间不同内容）；Unix 保留打开后写入的竞争检查。另加 Windows 专用回归明确断言保护期间写入返回 32、随后归档保留原字节。未放松产品保护或忽略失败。
 - 本机同步恢复子集 26 项通过，核心 all-targets Clippy `-D warnings`、格式及 diff 检查通过。日志 `target/backup-cleanup-audit/sync-residue-kill-{tests,clippy}.log`；Windows 新回归仍需新 CI 验证。原生 GUI 强退仍待补，无性能测量或 Linux 适配。
+
+## 描述归档原生验收与画面刷新异常（2026-10-06）
+
+- e3b4ad6 release 构建通过。使用独立 bundle ID、应用数据目录及生成库 `target/native-sync-residue-e3b4ad6`，预置 1 条正文缺失描述、6 条已归档描述（每条 180 字节）。通过笔记菜单进入文件恢复，原生 AX 正确显示缺失分类、两页归档列表及保留原字节/占用的确认说明；初始画面占用为 1260 字节。
+- 编辑器粘贴未保存 Unicode 标记后，打开并取消归档确认。磁盘核对全部 7 条描述及原 Markdown SHA-256 不变，无新增 `.retained`；AX 中未保存标记仍在。最后撤销测试编辑，状态回到“已保存”，正常退出测试应用。
+- 原生验收未完整通过：取消后 AX 已移除确认区，但截图仍显示旧确认内容；Escape 关闭恢复面板后 AX 已无弹窗，截图仍停留原画面。保存 `stale-after-cancel.png` 与 `stale-after-cancel.ax.txt`；通过原生窗口 zoom 重布局后继续撤销和退出。尚未确定是应用绘制、平台呈现还是自动化观察链路问题，不把绕过视为修复。
+- 因画面与 AX 不一致，本轮不宣称确认执行、分页视觉或系统定位原生通过；已有 GPUI/核心回归结论保持不变。证据和哈希记录保留在上述隔离目录，验证摘要为 `verification.txt`。没有真实笔记修改、性能测量或 Linux 适配。
+- 新 CI [37489337623](https://github.com/Horbin-Magician/inkstone/actions/runs/37489337623) 对应 e3b4ad6，检查时两平台 Clippy 已通过，工作区测试和 vendor 仍在执行，不能提前记为全部成功。
