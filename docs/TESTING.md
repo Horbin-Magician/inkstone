@@ -702,3 +702,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增 GPUI 回归：800×500 逻辑窗口、rem 24，先确认密码框处于视口外，再从地址框正向导航经过密码、开关、三个操作按钮至检查间隔，反向返回地址框，逐次核对目标边界完整可见，并核对三个输入框实际焦点；手动滚到底部后连续重绘不拉回。使用独立临时库，不保存配置或发起网络请求。默认 rem 下密码框原本可见，因此测试采用实际越界夹具，不以“必须发生滚动”代替可见性判断。
 - 原生窗口与读屏验收尚未进行；rem 压力场景不等同于系统字体/DPI 验收。其他设置页的焦点自动滚动尚未接入；取消按钮已复用同一处理，本轮导航回归不包含同步运行中临时出现的取消按钮。未修改真实用户笔记。
 - 桌面全量单元测试 320 项通过、2 项忽略，集成测试 8 项通过；包含六类设置页 36 个布局组合及既有输入框 Tab/正文缩进回归。全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/settings-focus-reveal-tests.log`、`target/settings-focus-reveal-desktop-tests.log`、`target/settings-focus-reveal-clippy.log`、`target/settings-focus-reveal-fmt.log`。
+
+
+## 通用设置行：编辑器、外观与界面的焦点可见性（2026-10-06）
+
+- 通用设置行的控件复用焦点滚动容器，编辑器末尾“管理文件恢复”按钮同样接入。每行显式提供固定标识，字号/制表符宽度等动态标题变化不改变容器身份。保留原有按钮、开关、选择器及焦点顺序，不调整业务设置值。
+- 新增 GPUI 回归覆盖 800×500 逻辑窗口、rem 16/24、编辑器/外观/界面三个页面，每种组合分别派发 40 次 Tab 与 40 次 Shift+Tab，检查焦点控件在设置视口内完整可见；每方向至少覆盖编辑器 14 个、外观 5 个和界面 1 个不同焦点控件。设置相关 11 项回归通过，包括此前云同步表单、输入框文字保护及六类页面 36 个布局组合。全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/settings-rows-focus-tests.log`、`target/settings-rows-focus-regressions.log`、`target/settings-rows-focus-clippy.log`、`target/settings-rows-focus-fmt.log`。
+- 本轮只验证现有可聚焦控件的导航与可见性，不代表弹出选择菜单或修改选项流程已验证；当前滑块没有键盘焦点处理，须继续补齐。文件、备份与快捷键页的其他布局结构尚未全部接入焦点滚动；原生窗口及读屏验收仍待进行。未修改用户笔记。

@@ -174,6 +174,7 @@ impl Workspace {
                     .flex_shrink_0()
                     .child(
                         self.settings_row(
+                            "view-header-row",
                             "显示标签页标题栏",
                             "在每个标签页顶部显示文件标题与导航控件。",
                             super::settings_ui::setting_switch("view-header-setting")
@@ -214,11 +215,19 @@ impl Workspace {
                             .search_placeholder("搜索字体…")
                             .empty(|_, _| div().p_3().child("未找到字体")),
                     );
-                self.settings_row(label, description, control, role > 0, 20.)
+                self.settings_row(
+                    ["interface-font-row", "text-font-row", "code-font-row"][role],
+                    label,
+                    description,
+                    control,
+                    role > 0,
+                    20.,
+                )
             })
             .collect();
             fonts.push(
                 self.settings_row(
+                    "font-size-row",
                     &format!("字体大小  {}", self.ui.prefs.font_size),
                     "调整编辑和阅读视图的正文字号，单位为像素。",
                     div()
@@ -235,6 +244,7 @@ impl Workspace {
                     .bg(card)
                     .flex_shrink_0()
                     .child(self.settings_row(
+                        "theme-row",
                         "基础颜色",
                         "选择深色、浅色或跟随系统的配色。",
                         theme,
@@ -245,6 +255,7 @@ impl Workspace {
                 self.settings_group("字体", {
                     fonts.push(
                         self.settings_row(
+                            "quick-font-row",
                             "快速调整字体大小",
                             "按住 Ctrl 并滚动鼠标滚轮，调整编辑和阅读视图的正文字号。",
                             super::settings_ui::setting_switch("quick-font-size")
