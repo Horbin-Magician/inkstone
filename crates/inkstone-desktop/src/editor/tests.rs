@@ -1109,6 +1109,49 @@ fn large_counts_are_deferred_and_old_requests_do_not_replace_new_selection(
 }
 
 #[gpui::test]
+fn counts_reuse_pending_snapshot_and_detect_same_length_replacement(cx: &mut TestAppContext) {
+    use inkstone_core::word_count::Counts;
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|w, cx| EditorPane::new(&"a ".repeat(3000), w, cx));
+    handle
+        .update(cx, |p, w, cx| {
+            assert_eq!(p.text_counts(cx), Counts::default());
+            let revision = p.count_revision;
+            // Repeated paints must not restart the debounce for unchanged text.
+            for _ in 0..10 {
+                p.text_counts(cx);
+                assert_eq!(p.count_revision, revision);
+            }
+            // Equal byte length is not sufficient to validate the snapshot.
+            p.editor
+                .update(cx, |s, cx| s.set_value("b".repeat(6000), w, cx));
+            p.text_counts(cx);
+            assert_ne!(p.count_revision, revision);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(250));
+    cx.run_until_parked();
+    handle
+        .update(cx, |p, _, cx| {
+            assert_eq!(
+                p.text_counts(cx),
+                Counts {
+                    words: 1,
+                    characters: 6000
+                }
+            );
+            let revision = p.count_revision;
+            p.editor
+                .update(cx, |s, cx| s.set_selected_range(10..10, cx));
+            p.text_counts(cx);
+            assert_eq!(p.count_revision, revision);
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn text_counts_track_selection_reading_mode_and_source_changes(cx: &mut TestAppContext) {
     use inkstone_core::word_count::Counts;
     cx.update(gpui_kit::init);

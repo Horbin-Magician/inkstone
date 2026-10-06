@@ -1264,3 +1264,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - [GitHub Actions run 37431589783](https://github.com/Horbin-Magician/inkstone/actions/runs/37431589783)，精确 HEAD dbe55e12b4c8ce67d23731ffcc9567e90e40f645，四项工作区/vendor jobs 全部 completed/success；已下载并核对日志 target/ci-all-37431589783.log。
 - macOS 核心 275 通过/3 既有忽略，桌面 347 通过/2 既有忽略；Windows 核心 265 通过/3 既有忽略，桌面 344 通过/2 既有忽略。两平台另各 8 项集成测试、格式和 Clippy 通过；vendor 各 1,808 项通过且无忽略。核心日志内另有子进程单测输出，不重复计入总数。
 - 覆盖恢复 AX 文本、FileWrites 独占准入和可重建历史缓存写入优化；不覆盖其后的大纲共享快照及虚拟化，也不替代原生 IME、DPI、真实同步服务商及性能验收。文档经 diff 检查，无用户笔记进入提交。
+
+## 字数缓存避免重绘时全文字符串分配（2026-10-06）
+
+- 原生大文档调用栈出现 text_counts 的正文转字符串；检查确认它在每次缓存判断前调用 EditorState::value，而该 API 每次将 Rope 展平成新字符串。计数缓存现持有共享 Rope 快照，先比较内容与有效选区；命中时不再分配全文字符串。
+- 未命中的大文档只克隆共享 Rope，200 ms 防抖结束后在后台转换正文并统计；小选区只转换选中片段。全文仍排除 frontmatter，选区仍按原有 UTF-8 字节范围统计，阅读模式仍统计全文，旧任务使用原有 revision 保护。Rope 内容相等判断仍需扫描，不宣称常数时间缓存；快照会暂时保留编辑前共享节点。
+- 新回归覆盖反复重绘不重启待执行计数、相同字节长度但内容不同的替换不能误命中、仅移动空选区光标不重计数；现有长文/过期请求、Unicode 选区/阅读模式、分屏异步计数回归通过。counts 筛选共 5 项通过（其中 1 项为名称匹配的云容量测试）；workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/counts-rope-tests.log、counts-rope-clippy.log。
+- 这是消除已确认分配路径的改动，尚无新原生性能对照，输入/滚动/空闲预算仍未完成。无用户笔记进入提交。
