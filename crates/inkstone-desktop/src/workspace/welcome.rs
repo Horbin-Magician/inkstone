@@ -4,7 +4,7 @@ use gpui_component::{Disableable, button::*};
 
 impl Workspace {
     fn create_first_vault(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.vault.is_some() || self.loading || self.ui.pending_file_writes > 0 {
+        if self.vault.is_some() || self.loading || self.file_writes.pending() > 0 {
             return;
         }
         let generation = self.generation;
@@ -14,23 +14,24 @@ impl Workspace {
             let Ok(Ok(Some(root))) = dialog.await else {
                 return;
             };
-            let ready = this
+            let write_ticket = this
                 .update(cx, |this, cx| {
                     if this.generation != generation
                         || this.vault.is_some()
                         || this.loading
-                        || this.ui.pending_file_writes > 0
+                        || this.file_writes.pending() > 0
                     {
-                        return false;
+                        return None;
                     }
-                    this.ui.pending_file_writes += 1;
+                    let ticket = this.file_writes.begin();
                     cx.notify();
-                    true
+                    Some(ticket)
                 })
-                .unwrap_or(false);
-            if !ready {
+                .ok()
+                .flatten();
+            let Some(write_ticket) = write_ticket else {
                 return;
-            }
+            };
             let directory = root.clone();
             let result = cx
                 .background_executor()
@@ -40,7 +41,7 @@ impl Workspace {
                 })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -120,10 +121,10 @@ impl Workspace {
                     .child(self.notifications.text().to_owned())))
                 .child(Button::new("welcome-create-vault").primary().mt_4().h(px(42.)).w_full()
                     .label("创建新笔记库").accessibility_label("创建新笔记库")
-                    .disabled(self.ui.pending_file_writes > 0)
+                    .disabled(self.file_writes.pending() > 0)
                     .on_click(cx.listener(|this, _, window, cx| this.create_first_vault(window, cx))))
                 .child(Button::new("welcome-open-vault").h(px(42.)).w_full()
-                    .label("打开已有笔记库").accessibility_label("打开已有笔记库").disabled(self.ui.pending_file_writes > 0).icon(ui::icon("folder-open"))
+                    .label("打开已有笔记库").accessibility_label("打开已有笔记库").disabled(self.file_writes.pending() > 0).icon(ui::icon("folder-open"))
                     .on_click(cx.listener(|this, _, window, cx| this.choose_vault(window, cx))))
                 .child(div().text_size(px(MIN_UI_FONT_SIZE)).text_center().text_color(colors.muted)
                     .child("可以选择已有笔记文件夹，也可以选择一个空文件夹")))
@@ -240,7 +241,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert!(w.vault.is_none());
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 w.create_first_vault(window, cx);
             })
             .unwrap();
@@ -250,7 +251,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 assert!(w.vault.is_none());
                 assert!(w.notifications.text().contains("创建笔记库失败"));
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 w.create_first_vault(window, cx);
             })
             .unwrap();
@@ -262,7 +263,7 @@ mod tests {
                     w.vault.as_ref().unwrap().root,
                     std::fs::canonicalize(root.join("new")).unwrap()
                 );
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert!(w.index.notes.is_empty());
                 w.execute_command(16, window, cx);
                 assert!(w.ui.trash_open);

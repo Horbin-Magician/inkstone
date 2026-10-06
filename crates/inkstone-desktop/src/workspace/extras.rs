@@ -25,14 +25,14 @@ impl Workspace {
         let text = tab.pane.read(cx).editor.read(cx).value().to_string();
         let reserved = self.tabs.iter().map(|t| t.path.clone()).collect::<Vec<_>>();
         let generation = self.generation;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let task = cx
             .background_executor()
             .spawn(async move { vault.duplicate_note(&source, &text, &reserved) });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -151,7 +151,7 @@ impl Workspace {
         let generation = self.generation;
         let previous = self.index.clone();
         let work_index = previous.clone();
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let task = cx.background_executor().spawn(async move {
             let receipt = vault.save(&target.path, Some(&target.baseline), &after)?;
             let mut index = (*work_index).clone();
@@ -161,7 +161,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -197,7 +197,7 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        if self.ui.pending_file_writes > 0 || self.ui.link_update.is_some() {
+        if self.file_writes.pending() > 0 || self.ui.link_update.is_some() {
             return;
         }
         if self.tabs.iter().any(|t| {
@@ -224,7 +224,7 @@ impl Workspace {
         let from = old.clone();
         let to = new.clone();
         self.ui.file_operation = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let task = cx.background_executor().spawn(async move {
             if let Some(to) = to {
                 let index = Index::build(&vault)?;
@@ -242,7 +242,7 @@ impl Workspace {
                     return;
                 }
                 this.ui.file_operation = false;
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 match result {
                     Ok(edits) => {
                         if let Some(new) = &new {
@@ -701,7 +701,7 @@ impl Workspace {
         let id = tab.id;
         let secondary = self.views.secondary_focused;
         let generation = self.generation;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let task = cx.background_executor().spawn(async move {
             let mut results = vec![];
             for path in paths {
@@ -730,7 +730,7 @@ impl Workspace {
                     .await;
             }
             let _ = this.update_in(cx, |this, w, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }

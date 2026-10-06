@@ -213,7 +213,7 @@ impl Workspace {
         }
         // A recovery always restores the recorded draft, regardless of preview mode.
         browser.loading = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let reserved = self
             .tabs
             .iter()
@@ -240,7 +240,7 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -843,7 +843,7 @@ mod tests {
                         assert_eq!(w.ui.history.as_mut().unwrap().page, page);
                         assert_eq!(w.ui.history.as_ref().unwrap().selected, Some(0));
                         assert!(w.ui.history.as_ref().unwrap().record.is_some());
-                        assert_eq!(w.ui.pending_file_writes, 0);
+                        assert_eq!(w.file_writes.pending(), 0);
                         assert!(w.ui.history.as_ref().unwrap().message.is_empty());
                     })
                     .unwrap();
@@ -918,7 +918,7 @@ mod tests {
                 assert!(!browser.loading);
                 assert_eq!(browser.record.as_ref().unwrap().draft, expected);
                 assert_eq!(browser.preview.read(cx).value().as_ref(), expected);
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
             })
             .unwrap();
         assert_eq!(vault.read(&path).unwrap(), current);

@@ -150,7 +150,7 @@ impl Workspace {
             return;
         }
         if self.ui.file_operation
-            || self.ui.pending_file_writes > 0
+            || self.file_writes.pending() > 0
             || self.settings_save.is_busy()
             || self
                 .tabs
@@ -166,7 +166,7 @@ impl Workspace {
         }
         let destination = self.ui.backup.pending.take().unwrap();
         self.ui.backup.busy = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         self.backup_message("正在备份并校验笔记库文件……".into(), cx);
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {
@@ -176,7 +176,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (destination, result) = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -287,7 +287,7 @@ impl Workspace {
             return;
         }
         self.ui.backup.busy = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         self.backup_message("正在恢复到新目录并核对内容……".into(), cx);
         let task = cx.background_executor().spawn(async move {
             let result = backup::restore(&source, &destination, &manifest);
@@ -296,7 +296,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let (destination, result) = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -477,7 +477,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert!(!w.ui.backup.busy);
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert_eq!(w.vault.as_ref().unwrap().root, root.join("vault"));
                 w.ui.prefs.backup.interval_hours = 24;
                 let before = w.ui.backup.output.clone();

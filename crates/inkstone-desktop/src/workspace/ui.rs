@@ -78,7 +78,6 @@ pub(super) struct UiState {
     pub closed: Vec<ClosedTab>,
     pub close_pending: std::collections::BTreeSet<usize>,
     pub window_close_requested: bool,
-    pub pending_file_writes: usize,
     pub file_operation: bool,
     pub link_update: Option<LinkEdits>,
     pub link_update_scroll: UniformListScrollHandle,
@@ -416,7 +415,6 @@ impl UiState {
             closed: vec![],
             close_pending: Default::default(),
             window_close_requested: false,
-            pending_file_writes: 0,
             file_operation: false,
             link_update: None,
             link_update_scroll: UniformListScrollHandle::new(),
@@ -820,14 +818,14 @@ impl Workspace {
                 let folder = PathBuf::from(self.name.read(cx).value().as_ref());
                 let path = folder.clone();
                 let generation = self.generation;
-                self.ui.pending_file_writes += 1;
+                let write_ticket = self.file_writes.begin();
                 let task = cx
                     .background_executor()
                     .spawn(async move { vault.create_folder(&path) });
                 cx.spawn(async move |this, cx| {
                     let result = task.await;
                     let _ = this.update(cx, |this, cx| {
-                        this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                        this.file_writes.finish(write_ticket);
                         if this.generation != generation {
                             return;
                         }
@@ -1101,7 +1099,7 @@ impl Workspace {
             return;
         };
         let generation = self.generation;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let restored = entry.clone();
         let task = cx
             .background_executor()
@@ -1109,7 +1107,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }

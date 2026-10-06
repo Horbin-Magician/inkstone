@@ -372,7 +372,7 @@ impl Workspace {
         let password = self.ui.cloud_sync.password.read(cx).value().to_string();
         self.ui.cloud_sync.watch.epoch = self.ui.cloud_sync.watch.epoch.wrapping_add(1);
         self.ui.cloud_sync.schedule.start_connection_test();
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         self.cloud_message("正在测试 WebDAV 连接……".into(), cx);
         let generation = self.generation;
         let task = cx
@@ -382,7 +382,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -430,7 +430,7 @@ impl Workspace {
             return;
         }
         if self.ui.file_operation
-            || self.ui.pending_file_writes > 0
+            || self.file_writes.pending() > 0
             || self.settings_save.is_busy()
             || self.refreshing
             || self
@@ -472,7 +472,7 @@ impl Workspace {
         self.ui.cloud_sync.schedule.start();
         self.ui.cloud_sync.watch.epoch = self.ui.cloud_sync.watch.epoch.wrapping_add(1);
         self.ui.file_operation = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         self.cloud_message("正在连接并准备云端目录……".into(), cx);
         self.ui.cloud_sync.progress = None;
         let run = Run::default();
@@ -523,7 +523,7 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation || !this.ui.cloud_sync.run.as_ref().is_some_and(|current| current.same(&run)) { return; }
                 let cancelled = run.is_cancelled() && result.is_err();
                 this.ui.cloud_sync.run = None;
@@ -886,7 +886,7 @@ mod tests {
         std::fs::create_dir_all(root.join("vault")).unwrap();
         let handle = cx.add_window(Workspace::new);
         let replacement = Run::default();
-        handle
+        let replacement_ticket = handle
             .update(cx, |w, window, cx| {
                 w.vault = Some(Vault::open(root.join("vault"), root.join("recovery")).unwrap());
                 w.ui.prefs.webdav.url = server.url.clone();
@@ -900,6 +900,7 @@ mod tests {
                 // a separate guard from the vault-generation check.
                 w.ui.cloud_sync.run = Some(replacement.clone());
                 w.ui.cloud_sync.message = "replacement still active".into();
+                w.file_writes.begin()
             })
             .unwrap();
         cx.run_until_parked();
@@ -910,10 +911,13 @@ mod tests {
                 assert_eq!(w.ui.cloud_sync.message, "replacement still active");
                 assert!(w.ui.cloud_sync.last_success.is_none());
                 assert_eq!(
-                    w.ui.pending_file_writes, 0,
-                    "completed old worker releases only its write count"
+                    w.file_writes.pending(),
+                    1,
+                    "completed old worker must retain the replacement's guard"
                 );
-                // No second worker was launched by this fixture.
+                // No second worker was launched; release its simulated guard.
+                assert!(w.file_writes.finish(replacement_ticket));
+                assert_eq!(w.file_writes.pending(), 0);
                 w.ui.cloud_sync.run = None;
                 w.ui.cloud_sync.schedule.finish();
                 w.ui.file_operation = false;
@@ -1119,7 +1123,7 @@ mod tests {
                 );
                 assert!(w.ui.cloud_sync.progress.is_none());
                 assert!(w.ui.cloud_sync.run.is_none());
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert!(!w.ui.file_operation);
                 assert!(w.files.contains(&PathBuf::from("remote.md")));
                 assert_eq!(
@@ -1428,11 +1432,11 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 w.ui.cloud_sync.schedule.busy = true;
-                w.ui.pending_file_writes = 1;
+                let _sync = w.file_writes.begin();
                 assert!(w.request_window_close(window, cx));
-                w.ui.pending_file_writes = 2;
+                let local_write = w.file_writes.begin();
                 assert!(!w.request_window_close(window, cx));
-                w.ui.pending_file_writes = 1;
+                w.file_writes.finish(local_write);
                 w.add_tab("note.md".into(), Some("saved".into()), false, window, cx);
                 w.tabs[0].save.persistence.test_set_conflict(true);
                 assert!(!w.request_window_close(window, cx));
@@ -1876,7 +1880,7 @@ mod tests {
                 w.cancel_running_sync(cx);
                 assert!(w.ui.cloud_sync.schedule.busy);
                 assert!(w.ui.file_operation);
-                assert!(w.ui.pending_file_writes > 0);
+                assert!(w.file_writes.pending() > 0);
                 assert!(w.ui.cloud_sync.scheduling_label().contains("正在取消"));
                 assert!(!w.ui.cloud_sync.schedule.pending);
             })
@@ -1886,7 +1890,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 assert!(!w.ui.cloud_sync.schedule.busy);
                 assert!(!w.ui.file_operation);
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert!(w.ui.cloud_sync.message.starts_with("本次同步已取消"));
                 assert!(w.ui.cloud_sync.run.is_none());
                 assert!(w.ui.cloud_sync.last_success.is_none());

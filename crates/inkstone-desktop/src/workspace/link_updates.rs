@@ -47,7 +47,7 @@ impl Workspace {
         };
         let generation = self.generation;
         self.ui.file_operation = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let task = cx.background_executor().spawn(async move {
             let mut written = vec![];
             let mut errors = vec![];
@@ -63,7 +63,7 @@ impl Workspace {
             let (written, errors) = task.await;
             let _ = this.update_in(cx, |this, w, cx| {
                 this.ui.file_operation = false;
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }

@@ -2474,7 +2474,7 @@ fn file_location_settings_control_note_and_attachment_writes(cx: &mut TestAppCon
     cx.run_until_parked();
     handle
         .update(cx, |w, window, cx| {
-            assert_eq!(w.ui.pending_file_writes, 1);
+            assert_eq!(w.file_writes.pending(), 1);
             let editor = w.current_pane().unwrap().read(cx).editor.clone();
             assert_eq!(editor.read(cx).value(), "ni");
             editor.update(cx, |s, cx| s.replace_text_in_range(None, "你", window, cx));
@@ -2539,14 +2539,14 @@ fn duplicate_opens_snapshot_without_retargeting_original_tab(cx: &mut TestAppCon
                 s.replace(" 新编辑😀", window, cx);
             });
             w.duplicate_current(window, cx);
-            assert_eq!(w.ui.pending_file_writes, 1);
+            assert_eq!(w.file_writes.pending(), 1);
             id
         })
         .unwrap();
     cx.run_until_parked();
     handle
         .update(cx, |w, _, cx| {
-            assert_eq!(w.ui.pending_file_writes, 0);
+            assert_eq!(w.file_writes.pending(), 0);
             assert_eq!(w.tabs.len(), 2);
             let old = w.tabs.iter().find(|t| t.id == original).unwrap();
             assert_eq!(old.path, PathBuf::from("folder/source.md"));
@@ -2699,7 +2699,7 @@ fn inline_title_renames_original_tab_and_preserves_failed_input(cx: &mut TestApp
                 w.ui.inline_title
                     .as_ref()
                     .map(|edit| edit.input.read(cx).value()),
-                w.ui.pending_file_writes
+                w.file_writes.pending()
             );
             assert!(!root.join("folder/old.md").exists());
             assert_eq!(
@@ -2864,7 +2864,7 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
             w.ui.closed.push("old/target.md".into());
             w.manage_folder("old".into(), Some("archive/new".into()), window, cx);
             assert!(w.ui.file_operation);
-            assert_eq!(w.ui.pending_file_writes, 1);
+            assert_eq!(w.file_writes.pending(), 1);
             w.save_all(window, cx);
             assert!(!w.tabs[0].save.persistence.is_saving());
         })
@@ -2873,7 +2873,7 @@ fn folder_move_updates_disk_open_tabs_and_session_paths(cx: &mut TestAppContext)
     handle
         .update(cx, |w, _, cx| {
             assert!(!w.ui.file_operation);
-            assert_eq!(w.ui.pending_file_writes, 0);
+            assert_eq!(w.file_writes.pending(), 0);
             assert_eq!(w.tabs[0].path, PathBuf::from("archive/new/note.md"));
             assert_eq!(
                 w.ui.prefs.bookmarks[0],
@@ -3022,7 +3022,7 @@ fn embedded_task_write_checks_the_source_snapshot(cx: &mut TestAppContext) {
         .update(cx, |w, window, cx| {
             w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
             w.toggle_referenced_task(target.clone(), true, window, cx);
-            assert_eq!(w.ui.pending_file_writes, 1);
+            assert_eq!(w.file_writes.pending(), 1);
             assert!(!w.request_window_close(window, cx));
         })
         .unwrap();
@@ -3033,7 +3033,7 @@ fn embedded_task_write_checks_the_source_snapshot(cx: &mut TestAppContext) {
     );
     handle
         .update(cx, |w, _, _| {
-            assert_eq!(w.ui.pending_file_writes, 0);
+            assert_eq!(w.file_writes.pending(), 0);
             assert!(
                 w.index
                     .notes
@@ -4384,7 +4384,7 @@ fn folder_creation_updates_tree_before_tick_and_reuses_index(cx: &mut TestAppCon
     handle
         .update(cx, |w, _, cx| {
             assert_eq!(w.notifications.text(), "文件夹已创建");
-            assert_eq!(w.ui.pending_file_writes, 0);
+            assert_eq!(w.file_writes.pending(), 0);
             assert!(Arc::ptr_eq(&index, &w.index));
             assert!(!w.refreshing);
             let tree = w.tree.read(cx);
@@ -4430,7 +4430,7 @@ fn folder_creation_updates_tree_before_tick_and_reuses_index(cx: &mut TestAppCon
         .update(cx, |w, window, cx| {
             assert_ne!(w.notifications.text(), "文件夹已创建");
             assert_eq!(w.ui.folders.len(), 2);
-            assert_eq!(w.ui.pending_file_writes, 0);
+            assert_eq!(w.file_writes.pending(), 0);
             w.tick(window, cx);
         })
         .unwrap();

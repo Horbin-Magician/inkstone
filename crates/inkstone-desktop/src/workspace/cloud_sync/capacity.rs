@@ -192,7 +192,7 @@ mod tests {
                 assert!(w.ui.cloud_sync.capacity.message.contains("失败"));
                 assert!(w.ui.prefs.webdav.url.is_empty());
                 assert!(w.ui.prefs.webdav.username.is_empty());
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert!(!w.ui.cloud_sync.is_busy() && !w.ui.cloud_sync.is_pending());
             })
             .unwrap();
@@ -335,7 +335,7 @@ mod tests {
                 assert!(w.tabs[w.active.unwrap()].save.persistence.is_dirty());
                 w.refresh_cloud_capacity(cx);
                 assert!(w.ui.cloud_sync.capacity.busy);
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 assert!(!w.ui.cloud_sync.is_busy());
             })
             .unwrap();
@@ -366,7 +366,7 @@ mod tests {
                 );
                 assert!(w.ui.prefs.webdav.url.is_empty() && w.ui.prefs.webdav.username.is_empty());
                 assert!(!w.ui.cloud_sync.is_busy() && !w.ui.cloud_sync.is_pending());
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
             })
             .unwrap();
         assert_eq!(

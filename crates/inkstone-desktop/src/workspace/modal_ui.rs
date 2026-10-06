@@ -818,7 +818,7 @@ mod tests {
                     .update(&mut visual, |w, _, _| {
                         assert_eq!(w.ui.trash.len(), 12);
                         assert_eq!(w.recoveries.len(), 12);
-                        assert_eq!(w.ui.pending_file_writes, 0);
+                        assert_eq!(w.file_writes.pending(), 0);
                         assert!(!w.ui.file_operation);
                         assert!(w.ui.history.is_none());
                         assert!(w.recoveries.iter().all(|e| e.record.draft == "unsaved"));

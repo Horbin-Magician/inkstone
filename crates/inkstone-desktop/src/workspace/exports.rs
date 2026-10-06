@@ -76,7 +76,7 @@ impl Workspace {
             .map(|t| (t.path.clone(), t.save.editor.read(cx).value().to_string()))
             .collect();
         self.ui.exporting = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         self.notifications
             .publish("正在导出当前编辑快照、关联笔记与附件……".into());
         let generation = self.generation;
@@ -86,7 +86,7 @@ impl Workspace {
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -200,7 +200,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert!(!w.ui.exporting);
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 w.start_export(
                     "a.md".into(),
                     root.join("export"),

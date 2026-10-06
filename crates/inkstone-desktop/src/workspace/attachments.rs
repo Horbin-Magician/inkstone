@@ -119,7 +119,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.file_operation || self.ui.pending_file_writes > 0 {
+        if self.ui.file_operation || self.file_writes.pending() > 0 {
             return;
         }
         let generation = self.generation;
@@ -153,7 +153,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.file_operation || self.ui.pending_file_writes > 0 {
+        if self.ui.file_operation || self.file_writes.pending() > 0 {
             return;
         }
         if self
@@ -171,7 +171,7 @@ impl Workspace {
         };
         self.flush_document_views(window, cx);
         let drafts = self.attachment_drafts(cx);
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         if let Some(m) = &mut self.ui.attachment_manager {
             m.loading = true;
         }
@@ -182,7 +182,7 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
                 }
@@ -235,7 +235,7 @@ impl Workspace {
                 s.child(path.to_string_lossy().to_string()).child(div().flex().gap_2()
                     .child(Button::new("attachment-preview").label("系统打开 / 预览").on_click(cx.listener(move|this,_,_,cx|{if let Some(v)=&this.vault{cx.open_with_system(&v.root.join(&open));}})))
                     .child(Button::new("attachment-reveal").label("显示文件位置").on_click(cx.listener(move|this,_,_,cx|{if let Some(v)=&this.vault{cx.reveal_path(&v.root.join(&reveal));}})))
-                    .child(Button::new("attachment-trash").label("移入回收站").disabled(m.loading||m.inventory.unreadable>0||!e.references.is_empty()||self.ui.pending_file_writes>0).on_click(cx.listener(move|this,_,w,cx|this.request_attachment_cleanup(cleanup.clone(),w,cx)))))
+                    .child(Button::new("attachment-trash").label("移入回收站").disabled(m.loading||m.inventory.unreadable>0||!e.references.is_empty()||self.file_writes.pending()>0).on_click(cx.listener(move|this,_,w,cx|this.request_attachment_cleanup(cleanup.clone(),w,cx)))))
                     .child("引用来源（点击打开）：")
                     .child(div().id("attachment-references").max_h(px(140.)).overflow_y_scroll().children(e.references.into_iter().enumerate().map(|(i,path)|Button::new(("attachment-source",i)).ghost().label(path.to_string_lossy().to_string()).on_click(cx.listener(move|this,_,w,cx|{this.close_overlays(w,cx);this.open_note(path.clone(),w,cx);})))) )
             })
@@ -318,7 +318,7 @@ mod tests {
         assert!(!root.join("vault/image.png").exists());
         handle
             .update(cx, |w, window, cx| {
-                assert_eq!(w.ui.pending_file_writes, 0);
+                assert_eq!(w.file_writes.pending(), 0);
                 let v = w.vault.as_ref().unwrap();
                 v.restore_trash(&v.trash_entries().unwrap()[0]).unwrap();
                 w.refresh_attachments(window, cx);

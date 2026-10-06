@@ -39,7 +39,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.pending_file_writes > 0 || self.ui.link_update.is_some() {
+        if self.file_writes.pending() > 0 || self.ui.link_update.is_some() {
             return;
         }
         if self.has_pending_input(id, window, cx) {
@@ -106,7 +106,7 @@ impl Workspace {
             return;
         }
         self.ui.file_operation = true;
-        self.ui.pending_file_writes += 1;
+        let write_ticket = self.file_writes.begin();
         let task = cx.background_executor().spawn(async move {
             if trash {
                 vault
@@ -126,7 +126,7 @@ impl Workspace {
                     return;
                 }
                 this.ui.file_operation = false;
-                this.ui.pending_file_writes = this.ui.pending_file_writes.saturating_sub(1);
+                this.file_writes.finish(write_ticket);
                 let Some(index) = this
                     .tabs
                     .iter()
