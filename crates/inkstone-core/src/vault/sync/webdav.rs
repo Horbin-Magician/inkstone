@@ -1,4 +1,6 @@
+mod capacity;
 use super::*;
+pub use capacity::CloudCapacity;
 use reqwest::{
     Method, StatusCode, Url,
     blocking::{Body, Client, Response},

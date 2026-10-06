@@ -3417,6 +3417,7 @@ dependencies = [
  "ratex-types",
  "regex",
  "reqwest",
+ "roxmltree 0.20.0",
  "serde",
  "serde-saphyr",
  "serde_json",

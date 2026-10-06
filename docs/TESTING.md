@@ -798,3 +798,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 增加可独立运行的 Rust 解码微基准与 macOS 夹具/采样脚本，执行方式和统计边界见 `tools/performance/README.md`。两个模式使用同一份 77,276,882 字节混合 Unicode/转义日志，在独立子进程中交错各执行三轮；记录夹具和二进制散列、平台、原始 time 输出及中位数。
 - 脚本实测：整文件读取 118.868 ms / 177.297 MiB；64 KiB 缓冲读取 186.337 ms / 103.641 MiB（耗时/峰值 RSS 中位数）。峰值 RSS 减少约 41.5%，解码耗时增加约 56.8%；因此保留上一轮的内存取舍，不宣称是延迟优化。结果位于 `target/history-read-3y6tqom7`；此前直接采样亦得到相同 RSS、122.583 / 187.106 ms，位于 `target/history-read-benchmark`。
 - release 构建、脚本完整执行、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/history-read-benchmark-build.log`、`target/history-read-benchmark-clippy.log`、`target/history-read-benchmark-fmt.log`。夹具生成在计量子进程外，不计入 RSS；未清空系统文件缓存，未测端到端历史 UI 或扫描耗时。没有改动真实笔记或恢复日志。
+
+
+## 云端对象容量：只读统计后端（2026-10-06）
+
+- 新增 `WebDav::capacity`：读取清单、Depth 1 列举 `inkstone/objects/`、再次读取清单，以强 ETag 和文件映射复核统计期间清单未变。只发送 GET/PROPFIND，不创建目录、不下载正文、不发布或删除对象。按唯一哈希分别统计已引用/未引用对象数量与服务器报告字节数；缺失或长度未知的引用单独计数，异常项不计为零字节。
+- 使用锁文件中已有的 roxmltree 0.20.0 作为显式依赖，Cargo.lock 仅增加 core 的依赖关联。响应限制 32 MiB、XML 节点限制一百万，禁用 DTD；仅接纳同源对象目录直接子项的合法哈希，检查成功 propstat 的长度和资源类型，拒绝重复对象和容量溢出。未知、越界地址、目录、失败属性均不计入有效容量。
+- 新增分类/XML/HTTP 三项回归：共享内容不重复计算、未知引用、失败/非法属性、目录、重复记录、溢出、损坏 XML；本机 HTTP 服务核对全部请求方法/路径与 Depth，清单变化时拒绝结果。容量相关 4 项通过；同步回归 39 项通过、2 项既有大库基准忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/cloud-capacity-tests.log`、`target/cloud-capacity-sync-regressions.log`、`target/cloud-capacity-clippy.log`、`target/cloud-capacity-fmt.log`。
+- “未引用”不是清理候选：其他设备可能已上传但尚未发布。清单复核不提供对象目录事务快照，统计也不验证正文哈希或物理分配空间；服务器漏报/截断且仍返回成功时无法证明目录完整。设置页接入、真实服务商验证与清理保护协议尚待完成。所有网络测试仅访问本机临时服务，未连接用户云端或改动用户笔记。
