@@ -1599,3 +1599,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增完整同步入口回归 `unsupported_remote_version_preserves_local_edits_and_baseline`：已有基线之后修改中文/Unicode 正文，远端分别返回版本 0、2、u32::MAX；均明确拒绝，不进入下载、上传或发布，本地快照和基线字节不变。
 - 定向测试 1 项通过，核心库 all-targets Clippy `-D warnings`、全工作区格式及 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-protocol-gate-{tests,clippy}.log`。未做性能测量、Linux 适配或真实用户笔记修改。
 - 已核实 [CI 37455366426](https://github.com/Horbin-Magician/inkstone/actions/runs/37455366426) 对应 24517f9，macOS/Windows 工作区与两平台 vendor 四项全部成功；此结果不覆盖之后的强退恢复及焦点回归。后续提交截至 8cd98b9 已推送既有验证分支，[CI 37462290852](https://github.com/Horbin-Magician/inkstone/actions/runs/37462290852) 当前四项运行中，待其终态核验；该运行不包含本次新增协议测试。
+
+## 云端维护锁生命周期（2026-10-06）
+
+- 新增后台阻塞 API `WebDav::lock_maintenance` / `MaintenanceLock`：请求已有同步根的递归独占写锁，校验有界 XML、单一令牌/根/范围/有限期限；续期失败使句柄失效；显式释放报告错误，Drop 仅尝试一次有超时的释放。没有接入云端删除或改变现有同步路径。
+- 5 项 HTTP 回归覆盖实际请求头/正文、续期不带创建正文、失败续期后的禁止复用、释放失败不隐式重试、共享/浅层/过长期限/错误根/重复属性/错误令牌/损坏 XML 拒绝，以及不支持或被锁服务器。HTTP 模拟不能替代真实服务端互斥验收。
+- 完整核心同步回归 66 通过、2 个既有手动入口忽略；全工作区 all-targets Clippy `-D warnings`、格式和 diff 检查通过。日志：`target/backup-cleanup-audit/cloud-maintenance-{tests,sync-tests,clippy}.log`。未做性能测量，未改用户笔记；清单隔离、清理执行和 UI 仍未完成。
