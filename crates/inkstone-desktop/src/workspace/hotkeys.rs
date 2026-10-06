@@ -304,6 +304,9 @@ impl Workspace {
                                                         Button::new(("hotkey-add", id))
                                                             .compact()
                                                             .label("添加")
+                                                            .accessibility_label(format!(
+                                                                "为{title}添加快捷键"
+                                                            ))
                                                             .on_click(cx.listener(
                                                                 move |this, _, w, cx| {
                                                                     this.ui.hotkey_recording =
@@ -321,6 +324,9 @@ impl Workspace {
                                                         Button::new(("hotkey-clear", id))
                                                             .compact()
                                                             .label("清除")
+                                                            .accessibility_label(format!(
+                                                                "清除{title}的快捷键"
+                                                            ))
                                                             .on_click(cx.listener(
                                                                 move |this, _, _, cx| {
                                                                     this.ui
@@ -337,6 +343,9 @@ impl Workspace {
                                                         Button::new(("hotkey-reset", id))
                                                             .compact()
                                                             .label("默认")
+                                                            .accessibility_label(format!(
+                                                                "恢复{title}的默认快捷键"
+                                                            ))
                                                             .on_click(cx.listener(
                                                                 move |this, _, _, cx| {
                                                                     this.ui.hotkey_message =
