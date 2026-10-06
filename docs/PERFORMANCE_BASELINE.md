@@ -209,3 +209,19 @@ release b13a0ec，隔离记录 target/native-outline-virtual-va6psjgk。首个�
 第三个 b13a0ec 实例随后完成焦点诊断：原生 Raise 和标题点击没有消除加载占位，zoom 往返后正文可见；在生成正文内键入 focusprobe 确实修改了选区，而 AX 焦点仍报告标准窗口。逐次两次 Cmd+Z 恢复原文和“已保存”，Right 清除选区后，稳定 30.012 秒再采样 30.013 秒，CPU 0.1333%、采样最大 RSS 506.641 MiB。它证明 AX 焦点名称不足以判断输入是否到达编辑器，但未持续追踪前台，也因输入/撤销和缩放改变预热条件，不纳入三轮性能对照。此实例不含后续 ecc73f6 字数缓存改动。
 
 PID 98526 已正常退出，全部 16 个生成 Markdown 的 SHA-256 不变；第三轮 3/focus-audit.json、idle.json 记录上述边界。启动呈现异常尚未定位，不以原生按键可达推断加载首帧正确。测量指南补充探针和冷启动口径；文档经 diff 检查。
+
+## 带窗口活动证据的大文档三轮资源测量（2026-10-06）
+
+release f9bdc1b，包含大纲虚拟化、字数 Rope 缓存及隐藏侧栏分类惰性准备。Apple M4 / 24 GiB / macOS 27.0.1，Rust 1.97.0 locked release，corpus v1 large-document.md，默认字号 16、实时预览、左右栏打开。三个全新隔离 bundle 和生成库，全部启用 INKSTONE_TRACE_ACTIVITY。每轮原生 zoom 往返恢复 1200×820 逻辑窗口，截图确认正文和展开大纲；在相同位置键入 x，确认正文变化，Cmd+Z 回到原文及“已保存”，随后稳定 30 秒再采样 30 秒。不是冷启动，未测打开延迟。
+
+| 轮次 / PID | 单核 CPU 区间均值 | 采样最大 RSS | 正式区间活动样本 |
+| --- | ---: | ---: | ---: |
+| 1 / 180 | 0.133% | 349.422 MiB | 15 |
+| 2 / 373 | 4.098% | 353.938 MiB | 15 |
+| 3 / 579 | 4.065% | 420.797 MiB | 15 |
+
+各轮正式 CPU 区间内全部活动样本均为 window_active=true、editor_focused=true、loading=false，最大记录间隔分别 2,102 / 2,100 / 2,101 ms。启动初期有未激活记录，证明记录器可区分状态；不能由间隔采样声称两点之间从未失焦。诊断日志带来少量写入开销，旧版对照没有相同记录及输入预热协议，因此不计算相对旧版的改善比例。
+
+CPU 中位数 4.065%，仍高于 2% 预算，第一轮低值未丢弃或冒充稳定结果。采样 RSS 中位数 353.938 MiB 是生命周期峰值下界，不能证明峰值预算通过。第二轮正式采样后另取五秒调用栈，可见 Window::draw、Taffy 布局、字数内容比较和光标闪烁任务；下步排查空闲重绘范围，不把采样次数当精确 CPU 占比。输入/滚动可见帧、其余场景与完整前后对照仍待完成，加载呈现异常未据此宣称修复。
+
+原始记录 target/native-activity-nfm28n_r：run.json、results.json、各轮 preparation.json（签名后二进制散列）、activity.jsonl、idle.json、pid，第二轮 idle-stack.txt/sample.log。三进程正常 Cmd+Q 后 PID 均已消失，三份库各 16 个 Markdown 长度和 SHA-256 全部不变。未退出其他用户应用、未清系统缓存，采样期间无本地编译/测试。构建日志 target/backup-cleanup-audit/activity-release.log；文档经 diff 检查。未触及真实用户笔记。
