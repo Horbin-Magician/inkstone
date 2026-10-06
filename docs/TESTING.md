@@ -940,3 +940,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 经命令面板“文件恢复”进入草稿比较，AX 内容与可见差异确认新增检查点和 `nihao`。执行恢复副本后，`ime 副本.md` 与崩溃前记录的 draft 逐字一致，SHA-256 `1f2704f334c93350a24cffa8012cd09797758288b48b551510a4301c789c4c79`，原件未变，待恢复 JSON 为零。正常退出后再次核对文件与进程；测试实例已退出。原始证据 `persisted-before-crash.json`、`acceptance.json`、两次进程日志。原生观察中 AX 与截图偶有不同步，坐标点击曾返回 noWindowsAvailable；不据此宣称完整鼠标/帧刷新矩阵通过。
 - **IME 未通过验收，也未据此判定产品失败**：只读查看系统设置确认已有 ABC/简体拼音，Ctrl+Space 和 Ctrl+Alt+Space 快捷键启用；在测试实例尝试这两组按键后仅观察到已提交的拉丁字母，未看到可确认的候选或预编辑态。`nihao` 被持久化属于普通已提交输入，不能当作预编辑泄漏。未安装输入法或更改系统配置，系统设置已退出。需要能可靠进入真实组合态的后续原生检查；不得把本记录或既有模拟 marked-text 测试改记为原生 IME 通过。
 - 本次仅提交验收记录，不改产品代码；release 构建、实际草稿/原文/副本内容核对及 diff 检查完成，不重复上一代码提交的全套测试。总体 1–8 项目标仍未完成。
+
+
+## CI 真实失败核对与移除缓存依赖（2026-10-06）
+
+- 读取远端最近八条范围内的运行记录（实际返回六条），最新为 [Workspace checks 37279665518](https://github.com/Horbin-Magician/inkstone/actions/runs/37279665518)，提交 `762035ac8b82c4f9d7ce231a1d39212fa6d4245e`。Linux core、macOS 和 Windows 三个 job 均在 Set up job 失败，日志为 `Unable to resolve action swatin/rust-cache, repository not found`，未运行 Rust 检查。当前 API 查询 `repos/Swatin/rust-cache` 亦返回 404；不猜测删除、权限或服务端原因。
+- 移除当前三个 job 定义中的可选 Swatin 缓存步骤（包括新 vendor job），保留 checkout、固定工具链、Python、全部原检查命令及平台矩阵；增加 workflow_dispatch 手动入口。代价是没有该跨运行缓存的构建可能更慢，不能用缓存动作不可用阻断测试初始化。
+- 用系统 Ruby YAML 解析器检查三个触发器、三个 job、固定工具链入口及 action 所属前缀，人工复核前后矩阵/命令 diff；YAML 结构与 diff 检查通过。仅工作流/文档改动，本轮不重复 Rust 全量测试。原始证据：`target/ci-audit-latest.json`、`ci-audit-latest-failed.log`、`ci-audit-cache-action.json`、`ci-audit-workflow-validation.log`。
+- 核实 master 经典保护 API 返回 `Branch not protected`（404），有效规则 API `repos/Horbin-Magician/inkstone/rules/branches/master` 返回空数组，保存于 `target/ci-audit-effective-rules.json`。这证明现有检查尚未形成必需合入门槛。本轮未推送本地提交、未修改远端仓库设置；更新后远端执行、新环境验证及必需检查配置仍未完成。
+- 同时依据已有完整日志修正 STATUS 的陈旧 vendor 数量：Base 1,236 + Component 572 = 1,808 项，未宣称本轮重新运行 vendor。未修改真实用户笔记。
