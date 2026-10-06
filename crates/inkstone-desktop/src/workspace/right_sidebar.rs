@@ -4,10 +4,13 @@ use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::{Disableable, Selectable, button::*, list::ListItem};
+use std::rc::Rc;
+
+type OutlineKey = Rc<(PathBuf, Vec<inkstone_core::index::Heading>)>;
 
 #[derive(Default)]
 pub(super) struct OutlineState {
-    key: Option<(PathBuf, Vec<inkstone_core::index::Heading>)>,
+    key: Option<OutlineKey>,
     collapsed: std::collections::BTreeSet<usize>,
 }
 
@@ -69,12 +72,15 @@ impl Workspace {
         } else {
             String::new()
         };
-        let fold_key = (
+        // Every row captures this immutable snapshot. Cloning the full heading
+        // vector per callback makes an n-heading outline allocate O(n²) titles
+        // on each workspace redraw even when the headings have not changed.
+        let fold_key = Rc::new((
             pane.as_ref()
                 .map(|p| p.read(cx).current_path.clone())
                 .unwrap_or_default(),
             headings.clone(),
-        );
+        ));
         let empty_folds = Default::default();
         let collapsed = if self.ui.outline.key.as_ref() == Some(&fold_key) {
             &self.ui.outline.collapsed
@@ -732,7 +738,7 @@ fn outline_rows(
 impl Workspace {
     fn toggle_outline_fold(
         &mut self,
-        key: (PathBuf, Vec<inkstone_core::index::Heading>),
+        key: OutlineKey,
         offset: Option<usize>,
         cx: &mut Context<Self>,
     ) {
