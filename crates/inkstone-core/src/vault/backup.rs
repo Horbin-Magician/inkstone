@@ -1,5 +1,6 @@
 //! Versioned, checksummed directory backups. Publication/restoration never overwrites.
 pub mod capacity;
+pub mod cleanup;
 mod locking;
 mod origin;
 pub mod retention;
@@ -511,6 +512,52 @@ mod tests {
         fs::set_permissions(&media, fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(result.unwrap(), manifest);
         assert_eq!(fs::read_dir(&media).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn cleanup_preflight_protects_retained_content_stale_plans_and_readers() {
+        let f = Fixture::new();
+        let parent = f.0.join("backups");
+        fs::create_dir(&parent).unwrap();
+        for created in 1..=2 {
+            let path = parent.join(created.to_string());
+            let mut manifest = create(&f.1, &path).unwrap();
+            manifest.created = created;
+            manifest.source_id = Some("a".repeat(64));
+            fs::write(
+                path.join("manifest.json"),
+                serde_json::to_vec(&manifest).unwrap(),
+            )
+            .unwrap();
+        }
+        let plan =
+            retention::preview(&capacity::list(&parent).unwrap(), 1, &BTreeSet::new()).unwrap();
+        assert_eq!(plan.candidates, 1);
+        let reader = locking::acquire(&parent, false).unwrap();
+        assert!(cleanup::prepare(&parent, &plan, &BTreeSet::new()).is_err());
+        drop(reader);
+        let checked = cleanup::prepare(&parent, &plan, &BTreeSet::new()).unwrap();
+        assert_eq!(checked.preview(), &plan);
+        assert!(inspect(&parent.join("1")).is_err());
+        assert!(create(&f.1, &parent.join("blocked")).is_err());
+        drop(checked);
+        assert!(cleanup::prepare(&parent, &plan, &[parent.join("1")].into()).is_err());
+        let retained = parent.join("2/files/image.bin");
+        fs::write(&retained, [9, 8, 7, 6]).unwrap();
+        assert_eq!(
+            retention::preview(&capacity::list(&parent).unwrap(), 1, &BTreeSet::new()).unwrap(),
+            plan
+        );
+        assert!(cleanup::prepare(&parent, &plan, &BTreeSet::new()).is_err());
+        fs::write(&retained, [0, 255, 128, 3]).unwrap();
+        fs::write(parent.join("1/extra.txt"), "must preserve").unwrap();
+        assert!(cleanup::prepare(&parent, &plan, &BTreeSet::new()).is_err());
+        fs::remove_file(parent.join("1/extra.txt")).unwrap();
+        create(&f.1, &parent.join("new")).unwrap();
+        assert!(cleanup::prepare(&parent, &plan, &BTreeSet::new()).is_err());
+        for name in ["1", "2", "new"] {
+            assert!(inspect(&parent.join(name)).is_ok());
+        }
     }
 
     #[test]
