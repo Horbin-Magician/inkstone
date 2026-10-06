@@ -16,7 +16,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.file_operation || self.ui.link_update.is_some() {
+        if self.file_writes.operation_active() || self.ui.link_update.is_some() {
             return;
         }
         if let Some(edit) = &self.ui.inline_title {
@@ -77,7 +77,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.file_operation {
+        if self.file_writes.operation_active() {
             return;
         }
         let Some(edit) = &self.ui.inline_title else {

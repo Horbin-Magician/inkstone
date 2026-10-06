@@ -4,7 +4,7 @@ use super::*;
 
 impl Workspace {
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.file_operation {
+        if self.file_writes.operation_active() {
             return;
         }
         let Some(vault) = self.vault.clone() else {
@@ -84,7 +84,7 @@ impl Workspace {
             let _ = this.update_in(cx, |this, window, cx| {
                 if generation != this.generation { return; }
                 this.refreshing = false;
-                if this.ui.file_operation {
+                if this.file_writes.operation_active() {
                     this.refresh_requested = true;
                     this.rescan = true;
                     return;

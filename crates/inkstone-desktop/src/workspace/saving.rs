@@ -4,7 +4,7 @@ use super::*;
 
 impl Workspace {
     pub(super) fn save_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.file_operation {
+        if self.file_writes.operation_active() {
             return;
         }
         self.flush_document_views(window, cx);
@@ -14,7 +14,7 @@ impl Workspace {
         self.save_pending(window, cx);
     }
     pub(super) fn save_pending(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.file_operation {
+        if self.file_writes.operation_active() {
             return;
         }
         let Some(vault) = self.vault.clone() else {

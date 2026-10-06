@@ -78,7 +78,6 @@ pub(super) struct UiState {
     pub closed: Vec<ClosedTab>,
     pub close_pending: std::collections::BTreeSet<usize>,
     pub window_close_requested: bool,
-    pub file_operation: bool,
     pub link_update: Option<LinkEdits>,
     pub link_update_scroll: UniformListScrollHandle,
     pub left_mode: usize,
@@ -415,7 +414,6 @@ impl UiState {
             closed: vec![],
             close_pending: Default::default(),
             window_close_requested: false,
-            file_operation: false,
             link_update: None,
             link_update_scroll: UniformListScrollHandle::new(),
             left_mode: 0,
@@ -799,7 +797,7 @@ impl Workspace {
         cx.notify();
     }
     pub(super) fn submit_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.file_operation || self.ui.link_update.is_some() {
+        if self.file_writes.operation_active() || self.ui.link_update.is_some() {
             return;
         }
         match self.ui.name_mode.take().unwrap_or(NameMode::New) {
@@ -1089,7 +1087,7 @@ impl Workspace {
         .detach();
     }
     pub(super) fn restore_deleted(&mut self, i: usize, cx: &mut Context<Self>) {
-        if self.ui.file_operation {
+        if self.file_writes.operation_active() {
             return;
         }
         let Some(vault) = self.vault.clone() else {

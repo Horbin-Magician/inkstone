@@ -119,7 +119,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.file_operation || self.file_writes.pending() > 0 {
+        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
             return;
         }
         let generation = self.generation;
@@ -153,7 +153,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.file_operation || self.file_writes.pending() > 0 {
+        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
             return;
         }
         if self

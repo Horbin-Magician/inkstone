@@ -50,7 +50,7 @@ impl Workspace {
     }
     fn restore_sync_backup(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.generation != self.ui.sync_recovery.generation
-            || self.ui.file_operation
+            || self.file_writes.operation_active()
             || self.file_writes.pending() > 0
             || self.ui.sync_recovery.loading
         {
@@ -214,7 +214,7 @@ impl Workspace {
                                                 "恢复为副本：{description}"
                                             ))
                                             .disabled(
-                                                self.ui.file_operation
+                                                self.file_writes.operation_active()
                                                     || self.file_writes.pending() > 0
                                                     || state.loading,
                                             )

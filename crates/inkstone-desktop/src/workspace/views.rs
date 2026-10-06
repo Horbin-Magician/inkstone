@@ -79,7 +79,7 @@ impl Workspace {
     ) -> bool {
         if self.ui.inline_title.is_some() {
             self.commit_inline_title(false, window, cx);
-            if self.ui.inline_title.is_some() && !self.ui.file_operation {
+            if self.ui.inline_title.is_some() && !self.file_writes.operation_active() {
                 self.ui.window_close_requested = false;
                 self.notifications
                     .publish("请完成或取消标题修改后关闭窗口。".into());

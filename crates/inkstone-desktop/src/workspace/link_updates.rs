@@ -46,8 +46,7 @@ impl Workspace {
             return;
         };
         let generation = self.generation;
-        self.ui.file_operation = true;
-        let write_ticket = self.file_writes.begin();
+        let write_ticket = self.file_writes.begin_operation();
         let task = cx.background_executor().spawn(async move {
             let mut written = vec![];
             let mut errors = vec![];
@@ -62,7 +61,6 @@ impl Workspace {
         cx.spawn_in(window, async move |this, cx| {
             let (written, errors) = task.await;
             let _ = this.update_in(cx, |this, w, cx| {
-                this.ui.file_operation = false;
                 this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;

@@ -819,7 +819,7 @@ mod tests {
                         assert_eq!(w.ui.trash.len(), 12);
                         assert_eq!(w.recoveries.len(), 12);
                         assert_eq!(w.file_writes.pending(), 0);
-                        assert!(!w.ui.file_operation);
+                        assert!(!w.file_writes.operation_active());
                         assert!(w.ui.history.is_none());
                         assert!(w.recoveries.iter().all(|e| e.record.draft == "unsaved"));
                     })
