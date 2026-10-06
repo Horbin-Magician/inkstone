@@ -1123,3 +1123,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 每页逐项验证可聚焦记录集合恰为该页记录、其他页没有渲染行；每次焦点揭示的控件上下左右边界均在恢复列表滚动视口内。翻页后焦点留在分页区域；全过程没有打开历史正文、创建笔记或启动文件写入。
 - 新增定向 GUI 回归通过，workspace all-targets Clippy -D warnings、格式和 diff 检查通过。日志 `target/history-catalog-minimum.log`、`target/history-catalog-minimum-clippy.log`。仅增加调试布局选择器与回归，不更改分页业务行为；不重跑无关全量测试。
 - 该结果补齐自动最小窗口/字号压力/反向导航证据，不等同于真实 DPI、VoiceOver 或 macOS 原生最小窗口验收；这些未验证项仍保留。无用户笔记进入提交。
+
+
+## 容量 HTTP 回归的连接模式（2026-10-06）
+
+- 核心全量重复检查第 10 轮复现容量 HTTP 模拟服务读取请求时 WouldBlock。监听器为非阻塞模式，接收连接后现在显式切换到阻塞模式，再应用原有 5 秒读取超时；保留接收截止时间、只读方法和清单变化断言，不改变生产 WebDAV 逻辑。
+- 修复后连续 18 轮核心全量通过（每轮 268 通过 / 3 既有忽略）；第 19 轮容量测试通过，但另一备份清理回归在检查保留记录时失败，不能宣称整体稳定性已解决。失败证据分别为 target/backup-cleanup-audit/core-10.log 和 fixed-core-19.log；修复后的 19 轮容量回归均通过。
+- 工作区 all-targets Clippy -D warnings、格式和 diff 检查通过。仅本机 macOS 验证，本提交未执行 Windows CI，也未增加 Linux 适配。用户笔记未进入提交。
