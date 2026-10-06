@@ -892,3 +892,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新增真实表格 GPUI 回归：完成首次布局后在表格前连续插入 Unicode/换行，刻意不等待后台任务，断言展示对象始终存在、源范围正确移动、尺寸与视图实体不变，逐字符来源到输出映射一致；随后改动表格，旧展示立即失效。独立回归验证外部新增引用定义及插入代码围栏不能复用过期表格。核心映射回归覆盖旧版本不匹配、改动字节、越界映射、外部来源、引用/任务依赖及未解析引用拒绝。
 - 展示对象相关 9 项回归通过，核心 256 项通过（3 项既有手动基准/夹具入口忽略），编辑器 115 项通过（2 项手动帧基准忽略）；最终 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/local-projection-tests.log`、`target/local-projection-core-tests.log`、`target/local-projection-editor-tests.log`、`target/local-projection-clippy.log`、`target/local-projection-fmt.log`。
 - 本轮验证后台结果到达前的展示对象与几何连续性，不宣称原生帧延迟或闪烁矩阵已通过。复杂引用、任务、脚注及其他跨片段依赖仍等待重建，完整后台阅读文档计算未改变；未修改真实用户笔记。
+
+
+## 大库同步：真实扫描入口成本基线（2026-10-06）
+
+- 新增 release 示例，使用实际 `synchronize_cancellable` 入口，记录 Scanning 内枚举、文件处理和清单校验时间，在 ReadingManifest 回调取消。全部 Remote 方法为不可到达断言，恢复目录要求全新创建，避免碰触已有部分下载缓存；不修改生产同步实现。
+- 固定生成器创建一万个 1 KiB 文件和九个 64 MiB 文件，交错各运行三个独立进程，记录峰值 RSS、每轮耗时、文件数/字节数、源码与二进制散列，最后在计时外复核全部正文散列。六次完整执行通过，扫描总计中位数分别为 222.130 ms / 1070.431 ms；分项、内存口径与限制见 `PERFORMANCE_BASELINE.md`。
+- release 构建、脚本完整执行、全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/sync-scan-benchmark-build.log`、`target/sync-scan-benchmark-run.log`、`target/sync-scan-benchmark-clippy.log`、`target/sync-scan-benchmark-fmt.log`。不宣称冷磁盘性能或网络吞吐；未连接远端、未读取真实用户笔记。本轮只建立优化依据，没有引入元数据缓存或修改同步安全边界。
