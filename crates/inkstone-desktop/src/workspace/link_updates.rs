@@ -26,6 +26,12 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.file_writes.can_start_exclusive_operation() {
+            self.notifications
+                .publish("文件任务尚未完成，请稍后重试更新链接。".into());
+            cx.notify();
+            return;
+        }
         let Some(edits) = self.ui.link_update.take() else {
             return;
         };
@@ -46,7 +52,17 @@ impl Workspace {
             return;
         };
         let generation = self.generation;
-        let write_ticket = self.file_writes.begin_operation();
+        let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
+            // Automatic link updates can arrive while another file task is
+            // pending. Keep the reviewed edits available for an explicit retry.
+            self.ui.link_update = Some(edits);
+            self.ui.link_update_scroll = UniformListScrollHandle::new();
+            window.focus(&self.ui.modal_focus, cx);
+            self.notifications
+                .publish("文件任务尚未完成，请稍后重试更新链接。".into());
+            cx.notify();
+            return;
+        };
         let task = cx.background_executor().spawn(async move {
             let mut written = vec![];
             let mut errors = vec![];
