@@ -1240,3 +1240,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 同机、相同 release 参数与基准代码复测，target/history-catalog-no-cache-fsync 保存结果和环境/源码/二进制散列：冷导入 1,929.51 ms，较基线 45,981.54 ms 降约 95.8%；暖目录三轮 240.78 / 246.06 / 223.53 ms，单篇首次 236.53 ms。两组正文与记录数一致；新生成目录绝对路径短两字节，因此每条 JSON 少两字节，总体 39,858,900 字节，未宣称字节完全相同或暖扫描有改善。
 - 新回归模拟重命名后元数据文件交替丢失/截断，目录重建仍归属新路径，全部版本可读且原日志逐字节不变。26 项历史回归、workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/history-cache-final-tests.log、history-cache-final-clippy.log、history-catalog-no-cache-fsync.log。
 - 这是一次后端冷导入对比，不是原生性能验收；暖全目录扫描、更多样本与平台仍待继续。崩溃后可丢失缓存并重新付出索引成本，不能丢失权威恢复数据。无用户笔记进入提交。
+
+## 共享锁与部分恢复的两平台远端结果（2026-10-06）
+
+- GitHub Actions run 37429373295，精确 HEAD e96db5c1b138c42f7c5210076020135b163be6b1，四项工作区/vendor jobs 全部 completed/success。日志 target/ci-all-37429373295.log。
+- macOS 核心 274 通过/3 既有忽略，桌面 345 通过/2 既有忽略；Windows 核心 264 通过/3 既有忽略，桌面 342 通过/2 既有忽略。两平台另各 8 项集成测试、格式和 Clippy 通过；vendor 各 1,808 项通过且无忽略。
+- 逐项确认两平台部分残留恢复的未保存保护、过期检查拒绝和最小窗口键盘分页均通过，macOS 子进程 exec 前释放锁回归通过。该轮不含 c94a5a1 起的 AX 文本、任务准入及 00cfb16 历史缓存优化，后者需新一轮验证。状态与验证文档更新经 diff 检查，无用户笔记进入提交。
