@@ -24,6 +24,32 @@ use super::state::{TextInputState, sync_focused_input_registry};
 use super::{InputContentType, InputState, sync_native_content_type};
 use crate::ThemeStyled as _;
 
+// One snapshot per rendered input. Cursor blinks must not flatten the document.
+#[derive(Default)]
+struct AccessibilityValueCache(Option<(u64, SharedString)>);
+
+impl AccessibilityValueCache {
+    fn value(
+        &mut self,
+        revision: u64,
+        exposed: bool,
+        text: impl FnOnce() -> String,
+    ) -> Option<SharedString> {
+        if !exposed {
+            self.0 = None;
+            return None;
+        }
+        if self
+            .0
+            .as_ref()
+            .is_none_or(|(cached, _)| *cached != revision)
+        {
+            self.0 = Some((revision, text().into()));
+        }
+        self.0.as_ref().map(|(_, value)| value.clone())
+    }
+}
+
 fn accessibility_role(
     is_multi_line: bool,
     content_type: Option<InputContentType>,
@@ -698,9 +724,18 @@ impl RenderOnce for Input {
         let accessibility_state = state.clone();
         // Tests read the same accessibility value as assistive technology.
         // Avoid materializing the rope in normal builds without a client.
-        let accessibility_value = ((window.is_a11y_active() || cfg!(feature = "test-support"))
-            && exposes_accessibility_value(presentation.is_masked(), content_type))
-        .then(|| state.text(cx).to_string());
+        let expose_value = (window.is_a11y_active() || cfg!(feature = "test-support"))
+            && exposes_accessibility_value(presentation.is_masked(), content_type);
+        let value_cache = window.use_keyed_state(
+            ("input-accessibility-value", state.entity_id()),
+            cx,
+            |_, _| AccessibilityValueCache::default(),
+        );
+        let accessibility_value = value_cache.update(cx, |cache, cx| {
+            cache.value(state.text_revision(cx), expose_value, || {
+                state.text(cx).to_string()
+            })
+        });
         let input_focused =
             presentation.focus_handle().is_focused(window) && !presentation.is_disabled();
         if input_focused {
@@ -1115,6 +1150,16 @@ mod tests {
         });
         assert_eq!(state.read_with(cx, |state, _| state.value()), "updated🦀");
         assert_eq!(changes.get(), 1);
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        assert_eq!(
+            *captured.lock().unwrap(),
+            Some((
+                cfg!(feature = "test-support").then(|| "updated🦀".to_owned()),
+                true
+            ))
+        );
         for disabled in [false, true] {
             cx.update(|window, cx| {
                 base.set_disabled(disabled, cx);
@@ -1139,6 +1184,16 @@ mod tests {
             window.dispatch_action(Box::new(super::super::Undo), cx);
         });
         assert_eq!(state.read_with(cx, |state, _| state.value()), "initial");
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        assert_eq!(
+            *captured.lock().unwrap(),
+            Some((
+                cfg!(feature = "test-support").then(|| "initial".to_owned()),
+                true
+            ))
+        );
         cx.update(|window, cx| {
             state.update(cx, |state, cx| state.set_masked(true, window, cx));
             Input::handle_accessibility_set_value(&base, Some(&action), window, cx);
@@ -1409,5 +1464,42 @@ mod tests {
         });
         assert!(!cx.update(|window, cx| window.has_focused_input(cx)));
         assert_eq!(cx.update(|window, cx| window.focused_input(cx)), None);
+    }
+}
+
+#[cfg(test)]
+mod accessibility_value_cache_tests {
+    use super::AccessibilityValueCache;
+
+    #[test]
+    fn unchanged_revision_reuses_text_and_hiding_drops_it() {
+        let mut cache = AccessibilityValueCache::default();
+        assert_eq!(
+            cache.value(1, true, || "中文".into()).as_deref(),
+            Some("中文")
+        );
+        for _ in 0..60 {
+            assert_eq!(
+                cache
+                    .value(1, true, || panic!("unchanged text read again"))
+                    .as_deref(),
+                Some("中文")
+            );
+        }
+        // Same byte length is not a valid cache key.
+        assert_eq!(
+            cache.value(2, true, || "撤销".into()).as_deref(),
+            Some("撤销")
+        );
+        assert!(
+            cache
+                .value(2, false, || panic!("hidden text read"))
+                .is_none()
+        );
+        assert!(cache.0.is_none());
+        assert_eq!(
+            cache.value(2, true, || "撤销".into()).as_deref(),
+            Some("撤销")
+        );
     }
 }

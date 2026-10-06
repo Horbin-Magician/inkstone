@@ -1370,3 +1370,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - cbb5372 locked release 构建及三轮原生输入/撤销、活动状态、退出和生成库散列核验通过。CPU 3.7984%/3.7986%/3.7981%，中位数 3.7984%，仍未达 2% 预算；采样 RSS 与边界详见 PERFORMANCE_BASELINE.md，原始证据 target/native-font-projection-srkzmhop。
 - GitHub Actions run 37441574346，精确 HEAD 627d780fa1bad078cfa39a0a254ed77141910605，macOS/Windows 工作区及 vendor 四项 jobs 均 completed/success；不覆盖 cbb5372 字体投影改动。自动检查不替代原生 IME、真实服务商及完整性能验收。
 - 文档 diff 检查通过。仅测试生成库，真实用户笔记未进入提交。
+
+## 辅助功能文本缓存回归（2026-10-06）
+
+- cbb5372 原生调用栈 target/native-font-projection-srkzmhop/3/idle-stack.txt 显示 Input::render 在辅助功能激活时每次展平 Rope。现按输入实体和正文修订号保留当前 SharedString，未变化时不读取全文；无客户端、密码或遮罩隐藏时清理缓存。
+- 新缓存测试覆盖 60 次未变化读取、等长度文本更换及隐藏后清理；既有 AX 写入测试补充实际输出在编辑、撤销后更新的断言，并保留遮罩不暴露正文的断言。
+- vendor Base 1,238 + Component 573 项全量通过，无忽略；补充 AX 断言后 Component 573 项再次全量通过。editor:: 117 项通过、2 项既有手工性能基准忽略；workspace all-targets Clippy -D warnings、workspace 与修改的 vendor 文件格式、diff 检查通过。日志 target/backup-cleanup-audit/a11y-value-cache-{vendor,component-final,editor,clippy}.log。
+- 原生收益待测，不据缓存回归宣布 2% CPU 预算达标。GitHub run 37443802450 正在验证 0aa54f2（含字体投影改动），尚不覆盖本次缓存。无用户笔记进入提交。

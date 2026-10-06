@@ -78,6 +78,10 @@ impl TextInputState {
         dispatch!(self, |state| state.read(cx).text())
     }
 
+    pub(crate) fn text_revision(&self, cx: &App) -> u64 {
+        dispatch!(self, |state| state.read(cx).text_revision())
+    }
+
     pub(crate) fn focus(&self, window: &mut Window, cx: &mut App) {
         dispatch!(self, |state| state
             .update(cx, |state, cx| state.focus(window, cx)))
