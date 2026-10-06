@@ -40,7 +40,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.file_writes.pending() > 0 || self.ui.link_update.is_some() {
+        if !self.file_writes.can_start_exclusive_operation() || self.ui.link_update.is_some() {
             return;
         }
         if self.has_pending_input(id, window, cx) {
@@ -103,10 +103,13 @@ impl Workspace {
         let id = tab.id;
         let document = tab.save.clone();
         let generation = self.generation;
+        let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
+            return;
+        };
         if !tab.save.persistence.begin_file_operation() {
+            self.file_writes.finish(write_ticket);
             return;
         }
-        let write_ticket = self.file_writes.begin_operation();
         let task = cx.background_executor().spawn(async move {
             if trash {
                 vault

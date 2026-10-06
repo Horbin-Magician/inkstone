@@ -1214,3 +1214,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - release c94a5a1 在新隔离实例 target/native-partial-ax-edhfu87k/case 通过：来源路径、12 项中 4 项有效的统计与保护说明、完整中文/emoji 文件路径、可恢复/缺失/内容校验失败三类结论，均以原生 text 节点出现。
 - Tab/Shift+Tab/Enter 翻页 1→2→3，系统可访问树移除上一页文件文本，展示当前五条/末页两条，并更新页码。未打开恢复选择器或执行文件写入。Cmd+Q 后进程检查确认退出；复制的残留 10 个文件与原夹具散列相同，生成的 corpus 笔记全部不变。记录 native-ax-acceptance.json，构建日志 target/backup-cleanup-audit/partial-a11y-native-build.log。
 - 该复验覆盖 macOS 原生 AX 数据，不包含 VoiceOver 朗读/导航、Windows 或其他 DPI；这些验收仍保留。仅提交本记录，diff 检查通过。
+
+## 笔记与文件夹移动的任务准入（2026-10-06）
+
+- 将两类路径操作的“文件任务为空才可启动”规则移入 FileWrites；实际取得独占任务凭据时再次检查，UI 提前检查不再是唯一保护。文档状态拒绝进入操作时释放已取得凭据。保存、IME、冲突、链接审阅与任务完成的代次判断保持原有行为。
+- 四项 FileWrites 单元回归通过，包含两个后台任务乱序完成、未清空时拒绝独占操作且不泄漏凭据、独占期间拒绝重复启动、完成后重新开放准入。既有笔记/文件夹旧代次回归增加后台任务阻塞检查，确认拒绝时不改路径、不设置文档保存状态、不新增任务；释放阻塞后实际移动成功，旧回调只释放自己的保护。
+- 定向 GUI 回归、workspace all-targets Clippy -D warnings、格式与 diff 检查通过，日志 target/backup-cleanup-audit/admission-unit.log、admission-moves.log、admission-clippy.log。本次为任务准入边界提取，未执行新的原生综合验收；无用户笔记进入提交。

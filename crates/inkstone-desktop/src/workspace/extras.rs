@@ -197,7 +197,7 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        if self.file_writes.pending() > 0 || self.ui.link_update.is_some() {
+        if !self.file_writes.can_start_exclusive_operation() || self.ui.link_update.is_some() {
             return;
         }
         if self.tabs.iter().any(|t| {
@@ -223,7 +223,9 @@ impl Workspace {
         let generation = self.generation;
         let from = old.clone();
         let to = new.clone();
-        let write_ticket = self.file_writes.begin_operation();
+        let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
+            return;
+        };
         let task = cx.background_executor().spawn(async move {
             if let Some(to) = to {
                 let index = Index::build(&vault)?;

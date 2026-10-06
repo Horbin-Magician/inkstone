@@ -17,6 +17,17 @@ pub(super) struct Ticket {
 }
 
 impl FileWrites {
+    pub fn can_start_exclusive_operation(&self) -> bool {
+        self.active.is_empty()
+    }
+
+    /// Check admission and register protection together. Read-only admission
+    /// checks in a view are advisory; the task must acquire its ticket here.
+    pub fn try_begin_exclusive_operation(&mut self) -> Option<Ticket> {
+        self.can_start_exclusive_operation()
+            .then(|| self.register(true))
+    }
+
     pub fn begin(&mut self) -> Ticket {
         self.register(false)
     }
@@ -53,6 +64,24 @@ impl FileWrites {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exclusive_admission_waits_for_every_task_and_reopens_after_completion() {
+        let mut writes = FileWrites::default();
+        let one = writes.begin();
+        let two = writes.begin();
+        assert!(writes.try_begin_exclusive_operation().is_none());
+        assert!(writes.finish(two));
+        assert!(writes.try_begin_exclusive_operation().is_none());
+        assert_eq!(writes.pending(), 1);
+        assert!(writes.finish(one));
+        let operation = writes.try_begin_exclusive_operation().unwrap();
+        assert!(writes.operation_active());
+        assert!(writes.try_begin_exclusive_operation().is_none());
+        assert_eq!(writes.pending(), 1);
+        assert!(writes.finish(operation));
+        assert!(writes.can_start_exclusive_operation());
+    }
 
     #[test]
     fn completion_is_owned_and_out_of_order_without_releasing_other_tasks() {
