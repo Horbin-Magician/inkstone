@@ -66,6 +66,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lost_or_truncated_metadata_rebuilds_renamed_history_without_changing_journals() {
+        let root = std::env::temp_dir().join(format!("inkstone-cache-loss-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let old = Path::new("old.md");
+        let new = Path::new("新名字.md");
+        vault.save(old, None, "original").unwrap();
+        vault.rename_note(old, new, "original").unwrap();
+        let entries = vault.history(new).unwrap();
+        let original: Vec<_> = entries
+            .iter()
+            .map(|e| fs::read(&e.journal).unwrap())
+            .collect();
+        let records = vault.recovery_dir.join(".history-index/records");
+        // Simulate cache writes lost/truncated by a crash. Ownership and journals
+        // remain authoritative; neither their data nor their durability changes.
+        for (i, entry) in fs::read_dir(&records).unwrap().enumerate() {
+            let path = entry.unwrap().path();
+            if i % 2 == 0 {
+                fs::remove_file(path).unwrap();
+            } else {
+                fs::write(path, b"{").unwrap();
+            }
+        }
+        let notes = vault.history_notes().unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].relative, new);
+        assert_eq!(notes[0].records, entries.len());
+        for (entry, bytes) in entries.iter().zip(original) {
+            assert_eq!(fs::read(&entry.journal).unwrap(), bytes);
+            assert_eq!(
+                vault.read_history(new, &entry.journal).unwrap().draft,
+                "original"
+            );
+        }
+        assert_eq!(vault.read(new).unwrap().as_deref(), Some("original"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn discovers_external_rename_and_deletion_without_guessing_new_identity() {
         let root = std::env::temp_dir().join(format!("inkstone-history-catalog-{}", unique_id()));
         fs::create_dir_all(root.join("vault")).unwrap();
