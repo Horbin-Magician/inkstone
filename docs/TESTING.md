@@ -725,3 +725,10 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 快捷键列表保留独立滚动区域，增加持久滚动句柄并限制在设置页剩余高度内；各命令行复用焦点可见性容器。Tab/Shift+Tab 进入添加、清除、默认按钮时滚入对应命令行，不改变命令绑定。
 - 新增 GPUI 回归：800×500 逻辑窗口，rem 16/24，每个组合分别连续 45 次正向与反向 Tab；每方向至少到达 30 个不同按钮，逐次验证目标行完整位于内部视口，内部视口又位于设置页视口。新回归 1 项及既有快捷键回归 15 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/hotkey-focus-scroll-tests.log`、`target/hotkey-focus-scroll-regressions.log`、`target/hotkey-focus-scroll-clippy.log`、`target/hotkey-focus-scroll-fmt.log`。
 - 本次只覆盖列表导航与可见性，录入完成/取消后的焦点返回将单独处理；原生窗口、系统字号/DPI 与读屏仍待验收。未修改用户笔记。
+
+
+## 快捷键录入：完成与取消后返回原焦点（2026-10-06）
+
+- 开始录入时保存原焦点，再将输入交给弹窗；无效组合键保持录入，Esc 取消或成功设置后恢复原焦点并释放句柄。关闭弹窗、切换设置分类、清空/恢复绑定时清理该状态，避免跨界面保留过期录入来源。
+- 新增 GPUI 实际按键事件回归：筛选新建标签页，从输入框 Tab 到添加按钮，Enter 开始；无修饰单键继续等待，Esc 取消返回添加按钮；再次 Enter，录入 Ctrl+Alt+T 成功后返回同一按钮，Tab 可继续导航。断言设置仍打开、没有执行新建标签命令、关闭设置释放来源焦点。快捷键相关 16 项通过，全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/hotkey-recording-focus-tests.log`、`target/hotkey-recording-focus-regressions.log`、`target/hotkey-recording-focus-clippy.log`、`target/hotkey-recording-focus-fmt.log`。
+- 本轮使用测试平台，无真实笔记库和配置写入；鼠标发起录入保留此前焦点，并不保证返回被点击按钮。原生完整键盘与读屏验收仍待进行。未修改用户笔记。

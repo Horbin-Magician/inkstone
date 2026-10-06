@@ -210,6 +210,11 @@ impl Workspace {
                     Err(message) => self.ui.hotkey_message = message,
                 }
             }
+            if self.ui.hotkey_recording.is_none()
+                && let Some(focus) = self.ui.hotkey_recording_focus.take()
+            {
+                window.focus(&focus, cx);
+            }
             cx.notify();
             return;
         }
@@ -320,6 +325,7 @@ impl Workspace {
                                                                         this.ui
                                                                             .hotkey_message
                                                                             .clear();
+                                                                        this.ui.hotkey_recording_focus = w.focused(cx);
                                                                         w.focus(
                                                                             &this.ui.modal_focus,
                                                                             cx,
@@ -341,8 +347,8 @@ impl Workspace {
                                                                             .prefs
                                                                             .hotkeys
                                                                             .insert(id, vec![]);
-                                                                        this.ui.hotkey_recording =
-                                                                            None;
+                                                                        this.ui.hotkey_recording = None;
+                                                                        this.ui.hotkey_recording_focus = None;
                                                                         this.persist_workspace(cx);
                                                                         cx.notify();
                                                                     },
@@ -366,8 +372,8 @@ impl Workspace {
                                                                             }
                                                                             Err(error) => error,
                                                                         };
-                                                                        this.ui.hotkey_recording =
-                                                                            None;
+                                                                        this.ui.hotkey_recording = None;
+                                                                        this.ui.hotkey_recording_focus = None;
                                                                         this.persist_workspace(cx);
                                                                         cx.notify();
                                                                     },
@@ -1044,6 +1050,80 @@ mod tests {
             .update(&mut visual, |w, _, _| {
                 assert!(w.ui.settings);
                 assert!(w.ui.hotkey_recording.is_none());
+            })
+            .unwrap();
+    }
+    #[gpui::test]
+    fn keyboard_hotkey_recording_restores_origin_on_cancel_and_success(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        let id = commands::COMMANDS
+            .iter()
+            .find(|(_, title, _)| *title == "新建标签页")
+            .unwrap()
+            .0;
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.settings = true;
+                w.ui.settings_tab = 1;
+                w.ui.hotkey_filter
+                    .update(cx, |s, cx| s.set_value("新建标签页", window, cx));
+                window.focus(&w.ui.hotkey_filter.read(cx).focus_handle(cx), cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let press = |visual: &mut VisualTestContext, key: &str| {
+            let keystroke = Keystroke::parse(key).unwrap();
+            visual.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(KeyUpEvent { keystroke });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        press(&mut visual, "tab");
+        let origin = visual.update(|window, cx| window.focused(cx).unwrap());
+        for finish in ["escape", "ctrl-alt-t"] {
+            press(&mut visual, "enter");
+            handle
+                .update(&mut visual, |w, window, _| {
+                    assert_eq!(w.ui.hotkey_recording, Some(id));
+                    assert_eq!(w.ui.hotkey_recording_focus.as_ref(), Some(&origin));
+                    assert!(w.ui.modal_focus.is_focused(window));
+                })
+                .unwrap();
+            press(&mut visual, "a");
+            handle
+                .update(&mut visual, |w, window, _| {
+                    assert_eq!(w.ui.hotkey_recording, Some(id));
+                    assert!(w.ui.modal_focus.is_focused(window));
+                })
+                .unwrap();
+            press(&mut visual, finish);
+            handle
+                .update(&mut visual, |w, window, _| {
+                    assert!(w.ui.settings);
+                    assert!(w.tabs.is_empty());
+                    assert!(w.ui.hotkey_recording.is_none());
+                    assert!(w.ui.hotkey_recording_focus.is_none());
+                    assert!(origin.is_focused(window));
+                    if finish == "ctrl-alt-t" {
+                        assert!(w.hotkeys(id).iter().any(|key| key == "ctrl-alt-t"));
+                    }
+                })
+                .unwrap();
+        }
+        press(&mut visual, "tab");
+        visual.update(|window, _| assert!(!origin.is_focused(window)));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.hotkey_recording = Some(id);
+                w.ui.hotkey_recording_focus = Some(origin);
+                w.close_overlays(window, cx);
+                assert!(w.ui.hotkey_recording_focus.is_none());
             })
             .unwrap();
     }

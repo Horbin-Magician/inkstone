@@ -362,6 +362,7 @@ impl Workspace {
                                 this.prepare_file_settings(w, cx);
                             }
                             this.ui.hotkey_recording = None;
+                            this.ui.hotkey_recording_focus = None;
                             cx.notify();
                         }))
                 }),
@@ -467,6 +468,7 @@ impl Workspace {
                             this.ui.settings_tab = tab;
                             this.ui.settings_scroll.set_offset(Point::default());
                             this.ui.hotkey_recording = None;
+                            this.ui.hotkey_recording_focus = None;
                             if tab == 2 {
                                 this.prepare_file_settings(w, cx);
                             }
