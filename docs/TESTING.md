@@ -646,3 +646,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 菜单初始化读取实际配置，观察工作区通知并仅在有效键快照变化时重建菜单；清空/恢复默认/其他命令占用默认键均通过同一配置来源反映。绑定重建保留无关动作及上下文，只移除菜单命令的旧绑定，避免累积过期组合。
 - 快捷键相关 15 项回归通过；新增菜单绑定回归 1 项通过，覆盖自定义、清空、恢复默认、反复刷新数量稳定、退出键及输入上下文撤销绑定保留。全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/menu-shortcuts-tests.log`、`target/menu-shortcuts-native-tests.log`、`target/menu-shortcuts-clippy.log`、`target/menu-shortcuts-fmt.log`。
 - 上述使用 GPUI 测试平台，日志名称不代表原生验收；真实 macOS 菜单显示/点击、输入法焦点和自定义键录入流程仍待实机核对。未修改用户笔记。
+
+## 示例库：名称、快捷键与恢复说明（2026-10-06）
+
+- 欢迎示例改用墨砚/InkStone，区分快速打开与命令面板，列出 macOS 和 Windows/Linux 默认快捷键并说明自定义配置优先；更新三种模式、建库和首篇笔记步骤，补充手动保存、独立草稿及恢复副本的边界。建议复制示例库后体验。
+- 桌面验收样例增加写作、保存、草稿恢复、布局及键盘检查，明确步骤不代表通过结果。移除旧的“限定实时样式”和过时键位说明。
+- 逐项对照命令默认表、平台转换及编辑器查找绑定；检查示例库本地 Markdown/图片链接，保留“我的第一篇笔记”这一有意创建新笔记的双链。检查通过，记录：`target/demo-content-check.log`；`git diff --check` 通过。本次只改示例和状态/验收文档，不重跑代码测试，未修改真实用户笔记。
