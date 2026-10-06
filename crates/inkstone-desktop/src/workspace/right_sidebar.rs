@@ -11,6 +11,7 @@ type OutlineKey = Rc<(PathBuf, Vec<inkstone_core::index::Heading>)>;
 #[derive(Default)]
 pub(super) struct OutlineState {
     key: Option<OutlineKey>,
+    scroll: UniformListScrollHandle,
     collapsed: std::collections::BTreeSet<usize>,
 }
 
@@ -114,6 +115,9 @@ impl Workspace {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
+                    .when(self.ui.right_mode == 0, |s| {
+                        s.flex().flex_col().overflow_hidden()
+                    })
                     .p_3()
                     .when(self.ui.right_mode == 0, |s| {
                         s.child(
@@ -121,6 +125,7 @@ impl Workspace {
                                 .flex()
                                 .items_center()
                                 .h(px(28.))
+                                .flex_shrink_0()
                                 .mb_2()
                                 .child(
                                     tool("outline-filter", "search", "筛选大纲")
@@ -151,6 +156,7 @@ impl Workspace {
                             s.child(
                                 div()
                                     .mb_2()
+                                    .flex_shrink_0()
                                     .child(Input::new(&self.ui.outline_filter).cleanable(true)),
                             )
                         })
@@ -169,64 +175,86 @@ impl Workspace {
                                     }),
                             )
                         })
-                        .children(headings.into_iter().enumerate().map(
-                            |(i, (h, has_children, folded))| {
-                                let pane = pane.clone();
-                                let key = fold_key.clone();
-                                let offset = h.offset;
-                                div()
-                                    .id(("outline", i))
-                                    .h(px(27.))
-                                    .text_size(px(MIN_UI_FONT_SIZE))
-                                    .rounded(px(4.))
-                                    .hover(|s| s.bg(rgba(0x88888818)))
-                                    .flex()
-                                    .items_center()
-                                    .gap_1()
-                                    .pl(px((h.level - 1) as f32 * 17.))
-                                    .cursor_pointer()
-                                    .child(div().w(px(18.)).flex_shrink_0().when(
-                                        has_children,
-                                        |s| {
-                                            s.child(
-                                                Button::new(("outline-fold", offset))
-                                                    .ghost()
-                                                    .compact()
-                                                    .w(px(18.))
-                                                    .h(px(24.))
-                                                    .icon(
-                                                        icon(if folded {
-                                                            "chevron-right"
-                                                        } else {
-                                                            "chevron-down"
-                                                        })
-                                                        .size(px(14.)),
-                                                    )
-                                                    .accessibility_label(format!(
-                                                        "展开或折叠 {}",
-                                                        h.title
-                                                    ))
-                                                    .on_click(cx.listener(
-                                                        move |this, _, _, cx| {
-                                                            cx.stop_propagation();
-                                                            this.toggle_outline_fold(
-                                                                key.clone(),
-                                                                Some(offset),
-                                                                cx,
-                                                            );
-                                                        },
-                                                    )),
-                                            )
-                                        },
-                                    ))
-                                    .child(div().flex_1().min_w_0().truncate().child(h.title))
-                                    .on_click(cx.listener(move |_, _, w, cx| {
-                                        if let Some(pane) = &pane {
-                                            pane.update(cx, |p, cx| p.jump(h.offset, w, cx));
-                                        }
-                                    }))
-                            },
-                        ))
+                        .child(
+                            uniform_list(
+                                "outline-rows",
+                                headings.len(),
+                                cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
+                                    range
+                                        .map(|i| {
+                                            let (h, has_children, folded) = headings[i].clone();
+                                            let pane = pane.clone();
+                                            let key = fold_key.clone();
+                                            let offset = h.offset;
+                                            div()
+                                                .id(("outline", i))
+                                                .debug_selector(move || format!("outline-row-{i}"))
+                                                .h(px(27.))
+                                                .text_size(px(MIN_UI_FONT_SIZE))
+                                                .rounded(px(4.))
+                                                .hover(|s| s.bg(rgba(0x88888818)))
+                                                .flex()
+                                                .items_center()
+                                                .gap_1()
+                                                .pl(px((h.level - 1) as f32 * 17.))
+                                                .cursor_pointer()
+                                                .child(div().w(px(18.)).flex_shrink_0().when(
+                                                    has_children,
+                                                    |s| {
+                                                        s.child(
+                                                            Button::new(("outline-fold", offset))
+                                                                .ghost()
+                                                                .compact()
+                                                                .w(px(18.))
+                                                                .h(px(24.))
+                                                                .icon(
+                                                                    icon(if folded {
+                                                                        "chevron-right"
+                                                                    } else {
+                                                                        "chevron-down"
+                                                                    })
+                                                                    .size(px(14.)),
+                                                                )
+                                                                .accessibility_label(format!(
+                                                                    "展开或折叠 {}",
+                                                                    h.title
+                                                                ))
+                                                                .on_click(cx.listener(
+                                                                    move |this, _, _, cx| {
+                                                                        cx.stop_propagation();
+                                                                        this.toggle_outline_fold(
+                                                                            key.clone(),
+                                                                            Some(offset),
+                                                                            cx,
+                                                                        );
+                                                                    },
+                                                                )),
+                                                        )
+                                                    },
+                                                ))
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .truncate()
+                                                        .child(h.title),
+                                                )
+                                                .on_click(cx.listener(move |_, _, w, cx| {
+                                                    if let Some(pane) = &pane {
+                                                        pane.update(cx, |p, cx| {
+                                                            p.jump(h.offset, w, cx)
+                                                        });
+                                                    }
+                                                }))
+                                        })
+                                        .collect::<Vec<_>>()
+                                }),
+                            )
+                            .track_scroll(&self.ui.outline.scroll)
+                            .flex_1()
+                            .min_h_0()
+                            .w_full(),
+                        )
                     })
                     .when(self.ui.right_mode == 1, |s| {
                         s.child(
@@ -769,7 +797,106 @@ impl Workspace {
 
 #[cfg(test)]
 mod outline_tests {
-    use super::outline_rows;
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn large_outline_virtualizes_rows_and_reconciles_scroll_after_filter_and_fold(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let source = format!(
+            "# 总览\n\n{}",
+            (0..500)
+                .map(|i| format!("## 标题{i:03}\n\n正文\n\n"))
+                .collect::<String>()
+        );
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.ui.prefs.right_open = true;
+                w.ui.right_mode = 0;
+                w.add_tab("outline.md".into(), Some(source.clone()), false, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1200.), px(820.)));
+        fn draw(v: &mut VisualTestContext) {
+            for _ in 0..2 {
+                v.update(|window, cx| window.draw(cx).clear(cx));
+            }
+        }
+        draw(&mut visual);
+        assert!(visual.debug_bounds("outline-row-0").is_some());
+        assert!(visual.debug_bounds("outline-row-100").is_none());
+        assert!(visual.debug_bounds("outline-row-500").is_none());
+        handle
+            .update(&mut visual, |w, _, cx| {
+                w.ui.outline
+                    .scroll
+                    .scroll_to_item(500, ScrollStrategy::Bottom);
+                cx.notify();
+            })
+            .unwrap();
+        draw(&mut visual);
+        assert!(visual.debug_bounds("outline-row-500").is_some());
+        assert!(visual.debug_bounds("outline-row-1").is_none());
+        let last = visual.debug_bounds("outline-row-500").unwrap();
+        visual.simulate_click(last.center(), Modifiers::default());
+        draw(&mut visual);
+        let offset = source.find("## 标题499").unwrap();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).selected_range(),
+                    offset..offset
+                );
+            })
+            .unwrap();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.outline_filter_open = true;
+                w.ui.outline_filter
+                    .update(cx, |s, cx| s.set_value("标题499", window, cx));
+                cx.notify();
+            })
+            .unwrap();
+        draw(&mut visual);
+        assert!(visual.debug_bounds("outline-row-0").is_some());
+        assert!(visual.debug_bounds("outline-row-1").is_none());
+        let filtered = visual.debug_bounds("outline-row-0").unwrap();
+        visual.simulate_click(filtered.center(), Modifiers::default());
+        draw(&mut visual);
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).selected_range(),
+                    offset..offset
+                );
+            })
+            .unwrap();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                w.ui.outline_filter_open = false;
+                let pane = w.tabs[0].pane.read(cx);
+                let key = Rc::new((pane.current_path.clone(), pane.parsed.headings.clone()));
+                w.toggle_outline_fold(key, Some(0), cx);
+            })
+            .unwrap();
+        draw(&mut visual);
+        assert!(visual.debug_bounds("outline-row-0").is_some());
+        assert!(visual.debug_bounds("outline-row-1").is_none());
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(
+                    w.tabs[0].pane.read(cx).editor.read(cx).value().as_ref(),
+                    source
+                );
+            })
+            .unwrap();
+    }
 
     #[test]
     fn outline_folds_respect_hierarchy_and_filter_reveals_hidden_matches() {
