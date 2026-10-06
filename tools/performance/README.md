@@ -13,6 +13,15 @@ cargo build --release --locked -p inkstone-desktop
 
 ## 隔离实例的启动与退出
 
+macOS 可用准备工具创建全新、已临时签名的测试 bundle：
+
+```sh
+python3 tools/performance/prepare_macos.py target/native-ordinary-1 --scenario ordinary --mode live
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/performance -p test_prepare_macos.py -v
+```
+
+`--scenario` 接受 corpus v1 的五个场景，`--mode` 为 live/source/reading；多标签按 manifest 顺序恢复 12 篇，首篇激活。每次选择不存在的新输出目录；已有目录或悬空链接会拒绝。工具只准备文件和验签，不启动应用、不测量、不操作窗口。通过原生应用启动工具打开输出的完整 bundle 路径，再确认库/模式/可见正文。重新启动同一 bundle 仍使用其隔离数据与最近库。`preparation.json` 记录已签名二进制散列、环境、场景及完整 corpus；构建提交、机器、PID、实际窗口和测量结果仍按下文另行记录。
+
 显式指定生成库和独立 `XDG_DATA_HOME`，macOS 测试 bundle 也在 `Info.plist` 的 `LSEnvironment` 配置一个独立兜底数据目录，防止 UI 工具重新启动时读取用户默认最近库。兜底目录同样只能使用生成库；在签名前配置。绑定前先核对进程参数，绑定后再核对库/标签名称，发现非测试库立即停止测试操作。
 
 正常退出后只通过已记录 PID 和启动包装进程退出码核对，不再对已退出实例调用 UI 状态查询或重新绑定；这类调用可能自动重启应用且丢失原启动参数。新一轮必须先由隔离启动器启动，再绑定运行中的实例。AX 正文并不单独证明画面已显示，采样前须确认实际画面；若需要缩放等干预，记录干预，并说明生命周期 RSS 包含干预过程。

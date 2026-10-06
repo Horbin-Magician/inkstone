@@ -1079,3 +1079,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - release 构建通过；生成 corpus v1 的 1,010,014 字节长段落执行三次独立启动、30 秒稳定加 30 秒采样、正常退出和全部生成 Markdown 散列复核。数据见 PERFORMANCE_BASELINE 的长段落条目及 `target/native-long-paragraph-xuaku_4x/results.json`。
 - 记录画面/AX 不一致、窗口缩放干预、未持续确认焦点与一次退出后工具意外重启，排除首轮可见性不明的采样；不宣称预算、启动时延或原生输入/滚动验收通过。增加隔离 bundle 环境兜底与退出核对操作要求。
 - 仅提交测量结论与操作文档，diff 检查通过；生成库、原始日志及用户笔记均不进入提交。
+
+
+## 原生性能实例准备与重启隔离（2026-10-06）
+
+- 新增 `tools/performance/prepare_macos.py`，只向全新目录生成固定 corpus、场景/模式偏好、独立应用数据、唯一 bundle id 和临时签名应用。最近库和 bundle 的 LSEnvironment 共同保证原生重新启动仍指向生成库；不依赖首个 shell 的环境。签名前只复制可执行内容与执行权限，避免继承系统二进制受保护文件标志。
+- 三项回归通过：实际 codesign/验签覆盖五场景×三模式的 15 个实例、生成正文散列、唯一标识与最近库归属；已有目录、悬空链接不得复用；无效模式/缺失二进制不得创建目录。日志 `target/native-preparation-tests.log`。工具未引入 Linux 适配，未改产品代码。
+- 本机 release 的原生启动与退出后重启分别为 PID 84091/84141，两次 AX 均确认生成库 long-paragraph.md / 实时预览；正常 Cmd+Q 后 PID 均消失，全部 16 个生成 Markdown 散列复核一致。记录 `target/native-preparation-check/preparation.json`、`native-check.json`。此处仅验证隔离和恢复模式，不是启动时延或帧性能验收。
+- 启动画面排查：生产加载完成分支已有 cx.notify；当前 GPUI macOS `start_display_link` 根据遮挡状态停启帧回调。另一个开启 INKSTONE_TRACE_STARTUP 的原生启动实例（`target/native-launch-check-p0bt_dmp`，PID 83850 已退出）直接显示固定尺寸正文，无缩放；追踪开关本身增加帧回调，因此该对照不足以把问题归因于启动方式或证明重绘缺陷已修复。继续保留受控可见性复验待办，没有添加未经证明的强制重绘补丁。
+- diff 检查通过，仅提交工具、回归及验收文档；夹具和用户笔记不进入提交。
