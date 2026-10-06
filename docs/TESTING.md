@@ -1724,3 +1724,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 原生验收未完整通过：取消后 AX 已移除确认区，但截图仍显示旧确认内容；Escape 关闭恢复面板后 AX 已无弹窗，截图仍停留原画面。保存 `stale-after-cancel.png` 与 `stale-after-cancel.ax.txt`；通过原生窗口 zoom 重布局后继续撤销和退出。尚未确定是应用绘制、平台呈现还是自动化观察链路问题，不把绕过视为修复。
 - 因画面与 AX 不一致，本轮不宣称确认执行、分页视觉或系统定位原生通过；已有 GPUI/核心回归结论保持不变。证据和哈希记录保留在上述隔离目录，验证摘要为 `verification.txt`。没有真实笔记修改、性能测量或 Linux 适配。
 - 新 CI [37489337623](https://github.com/Horbin-Magician/inkstone/actions/runs/37489337623) 对应 e3b4ad6，检查时两平台 Clippy 已通过，工作区测试和 vendor 仍在执行，不能提前记为全部成功。
+
+## 描述归档前台原生复验（2026-10-06）
+
+- 同一 e3b4ad6 release 和隔离生成库，重开后显式执行原生窗口 Raise，观察时也将窗口置前。本轮未使用 zoom 或修改渲染代码；取消确认后 AX 和截图均移除确认区。平台依赖在窗口不可见时停止显示帧回调，因此后台观察可能影响呈现，但尚无受控遮挡对照证明上轮异常的唯一根因，不能宣称缺陷已修复。
+- 再次确认保留归档后，缺失记录消失、归档数从 6 增至 7，成功说明可见。原描述路径不存在，新 `.retained` 文件 SHA-256 与原描述一致；7 条描述总计仍为 1260 字节，全部原字节保留，原 Markdown 哈希不变。编辑器仍包含未保存 Unicode 标记并显示“尚未保存”。
+- 原生归档第一页 5 条、第二页 2 条，前进/后退显示正确，末页下一页禁用。点击第二页的定位按钮，Finder 实际选中隔离库 `.inkstone-sync-native-06.backup.json.retained`，大小 180 字节；随后关闭这次打开的 Finder 窗口。撤销测试编辑后状态回到已保存，正常退出且确认测试进程已结束。
+- 证据位于 `target/native-sync-residue-e3b4ad6/`：`raised-cancel.png`、`raised-success.png`、`raised-page2.png`、`raised-result.ax.txt`、`finder-selected.ax.txt`、`raised-verification.txt`。证明本轮默认 1200×820 逻辑窗口的取消/确认/列表刷新/分页/定位和未保存保护；不扩展为最小窗口、DPI、完整键盘、VoiceOver、Windows 或原生强退通过。
+- CI [37489337623](https://github.com/Horbin-Magician/inkstone/actions/runs/37489337623) 对应 e3b4ad6 已完成：macOS/Windows 工作区及两平台 vendor 四项全部成功，包含修正后的 Windows 描述写保护与归档进程强退测试。没有性能测量、Linux 适配或真实笔记修改。
