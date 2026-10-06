@@ -488,7 +488,7 @@ impl Workspace {
                                     .child(
                                         div()
                                             .whitespace_normal()
-                                            .child(e.record.relative.to_string_lossy().to_string()),
+                                            .child(e.relative.to_string_lossy().to_string()),
                                     )
                                     .child(div().text_sm().child(format!(
                                         "草稿 · {} · {:.1} KiB · 恢复或放弃前保留",
@@ -501,14 +501,12 @@ impl Workspace {
                                         Button::new(("restore-draft", i))
                                             .accessibility_label(format!(
                                                 "比较、恢复或放弃草稿：{} · {}",
-                                                e.record.relative.display(),
+                                                e.relative.display(),
                                                 time.format("%Y-%m-%d %H:%M:%S")
                                             ))
                                             .ghost()
                                             .label("比较、恢复或放弃")
-                                            .tooltip(
-                                                e.record.relative.to_string_lossy().to_string(),
-                                            )
+                                            .tooltip(e.relative.to_string_lossy().to_string())
                                             .on_click(cx.listener(move |this, _, w, cx| {
                                                 this.ui.trash_open = false;
                                                 this.review_draft(i, w, cx);
@@ -693,7 +691,7 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
-    use inkstone_core::vault::{Recovery, RecoveryEntry, TrashEntry};
+    use inkstone_core::vault::{RecoverySummary, TrashEntry};
 
     #[gpui::test]
     fn recovery_controls_scroll_into_view_in_both_keyboard_directions(cx: &mut TestAppContext) {
@@ -714,16 +712,11 @@ mod tests {
                     })
                     .collect();
                 w.recoveries = (0..12)
-                    .map(|i| RecoveryEntry {
+                    .map(|i| RecoverySummary {
                         journal: PathBuf::from(format!("ui-only-drafts/{i}")),
-                        record: Recovery {
-                            root: PathBuf::from("ui-only-vault"),
-                            relative: PathBuf::from(format!(
-                                "多层目录/较长的未保存草稿原始路径/第{i}篇笔记.md"
-                            )),
-                            baseline: Some("original".into()),
-                            draft: "unsaved".into(),
-                        },
+                        relative: PathBuf::from(format!(
+                            "多层目录/较长的未保存草稿原始路径/第{i}篇笔记.md"
+                        )),
                         modified: std::time::UNIX_EPOCH,
                         bytes: 123,
                     })
@@ -821,7 +814,7 @@ mod tests {
                         assert_eq!(w.file_writes.pending(), 0);
                         assert!(!w.file_writes.operation_active());
                         assert!(w.ui.history.is_none());
-                        assert!(w.recoveries.iter().all(|e| e.record.draft == "unsaved"));
+                        assert!(w.recoveries.iter().all(|e| e.bytes == 123));
                     })
                     .unwrap();
             }

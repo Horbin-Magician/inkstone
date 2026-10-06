@@ -973,3 +973,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 执行 `python3 tools/vendor-regression/run.py`，退出码 0，总耗时 207.69 秒。Base 1,236 项通过（测试 24.21 秒），Component 572 项通过（测试 2.53 秒），均无失败或忽略项，合计 1,808 项。两包均使用脚本自带的 `--locked` 入口。
 - 验证原始与暂存 Cargo.lock 均保持记录的 SHA-256；逐文件确认两个暂存包与本次归档 vendor 源码一致（排除脚本约定不复制的 Cargo.lock / .cargo-ok）。`run.json` 保存源提交及归档/锁散列，`vendor.log` 保存完整输出，`result.json` 和 `final-verification.json` 保存结果。结束后保留源码归档、原始源码及 `staged-source`，删除本次独立 cargo-home 和 source/target 中可再生成的构建缓存，记录在 `cache-cleanup.json`。
 - 复用同一 macOS 主机已经安装的 Rust 1.97.0、SDK 和 Python；本次没有 Windows、裸系统安装或远端 CI 执行，也没有原生 IME/DPI 验收。远端必需合入检查仍待建立。本提交仅更新验收记录，未修改产品代码或真实用户笔记；diff 检查通过。
+
+
+## 草稿列表按需读取正文（2026-10-06）
+
+- 工作区启动和恢复入口刷新改用 `RecoverySummary`，列表只持有记录路径、原路径、修改时间和记录字节数；打开比较后后台读取所选正文。复用历史元数据缓存，旧记录首次导入仍完整读取并校验 JSON，但不在列表中保留正文；暖缓存按元数据复用。草稿存储格式及已有显式全正文 API 保持兼容，未对每次后台草稿写入额外生成缓存。
+- `read_draft` 在读取前后核对普通文件、待恢复扩展名、大小和时间，并验证笔记库/原路径；拒绝路径越界、已变化和已经发布为 saved 的选择，不使用历史读取的 saved 回退。列表不构成恢复授权；现有恢复/放弃前完整记录校验保留。加载中用独立草稿模式维持界面，读取失败不启用恢复或放弃。
+- 新核心回归覆盖大 Unicode 草稿、跨库过滤、损坏记录保留、错误原路径、元数据变化及转为已保存的记录；新 GPUI 回归覆盖列表生成后记录变化，确认比较显示错误、正文与已审阅记录为空、恢复/放弃不执行，原文件和变化后的记录都保留。既有比较/恢复/确认放弃、重新刷新及双向键盘导航测试继续通过。
+- 最终串行验收：核心 260 项通过、3 项既有手动入口忽略；桌面 340 项通过、2 项既有手动性能入口忽略（107.01 秒）；8 项集成测试通过；全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/lazy-draft-core.log`、`target/lazy-draft-desktop-final.log`、`target/lazy-draft-clippy.log`、`target/lazy-draft-fmt.log`。
+- 初次并行检查中未改动的 WebDAV 容量 HTTP 测试出现 5 秒 socket 读取超时，保留在 `target/lazy-draft-core-first.log`；随后两次串行核心全量均通过，未放宽超时或跳过测试。新增 UI 测试曾因 GPUI Path 与 std::path::Path 命名冲突编译失败，已改为明确路径类型并通过最终全量。本轮未新增 release 内存测量或原生界面验收，不把持有类型变化量化为测得的 RSS 改善；仍有冷导入/目录扫描和完整恢复模型待推进，真实用户笔记未改动。

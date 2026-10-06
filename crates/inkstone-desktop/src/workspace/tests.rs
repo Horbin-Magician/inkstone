@@ -4752,7 +4752,16 @@ fn recovery_panel_refreshes_drafts_created_after_opening_vault(cx: &mut TestAppC
         .update(cx, |w, window, cx| {
             assert!(w.ui.trash_open);
             assert_eq!(w.recoveries.len(), 1);
-            assert_eq!(w.recoveries[0].record.draft, "会话中新建的草稿");
+            assert_eq!(
+                w.vault
+                    .as_ref()
+                    .unwrap()
+                    .read_draft(&w.recoveries[0])
+                    .unwrap()
+                    .record
+                    .draft,
+                "会话中新建的草稿"
+            );
             std::fs::rename(&journal, journal.with_extension("saved")).unwrap();
             w.execute_command(16, window, cx);
         })

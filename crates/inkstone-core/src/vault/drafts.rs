@@ -5,6 +5,71 @@
 use super::*;
 
 impl Vault {
+    /// Metadata only; warm entries never deserialize journal bodies.
+    /// Corrupt journals remain on disk for manual inspection.
+    pub fn recovery_summaries(&self) -> Result<Vec<RecoverySummary>, VaultError> {
+        let mut entries = vec![];
+        for entry in fs::read_dir(&self.recovery_dir)? {
+            let path = entry?.path();
+            if path.extension().is_none_or(|e| e != "json") {
+                continue;
+            }
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) if metadata.is_file() && !is_reparse(&metadata) => metadata,
+                Ok(_) => continue,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if let Some(scope) = history::records::scope(self, &path, &metadata)
+                && scope.root == self.root
+            {
+                entries.push(RecoverySummary {
+                    journal: path,
+                    relative: scope.relative,
+                    modified: metadata.modified().unwrap_or(UNIX_EPOCH),
+                    bytes: metadata.len(),
+                });
+            }
+        }
+        entries.sort_by_key(|e| std::cmp::Reverse(e.modified));
+        Ok(entries)
+    }
+
+    /// Load precisely this pending record, without falling back to saved history.
+    pub fn read_draft(&self, summary: &RecoverySummary) -> Result<RecoveryEntry, VaultError> {
+        Self::validate_relative(&summary.relative)?;
+        if summary.journal.parent() != Some(self.recovery_dir.as_path())
+            || summary.journal.extension().is_none_or(|e| e != "json")
+        {
+            return Err(VaultError::InvalidPath);
+        }
+        let unchanged = || -> Result<(), VaultError> {
+            let metadata = fs::symlink_metadata(&summary.journal)?;
+            if !metadata.is_file()
+                || is_reparse(&metadata)
+                || metadata.len() != summary.bytes
+                || metadata.modified().unwrap_or(UNIX_EPOCH) != summary.modified
+            {
+                return Err(VaultError::InvalidPath);
+            }
+            Ok(())
+        };
+        unchanged()?;
+        let record: Recovery =
+            serde_json::from_reader(io::BufReader::new(fs::File::open(&summary.journal)?))
+                .map_err(io::Error::other)?;
+        unchanged()?;
+        if record.root != self.root || record.relative != summary.relative {
+            return Err(VaultError::InvalidPath);
+        }
+        Ok(RecoveryEntry {
+            journal: summary.journal.clone(),
+            record,
+            modified: summary.modified,
+            bytes: summary.bytes,
+        })
+    }
+
     /// Verify the exact reviewed crash record, never a completed-save fallback.
     pub fn validate_draft(&self, entry: &RecoveryEntry) -> Result<(), VaultError> {
         if entry.journal.parent() != Some(self.recovery_dir.as_path())
@@ -130,6 +195,52 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn summaries_load_only_selected_pending_records_and_reject_stale_selections() {
+        let f = Fixture::new();
+        let mut session = f.session();
+        let text = "草稿😀\n".repeat(100_000);
+        session.persist(Some("original"), &text).unwrap();
+        let other_root = f.0.join("other");
+        fs::create_dir(&other_root).unwrap();
+        let other = Vault::open(other_root, f.1.recovery_dir.clone()).unwrap();
+        other
+            .journal(Path::new("foreign.md"), None, "foreign body")
+            .unwrap();
+        fs::write(f.1.recovery_dir.join("corrupt.json"), b"broken").unwrap();
+        let summaries = f.1.recovery_summaries().unwrap();
+        assert_eq!(summaries.len(), 1);
+        let selected = &summaries[0];
+        assert_eq!(selected.relative, Path::new("note.md"));
+        assert!(selected.bytes > 1_000_000);
+        let reviewed = f.1.read_draft(selected).unwrap();
+        assert_eq!(reviewed.record.draft, text);
+        assert_eq!(reviewed.record.baseline.as_deref(), Some("original"));
+        assert_eq!(reviewed.bytes, selected.bytes);
+        assert!(other.read_draft(selected).is_err());
+        let mut wrong_path = selected.clone();
+        wrong_path.relative = "another.md".into();
+        assert!(f.1.read_draft(&wrong_path).is_err());
+        // Listing is not permission to act on a changed or published record.
+        fs::write(&selected.journal, b"changed").unwrap();
+        assert!(f.1.read_draft(selected).is_err());
+        fs::write(
+            &selected.journal,
+            serde_json::to_vec(&reviewed.record).unwrap(),
+        )
+        .unwrap();
+        let refreshed = f.1.recovery_summaries().unwrap().remove(0);
+        let saved = refreshed.journal.with_extension("saved");
+        fs::rename(&refreshed.journal, &saved).unwrap();
+        assert!(f.1.read_draft(&refreshed).is_err());
+        assert!(f.1.recovery_summaries().unwrap().is_empty());
+        assert!(saved.exists());
+        assert_eq!(
+            fs::read_to_string(f.1.root.join("note.md")).unwrap(),
+            "original"
+        );
     }
 
     #[test]
