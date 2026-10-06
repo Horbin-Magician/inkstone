@@ -1953,7 +1953,11 @@ mod tests {
     fn settings_input_tab_leaves_field_without_editing_and_editor_tab_still_indents(
         cx: &mut TestAppContext,
     ) {
-        cx.update(gpui_kit::init);
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            // Match the application binding installed by main, including Root actions.
+            cx.bind_keys([KeyBinding::new("escape", ClosePalette, None)]);
+        });
         let root = std::env::temp_dir().join(format!(
             "inkstone-form-tab-{}-{}",
             std::process::id(),
@@ -1963,46 +1967,45 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(root.join("local")).unwrap();
-        let handle = cx.add_window(Workspace::new);
-        cx.run_until_parked();
-        let editor = handle
-            .update(cx, |w, window, cx| {
-                w.vault = Some(Vault::open(root.join("local"), root.join("recovery")).unwrap());
-                w.add_tab("keyboard.md".into(), Some("word".into()), false, window, cx);
-                let editor = w.current_pane().unwrap().read(cx).editor.clone();
-                editor.update(cx, |s, cx| s.set_selected_range(0..0, cx));
-                w.ui.settings = true;
-                editor
-            })
-            .unwrap();
-        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        let mut workspace = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Workspace::new(window, cx));
+            workspace = Some(view.clone());
+            gpui_component::Root::new(view, window, cx)
+        });
+        let handle = workspace.unwrap();
+        visual.run_until_parked();
+        let editor = handle.update_in(&mut *visual, |w, window, cx| {
+            w.vault = Some(Vault::open(root.join("local"), root.join("recovery")).unwrap());
+            w.add_tab("keyboard.md".into(), Some("word".into()), false, window, cx);
+            let editor = w.current_pane().unwrap().read(cx).editor.clone();
+            editor.update(cx, |s, cx| s.set_selected_range(0..0, cx));
+            w.ui.settings = true;
+            editor
+        });
         for field in 0..5 {
-            let input = handle
-                .update(&mut visual, |w, window, cx| {
-                    w.ui.settings_filter
-                        .update(cx, |s, cx| s.set_value("", window, cx));
-                    w.ui.settings_tab = match field {
-                        0 => 0,
-                        1 => 1,
-                        _ => 8,
-                    };
-                    let input = match field {
-                        0 => w.ui.settings_filter.clone(),
-                        1 => w.ui.hotkey_filter.clone(),
-                        2 => w.ui.cloud_sync.url.clone(),
-                        3 => w.ui.cloud_sync.username.clone(),
-                        _ => w.ui.cloud_sync.password.clone(),
-                    };
-                    input.update(cx, |s, cx| s.set_value("测试 text", window, cx));
-                    input
-                })
-                .unwrap();
+            let input = handle.update_in(&mut *visual, |w, window, cx| {
+                w.ui.settings_filter
+                    .update(cx, |s, cx| s.set_value("", window, cx));
+                w.ui.settings_tab = match field {
+                    0 => 0,
+                    1 => 1,
+                    _ => 8,
+                };
+                let input = match field {
+                    0 => w.ui.settings_filter.clone(),
+                    1 => w.ui.hotkey_filter.clone(),
+                    2 => w.ui.cloud_sync.url.clone(),
+                    3 => w.ui.cloud_sync.username.clone(),
+                    _ => w.ui.cloud_sync.password.clone(),
+                };
+                input.update(cx, |s, cx| s.set_value("测试 text", window, cx));
+                input
+            });
             for key in ["tab", "shift-tab"] {
-                handle
-                    .update(&mut visual, |_, window, cx| {
-                        window.focus(&input.read(cx).focus_handle(cx), cx)
-                    })
-                    .unwrap();
+                handle.update_in(&mut *visual, |_, window, cx| {
+                    window.focus(&input.read(cx).focus_handle(cx), cx)
+                });
                 visual.update(|window, cx| window.draw(cx).clear(cx));
                 let keystroke = Keystroke::parse(key).unwrap();
                 visual.simulate_event(KeyDownEvent {
@@ -2012,22 +2015,24 @@ mod tests {
                 });
                 visual.simulate_event(KeyUpEvent { keystroke });
                 visual.update(|window, cx| window.draw(cx).clear(cx));
-                handle
-                    .update(&mut visual, |w, window, cx| {
-                        assert!(
-                            !input.read(cx).focus_handle(cx).is_focused(window),
-                            "{key} must leave field {field}"
-                        );
-                        assert!(w.ui.modal_focus.contains_focused(window, cx));
-                        assert_eq!(input.read(cx).value().as_ref(), "测试 text");
-                    })
-                    .unwrap();
+                handle.update_in(&mut *visual, |w, window, cx| {
+                    assert!(
+                        !input.read(cx).focus_handle(cx).is_focused(window),
+                        "{key} must leave field {field}"
+                    );
+                    assert!(w.ui.modal_focus.contains_focused(window, cx));
+                    assert_eq!(input.read(cx).value().as_ref(), "测试 text");
+                });
             }
         }
-        handle
-            .update(&mut visual, |w, window, cx| w.close_overlays(window, cx))
-            .unwrap();
+        visual.simulate_platform_keystrokes("escape");
         visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle.update_in(&mut *visual, |w, window, cx| {
+            assert!(!w.ui.settings, "Escape must close the settings dialog");
+            assert!(gpui_base::active_focus_trap(window, cx).is_none());
+            assert!(editor.read(cx).focus_handle(cx).is_focused(window));
+            assert_eq!(editor.read(cx).value().as_ref(), "word");
+        });
         let keystroke = Keystroke::parse("tab").unwrap();
         visual.simulate_event(KeyDownEvent {
             keystroke: keystroke.clone(),
@@ -2035,17 +2040,15 @@ mod tests {
             prefer_character_input: false,
         });
         visual.simulate_event(KeyUpEvent { keystroke });
-        handle
-            .update(&mut visual, |_, window, cx| {
-                assert!(editor.read(cx).focus_handle(cx).is_focused(window))
-            })
-            .unwrap();
-        editor.read_with(&visual, |s, _| {
+        handle.update_in(&mut *visual, |_, window, cx| {
+            assert!(editor.read(cx).focus_handle(cx).is_focused(window))
+        });
+        editor.read_with(&*visual, |s, _| {
             assert!(s.value().ends_with("word") && s.value().len() > 4);
             assert_eq!(s.value().trim(), "word");
         });
         visual.simulate_platform_keystrokes("ctrl-z");
-        editor.read_with(&visual, |s, _| assert_eq!(s.value().as_ref(), "word"));
+        editor.read_with(&*visual, |s, _| assert_eq!(s.value().as_ref(), "word"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
