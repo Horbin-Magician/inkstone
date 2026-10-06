@@ -748,3 +748,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 两个位置选择器、条件显示的两个文件夹输入框、链接格式选择器和两个链接开关均接入焦点滚动。位置/链接格式按钮的可访问名称包含用途和当前选择，区分笔记与附件的同名位置选项；实际路径和链接规则不变。
 - 通用设置行键盘回归扩展到文件与链接页：笔记指定文件夹、附件当前目录下子文件夹，800×500 逻辑窗口、rem 16/24，每方向 40 次 Tab/Shift+Tab，每方向至少验证 7 个不同焦点控件完整可见。扩展回归、既有笔记/附件位置写入回归、六类设置页 36 组合布局回归分别通过；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/file-settings-focus-tests.log`、`target/file-settings-focus-write-tests.log`、`target/file-settings-focus-layout.log`、`target/file-settings-focus-clippy.log`、`target/file-settings-focus-fmt.log`。
 - 本轮为 GPUI 自动检查，尚未覆盖下拉菜单内选项操作、路径错误提示下的所有布局或原生读屏；未修改用户笔记。
+
+
+## 备份设置：常规操作与清理确认的焦点可见性（2026-10-06）
+
+- 备份位置、周期、立即备份、恢复、显示结果、历史保留策略，以及容量刷新、保留份数、清理预览/确认/取消按钮接入设置页焦点滚动。只调整焦点进入时的视口位置，保留原操作与禁用条件。
+- 新增 GPUI 回归：800×500 逻辑窗口、rem 16/24，分别连续派发 45 次 Tab 和 Shift+Tab，每方向至少到达 22 个不同控件，并验证控件完整处于设置视口。使用临时笔记库与仅用于界面的合成清理预览，让确认控件参与导航；未创建删除候选，未执行实际清理。检查未启动备份、恢复选择器或后台容量任务，确认状态保留，正文不变、备份目录仍为空。
+- 备份相关 5 项回归通过，六类设置页 36 个最小窗口布局组合通过；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/backup-settings-related-tests.log`、`target/backup-settings-focus-layout.log`、`target/backup-settings-focus-clippy.log`、`target/backup-settings-focus-fmt.log`。
+- 本轮不覆盖条件出现的“显示结果”按钮导航，以及虚拟列表中的备份目录/清理中断记录按钮；后者需单独处理列表内导航。原生窗口、DPI 和读屏未验收；本测试不替代清理完整性与确认执行测试。未修改真实用户笔记。
