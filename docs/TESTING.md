@@ -1402,3 +1402,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 新测试覆盖四类来源的容量口径、未知时间/大小、零字节与非整 KiB 内容；recovery 筛选 22 项全部通过，涵盖历史重命名、副本恢复、过期记录、未保存保护、恢复入口及键盘翻页。为较长元数据增加换行后，单独复验恢复首页双向键盘焦点滚动。
 - workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/recovery-metadata-{tests,layout,clippy}.log。原生 DPI/读屏验收仍待完成，未改动真实笔记。
 - GitHub run 37443802450 的 macOS/Windows 工作区与 vendor 四项 jobs 全部 completed/success，覆盖 0aa54f2（含字体投影）；不覆盖之后提交。本轮按用户要求未继续性能优化。
+
+## 历史与草稿比较返回恢复总览（2026-10-06）
+
+- 历史/草稿比较页增加带焦点滚动的“返回文件恢复”按钮；与命令入口共用 show_recovery_hub，回到总览时刷新各类记录、重置总览滚动并恢复弹窗焦点。原路径标题允许换行。刷新递增请求编号，使离开的预览任务失效。
+- 原有 recovery 筛选 22 项全部通过（含历史分页、草稿校验、副本恢复及双向键盘焦点滚动）。新增 recovery_hub_return_invalidates_preview_and_preserves_dirty_document 单独通过，覆盖历史/草稿、加载前/后四种返回时机，验证旧预览不复活、草稿保留、正文未偷偷保存且未保存状态保持。
+- workspace all-targets Clippy -D warnings、格式及 diff 检查通过。日志 target/backup-cleanup-audit/recovery-back-{tests,return,clippy}.log。原生返回按钮与读屏验收仍待补齐；无真实笔记进入提交，性能环节保持跳过。
