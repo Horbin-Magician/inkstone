@@ -61,9 +61,10 @@ impl Workspace {
         let pane = self.current_pane();
         let headings = pane
             .as_ref()
+            .filter(|_| self.ui.right_mode == 0)
             .map(|p| p.read(cx).parsed.headings.clone())
             .unwrap_or_default();
-        let outline_query = if self.ui.outline_filter_open {
+        let outline_query = if self.ui.right_mode == 0 && self.ui.outline_filter_open {
             self.ui
                 .outline_filter
                 .read(cx)
@@ -91,10 +92,12 @@ impl Workspace {
         let headings = outline_rows(&headings, collapsed, &outline_query);
         let links = pane
             .as_ref()
+            .filter(|_| self.ui.right_mode == 2)
             .map(|p| p.read(cx).parsed.links.clone())
             .unwrap_or_default();
         let properties = pane
             .as_ref()
+            .filter(|_| self.ui.right_mode == 4)
             .map(|p| p.update(cx, |pane, cx| pane.properties(cx).to_vec()))
             .unwrap_or_default();
         let tab_path = self
