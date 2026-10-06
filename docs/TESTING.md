@@ -1755,3 +1755,14 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - `cargo test --locked -p inkstone-desktop history_catalog_`：2 项通过。覆盖关闭/切库过期请求，以及 800×500、16/24 rem、12 个长路径条目、三页往返和 Tab/Shift+Tab 可达性。
 - 桌面 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志在 `target/backup-cleanup-audit/history-catalog-label-{tests,clippy}.log`，不纳入提交。
 - 本次未进行原生 VoiceOver 验收或性能测量；Linux 不在范围内。
+
+
+### 2026-10-07：外部改名后从历史目录恢复（macOS 原生）
+
+- 7f6b307 release 构建通过，使用独立应用标识、数据目录和生成笔记库 `target/native-history-catalog`；未使用真实用户笔记。准备脚本仅生成隔离环境，本次没有性能采样。
+- 在 `ordinary.md` 插入 Unicode 测试行并 Cmd+S，确认磁盘已保存后将测试文件外部改名为 `外部改名.md`。应用显示旧标签的外部修改冲突，保留编辑器内容。
+- Cmd+P 搜索“文件恢复”并 Enter，AX 读取旧路径、2 条记录、16872 字节及最近记录文件更新时间；目录包含已保存历史与外部变化后保留的恢复记录。
+- 进入旧路径历史并选择“已保存”版本；原生截图确认所选记录、原路径、容量、保留策略和恢复按钮可见。执行“恢复所选内容为新笔记”后打开独立副本，状态为已保存。
+- 磁盘验收：旧路径仍不存在；外部改名后的文件和新副本均为 3982 字节，SHA-256 均与改名前保存内容一致。应用正常退出。
+- 证据：上述隔离目录中的 `catalog.ax.txt`、`catalog.png`、`restored.ax.txt`、`before-rename.json`、`verification.json`；构建日志 `target/backup-cleanup-audit/history-catalog-native-release.log`。均为本地验收产物，不纳入提交。
+- 边界：没有推断外部新路径的身份；本次只证明旧路径可发现和副本恢复。完整 VoiceOver、Windows 原生及最小窗口/DPI 矩阵未据此判定通过。
