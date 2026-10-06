@@ -274,6 +274,9 @@ impl Workspace {
                     .child(
                         div()
                             .id("hotkey-list")
+                            .track_scroll(&self.ui.hotkey_scroll)
+                            .min_h_0()
+                            .flex_1()
                             .overflow_y_scroll()
                             .max_h(px(430.))
                             .children(
@@ -281,74 +284,80 @@ impl Workspace {
                                     .iter()
                                     .filter(|(_, title, _)| title.to_lowercase().contains(&query))
                                     .map(|&(id, title, _)| {
-                                        div()
-                                            .flex()
-                                            .flex_col()
-                                            .p_2()
-                                            .gap_1()
-                                            .border_b_1()
-                                            .border_color(self.border())
-                                            .child(title)
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .gap_2()
-                                                    .items_center()
-                                                    .child(
-                                                        div()
-                                                            .flex_1()
-                                                            .text_size(px(MIN_UI_FONT_SIZE))
-                                                            .child(self.hotkey_label(id)),
-                                                    )
-                                                    .child(
-                                                        Button::new(("hotkey-add", id))
-                                                            .compact()
-                                                            .label("添加")
-                                                            .accessibility_label(format!(
-                                                                "为{title}添加快捷键"
-                                                            ))
-                                                            .on_click(cx.listener(
-                                                                move |this, _, w, cx| {
-                                                                    this.ui.hotkey_recording =
-                                                                        Some(id);
-                                                                    this.ui.hotkey_message.clear();
-                                                                    w.focus(
-                                                                        &this.ui.modal_focus,
-                                                                        cx,
-                                                                    );
-                                                                    cx.notify();
-                                                                },
-                                                            )),
-                                                    )
-                                                    .child(
-                                                        Button::new(("hotkey-clear", id))
-                                                            .compact()
-                                                            .label("清除")
-                                                            .accessibility_label(format!(
-                                                                "清除{title}的快捷键"
-                                                            ))
-                                                            .on_click(cx.listener(
-                                                                move |this, _, _, cx| {
-                                                                    this.ui
-                                                                        .prefs
-                                                                        .hotkeys
-                                                                        .insert(id, vec![]);
-                                                                    this.ui.hotkey_recording = None;
-                                                                    this.persist_workspace(cx);
-                                                                    cx.notify();
-                                                                },
-                                                            )),
-                                                    )
-                                                    .child(
-                                                        Button::new(("hotkey-reset", id))
-                                                            .compact()
-                                                            .label("默认")
-                                                            .accessibility_label(format!(
-                                                                "恢复{title}的默认快捷键"
-                                                            ))
-                                                            .on_click(cx.listener(
-                                                                move |this, _, _, cx| {
-                                                                    this.ui.hotkey_message =
+                                        super::settings_ui::SettingsFocusTarget::new(
+                                            ("hotkey-row-focus", id),
+                                            &self.ui.hotkey_scroll,
+                                            div()
+                                                .flex()
+                                                .flex_col()
+                                                .p_2()
+                                                .gap_1()
+                                                .border_b_1()
+                                                .border_color(self.border())
+                                                .child(title)
+                                                .child(
+                                                    div()
+                                                        .flex()
+                                                        .gap_2()
+                                                        .items_center()
+                                                        .child(
+                                                            div()
+                                                                .flex_1()
+                                                                .text_size(px(MIN_UI_FONT_SIZE))
+                                                                .child(self.hotkey_label(id)),
+                                                        )
+                                                        .child(
+                                                            Button::new(("hotkey-add", id))
+                                                                .compact()
+                                                                .label("添加")
+                                                                .accessibility_label(format!(
+                                                                    "为{title}添加快捷键"
+                                                                ))
+                                                                .on_click(cx.listener(
+                                                                    move |this, _, w, cx| {
+                                                                        this.ui.hotkey_recording =
+                                                                            Some(id);
+                                                                        this.ui
+                                                                            .hotkey_message
+                                                                            .clear();
+                                                                        w.focus(
+                                                                            &this.ui.modal_focus,
+                                                                            cx,
+                                                                        );
+                                                                        cx.notify();
+                                                                    },
+                                                                )),
+                                                        )
+                                                        .child(
+                                                            Button::new(("hotkey-clear", id))
+                                                                .compact()
+                                                                .label("清除")
+                                                                .accessibility_label(format!(
+                                                                    "清除{title}的快捷键"
+                                                                ))
+                                                                .on_click(cx.listener(
+                                                                    move |this, _, _, cx| {
+                                                                        this.ui
+                                                                            .prefs
+                                                                            .hotkeys
+                                                                            .insert(id, vec![]);
+                                                                        this.ui.hotkey_recording =
+                                                                            None;
+                                                                        this.persist_workspace(cx);
+                                                                        cx.notify();
+                                                                    },
+                                                                )),
+                                                        )
+                                                        .child(
+                                                            Button::new(("hotkey-reset", id))
+                                                                .compact()
+                                                                .label("默认")
+                                                                .accessibility_label(format!(
+                                                                    "恢复{title}的默认快捷键"
+                                                                ))
+                                                                .on_click(cx.listener(
+                                                                    move |this, _, _, cx| {
+                                                                        this.ui.hotkey_message =
                                                                         match this.reset_hotkeys(id)
                                                                         {
                                                                             Ok(()) => {
@@ -357,13 +366,15 @@ impl Workspace {
                                                                             }
                                                                             Err(error) => error,
                                                                         };
-                                                                    this.ui.hotkey_recording = None;
-                                                                    this.persist_workspace(cx);
-                                                                    cx.notify();
-                                                                },
-                                                            )),
-                                                    ),
-                                            )
+                                                                        this.ui.hotkey_recording =
+                                                                            None;
+                                                                        this.persist_workspace(cx);
+                                                                        cx.notify();
+                                                                    },
+                                                                )),
+                                                        ),
+                                                ),
+                                        )
                                     }),
                             ),
                     ),
