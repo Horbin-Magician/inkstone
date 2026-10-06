@@ -82,9 +82,9 @@ impl Workspace {
                 .child(FocusReveal::new("sync-residue-confirm-focus", &self.ui.recovery_scroll,
                     Button::new("sync-residue-confirm").label("确认保留归档").disabled(!self.can_retain_sync_residue())
                         .on_click(cx.listener(|this, _, window, cx| { this.execute_sync_residue_retention(cx); window.focus(&this.ui.modal_focus,cx); }))))
-                .child(FocusReveal::new("sync-residue-cancel-focus", &self.ui.recovery_scroll,
+                .child(div().debug_selector(|| "sync-residue-cancel-row".into()).child(FocusReveal::new("sync-residue-cancel-focus", &self.ui.recovery_scroll,
                     Button::new("sync-residue-cancel").label("取消归档")
-                        .on_click(cx.listener(|this, _, window, cx| { this.ui.sync_recovery.retain_confirmation=None; window.focus(&this.ui.modal_focus,cx); cx.notify(); }))));
+                        .on_click(cx.listener(|this, _, window, cx| { this.ui.sync_recovery.retain_confirmation=None; window.focus(&this.ui.modal_focus,cx); cx.notify(); })))));
         }
         let records = &state.inventory.retained_descriptors;
         let Some(vault) = self.vault.as_ref().filter(|_| !records.is_empty()) else {

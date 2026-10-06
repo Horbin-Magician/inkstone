@@ -546,6 +546,85 @@ mod tests {
     }
 
     #[gpui::test]
+    fn cancelling_residue_confirmation_keeps_focus_and_all_bytes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        cx.update(|cx| cx.bind_keys([KeyBinding::new("escape", ClosePalette, None)]));
+        let (root, vault) = cleanup_fixture();
+        std::fs::remove_file(vault.root.join(".inkstone-sync-old.backup")).unwrap();
+        let metadata = vault.root.join(".inkstone-sync-old.backup.json");
+        let bytes = std::fs::read(&metadata).unwrap();
+        let mut workspace = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Workspace::new(window, cx));
+            workspace = Some(view.clone());
+            gpui_component::Root::new(view, window, cx)
+        });
+        let workspace = workspace.unwrap();
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            workspace.update(cx, |w, cx| {
+                w.vault = Some(vault.clone());
+                w.ui.trash_open = true;
+                w.ui.sync_recovery.generation = w.generation;
+                w.ui.sync_recovery.inventory = recovery::inventory(&vault).unwrap();
+                w.request_sync_residue_retention(0, cx);
+                assert!(w.ui.sync_recovery.retain_confirmation.is_some());
+                window.focus(&w.ui.modal_focus, cx);
+            })
+        });
+        fn key(visual: &mut VisualTestContext, value: &str) {
+            let keystroke = Keystroke::parse(value).unwrap();
+            visual.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(KeyUpEvent { keystroke });
+            for _ in 0..2 {
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+        }
+        let mut reached = false;
+        for _ in 0..20 {
+            key(visual, "tab");
+            if let (Some(row), Some(target)) = (
+                visual.debug_bounds("sync-residue-cancel-row"),
+                visual.debug_bounds("focus-revealed-control"),
+            ) && target.top() >= row.top()
+                && target.bottom() <= row.bottom()
+            {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached);
+        key(visual, "enter");
+        visual.update(|window, cx| {
+            let w = workspace.read(cx);
+            assert!(w.ui.sync_recovery.retain_confirmation.is_none());
+            assert!(
+                w.ui.modal_focus.contains_focused(window, cx),
+                "cancelled control left focus outside recovery"
+            );
+            assert_eq!(w.file_writes.pending(), 0);
+        });
+        key(visual, "escape");
+        visual.update(|_, cx| assert!(!workspace.read(cx).ui.trash_open));
+        assert_eq!(std::fs::read(&metadata).unwrap(), bytes);
+        assert!(
+            !vault
+                .root
+                .join(".inkstone-sync-old.backup.json.retained")
+                .exists()
+        );
+        assert_eq!(
+            std::fs::read(vault.root.join("note.md")).unwrap(),
+            b"current"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn cleanup_requires_current_confirmation_and_preserves_dirty_notes(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let (root, vault) = cleanup_fixture();
@@ -955,6 +1034,170 @@ mod tests {
             "current"
         );
         assert!(!vault.root.join("note 同步恢复.md").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn retained_descriptor_pages_keep_every_record_keyboard_reachable(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (root, vault) = fixture();
+        for i in 0..12 {
+            let name = format!(".inkstone-sync-retained-{i:02}.backup");
+            std::fs::write(vault.root.join(format!("{name}.json")), serde_json::to_vec(&serde_json::json!({
+                "original":format!("较长的恢复路径第{i}篇笔记👩‍💻.md"), "backup":name,"sha256":"0".repeat(64),"protected":true
+            })).unwrap()).unwrap();
+        }
+        for entry in recovery::inventory(&vault).unwrap().missing_payloads {
+            recovery::residue::retain(&vault, &entry).unwrap();
+        }
+        let inventory = recovery::inventory(&vault).unwrap();
+        assert_eq!(inventory.retained_descriptors.len(), 12);
+        let originals: Vec<_> = inventory
+            .retained_descriptors
+            .iter()
+            .map(|entry| {
+                (
+                    entry.metadata.clone(),
+                    std::fs::read(vault.root.join(&entry.metadata)).unwrap(),
+                )
+            })
+            .collect();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.ui.trash_open = true;
+                w.ui.sync_recovery.inventory = inventory.clone();
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(800.), px(500.)));
+        fn key(v: &mut VisualTestContext, key: &str) {
+            let keystroke = Keystroke::parse(key).unwrap();
+            v.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            v.simulate_event(KeyUpEvent { keystroke });
+            for _ in 0..2 {
+                v.update(|w, cx| w.draw(cx).clear(cx));
+            }
+        }
+        let selectors = [
+            "sync-retained-record-0",
+            "sync-retained-record-1",
+            "sync-retained-record-2",
+            "sync-retained-record-3",
+            "sync-retained-record-4",
+            "sync-retained-record-5",
+            "sync-retained-record-6",
+            "sync-retained-record-7",
+            "sync-retained-record-8",
+            "sync-retained-record-9",
+            "sync-retained-record-10",
+            "sync-retained-record-11",
+        ];
+        for rem in [16., 24.] {
+            visual.update(|w, _| w.set_rem_size(px(rem)));
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    w.ui.sync_recovery.retained_page = 0;
+                    window.focus(&w.ui.modal_focus, cx);
+                })
+                .unwrap();
+            for (step, page) in [0, 1, 2, 1, 0].into_iter().enumerate() {
+                let navigation = if step < 2 { "tab" } else { "shift-tab" };
+                let mut reached = std::collections::BTreeSet::new();
+                for _ in 0..30 {
+                    key(&mut visual, navigation);
+                    if let Some(target) = visual.debug_bounds("focus-revealed-control") {
+                        handle
+                            .update(&mut visual, |w, _, _| {
+                                let viewport = w.ui.recovery_scroll.bounds();
+                                assert!(
+                                    target.top() >= viewport.top()
+                                        && target.bottom() <= viewport.bottom(),
+                                    "rem={rem}: {target:?} outside {viewport:?}"
+                                );
+                            })
+                            .unwrap();
+                        for (i, selector) in selectors.iter().enumerate() {
+                            if let Some(row) = visual.debug_bounds(selector)
+                                && target.top() >= row.top()
+                                && target.bottom() <= row.bottom()
+                            {
+                                reached.insert(i);
+                            }
+                        }
+                    }
+                }
+                let start = page * RECORDS_PER_PAGE;
+                let end = (start + RECORDS_PER_PAGE).min(12);
+                assert_eq!(reached, (start..end).collect());
+                for (i, selector) in selectors.iter().enumerate() {
+                    assert_eq!(
+                        visual.debug_bounds(selector).is_some(),
+                        (start..end).contains(&i)
+                    );
+                }
+                // Walk forward to the last page, then backward to the first.
+                handle
+                    .update(&mut visual, |w, _, _| {
+                        assert_eq!(w.ui.sync_recovery.retained_page, page);
+                        assert_eq!(w.file_writes.pending(), 0);
+                        assert!(w.ui.sync_recovery.message.is_empty());
+                    })
+                    .unwrap();
+                if step == 4 {
+                    break;
+                }
+                let forward = step < 2;
+                let selector = if forward {
+                    "sync-retained-page-true"
+                } else {
+                    "sync-retained-page-false"
+                };
+                let mut found = false;
+                for _ in 0..30 {
+                    key(&mut visual, navigation);
+                    if let (Some(target), Some(button)) = (
+                        visual.debug_bounds("focus-revealed-control"),
+                        visual.debug_bounds(selector),
+                    ) && target.top() >= button.top()
+                        && target.bottom() <= button.bottom()
+                        && target.left() >= button.left()
+                        && target.right() <= button.right()
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                assert!(found);
+                key(&mut visual, "enter");
+                handle
+                    .update(&mut visual, |w, window, cx| {
+                        assert!(
+                            w.ui.sync_recovery
+                                .retained_focus
+                                .get()
+                                .unwrap()
+                                .contains_focused(window, cx)
+                        );
+                    })
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            std::fs::read_to_string(vault.root.join("note.md")).unwrap(),
+            "current"
+        );
+        assert!(!vault.root.join("note 同步恢复.md").exists());
+        for (path, bytes) in originals {
+            assert_eq!(std::fs::read(vault.root.join(path)).unwrap(), bytes);
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 
