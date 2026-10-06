@@ -593,3 +593,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 回归验证读者阻止准备、准备结果持锁阻止校验/新建备份、释放后恢复、正在使用路径变化使预览过期、保留副本同大小损坏阻止清理、候选额外文件保护、新备份出现拒绝旧预览，所有现有备份保持可读。
 - 初次测试发现规范化目录拼写与原预览路径拼写不同导致误拒绝，改为清单比较沿用调用方路径、锁身份单独规范化。最终核心全量 241 项通过、3 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/backup-cleanup-preflight-tests.log`、`target/backup-cleanup-preflight-clippy.log`、`target/backup-cleanup-preflight-fmt.log`。
 - 未接入删除、原生确认界面或跨机器互斥；预检后绕过协议的外部变化仍必须在执行阶段处理。未修改用户笔记。
+
+## 整库备份：复核、隔离与后端清理执行（2026-10-06）
+
+- 预检保存完整清单和目录身份；执行消费持锁结果，重验全部备份并比较快照，拒绝预检后等内容目录替换、清单变化或保留副本损坏。候选原子移到同父目录隔离名称，复核身份/正文/目录结构后移除；复核失败尝试不覆盖回滚，发生名称占用则保留隔离内容和新占用者，错误中报告位置及已清理数量。
+- 新回归覆盖等内容目录替换拒绝、预检后保留副本同长度损坏拒绝、成功清理计数/逻辑字节数、最新及未知来源保留、原笔记不变。隔离阶段注入外部写入，分别验证能回滚且内容保留、原位置被占用时两侧均保留。核心全量 243 项通过、3 项忽略；全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。
+- 日志：`target/backup-cleanup-execute-tests.log`、`target/backup-cleanup-execute-clippy.log`、`target/backup-cleanup-execute-fmt.log`。后端契约限本机遵守锁协议的并发任务；任意外部持续写入、跨机器共享目录及 Windows 实机尚未验证。强退隔离目录枚举/处理、界面确认和执行入口待补齐，当前没有从 UI 删除真实备份。测试仅操作临时夹具，未修改用户笔记。

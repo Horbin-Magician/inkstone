@@ -561,6 +561,115 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_execution_rejects_replaced_directories_and_keeps_protected_backups() {
+        let f = Fixture::new();
+        let parent = f.0.join("backups");
+        fs::create_dir(&parent).unwrap();
+        let mut old_manifest = None;
+        for created in 0..=2 {
+            let path = parent.join(created.to_string());
+            let mut manifest = create(&f.1, &path).unwrap();
+            manifest.created = created;
+            manifest.source_id = (created > 0).then(|| "a".repeat(64));
+            fs::write(
+                path.join("manifest.json"),
+                serde_json::to_vec(&manifest).unwrap(),
+            )
+            .unwrap();
+            if created == 1 {
+                old_manifest = Some(manifest);
+            }
+        }
+        let plan =
+            retention::preview(&capacity::list(&parent).unwrap(), 1, &BTreeSet::new()).unwrap();
+        let replacement = f.0.join("replacement");
+        create(&f.1, &replacement).unwrap();
+        fs::write(
+            replacement.join("manifest.json"),
+            serde_json::to_vec(&old_manifest.unwrap()).unwrap(),
+        )
+        .unwrap();
+        let checked = cleanup::prepare(&parent, &plan, &BTreeSet::new()).unwrap();
+        fs::rename(parent.join("1"), f.0.join("displaced")).unwrap();
+        fs::rename(replacement, parent.join("1")).unwrap();
+        assert!(checked.execute().is_err());
+        assert!(inspect(&parent.join("1")).is_ok());
+        let checked = cleanup::prepare(&parent, &plan, &BTreeSet::new()).unwrap();
+        fs::write(parent.join("2/files/image.bin"), [9, 8, 7, 6]).unwrap();
+        assert!(checked.execute().is_err());
+        assert!(parent.join("1").exists());
+        fs::write(parent.join("2/files/image.bin"), [0, 255, 128, 3]).unwrap();
+        let report = cleanup::prepare(&parent, &plan, &BTreeSet::new())
+            .unwrap()
+            .execute()
+            .unwrap();
+        assert_eq!(
+            (report.removed, report.logical_bytes),
+            (1, plan.candidate_bytes)
+        );
+        assert!(!parent.join("1").exists());
+        assert!(inspect(&parent.join("0")).is_ok());
+        assert!(inspect(&parent.join("2")).is_ok());
+        assert!(inspect(&f.0.join("displaced")).is_ok());
+        assert_eq!(fs::read_dir(parent).unwrap().count(), 2);
+        assert_eq!(
+            fs::read(f.1.root.join("image.bin")).unwrap(),
+            [0, 255, 128, 3]
+        );
+    }
+
+    #[test]
+    fn cleanup_quarantine_preserves_late_writes_and_never_overwrites_on_rollback() {
+        for collision in [false, true] {
+            let f = Fixture::new();
+            let parent = f.0.join("backups");
+            fs::create_dir(&parent).unwrap();
+            for created in 1..=2 {
+                let path = parent.join(created.to_string());
+                let mut manifest = create(&f.1, &path).unwrap();
+                manifest.created = created;
+                manifest.source_id = Some("a".repeat(64));
+                fs::write(
+                    path.join("manifest.json"),
+                    serde_json::to_vec(&manifest).unwrap(),
+                )
+                .unwrap();
+            }
+            let plan =
+                retention::preview(&capacity::list(&parent).unwrap(), 1, &BTreeSet::new()).unwrap();
+            let mut isolated = PathBuf::new();
+            let result = cleanup::prepare(&parent, &plan, &BTreeSet::new())
+                .unwrap()
+                .execute_with(|source, quarantine| {
+                    fs::write(quarantine.join("files/image.bin"), b"late external write").unwrap();
+                    isolated = quarantine.to_owned();
+                    if collision {
+                        fs::create_dir(source).unwrap();
+                        fs::write(source.join("user.txt"), b"new occupant").unwrap();
+                    }
+                });
+            assert!(result.is_err());
+            if collision {
+                assert_eq!(
+                    fs::read(parent.join("1/user.txt")).unwrap(),
+                    b"new occupant"
+                );
+                assert_eq!(
+                    fs::read(isolated.join("files/image.bin")).unwrap(),
+                    b"late external write"
+                );
+            } else {
+                assert!(!isolated.exists());
+                assert_eq!(
+                    fs::read(parent.join("1/files/image.bin")).unwrap(),
+                    b"late external write"
+                );
+            }
+            assert!(inspect(&parent.join("2")).is_ok());
+        }
+    }
+
+    #[test]
     fn backup_roundtrip_preserves_notes_binary_assets_config_and_empty_directories() {
         let f = Fixture::new();
         let backup = f.0.join("backup");

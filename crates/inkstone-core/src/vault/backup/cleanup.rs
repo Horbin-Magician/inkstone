@@ -9,6 +9,9 @@ use super::{
 pub struct Checked {
     preview: Preview,
     _lock: fs::File,
+    directory: PathBuf,
+    in_use: BTreeSet<PathBuf>,
+    snapshots: Vec<(Manifest, Option<String>)>,
 }
 impl Checked {
     pub fn preview(&self) -> &Preview {
@@ -25,7 +28,22 @@ pub fn prepare(
     // canonicalizes aliases for coordination. Fresh listing rejects root links.
     let directory = directory.to_owned();
     let lock = locking::acquire(&directory, true)?;
-    let inventory = capacity::list(&directory)?;
+    let snapshots = validate(&directory, expected, in_use)?;
+    Ok(Checked {
+        preview: expected.clone(),
+        _lock: lock,
+        directory,
+        in_use: in_use.clone(),
+        snapshots,
+    })
+}
+
+fn validate(
+    directory: &Path,
+    expected: &Preview,
+    in_use: &BTreeSet<PathBuf>,
+) -> io::Result<Vec<(Manifest, Option<String>)>> {
+    let inventory = capacity::list(directory)?;
     if inventory.unreadable != 0 {
         return Err(invalid("备份清单存在异常，请先检查异常记录"));
     }
@@ -36,14 +54,20 @@ pub fn prepare(
     if fresh.candidates == 0 {
         return Err(invalid("没有可清理的备份候选"));
     }
+    let mut snapshots = Vec::new();
     for record in &fresh.records {
         let path = &record.backup.directory;
-        if path.parent() != Some(directory.as_path()) {
+        if path.parent() != Some(directory) {
             return Err(invalid("备份不在选定位置内"));
         }
         // Retained backups must be usable too: a same-length corrupt newest
         // backup must never justify deleting the last good older copy.
-        inspect_unlocked(path)?;
+        let manifest = inspect_unlocked(path)?;
+        let identity = origin::id(path)?;
+        if record.decision == Decision::Candidate && identity.is_none() {
+            return Err(invalid("无法确认候选目录身份，已保留备份"));
+        }
+        snapshots.push((manifest, identity));
         if record.decision == Decision::Candidate {
             for entry in fs::read_dir(path)? {
                 let name = entry?.file_name();
@@ -54,11 +78,82 @@ pub fn prepare(
         }
     }
     // Catch metadata changes during the integrity scan as well as before it.
-    if capacity::list(&directory)? != inventory {
+    if capacity::list(directory)? != inventory {
         return Err(invalid("校验期间备份发生变化，请重新预览"));
     }
-    Ok(Checked {
-        preview: fresh,
-        _lock: lock,
-    })
+    Ok(snapshots)
+}
+
+#[derive(Debug, Default)]
+pub struct Report {
+    pub removed: usize,
+    pub logical_bytes: u64,
+}
+impl Checked {
+    /// Execute for local storage with all writers honoring the same lock protocol.
+    /// This API does not coordinate other machines or non-cooperating writers.
+    pub fn execute(self) -> io::Result<Report> {
+        self.execute_with(|_, _| {})
+    }
+    pub(super) fn execute_with(
+        self,
+        mut after_move: impl FnMut(&Path, &Path),
+    ) -> io::Result<Report> {
+        if validate(&self.directory, &self.preview, &self.in_use)? != self.snapshots {
+            return Err(invalid("备份身份或清单在预检后发生变化"));
+        }
+        let mut report = Report::default();
+        for (record, (manifest, identity)) in self.preview.records.iter().zip(&self.snapshots) {
+            if record.decision != Decision::Candidate {
+                continue;
+            }
+            let source = &record.backup.directory;
+            let quarantine = self
+                .directory
+                .join(format!(".inkstone-backup-cleanup-{}", unique_id()));
+            let result = (|| -> io::Result<()> {
+                move_no_replace(source, &quarantine)?;
+                let verified = (|| -> io::Result<()> {
+                    after_move(source, &quarantine);
+                    if origin::id_at(&quarantine, source)? != *identity
+                        || inspect_unlocked(&quarantine)? != *manifest
+                    {
+                        return Err(invalid("清理候选在隔离期间发生变化"));
+                    }
+                    for entry in fs::read_dir(&quarantine)? {
+                        let name = entry?.file_name();
+                        if name != "files" && name != "manifest.json" {
+                            return Err(invalid("候选出现额外文件"));
+                        }
+                    }
+                    Ok(())
+                })();
+                if let Err(error) = verified {
+                    return match move_no_replace(&quarantine, source) {
+                        Ok(()) => Err(error),
+                        Err(_) => Err(invalid(format!(
+                            "{error}；无法返回原位置，内容保留在 {}",
+                            quarantine.display()
+                        ))),
+                    };
+                }
+                fs::remove_dir_all(&quarantine).map_err(|error| {
+                    io::Error::new(
+                        error.kind(),
+                        format!("清理未完成：{error}；剩余内容位于 {}", quarantine.display()),
+                    )
+                })?;
+                Ok(())
+            })();
+            if let Err(error) = result {
+                return Err(io::Error::new(
+                    error.kind(),
+                    format!("已清理 {} 份；{error}", report.removed),
+                ));
+            }
+            report.removed += 1;
+            report.logical_bytes += record.backup.payload_bytes + record.backup.manifest_bytes;
+        }
+        Ok(report)
+    }
 }

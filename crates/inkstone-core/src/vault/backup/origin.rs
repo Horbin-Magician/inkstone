@@ -2,6 +2,10 @@
 use super::*;
 
 pub(super) fn id(root: &Path) -> io::Result<Option<String>> {
+    id_at(root, root)
+}
+
+pub(super) fn id_at(root: &Path, location: &Path) -> io::Result<Option<String>> {
     let meta = fs::symlink_metadata(root)?;
     if !meta.is_dir() || is_reparse(&meta) {
         return Err(invalid("备份来源必须是普通目录"));
@@ -30,7 +34,7 @@ pub(super) fn id(root: &Path) -> io::Result<Option<String>> {
         (u64::from(volume), (u64::from(high) << 32) | u64::from(low))
     };
     let mut hash = Sha256::new();
-    hash.update(root.as_os_str().as_encoded_bytes());
+    hash.update(location.as_os_str().as_encoded_bytes());
     hash.update(serde_json::to_vec(&(identity, created))?);
     Ok(Some(format!("{:x}", hash.finalize())))
 }
