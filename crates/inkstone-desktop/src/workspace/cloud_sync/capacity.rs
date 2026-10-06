@@ -228,4 +228,156 @@ mod tests {
 
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[gpui::test]
+    fn capacity_http_success_preserves_unsaved_notes_and_form_settings(cx: &mut TestAppContext) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let manifest =
+                serde_json::json!({"version": 1, "files": {"remote.md": "a".repeat(64)}})
+                    .to_string();
+            let mut xml = String::from("<d:multistatus xmlns:d=\"DAV:\">");
+            for (hash, bytes) in [('a', 123), ('b', 456)] {
+                xml.push_str(&format!("<d:response><d:href>/inkstone/objects/{}</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>{bytes}</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>", hash.to_string().repeat(64)));
+            }
+            xml.push_str("</d:multistatus>");
+            for (method, path) in [
+                ("GET", "/inkstone-v1/manifest.json"),
+                ("GET", "/inkstone/manifest.json"),
+                ("PROPFIND", "/inkstone/objects/"),
+                ("GET", "/inkstone-v1/manifest.json"),
+                ("GET", "/inkstone/manifest.json"),
+            ] {
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                let (mut socket, _) = loop {
+                    match listener.accept() {
+                        Ok(connection) => break connection,
+                        Err(e)
+                            if e.kind() == std::io::ErrorKind::WouldBlock
+                                && std::time::Instant::now() < deadline =>
+                        {
+                            std::thread::sleep(Duration::from_millis(1))
+                        }
+                        Err(e) => panic!("missing {method} {path}: {e}"),
+                    }
+                };
+                socket.set_nonblocking(false).unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut header = Vec::new();
+                while !header.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    socket.read_exact(&mut byte).unwrap();
+                    header.push(byte[0]);
+                }
+                let header = String::from_utf8(header).unwrap();
+                assert!(header.starts_with(&format!("{method} {path} HTTP/1.1\r\n")));
+                let length = header
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                socket.read_exact(&mut vec![0; length]).unwrap();
+                let (status, body) = if path.contains("-v1") {
+                    ("404 Not Found", "")
+                } else if method == "PROPFIND" {
+                    ("207 Multi-Status", xml.as_str())
+                } else {
+                    ("200 OK", manifest.as_str())
+                };
+                write!(socket, "HTTP/1.1 {status}\r\nETag: \"stable\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-capacity-http-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::write(root.join("vault/note.md"), "original").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(root.join("vault"), root.join("recovery")).unwrap());
+                w.add_tab("note.md".into(), Some("original".into()), false, window, cx);
+                w.tabs[w.active.unwrap()]
+                    .save
+                    .editor
+                    .update(cx, |s, cx| s.set_value("unsaved local text", window, cx));
+                w.flush_document_views(window, cx);
+                w.ui.cloud_sync
+                    .url
+                    .update(cx, |s, cx| s.set_value(url, window, cx));
+                w.ui.cloud_sync
+                    .username
+                    .update(cx, |s, cx| s.set_value("fixture-user", window, cx));
+                w.ui.cloud_sync
+                    .password
+                    .update(cx, |s, cx| s.set_value("fixture-secret", window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let prefs_before = std::fs::read(root.join("vault/.inkstone-workspace.json")).ok();
+        handle
+            .update(cx, |w, _, cx| {
+                assert!(w.tabs[w.active.unwrap()].save.persistence.is_dirty());
+                w.refresh_cloud_capacity(cx);
+                assert!(w.ui.cloud_sync.capacity.busy);
+                assert_eq!(w.ui.pending_file_writes, 0);
+                assert!(!w.ui.cloud_sync.is_busy());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        server.join().unwrap();
+        handle
+            .update(cx, |w, _, cx| {
+                let state = &w.ui.cloud_sync.capacity;
+                assert!(!state.busy, "{}", state.message);
+                let report = state
+                    .report
+                    .as_ref()
+                    .expect("real HTTP completion reaches the UI state");
+                assert_eq!(
+                    (report.referenced_objects, report.referenced_bytes),
+                    (1, 123)
+                );
+                assert_eq!(
+                    (report.unreferenced_objects, report.unreferenced_bytes),
+                    (1, 456)
+                );
+                assert!(state.message.contains("统计时间"));
+                let tab = &w.tabs[w.active.unwrap()];
+                assert!(tab.save.persistence.is_dirty() && !tab.save.persistence.is_saving());
+                assert_eq!(
+                    tab.save.editor.read(cx).value().as_ref(),
+                    "unsaved local text"
+                );
+                assert!(w.ui.prefs.webdav.url.is_empty() && w.ui.prefs.webdav.username.is_empty());
+                assert!(!w.ui.cloud_sync.is_busy() && !w.ui.cloud_sync.is_pending());
+                assert_eq!(w.ui.pending_file_writes, 0);
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("vault/note.md")).unwrap(),
+            "original"
+        );
+        assert_eq!(
+            std::fs::read(root.join("vault/.inkstone-workspace.json")).ok(),
+            prefs_before
+        );
+        assert!(!root.join("vault/remote.md").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

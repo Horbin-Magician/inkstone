@@ -814,3 +814,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 请求使用单调序号、笔记库 generation 和连接字段 SHA-256 身份保护；状态只保留摘要，不额外保存明文密码。旧请求、旧库、旧账号的结果不能替换当前结果。对已发出的网络请求不强行中止 socket，失效后丢弃结果；网络调用仍受 WebDAV 超时限制，不让只读统计阻塞关闭/切库的文件写入保护。
 - 新增独立状态回归覆盖并发请求顺序、切账号/库、错误与重试；GPUI 回归覆盖表单校验不持久化/不排同步、账号/密码/库变化影响身份，以及字段 Change 事件使进行中请求失效。既有云同步焦点回归增加容量按钮的正反向 Tab 检查。云同步相关 24 项通过，六类设置页 36 个布局组合通过；最终 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/cloud-capacity-ui-tests.log`、`target/cloud-capacity-ui-layout.log`、`target/cloud-capacity-ui-final-clippy.log`、`target/cloud-capacity-ui-fmt.log`。
 - 本轮界面状态回归未连接网络；HTTP 只读和清单一致性由上一轮后端回归覆盖。成功结果在实际原生界面的展示、真实服务商和未保存笔记下的整条异步流程仍待验收。不提供清理按钮；未引用对象仍可能是其他设备尚未完成的上传。未修改真实用户笔记或保存用户云端凭据。
+
+
+## 云端容量：真实 HTTP 到界面状态的未保存保护回归（2026-10-06）
+
+- 新增 GPUI 集成回归，使用本机临时 TCP 服务执行真实 WebDav 请求和后台完成回调。服务逐项核对五个 GET/PROPFIND 方法与路径，返回稳定清单及两个对象；最终 UI 状态获得已引用 1 个/123 字节、未引用 1 个/456 字节及完成时间。
+- 请求前打开临时笔记并编辑为未保存内容。请求开始时不占同步 busy 或待写文件计数；结束后仍保持 dirty、没有进入 saving，编辑器文本保持未保存版本，磁盘 Markdown 保持原版，工作区配置文件逐字节不变，表单地址/账号未写入已保存偏好，远端笔记未下载。容量刷新不偷偷保存正文的完整异步路径已有自动证据。
+- 新集成回归 1 项通过，全工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志：`target/cloud-capacity-http-ui-tests.log`、`target/cloud-capacity-http-ui-clippy.log`、`target/cloud-capacity-http-ui-fmt.log`。服务仅监听 loopback，记录和凭据都是测试夹具；未连接用户云端，未修改真实用户笔记。
+- 本轮验证完成回调和界面状态，不代表原生窗口结果布局或真实 WebDAV 服务商兼容性验收；这些仍待完成。
