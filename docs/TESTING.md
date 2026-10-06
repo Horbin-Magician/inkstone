@@ -732,3 +732,12 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 开始录入时保存原焦点，再将输入交给弹窗；无效组合键保持录入，Esc 取消或成功设置后恢复原焦点并释放句柄。关闭弹窗、切换设置分类、清空/恢复绑定时清理该状态，避免跨界面保留过期录入来源。
 - 新增 GPUI 实际按键事件回归：筛选新建标签页，从输入框 Tab 到添加按钮，Enter 开始；无修饰单键继续等待，Esc 取消返回添加按钮；再次 Enter，录入 Ctrl+Alt+T 成功后返回同一按钮，Tab 可继续导航。断言设置仍打开、没有执行新建标签命令、关闭设置释放来源焦点。快捷键相关 16 项通过，全工作区 all-targets Clippy（`-D warnings`）、格式和 diff 检查通过。日志：`target/hotkey-recording-focus-tests.log`、`target/hotkey-recording-focus-regressions.log`、`target/hotkey-recording-focus-clippy.log`、`target/hotkey-recording-focus-fmt.log`。
 - 本轮使用测试平台，无真实笔记库和配置写入；鼠标发起录入保留此前焦点，并不保证返回被点击按钮。原生完整键盘与读屏验收仍待进行。未修改用户笔记。
+
+
+## macOS 原生键盘验收与滑块焦点边框（2026-10-06）
+
+- 新建隔离 release app、XDG_DATA_HOME 及单篇测试库，夹具/进程日志/结果为 `target/native-keyboard-ov8wn_k3`，`acceptance.json` 记录源码散列与正文校验值。启动、重建后重启均显式指定该库；退出后只用进程检查确认结束，不调用可能重新启动应用的 UI 接口。两次退出后测试 Markdown 的 SHA-256 均保持 `1bb5d2548e3bd98ee5c8953aa743a170f4c46244fcde2d38d74281b096490e5f`。
+- 原生从设置搜索框经 Tab 到制表符宽度，Home+Right 调到 3、End 调到 8；Shift+Tab+Space 可调整前一个开关。外观页经 Tab 到字体大小，Home+Right 调到 11。AX 树暴露两个滑块的名称与实时数值。原生截图发现之前的 box shadow 在透明滑轨后形成实色矩形，改为始终预留 1px 透明边框、焦点时仅改变边框色；重建后实机截图确认边框清楚且内部不再填色，焦点变化不改变控件尺寸。
+- 原生快捷键页筛选新建标签页，Tab/Enter 开始录入；Esc 后 Enter 能再次开始，Ctrl+Alt+T 成功后“添加”按钮显示焦点。随后 Tab/Enter 清除、Tab/Enter 恢复默认，工具栏提示恢复 Cmd+T。清空筛选后连续 45 次 Tab 将列表滚到可见的当前行，45 次 Shift+Tab 后 Esc 返回笔记。测试中导航分类和起始输入框使用鼠标，因此不是从启动起全程纯键盘验收。
+- 边框修复后应用滑块按键回归 1 项、六类设置页 36 组合布局回归 1 项、Component 滑块鼠标/禁用回归 2 项通过；全工作区 all-targets Clippy（`-D warnings`）、格式与 diff 检查通过。日志：`target/slider-focus-border-tests.log`、`target/slider-focus-border-layout.log`、`target/slider-focus-border-vendor-tests.log`、`target/slider-focus-border-clippy.log`、`target/slider-focus-border-fmt.log`。构建日志：`target/native-keyboard-acceptance-build.log`、`target/slider-focus-border-release.log`。
+- 原生截图证据在本轮会话中；没有进行 VoiceOver 朗读、辅助技术增减动作或系统 DPI/最小窗口全矩阵验收。测试只修改隔离配置，未修改真实用户笔记或配置。
