@@ -707,7 +707,8 @@ impl Builder<'_> {
         self.output
     }
 }
-pub fn reading_document(index: &Index, path: &Path, source: &str) -> ReadingDocument {
+#[cfg(test)]
+pub(crate) fn reading_document(index: &Index, path: &Path, source: &str) -> ReadingDocument {
     reading_snapshot(
         index,
         path,

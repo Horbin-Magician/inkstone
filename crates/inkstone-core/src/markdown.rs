@@ -80,44 +80,6 @@ impl Span {
     }
 }
 
-/// Keep unaffected styles at their source positions while a newer parse is pending.
-pub fn rebase_spans(before: &str, after: &str, spans: Vec<Span>) -> Vec<Span> {
-    if before == after {
-        return spans;
-    }
-    let start = before
-        .chars()
-        .zip(after.chars())
-        .take_while(|(a, b)| a == b)
-        .map(|(c, _)| c.len_utf8())
-        .sum::<usize>();
-    let suffix = before[start..]
-        .chars()
-        .rev()
-        .zip(after[start..].chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(c, _)| c.len_utf8())
-        .sum::<usize>();
-    let end = before.len() - suffix;
-    let delta = after.len() as isize - before.len() as isize;
-    let shifted =
-        |r: &Range<usize>| r.start.saturating_add_signed(delta)..r.end.saturating_add_signed(delta);
-    spans
-        .into_iter()
-        .filter_map(|mut span| {
-            if span.source.start <= end && start <= span.source.end {
-                return None;
-            }
-            if span.source.start >= end {
-                span.source = shifted(&span.source);
-                span.content = shifted(&span.content);
-                span.markers = span.markers.iter().map(shifted).collect();
-            }
-            Some(span)
-        })
-        .collect()
-}
-
 /// One undoable source edit over the selected lines, preserving indentation and line endings.
 pub fn toggle_task_lines(text: &str, selection: Range<usize>) -> Option<(Range<usize>, String)> {
     if selection.start > selection.end
@@ -470,18 +432,6 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn styles_follow_distant_unicode_edits_while_parsing_is_pending() {
-        let before = "**one**\ntext\n[[far|alias]]";
-        let after = "**one**\n文本😀\n[[far|alias]]";
-        let retained = rebase_spans(before, after, spans(before));
-        assert_eq!(retained.len(), 2);
-        assert_eq!(&after[retained[0].source.clone()], "**one**");
-        assert_eq!(&after[retained[1].content.clone()], "alias");
-        let changed = rebase_spans(before, "**oXne**\ntext\n[[far|alias]]", spans(before));
-        assert_eq!(changed.len(), 1);
-        assert_eq!(changed[0].kind, Kind::WikiLink);
-    }
     #[test]
     fn chinese_ranges_are_source_bytes_and_source_is_unchanged() {
         let s = "# 中文\r\n**粗体😀** 和 `代码` [[笔记]]\n";
