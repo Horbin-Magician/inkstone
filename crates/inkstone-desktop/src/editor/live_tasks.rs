@@ -18,18 +18,15 @@ pub(super) fn overlay(
     canvas(
         move |_, window, cx| {
             let viewport = editor.read(cx).input_bounds();
-            let visible: Vec<_> = tasks
-                .iter()
-                .filter_map(|task| {
-                    let bounds = editor.read(cx).range_to_bounds(&task.range)?;
-                    viewport
-                        .intersects(&bounds)
-                        .then_some((task.clone(), bounds))
-                })
-                .collect();
             let mut elements = Vec::new();
             window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
-                for (task, bounds) in visible {
+                for task in &tasks {
+                    let Some(bounds) = editor.read(cx).range_to_bounds(&task.range) else {
+                        continue;
+                    };
+                    if !(viewport.intersects(&bounds)) {
+                        continue;
+                    }
                     let target = task.target.clone();
                     let checked = task.checked;
                     let weak = pane.clone();

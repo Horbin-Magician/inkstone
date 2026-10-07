@@ -10,19 +10,18 @@ pub(super) fn overlay(
         move |_, window, cx| {
             let viewport = editor.read(cx).input_bounds();
             let revision = editor.read(cx).text_revision();
-            let visible: Vec<_> = markers
-                .iter()
-                .filter_map(|range| {
-                    let bounds = editor.read(cx).range_to_bounds(range)?;
-                    (bounds.bottom() > viewport.top()
-                        && bounds.top() < viewport.bottom()
-                        && bounds.right() > viewport.left())
-                    .then_some((range.clone(), bounds))
-                })
-                .collect();
             let mut elements = Vec::new();
             window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
-                for (range, bounds) in visible {
+                for range in &markers {
+                    let Some(bounds) = editor.read(cx).range_to_bounds(range) else {
+                        continue;
+                    };
+                    if !(bounds.bottom() > viewport.top()
+                        && bounds.top() < viewport.bottom()
+                        && bounds.right() > viewport.left())
+                    {
+                        continue;
+                    }
                     let offset = range.start;
                     let editor = editor.clone();
                     let width = bounds.size.width;
