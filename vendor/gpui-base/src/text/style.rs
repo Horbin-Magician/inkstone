@@ -26,6 +26,7 @@ pub struct TextViewStyle {
     table_cell: StyleRefinement,
     task_checkbox: StyleRefinement,
     inline_code: HighlightStyle,
+    highlight_background: Option<Hsla>,
     is_dark: bool,
 }
 
@@ -44,6 +45,7 @@ impl PartialEq for TextViewStyle {
             && self.table_head == other.table_head
             && self.table_cell == other.table_cell
             && self.task_checkbox == other.task_checkbox
+            && self.highlight_background == other.highlight_background
             && self.inline_code == other.inline_code
             && self.is_dark == other.is_dark
     }
@@ -88,6 +90,7 @@ impl TextViewStyle {
                 background_color: Some(colors.accent),
                 ..Default::default()
             },
+            highlight_background: None,
             is_dark,
         }
     }
@@ -150,6 +153,18 @@ impl TextViewStyle {
     pub fn with_code_block(mut self, style: StyleRefinement) -> Self {
         self.code_block = style;
         self
+    }
+
+    /// Overrides the background of highlighted text (`<mark>`).
+    /// By default the color supplied by the document is preserved.
+    pub fn with_highlight_background(mut self, color: Hsla) -> Self {
+        self.highlight_background = Some(color);
+        self
+    }
+
+    /// The host's optional background override for highlighted text.
+    pub fn highlight_background(&self) -> Option<Hsla> {
+        self.highlight_background
     }
 
     /// Sets the highlight style for inline code spans.
