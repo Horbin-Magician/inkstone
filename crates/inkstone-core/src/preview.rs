@@ -172,6 +172,7 @@ pub fn fragments_cancellable(
     reading: &crate::rendering::ReadingDocument,
     cancelled: impl Fn() -> bool,
 ) -> Option<Vec<Fragment>> {
+    let _span = crate::performance::span(crate::performance::Stage::PreviewFragments);
     if cancelled() {
         return None;
     }

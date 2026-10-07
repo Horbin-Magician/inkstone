@@ -732,6 +732,7 @@ pub fn reading_snapshot(
     snapshot: Arc<crate::syntax::Snapshot>,
     range: Range<usize>,
 ) -> ReadingDocument {
+    let _span = crate::performance::span(crate::performance::Stage::ReadingProjection);
     let source = snapshot.source.clone();
     let mut builder = Builder {
         index,

@@ -4,6 +4,9 @@ use super::*;
 
 impl Render for EditorPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _span = inkstone_core::performance::span(
+            inkstone_core::performance::Stage::EditorViewComposition,
+        );
         let appearance = (
             self.font_size.to_bits(),
             _window.scale_factor().to_bits(),

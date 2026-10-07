@@ -433,6 +433,7 @@ impl Snapshot {
     }
 
     pub fn new(source: &str) -> Self {
+        let _span = crate::performance::span(crate::performance::Stage::SyntaxFull);
         let comments = crate::comments::ranges(source);
         let structural: Arc<str> = crate::comments::masked(source, &comments).as_ref().into();
         let ast = parse_raw(&structural).map(Arc::new);

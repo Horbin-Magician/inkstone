@@ -251,6 +251,7 @@ fn snapshot_cancellable(
     notify: &impl Fn(Progress),
     cancellation: &Cancellation,
 ) -> Result<Files> {
+    let _span = crate::performance::span(crate::performance::Stage::SyncScan);
     notify(Progress::new(phase, 0));
     cancellation.check()?;
     let paths: Vec<_> = vault
@@ -616,6 +617,7 @@ pub fn synchronize_cancellable(
     cancellation: &Cancellation,
     notify: impl Fn(Progress) + Sync,
 ) -> Result<Report> {
+    let _span = crate::performance::span(crate::performance::Stage::SyncTransaction);
     cancellation.check()?;
     let _lock = lock_operation(vault)?;
     let state = baseline_path(vault, identity);

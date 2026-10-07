@@ -4,6 +4,7 @@ use markdown_parser::unist::Point;
 
 impl Snapshot {
     pub fn update_block(&self, source: &str) -> Option<Self> {
+        let _span = crate::performance::span(crate::performance::Stage::SyntaxIncremental);
         if let Some(snapshot) = self.update_plain_paragraph(source) {
             return Some(snapshot);
         }

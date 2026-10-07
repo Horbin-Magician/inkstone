@@ -13,6 +13,7 @@ impl Index {
         query: &str,
         cancelled: impl Fn() -> bool,
     ) -> Option<Vec<SearchHit>> {
+        let _span = crate::performance::span(crate::performance::Stage::FilenameSearch);
         if cancelled() {
             return None;
         }
@@ -140,6 +141,7 @@ impl Index {
         limit: usize,
         cancelled: impl Fn() -> bool,
     ) -> Result<Option<Vec<SearchHit>>, String> {
+        let _span = crate::performance::span(crate::performance::Stage::FulltextSearch);
         if cancelled() {
             return Ok(None);
         }
