@@ -1,6 +1,7 @@
 mod counts;
 mod editing;
 mod presentation;
+mod projection;
 mod reading;
 #[cfg(test)]
 mod tests;
@@ -80,6 +81,7 @@ pub struct EditorPane {
     parse_revision: u64,
     spans: Vec<markdown::Span>,
     parse_task: Option<Task<()>>,
+    projection_job: Option<projection::Job>,
     pub parsed: ParsedNote,
     pub reading: bool,
     pub font_size: f32,
@@ -275,6 +277,7 @@ impl EditorPane {
             parse_revision: 0,
             spans: vec![],
             parse_task: None,
+            projection_job: None,
             parsed: ParsedNote::default(),
             reading: false,
             navigation: Default::default(),

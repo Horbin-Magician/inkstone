@@ -3872,3 +3872,51 @@ fn line_spacing_updates_laid_out_rows_in_both_editing_modes(cx: &mut TestAppCont
         }
     }
 }
+
+#[gpui::test]
+fn superseded_projection_cancels_worker_and_installs_latest(cx: &mut TestAppContext) {
+    use std::sync::atomic::Ordering;
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|w, cx| EditorPane::new("# Initial\n\n$x$", w, cx));
+    handle
+        .update(cx, |p, w, cx| {
+            p.update_presentation(cx);
+            let original = p.projection_job.as_ref().unwrap().token();
+            for number in 0..10 {
+                p.editor.update(cx, |s, cx| {
+                    s.set_value(format!("# Latest {number}\n\n$y$"), w, cx)
+                });
+                p.update_presentation(cx);
+            }
+            assert!(original.load(Ordering::Acquire));
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |p, _, _| {
+            assert!(p.rendered.markdown.contains("Latest 9"));
+            assert!(!p.rendered.markdown.contains("Initial"));
+            assert!(p.projection_job.is_none());
+        })
+        .unwrap();
+}
+
+#[gpui::test]
+fn equal_text_revision_does_not_lose_pending_initial_projection(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|w, cx| EditorPane::new("# Initial", w, cx));
+    handle
+        .update(cx, |p, w, cx| {
+            p.update_presentation(cx);
+            p.editor.update(cx, |s, cx| s.set_value("# Initial", w, cx));
+            p.update_presentation(cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |p, _, _| {
+            assert!(p.typography_ready);
+            assert!(p.rendered.markdown.contains("Initial"));
+        })
+        .unwrap();
+}

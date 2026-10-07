@@ -52,6 +52,7 @@ impl Render for EditorPane {
             });
         }
         if self.reading
+            && self.pending_preview_jump.is_some()
             && self.preview.read(cx).is_parsed()
             && self
                 .rendered
@@ -74,11 +75,11 @@ impl Render for EditorPane {
             }
         }
         if self.reading
+            && self.pending_reading_position.is_some()
             && self.preview.read(cx).is_parsed()
             && self
                 .rendered
                 .source_matches(&self.current_path, &self.editor.read(cx).value())
-            && self.pending_reading_position.is_some()
         {
             cx.defer_in(_window, |this, _, cx| {
                 if !this.reading

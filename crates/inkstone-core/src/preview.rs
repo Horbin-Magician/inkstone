@@ -153,12 +153,33 @@ pub fn fragments(
     snapshot: Arc<Snapshot>,
     reading: &crate::rendering::ReadingDocument,
 ) -> Vec<Fragment> {
+    fragments_cancellable(index, path, snapshot, reading, || false).unwrap()
+}
+
+/// Cancel between preparation stages and individual fragments. Never return a
+/// partial projection; an individual parser/render call is not preempted.
+pub fn fragments_cancellable(
+    index: &crate::index::Index,
+    path: &Path,
+    snapshot: Arc<Snapshot>,
+    reading: &crate::rendering::ReadingDocument,
+    cancelled: impl Fn() -> bool,
+) -> Option<Vec<Fragment>> {
+    if cancelled() {
+        return None;
+    }
     let mut out = candidates(&snapshot);
     let mut graphic_nodes = BTreeMap::new();
     if let Some(ast) = snapshot.ast.as_deref() {
         graphics(ast, &mut graphic_nodes);
     }
+    if cancelled() {
+        return None;
+    }
     let numbers = reading.footnote_numbers();
+    if cancelled() {
+        return None;
+    }
     let parsed = crate::index::parse_snapshot(&snapshot);
     let refs = parsed
         .footnote_references
@@ -227,13 +248,17 @@ pub fn fragments(
             true
         }
     });
-    out.into_iter()
+    let fragments = out
+        .into_iter()
         .map(|candidate| {
+            if cancelled() {
+                return None;
+            }
             let graphic = (candidate.role == Role::Content)
                 .then(|| graphic_nodes.remove(&(candidate.source.start, candidate.source.end)))
                 .flatten();
             if graphic.is_some() {
-                return Fragment {
+                return Some(Fragment {
                     document: crate::rendering::ReadingDocument::graphic_fragment(
                         path,
                         snapshot.source.clone(),
@@ -243,7 +268,7 @@ pub fn fragments(
                     numbers: BTreeMap::new(),
                     targets: vec![],
                     graphic,
-                };
+                });
             }
             let document = match candidate.role {
                 Role::Footer(_) => reading.clone(),
@@ -270,20 +295,54 @@ pub fn fragments(
             } else {
                 vec![]
             };
-            Fragment {
+            Some(Fragment {
                 candidate,
                 document,
                 numbers: overrides,
                 targets,
                 graphic: None,
-            }
+            })
         })
-        .collect()
+        .collect::<Option<Vec<_>>>()?;
+    (!cancelled()).then_some(fragments)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cancellation_never_returns_partial_fragments() {
+        use std::cell::Cell;
+        let source = "$a$ and $b$ and $c$\n\n| a | b |\n| - | - |\n| 中 | 😀 |";
+        let path = Path::new("note.md");
+        let index = crate::index::Index::default();
+        let snapshot = Arc::new(Snapshot::new(source));
+        let reading =
+            crate::rendering::reading_snapshot(&index, path, snapshot.clone(), 0..source.len());
+        let expected = fragments(&index, path, snapshot.clone(), &reading);
+        assert_eq!(expected.len(), 4);
+        for stop in 0..=7 {
+            let calls = Cell::new(0);
+            let result = fragments_cancellable(&index, path, snapshot.clone(), &reading, || {
+                let call = calls.get();
+                calls.set(call + 1);
+                call >= stop
+            });
+            assert!(result.is_none(), "cancel checkpoint {stop}");
+        }
+        let result = fragments_cancellable(&index, path, snapshot, &reading, || false).unwrap();
+        assert_eq!(
+            result
+                .iter()
+                .map(|f| (&f.candidate, &f.document.markdown))
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|f| (&f.candidate, &f.document.markdown))
+                .collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn graphic_fragments_preserve_literal_content_and_source_mapping() {
         let source = format!(
