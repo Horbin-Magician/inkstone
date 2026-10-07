@@ -444,6 +444,7 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(crate) deferred_scroll_offset: Option<Point<Pixels>>,
     /// The size of the scrollable content.
     pub(crate) scroll_size: gpui::Size<Pixels>,
+    external_scrollbar: bool,
     pub(super) editor_scrollbar_snapshot: Cell<Option<EditorScrollbarSnapshot>>,
     /// The unwrapped width of the longest line and what it was measured for.
     pub(super) longest_line_width: Cell<Option<(LongestLineKey, Pixels)>>,
@@ -626,7 +627,14 @@ impl<M: InputModeKind> InputBaseState<M> {
     /// thumb inside every text field, which is a control the field does not
     /// have.
     pub(crate) fn shows_scrollbar(&self) -> bool {
-        self.is_multi_line()
+        self.is_multi_line() && !self.external_scrollbar
+    }
+
+    /// Move scrollbar rendering to a host-supplied overlay. Paint the returned
+    /// element after the editor, so it uses the current frame's scroll metrics.
+    pub fn external_scrollbar(&mut self, cx: &Context<Self>) -> impl IntoElement {
+        self.external_scrollbar = true;
+        EditorScrollbar::new(cx.entity()).viewport_from_layout()
     }
 
     pub fn is_multi_line(&self) -> bool {
@@ -788,6 +796,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             last_cursor: None,
             scroll_handle: ScrollHandle::new(),
             scroll_size: gpui::size(px(0.), px(0.)),
+            external_scrollbar: false,
             editor_scrollbar_snapshot: Cell::new(None),
             longest_line_width: Cell::new(None),
             editor_paddings: Edges::default(),
