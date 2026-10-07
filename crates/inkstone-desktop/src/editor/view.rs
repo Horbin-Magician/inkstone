@@ -123,6 +123,7 @@ impl Render for EditorPane {
         let weak = cx.entity().downgrade();
         let font_size = self.font_size;
         let preview = TextView::new(&self.preview)
+            .code_block_actions(code_blocks::actions)
             .font_family(self.text_font.clone())
             .markdown_extensions(crate::native_graphics::extensions(
                 font_size,
@@ -161,7 +162,7 @@ impl Render for EditorPane {
                             })
                             .line_height(relative([1.2, 1.2, 1.3, 1.4, 1.5, 1.5][i]))
                     })
-                    .with_code_block(StyleRefinement::default().text_size(px(font_size * 0.875)))
+                    .with_code_block(code_blocks::style(font_size))
                     .with_table_cell(StyleRefinement::default().text_size(px(font_size)))
                     .with_table_head(
                         StyleRefinement::default()

@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-07 代码块高亮：Component 的 `src/highlighter/languages.rs` 为 TSX 复用完整 TypeScript / JavaScript 查询，并新增 `src/highlighter/languages/typescript/jsx.scm`。原查询只覆盖 TypeScript 扩展，普通关键字及 JSX 没有颜色。专项回归 `tsx_highlights_javascript_types_and_jsx` 需开启 `tree-sitter-tsx`；应用另检查全部启用语言的深浅主题高亮及 UTF-8 范围。
+
 2026-10-07 空闲重绘修复：`TextWrapper::set_inline_metrics` 将实际变化标志向上
 传递至 `DisplayMap`，相同度量不再重建折叠映射及标题高度表。变化和清空仍重建；
 新增回归用相同值的独立分配验证复用，并将变化后的映射和高度与全新构造的结果比较。

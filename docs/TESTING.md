@@ -1804,3 +1804,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 证据在隔离目录 `guide.png`、`recovery.ax.txt`、`verification.json`，不提交。系统路径面板逐次确认最终父目录后才创建新库，应用正常退出。
 - 边界：这是受控原生操作验收，不等同于真实首次使用者理解测试、完整键盘/读屏或其他 DPI 验收。没有性能测量。
 - `gh run list` 确认 7f6b307 对应 CI 37494799181 completed/success，后续仍在运行或排队。
+
+### 2026-10-07：Markdown 代码块展示
+
+- 普通围栏及缩进代码接入实时预览，复用活动光标、搜索及选区揭示源码的机制；引用和列表中的片段使用解析后的代码内容，保留原文编辑与撤销。阅读及实时预览共用语言名称、等宽样式、复制按钮和 17 种语言的深浅主题高亮，未知语言回退纯文本。
+- 核心新增嵌套、空块、未闭合围栏、围栏碰撞、语言实体、CRLF、中文和 emoji 测试；桌面测试实际点击两个模式的复制按钮，检查纯代码剪贴板内容、正文与光标不变、实时投影保留，并验证搜索揭示和编辑撤销。
+- `cargo test --locked --workspace`：core 331、desktop 385、集成 5 + 1 + 2 项通过，6 项既有手动/容量测试忽略。`cargo clippy --locked --workspace --all-targets -- -D warnings`、工作区格式检查和修改的 vendor 文件格式检查通过。
+- vendor 正式入口通过 Base 1,240 项（1 项既有手动基准忽略）、Component 573 项；另启用 `tree-sitter-tsx` 运行新专项回归通过，确认 JavaScript、类型和 JSX 均有高亮。TSX 修复及查询文件已记入 vendor 补丁清单。SQL 语法依赖要求 `cc ~1.2.1`，主锁文件相应固定为兼容的 1.2.67。
+- 日志保存在 `target/code-block-checks/`。本轮为 macOS 本地自动检查及无头界面交互测试，未新增原生窗口截图、Windows、DPI 或输入性能验收；源码编辑仍展示原文，不宣称已接入源码代码高亮。

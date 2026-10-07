@@ -2,6 +2,8 @@
 
 The crate is copied from the locked crates.io release, with its Apache license retained.
 
+`src/highlighter/languages.rs` combines the complete TypeScript/JavaScript query with `languages/typescript/jsx.scm` for TSX. The upstream TypeScript query only supplied additional type syntax, leaving ordinary JavaScript and JSX uncolored. Verify `tsx_highlights_javascript_types_and_jsx` with the `tree-sitter-tsx` feature and the application's common-language highlighting test.
+
 `src/input/popovers/completion_menu.rs` adjusts completion suggestions to the installed Obsidian reference: 15px text, 1.4 line height, 6px vertical and 12px horizontal padding, 4px corners, 6px menu padding, and a 300px maximum height. The host sets the existing width option to 500px.
 
 Completion highlighting no longer interprets `CompletionItem.filter_text.len()` as a byte range in the visible label. Filter text may contain aliases or paths that differ from the label. A literal matching prefix is bold; an empty or unrelated query leaves the text unchanged.
