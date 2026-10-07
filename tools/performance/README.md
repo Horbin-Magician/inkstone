@@ -188,3 +188,15 @@ cargo test --locked --release -p inkstone-desktop long_paragraph_frame_performan
 排空可运行任务及绘制，窗口为 1200×820；不含完整工作区、原生输入事件、GPU
 呈现或实际闪烁定时器，不能据此宣布原生延迟或空闲 CPU 百分比达标。
 不同构建配置不可混比；先保留前后测试可执行文件，停止编译后以独立进程交错运行。
+
+可见范围查询的独立定位基准（先通过 vendor 回归入口准备当前暂存源码）：
+
+```sh
+python3 tools/vendor-regression/run.py
+cargo test --locked --manifest-path target/vendor-regression/Cargo.toml --target-dir target -p gpui-base --lib long_paragraph_range_performance -- --ignored --nocapture --test-threads=1
+```
+
+它对同一 corpus v1 长段落的已准备映射交错调用逐显示行扫描的旧算法和当前查询，
+每组 1,000 次、三组，并核对所有结果。这里的旧算法是在测试中重建的原实现，
+不是旧版应用二进制；默认 debug 配置，排除初始整形、编辑、绘制和原生交互，
+不能将其改善倍数作为整段输入或滚动的改善倍数。
