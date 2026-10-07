@@ -432,6 +432,9 @@ impl Workspace {
                             }
                         }
                         inkstone_core::startup_trace::mark("tabs_created");
+                        // Set shared preferences once, before per-view mode,
+                        // selection and scroll restoration override the defaults.
+                        this.apply_editor_preferences(window, cx);
                         for (id, pane, view_index) in view_restores {
                             if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.id == id) {
                                 tab.pinned = saved_views[view_index].pinned.unwrap_or(tab.pinned);
