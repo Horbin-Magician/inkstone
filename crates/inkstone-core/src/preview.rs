@@ -20,6 +20,13 @@ pub struct Candidate {
 }
 
 pub fn candidates(snapshot: &Snapshot) -> Vec<Candidate> {
+    candidates_with_parsed(snapshot, &crate::index::parse_snapshot(snapshot))
+}
+
+fn candidates_with_parsed(
+    snapshot: &Snapshot,
+    parsed: &crate::index::ParsedNote,
+) -> Vec<Candidate> {
     fn walk(node: &Node, source: &str, out: &mut Vec<Candidate>) {
         let raw = node
             .position()
@@ -79,7 +86,7 @@ pub fn candidates(snapshot: &Snapshot) -> Vec<Candidate> {
     if let Some(ast) = snapshot.ast.as_deref() {
         walk(ast, &snapshot.source, &mut out);
     }
-    for link in crate::index::parse_snapshot(snapshot).links {
+    for link in &parsed.links {
         if link.range.start > 0
             && snapshot.source.as_bytes()[link.range.start - 1] == b'!'
             && snapshot.source[..link.range.start - 1]
@@ -168,7 +175,8 @@ pub fn fragments_cancellable(
     if cancelled() {
         return None;
     }
-    let mut out = candidates(&snapshot);
+    let parsed = crate::index::parse_snapshot(&snapshot);
+    let mut out = candidates_with_parsed(&snapshot, &parsed);
     let mut graphic_nodes = BTreeMap::new();
     if let Some(ast) = snapshot.ast.as_deref() {
         graphics(ast, &mut graphic_nodes);
@@ -180,7 +188,6 @@ pub fn fragments_cancellable(
     if cancelled() {
         return None;
     }
-    let parsed = crate::index::parse_snapshot(&snapshot);
     let refs = parsed
         .footnote_references
         .iter()

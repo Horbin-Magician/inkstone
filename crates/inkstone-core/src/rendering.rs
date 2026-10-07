@@ -98,6 +98,12 @@ impl ReadingDocument {
 
     /// Reference-order numbering, including reachable references in definitions.
     pub fn footnote_numbers(&self) -> BTreeMap<(PathBuf, usize), usize> {
+        // Neither standard nor inline footnotes can exist without a literal
+        // opener. Avoid reparsing every ordinary/graphic-only document merely
+        // to discover that its numbering map is empty.
+        if !self.markdown.contains("[^") && !self.markdown.contains("^[") {
+            return BTreeMap::new();
+        }
         use markdown_parser::mdast::Node;
         fn definitions<'a>(node: &'a Node, out: &mut BTreeMap<String, &'a Node>) {
             if let Node::FootnoteDefinition(n) = node {
@@ -163,6 +169,9 @@ impl ReadingDocument {
         &self,
         numbers: &BTreeMap<(PathBuf, usize), usize>,
     ) -> BTreeMap<String, usize> {
+        if numbers.is_empty() {
+            return BTreeMap::new();
+        }
         fn collect(node: &markdown_parser::mdast::Node, out: &mut Vec<(String, usize)>) {
             if let markdown_parser::mdast::Node::FootnoteReference(n) = node
                 && let Some(p) = &n.position
