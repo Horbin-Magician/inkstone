@@ -23,6 +23,10 @@ impl Render for EditorPane {
             self.context_revision += 1;
         }
         self.graphic_dpi = _window.scale_factor();
+        if self.quote_rem_size != _window.rem_size() {
+            self.quote_rem_size = _window.rem_size();
+            self.last_presentation = None;
+        }
         self.update_presentation(cx);
         self.refresh_visible_graphics(cx);
         if let Some(anchor) = self.pending_live_anchor.take() {
@@ -481,7 +485,8 @@ impl Render for EditorPane {
                 view.child(live_quotes::overlay(
                     self.editor.clone(),
                     self.live_quotes.clone(),
-                    self.font_size,
+                    self.quote_rem_size,
+                    self.light,
                 ))
             })
             .when(!self.reading && self.live, |view| {

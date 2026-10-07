@@ -256,7 +256,7 @@ mod tests {
                                     b.origin
                                         - point(
                                             if kind == "quote" {
-                                                live_quotes::inset(p.font_size)
+                                                live_quotes::inset(p.quote_rem_size)
                                             } else {
                                                 px(0.)
                                             },
