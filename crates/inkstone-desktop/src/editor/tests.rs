@@ -3920,3 +3920,48 @@ fn equal_text_revision_does_not_lose_pending_initial_projection(cx: &mut TestApp
         })
         .unwrap();
 }
+
+#[gpui::test]
+fn reading_highlights_paint_backgrounds(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for light in [false, true] {
+        let source = "普通 ==高亮== 和 ==**粗体**==\n\n# ==标题==\n\n- ==列表==\n\n> ==引用==\n\n| 表格 |\n| --- |\n| ==单元格== |\n\n`==代码==` 和 \\==转义==";
+        let handle = cx.add_window(|w, cx| {
+            let mut pane = EditorPane::new(source, w, cx);
+            pane.reading = true;
+            pane.light = light;
+            pane
+        });
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..5 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, window, cx| {
+                assert!(pane.rendered.markdown.contains("<mark>高亮</mark>"));
+                let background: gpui::Background =
+                    rgba(if light { 0xf4d03f66 } else { 0x9e7d2866 }).into();
+                assert!(
+                    window
+                        .painted_quads()
+                        .iter()
+                        .filter(|quad| quad.background == background)
+                        .count()
+                        >= 6,
+                    "reading highlights must paint themed backgrounds in prose, headings, lists, quotes and tables"
+                );
+                pane.preview.update(cx, |state, cx| {
+                    state.select_all(cx);
+                    let text = state.selected_text();
+                    assert!(text.contains("普通 高亮 和 粗体"), "{text}");
+                    for expected in ["标题", "列表", "引用", "单元格", "==代码==", "==转义=="] {
+                        assert!(text.contains(expected), "{text}");
+                    }
+                    assert!(!text.contains("<mark>") && !text.contains("==高亮=="));
+                });
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+}
