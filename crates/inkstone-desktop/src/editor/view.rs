@@ -144,9 +144,6 @@ impl Render for EditorPane {
                     .with_foreground(crate::theme::palette(self.light).foreground.into())
                     .with_link(crate::theme::palette(self.light).accent.into())
                     .with_code_background(crate::theme::palette(self.light).surface.into())
-                    .with_highlight_background(
-                        rgba(if self.light { 0xf4d03f66 } else { 0x9e7d2866 }).into(),
-                    )
                     .with_inline_code(HighlightStyle {
                         color: Some(crate::theme::palette(self.light).foreground.into()),
                         ..Default::default()
