@@ -4,6 +4,9 @@ use super::*;
 
 impl Render for EditorPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some((renders, _)) = &mut self.activity_counts {
+            *renders = renders.saturating_add(1);
+        }
         let _span = inkstone_core::performance::span(
             inkstone_core::performance::Stage::EditorViewComposition,
         );

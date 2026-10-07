@@ -55,10 +55,14 @@ impl Workspace {
                                     .focus_handle(cx)
                                     .is_focused(window)
                             });
+                            let counts = this
+                                .current_pane()
+                                .and_then(|pane| pane.read(cx).activity_counts());
                             let keep = this.activity_trace.as_mut().unwrap().record(
                                 window.is_window_active(),
                                 focused,
                                 this.loading,
+                                counts,
                             );
                             if !keep {
                                 this.activity_trace = None;
