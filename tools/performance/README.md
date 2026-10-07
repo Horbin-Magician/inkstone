@@ -119,6 +119,12 @@ python3 tools/performance/sync_scan.py
 
 sample_process.py 的 `sample_start_unix_ms` / `sample_end_unix_ms` 可用于筛选活动日志中正式 CPU 采样区间内的记录；CPU 耗时仍使用单调时钟。缺失记录、仍在加载或窗口未激活时应单独报告，不能只看低 CPU 宣称前台预算通过。
 
+活动日志还记录当前编辑器的累计 `editor_renders` 和 `input_notifications`；无活动
+编辑器时为 null，切换编辑器后计数可能重置。仅启用活动诊断时累加，不增加定时器。
+正式区间需同时检查计数增量：前台/焦点为 true 但没有持续重绘时，低 CPU 不足以
+代表闪烁光标的空闲成本。渲染计数是 CPU 侧视图组装次数，不是显示帧或 GPU 提交数，
+不能替代真实画面、原生输入与帧跟踪。不同诊断字段版本的开销需在对照中说明。
+
 ## 全面性能工作恢复（2026-10-07）
 
 当前计划仅对 macOS 做性能验收，保留 Windows 正确性 CI。所有旧结果保持原有

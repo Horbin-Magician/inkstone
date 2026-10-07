@@ -63,6 +63,8 @@ struct PropertySnapshot {
 }
 
 pub struct EditorPane {
+    // Optional activity diagnostics: renders and input notifications, no text.
+    activity_counts: Option<(u64, u64)>,
     pub navigation: inkstone_core::preferences::Navigation,
     count_cache: Option<CountSnapshot>,
     property_cache: Option<PropertySnapshot>,
@@ -126,6 +128,9 @@ pub struct EditorPane {
 }
 
 impl EditorPane {
+    pub(crate) fn activity_counts(&self) -> Option<(u64, u64)> {
+        self.activity_counts
+    }
     pub fn set_reference_context(
         &mut self,
         path: PathBuf,
@@ -165,6 +170,9 @@ impl EditorPane {
             state.create_decorations_collection(vec![], cx)
         });
         let subscription = cx.observe_in(&editor, window, |this, editor, window, cx| {
+            if let Some((_, notifications)) = &mut this.activity_counts {
+                *notifications = notifications.saturating_add(1);
+            }
             let state = editor.read(cx);
             let visible = state.cursor_layout().is_some_and(|(mut caret, _)| {
                 caret.origin += state.scroll_offset();
@@ -264,6 +272,7 @@ impl EditorPane {
         });
         editor.update(cx, |state, cx| state.focus(window, cx));
         Self {
+            activity_counts: std::env::var_os("INKSTONE_TRACE_ACTIVITY").map(|_| (0, 0)),
             editor,
             footnote_edit: None,
             count_cache: None,
