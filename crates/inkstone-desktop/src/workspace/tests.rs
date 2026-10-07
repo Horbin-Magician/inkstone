@@ -5354,3 +5354,57 @@ fn stale_file_moves_release_only_their_own_operation_guard(cx: &mut TestAppConte
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[gpui::test]
+fn document_snapshots_follow_silent_edits_history_and_composition(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            let initial = "中文😀 original".repeat(100);
+            w.add_tab(
+                "snapshot.md".into(),
+                Some(initial.clone()),
+                false,
+                window,
+                cx,
+            );
+            let document = w.tabs[0].save.clone();
+            let original = document.text_snapshot(cx);
+            let again = document.text_snapshot(cx);
+            assert_eq!(original.as_ptr(), again.as_ptr());
+            document
+                .editor
+                .update(cx, |s, cx| s.set_selected_range(0..0, cx));
+            assert_eq!(original.as_ptr(), document.text_snapshot(cx).as_ptr());
+            document
+                .editor
+                .update(cx, |s, cx| s.set_value("中文😀 changed", window, cx));
+            assert_eq!(document.text_snapshot(cx).as_ref(), "中文😀 changed");
+            assert_eq!(
+                original.as_ref(),
+                initial.as_str(),
+                "old snapshots stay immutable"
+            );
+            document
+                .editor
+                .update(cx, |s, cx| s.replace_all("中文😀 edited", window, cx));
+            assert_eq!(document.text_snapshot(cx).as_ref(), "中文😀 edited");
+            document
+                .editor
+                .update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+            assert_eq!(document.text_snapshot(cx).as_ref(), "中文😀 changed");
+            document.editor.update(cx, |s, cx| {
+                s.set_selected_range(0..0, cx);
+                s.replace_and_mark_text_in_range(None, "ni", None, window, cx);
+            });
+            assert!(document.editor.read(cx).is_composing());
+            assert!(document.text_snapshot(cx).starts_with("ni"));
+            document
+                .editor
+                .update(cx, |s, cx| s.replace_text_in_range(None, "你", window, cx));
+            assert_eq!(document.text_snapshot(cx), document.editor.read(cx).value());
+            assert!(document.text_snapshot(cx).starts_with("你中文"));
+        })
+        .unwrap();
+}

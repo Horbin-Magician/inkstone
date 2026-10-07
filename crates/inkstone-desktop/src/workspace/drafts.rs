@@ -48,7 +48,7 @@ impl Workspace {
             {
                 continue;
             }
-            let text = document.editor.read(cx).value();
+            let text = document.text_snapshot(cx);
             let path = document.path.borrow().clone();
             let target = dirty.then_some(text.clone());
             let mut slot = document.draft.borrow_mut();
