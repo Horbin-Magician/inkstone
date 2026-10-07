@@ -29,7 +29,7 @@
 
 ## 边界
 
-代码高亮启用 Rust、Python、JavaScript、TypeScript、TSX、JSON、Bash、YAML、TOML、HTML、CSS、SQL、C、C++、Java、Go 与 Markdown，使用组件内置的语言别名。未指定或不支持的语言保留等宽纯文本。复制按钮复制解析后的代码内容，不包含围栏、语言标记和外层列表 / 引用前缀；编辑器选区复制仍保留 Markdown 原文。代码块在光标或搜索命中时展开为源码，源码编辑尚无代码专用高亮。高亮颜色随应用深浅主题切换。
+代码高亮启用 Rust、Python、JavaScript、TypeScript、TSX、JSON、Bash、YAML、TOML、HTML、CSS、SQL、C、C++、Java、Go 与 Markdown，使用与编辑器一致的语言名归一化和内置别名（如 `Python` / `PYTHON` / `py` 均识别为 Python），保留围栏原始写法。未指定或不支持的语言保留等宽纯文本。复制按钮复制解析后的代码内容，不包含围栏、语言标记和外层列表 / 引用前缀；编辑器选区复制仍保留 Markdown 原文。代码块在光标或搜索命中时展开为源码，源码编辑尚无代码专用高亮。高亮颜色随应用深浅主题切换。
 
 数学模式的常用 LaTeX，不包括完整文档、任意宏包与 TikZ。原生 Mermaid 可与官方布局不同，不能遗漏结构或文字。HTML 不执行脚本或任意网页样式。PDF、音视频保留附件入口。
 
