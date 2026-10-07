@@ -168,3 +168,17 @@ target/release/examples/projection_benchmark GENERATED_FILE
 一致性检查；源码位置、任务行为和链接语义仍须单独回归。没有包含最初语法解析、
 图形栅格化、GPUI 布局、磁盘打开或原生帧延迟。比较版本时先构建并保留二进制和
 散列，再停止构建，至少三对独立进程交错顺序运行同一 corpus，保存原始 stdout。
+
+## 单个长段落的 GUI CPU 对照
+
+```sh
+cargo test --locked --release -p inkstone-desktop long_paragraph_frame_performance -- --ignored --nocapture --test-threads=1
+```
+
+无头基准内置 corpus v1 的 `long-paragraph.md`，运行前校验 manifest 散列，不拆段。
+源码与实时预览分别在段首、中、末测强制重绘、24 像素往返滚动、交替插字/换行，
+每组 5 次预热、20 次正式样本，JSON 行保留全部耗时及 p50/p95/max。每次编辑后
+撤销并断言正文完全恢复；撤销和重新定位不计入编辑样本。计时包含同步操作、
+排空可运行任务及绘制，窗口为 1200×820；不含完整工作区、原生输入事件、GPU
+呈现或实际闪烁定时器，不能据此宣布原生延迟或空闲 CPU 百分比达标。
+不同构建配置不可混比；先保留前后测试可执行文件，停止编译后以独立进程交错运行。
