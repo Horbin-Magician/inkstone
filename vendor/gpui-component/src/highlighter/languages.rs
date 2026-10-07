@@ -537,7 +537,7 @@ impl Language {
             #[cfg(feature = "tree-sitter-tsx")]
             Self::Tsx => (
                 tree_sitter_typescript::LANGUAGE_TSX,
-                tree_sitter_typescript::HIGHLIGHTS_QUERY,
+                include_str!("languages/typescript/highlights.scm"),
                 "",
                 tree_sitter_typescript::LOCALS_QUERY,
             ),
@@ -608,6 +608,18 @@ impl Language {
 
         let language = tree_sitter::Language::new(language);
 
+        // The upstream TypeScript query contains only TypeScript additions;
+        // TSX also needs the base JavaScript/TypeScript and JSX captures.
+        #[cfg(feature = "tree-sitter-tsx")]
+        let tsx_query;
+        #[cfg(feature = "tree-sitter-tsx")]
+        let query = if matches!(self, Self::Tsx) {
+            tsx_query = format!("{query}\n{}", include_str!("languages/typescript/jsx.scm"));
+            tsx_query.as_str()
+        } else {
+            query
+        };
+
         GrammarConfig::new(
             self.name(),
             language,
@@ -622,6 +634,27 @@ impl Language {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "tree-sitter-tsx")]
+    #[test]
+    fn tsx_highlights_javascript_types_and_jsx() {
+        use crate::highlighter::{HighlightTheme, SyntaxHighlighter};
+        let source = "const view: string = <div title=\"中文😀\">Hello</div>;";
+        let mut highlighter = SyntaxHighlighter::new("tsx");
+        highlighter.update(None, &ropey::Rope::from_str(source), None);
+        assert!(highlighter.tree().is_some());
+        let styles =
+            highlighter.styles(&(0..source.len()), HighlightTheme::default_dark().as_ref());
+        for token in ["const", "string", "div", "title", "中文😀"] {
+            let start = source.find(token).unwrap();
+            assert!(
+                styles
+                    .iter()
+                    .any(|(range, style)| range.contains(&start) && style.color.is_some()),
+                "{token}"
+            );
+        }
+    }
 
     #[test]
     fn test_language_name() {

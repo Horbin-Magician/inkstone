@@ -15,7 +15,12 @@ roxmltree = "=0.20.0"
 reqwest = { version = "=0.12.28", default-features = false, features = ["blocking", "rustls-tls"] }
 inkstone-core = { path = "crates/inkstone-core" }
 gpui = { package = "gpui-pre", version = "=0.3.7" }
-gpui-component = "=0.7.0"
+gpui-component = { version = "=0.7.0", features = [
+    "tree-sitter-bash", "tree-sitter-c", "tree-sitter-cpp", "tree-sitter-css",
+    "tree-sitter-go", "tree-sitter-html", "tree-sitter-java", "tree-sitter-javascript",
+    "tree-sitter-markdown", "tree-sitter-python", "tree-sitter-rust", "tree-sitter-sql",
+    "tree-sitter-toml", "tree-sitter-tsx", "tree-sitter-typescript", "tree-sitter-yaml",
+] }
 gpui-base = "=0.7.0"
 gpui-kit = "=0.7.0"
 unicode-segmentation = "=1.13.3"
