@@ -183,6 +183,62 @@ fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
     }
 }
 
+/// The full pane edge remains an interactive scroll track in both modes.
+#[gpui::test]
+fn scrollbar_at_pane_edge_scrolls_both_views(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = "Paragraph with enough text to scroll.\n\n".repeat(150);
+    let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    for (width, readable, reading) in [
+        (1000., true, false),
+        (1000., true, true),
+        (520., true, false),
+        (520., true, true),
+        (900., false, false),
+        (900., false, true),
+    ] {
+        handle
+            .update(&mut visual, |pane, _, cx| {
+                pane.readable_width = readable;
+                pane.reading = reading;
+                if reading {
+                    pane.preview
+                        .read(cx)
+                        .list_state()
+                        .scroll_to(gpui::ListOffset::default());
+                } else {
+                    pane.editor.update(cx, |state, cx| {
+                        state.set_scroll_offset(Point::default(), cx)
+                    });
+                }
+                cx.notify();
+            })
+            .unwrap();
+        visual.simulate_resize(size(px(width), px(600.)));
+        for _ in 0..3 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let bounds = visual.debug_bounds("editor-pane-scrollbar").unwrap();
+        assert_eq!(bounds.left(), px(0.));
+        assert_eq!(bounds.right(), px(width));
+        let position = point(bounds.right() - px(5.), bounds.center().y);
+        visual.simulate_mouse_move(position, None, Modifiers::default());
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_click(position, Modifiers::default());
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        handle.update(&mut visual, |pane, _, cx| {
+            let offset = if reading {
+                pane.preview.read(cx).list_state().scroll_px_offset_for_scrollbar().y
+            } else {
+                pane.editor.read(cx).scroll_offset().y
+            };
+            assert!(offset.abs() > px(100.), "edge track did not scroll: width {width}, readable {readable}, reading {reading}, offset {offset:?}");
+        }).unwrap();
+    }
+}
+
 #[gpui::test]
 fn reading_currency_preserves_dollars_links_and_footnote_numbering(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);

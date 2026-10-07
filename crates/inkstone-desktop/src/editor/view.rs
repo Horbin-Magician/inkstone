@@ -163,6 +163,7 @@ impl Render for EditorPane {
                     ),
             )
             .scrollable(true)
+            .scrollbar_visible(false)
             .selectable(true)
             .on_task_toggle(move |offset, checked, window, cx| {
                 let _ = task_weak.update(cx, |this, cx| {
@@ -255,6 +256,15 @@ impl Render for EditorPane {
                     }
                 });
             });
+        let scrollbar = if self.reading {
+            gpui_base::Scrollbar::vertical(self.preview.read(cx).list_state())
+                .viewport_from_layout()
+                .into_any_element()
+        } else {
+            self.editor.update(cx, |state, cx| {
+                state.external_scrollbar(cx).into_any_element()
+            })
+        };
         div()
             .id("editor-pane")
             .relative()
@@ -328,50 +338,63 @@ impl Render for EditorPane {
             .pt(px(12.))
             .children(self.footnote_panel(_window, cx))
             .child(
-                div().flex().justify_center().flex_1().min_h_0().child(
-                    div()
-                        .w_full()
-                        .h_full()
-                        .min_w_0()
-                        .when(self.readable_width, |s| s.max_w(px(700.)))
-                        .when(self.reading, |s| s.child(preview))
-                        .when(!self.reading, |s| {
-                            // The gutter narrows the wrap. Extend the editor by
-                            // the gutter and shift it left, so the text column
-                            // starts and wraps where the reading view's does,
-                            // while the gutter sits in the pane inset.
-                            let gutter = self
-                                .editor
-                                .read(cx)
-                                .gutter_width(px(self.font_size), _window);
-                            s.relative().child(div().size_full()).child(
-                                div()
-                                    .absolute()
-                                    .top_0()
-                                    .left(-gutter)
-                                    .right_0()
-                                    .h_full()
-                                    .child(
-                                        Editor::new(&self.editor)
-                                            .w_full()
-                                            .on_paste(move |item, _, cx| {
-                                                for entry in &item.entries {
-                                                    match entry {
-                                                        ClipboardEntry::ExternalPaths(paths) => {
-                                                            let _ =
-                                                                paste_weak.update(cx, |_, cx| {
-                                                                    cx.emit(
+                div()
+                    .relative()
+                    .flex()
+                    .justify_center()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .w_full()
+                            .h_full()
+                            .min_w_0()
+                            .when(self.readable_width, |s| s.max_w(px(700.)))
+                            .when(self.reading, |s| s.child(preview))
+                            .when(!self.reading, |s| {
+                                // The gutter narrows the wrap. Extend the editor by
+                                // the gutter and shift it left, so the text column
+                                // starts and wraps where the reading view's does,
+                                // while the gutter sits in the pane inset.
+                                let gutter = self
+                                    .editor
+                                    .read(cx)
+                                    .gutter_width(px(self.font_size), _window);
+                                s.relative().child(div().size_full()).child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .left(-gutter)
+                                        .right_0()
+                                        .h_full()
+                                        .child(
+                                            Editor::new(&self.editor)
+                                                .w_full()
+                                                .on_paste(move |item, _, cx| {
+                                                    for entry in &item.entries {
+                                                        match entry {
+                                                            ClipboardEntry::ExternalPaths(
+                                                                paths,
+                                                            ) => {
+                                                                let _ =
+                                                                    paste_weak.update(
+                                                                        cx,
+                                                                        |_, cx| {
+                                                                            cx.emit(
                                                                         EditorEvent::PasteFiles(
                                                                             paths.paths().to_vec(),
                                                                         ),
                                                                     )
-                                                                });
-                                                            return true;
-                                                        }
-                                                        ClipboardEntry::Image(image) => {
-                                                            let _ =
-                                                                paste_weak.update(cx, |_, cx| {
-                                                                    cx.emit(
+                                                                        },
+                                                                    );
+                                                                return true;
+                                                            }
+                                                            ClipboardEntry::Image(image) => {
+                                                                let _ =
+                                                                    paste_weak.update(
+                                                                        cx,
+                                                                        |_, cx| {
+                                                                            cx.emit(
                                                                         EditorEvent::PasteImage(
                                                                             format!(
                                                                                 "粘贴图片.{}",
@@ -382,26 +405,38 @@ impl Render for EditorPane {
                                                                             image.bytes().to_vec(),
                                                                         ),
                                                                     )
-                                                                });
-                                                            return true;
+                                                                        },
+                                                                    );
+                                                                return true;
+                                                            }
+                                                            _ => (),
                                                         }
-                                                        _ => (),
                                                     }
-                                                }
-                                                false
-                                            })
-                                            .appearance(false)
-                                            .bordered(false)
-                                            .flush(true)
-                                            .trailing_margin(px(0.))
-                                            .font_family(self.text_font.clone())
-                                            .h_full()
-                                            .text_size(px(self.font_size))
-                                            .line_height(relative(self.line_spacing)),
-                                    ),
-                            )
-                        }),
-                ),
+                                                    false
+                                                })
+                                                .appearance(false)
+                                                .bordered(false)
+                                                .flush(true)
+                                                .trailing_margin(px(0.))
+                                                .font_family(self.text_font.clone())
+                                                .h_full()
+                                                .text_size(px(self.font_size))
+                                                .line_height(relative(self.line_spacing)),
+                                        ),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id("editor-pane-scrollbar")
+                            .debug_selector(|| "editor-pane-scrollbar".into())
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left(px(-32.))
+                            .right(px(-32.))
+                            .child(scrollbar),
+                    ),
             )
             .child(font_zoom::capture(cx.entity().downgrade()))
             .when(!self.reading && self.live, |view| {

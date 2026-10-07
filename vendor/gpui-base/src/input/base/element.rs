@@ -276,11 +276,20 @@ impl EditorScrollbarLayout {
 
 pub(super) struct EditorScrollbar<M: InputModeKind> {
     state: Entity<InputBaseState<M>>,
+    viewport_from_layout: bool,
 }
 
 impl<M: InputModeKind> EditorScrollbar<M> {
     pub(super) fn new(state: Entity<InputBaseState<M>>) -> Self {
-        Self { state }
+        Self {
+            state,
+            viewport_from_layout: false,
+        }
+    }
+
+    pub(super) fn viewport_from_layout(mut self) -> Self {
+        self.viewport_from_layout = true;
+        self
     }
 }
 
@@ -323,7 +332,7 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
         &mut self,
         _: Option<&GlobalElementId>,
         _: Option<&gpui::InspectorElementId>,
-        _: Bounds<Pixels>,
+        bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
@@ -338,21 +347,23 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
             scroll_handle.set_offset(snapshot.cursor_scroll_offset);
         }
 
+        let mut layout = snapshot.layout;
+        if self.viewport_from_layout {
+            // A wider track must preserve the document's scroll range.
+            layout.scroll_size.width += bounds.size.width - layout.bounds.size.width;
+            layout.bounds.origin.x = bounds.origin.x;
+            layout.bounds.size.width = bounds.size.width;
+        }
         let mut scrollbar = if !snapshot.soft_wrap {
             Scrollbar::new(&scroll_handle)
         } else {
             Scrollbar::vertical(&scroll_handle)
         }
-        .viewport_bounds(snapshot.layout.bounds)
-        .scroll_size(snapshot.layout.scroll_size)
+        .viewport_bounds(layout.bounds)
+        .scroll_size(layout.scroll_size)
         .into_any_element();
 
-        scrollbar.prepaint_as_root(
-            snapshot.layout.bounds.origin,
-            snapshot.layout.bounds.size.into(),
-            window,
-            cx,
-        );
+        scrollbar.prepaint_as_root(layout.bounds.origin, layout.bounds.size.into(), window, cx);
         Some(scrollbar)
     }
 

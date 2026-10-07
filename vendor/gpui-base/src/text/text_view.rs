@@ -133,6 +133,7 @@ pub struct TextView {
     selectable: bool,
     selection_format: SelectionFormat,
     scrollable: bool,
+    scrollbar_visible: bool,
     max_lines: Option<usize>,
     code_block_actions: Option<Arc<CodeBlockActionsFn>>,
     code_block_highlighter: Option<Arc<CodeBlockHighlighterFn>>,
@@ -181,6 +182,7 @@ impl TextView {
             selectable: true,
             selection_format: SelectionFormat::default(),
             scrollable: false,
+            scrollbar_visible: true,
             max_lines: None,
             code_block_actions: None,
             code_block_highlighter: None,
@@ -206,6 +208,7 @@ impl TextView {
             selectable: true,
             selection_format: SelectionFormat::default(),
             scrollable: false,
+            scrollbar_visible: true,
             max_lines: None,
             code_block_actions: None,
             code_block_highlighter: None,
@@ -231,6 +234,7 @@ impl TextView {
             selectable: true,
             selection_format: SelectionFormat::default(),
             scrollable: false,
+            scrollbar_visible: true,
             max_lines: None,
             code_block_actions: None,
             code_block_highlighter: None,
@@ -292,6 +296,12 @@ impl TextView {
     /// This mode is suitable for small content, such as a few lines of text, a label, etc.
     pub fn scrollable(mut self, scrollable: bool) -> Self {
         self.scrollable = scrollable;
+        self
+    }
+
+    /// Hide the built-in scrollbar when the host renders one using `list_state`.
+    pub fn scrollbar_visible(mut self, visible: bool) -> Self {
+        self.scrollbar_visible = visible;
         self
     }
 
@@ -707,7 +717,7 @@ impl Element for TextView {
             .child(state.clone())
             // Overlay controls must paint after the document, otherwise rich
             // content and selection backgrounds cover the thumb and hitbox.
-            .when(self.scrollable, |this| {
+            .when(self.scrollable && self.scrollbar_visible, |this| {
                 this.child(
                     div().absolute().inset_0().child(
                         crate::Scrollbar::vertical(&list_state)
