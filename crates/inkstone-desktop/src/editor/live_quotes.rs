@@ -1,18 +1,20 @@
 use super::*;
 
-pub(super) fn inset(font_size: f32) -> Pixels {
-    px((font_size * 0.75).clamp(8., 24.) + 2.)
+pub(super) fn inset(rem_size: Pixels) -> Pixels {
+    // Match the reading view: border_l_3 followed by px_4 (one rem).
+    px(3.) + rem_size
 }
 
 pub(super) fn overlay(
     editor: Entity<EditorState>,
     lines: Vec<std::ops::Range<usize>>,
-    font_size: f32,
+    rem_size: Pixels,
+    light: bool,
 ) -> impl IntoElement {
     canvas(
         move |_, window, cx| {
             let viewport = editor.read(cx).input_bounds();
-            let inset = inset(font_size);
+            let inset = inset(rem_size);
             let borders: Vec<_> = lines
                 .iter()
                 .filter_map(|range| {
@@ -28,13 +30,13 @@ pub(super) fn overlay(
                     let mut border = div()
                         .id(("live-quote", offset))
                         .debug_selector(move || format!("live-quote-{offset}"))
-                        .w(px(2.))
+                        .w(px(3.))
                         .h(bounds.size.height)
-                        .bg(gpui_component::Theme::global(cx).primary)
+                        .bg(crate::theme::palette(light).border)
                         .into_any_element();
                     border.prepaint_as_root(
                         bounds.origin - point(inset, px(0.)),
-                        size(px(2.), bounds.size.height).into(),
+                        size(px(3.), bounds.size.height).into(),
                         window,
                         cx,
                     );
@@ -90,7 +92,7 @@ mod tests {
                 let viewport = pane.editor.read(cx).input_bounds();
                 assert!(border.left() >= viewport.left());
                 let text = pane.editor.read(cx).range_to_bounds(&(2..2)).unwrap();
-                assert_eq!(text.left() - border.left(), inset(pane.font_size));
+                assert_eq!(text.left() - border.left(), inset(pane.quote_rem_size));
                 pane.editor
                     .update(cx, |state, cx| state.set_selected_range(0..0, cx));
                 pane.update_presentation(cx);
@@ -142,7 +144,7 @@ mod tests {
         handle
             .update(&mut visual, |p, _, cx| {
                 let actual = p.editor.read(cx).range_to_bounds(&(8..8)).unwrap();
-                assert_eq!(actual.origin.x, position.origin.x - inset(p.font_size));
+                assert_eq!(actual.origin.x, position.origin.x - inset(p.quote_rem_size));
                 assert_eq!(actual.origin.y, position.origin.y);
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);
             })
@@ -170,7 +172,7 @@ mod tests {
         let first = visual.debug_bounds("live-quote-0").unwrap();
         let outer = visual.debug_bounds("live-quote-8").unwrap();
         let nested = visual.debug_bounds("live-quote-10").unwrap();
-        assert_eq!(first.size.width, px(2.));
+        assert_eq!(first.size.width, px(3.));
         assert_eq!(outer.origin.y, nested.origin.y);
         assert!(nested.left() > outer.right());
         let text_x = handle
@@ -193,7 +195,7 @@ mod tests {
                     - state.range_to_bounds(&(0..0)).unwrap().left();
                 assert_eq!(
                     state.range_to_bounds(&(2..2)).unwrap().left(),
-                    text_x - inset(p.font_size) + prefix_width
+                    text_x - inset(p.quote_rem_size) + prefix_width
                 );
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);
             })
@@ -227,7 +229,7 @@ mod tests {
                         .read(cx)
                         .range_to_bounds(&(offset..offset))
                         .unwrap();
-                    assert!(glyph.left() - border.right() >= px(p.font_size * 0.75 - 1.));
+                    assert!(glyph.left() - border.right() >= p.quote_rem_size);
                 }
                 assert!(border.bottom() > viewport.top());
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);

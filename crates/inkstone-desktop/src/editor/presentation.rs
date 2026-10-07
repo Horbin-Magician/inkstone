@@ -196,6 +196,19 @@ impl EditorPane {
         self.live_rules.clear();
         self.live_lists.clear();
         if self.live {
+            // Apply the quote's inherited foreground before inline styles so links,
+            // code and headings retain their own colors, as in the reading view.
+            for span in &self.spans {
+                if matches!(span.kind, Kind::QuoteMarker | Kind::QuoteContinuation) {
+                    decorations.push(TextDecoration::new(
+                        span.source.clone(),
+                        HighlightStyle {
+                            color: Some(crate::theme::palette(self.light).muted.into()),
+                            ..Default::default()
+                        },
+                    ));
+                }
+            }
             for span in &self.spans {
                 let style = match span.kind {
                     Kind::Comment => continue,
@@ -351,7 +364,7 @@ impl EditorPane {
                         .all(|ch| matches!(ch, ' ' | '\t'))
             });
             let width = if nested {
-                live_quotes::inset(self.font_size)
+                live_quotes::inset(self.quote_rem_size)
             } else {
                 px(0.)
             };
@@ -555,7 +568,7 @@ impl EditorPane {
                 continue;
             }
             let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
-            let padding = live_quotes::inset(self.font_size);
+            let padding = live_quotes::inset(self.quote_rem_size);
             if let Some(style) = typography
                 .iter_mut()
                 .find(|style| (start..end).contains(&style.source_anchor().start))
