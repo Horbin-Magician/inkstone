@@ -145,10 +145,10 @@ impl EditorPane {
             .collect();
     }
 
-    // Keep dependency-free objects visible while the full reading document
+    // Keep unchanged objects visible while the full reading document
     // is rebuilt. Revalidate syntax as well as bytes: edits outside a formula
     // can turn it into code or otherwise change its Markdown context.
-    pub(super) fn retain_live_objects(&mut self, snapshot: &inkstone_core::syntax::Snapshot) {
+    pub(super) fn retain_live_objects(&mut self, snapshot: &Arc<inkstone_core::syntax::Snapshot>) {
         let old = self.parse_source.as_ref();
         let new = snapshot.source.as_ref();
         let prefix = old
@@ -195,13 +195,41 @@ impl EditorPane {
                 if current_graphic {
                     widget.source = range;
                     widget.graphic_source = Some(current_source.clone());
-                } else if let Some(document) = widget.document.rebase_local_fragment(
-                    &self.current_path,
-                    old,
-                    snapshot.source.clone(),
-                    widget.source.clone(),
-                    range.clone(),
-                ) {
+                } else if let Some(document) = widget
+                    .document
+                    .rebase_local_fragment(
+                        &self.current_path,
+                        old,
+                        snapshot.source.clone(),
+                        widget.source.clone(),
+                        range.clone(),
+                    )
+                    .or_else(|| {
+                        // Images carry reference metadata, so the dependency-free
+                        // rebase deliberately rejects them. Resolve just this image
+                        // against the current syntax (including reference definitions)
+                        // before retaining its already laid-out view.
+                        if widget.block || !old.get(widget.source.clone())?.starts_with("![") {
+                            return None;
+                        }
+                        let document = inkstone_core::rendering::reading_snapshot(
+                            &self.reference_index,
+                            &self.current_path,
+                            snapshot.clone(),
+                            range.clone(),
+                        );
+                        (document.markdown == widget.document.markdown
+                            && document.references.len() == widget.document.references.len()
+                            && document
+                                .references
+                                .iter()
+                                .zip(&widget.document.references)
+                                .all(|(a, b)| {
+                                    a.from == b.from && a.target == b.target && a.wiki == b.wiki
+                                }))
+                        .then_some(document)
+                    })
+                {
                     widget.source = range;
                     widget.document = Arc::new(document);
                 }
@@ -843,6 +871,93 @@ mod tests {
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn unchanged_images_stay_visible_during_edits_before_background_parse(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for image in [
+            "![alt](image.png)",
+            "![[image.png]]",
+            "![alt][pic]",
+            "![pic][]",
+            "![pic]",
+        ] {
+            let source = format!("top\n\n{image}\n\ntail\n\n[pic]: image.png");
+            let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+            cx.run_until_parked();
+            handle
+                .update(cx, |pane, window, cx| {
+                    let original = pane.live_objects[0].clone();
+                    // No executor yield: assert the intermediate frame, not only
+                    // the eventual background result that previously hid the flash.
+                    for (at_start, text) in [(true, "中文😀\n"), (true, "more "), (false, "\nend")]
+                    {
+                        pane.editor.update(cx, |state, cx| {
+                            let at = if at_start { 0 } else { state.value().len() };
+                            state.set_selected_range(at..at, cx);
+                            state.replace_text_in_range(None, text, window, cx);
+                        });
+                        pane.update_presentation(cx);
+                        let current = pane.editor.read(cx).value();
+                        let objects = pane.editor.read(cx).display_objects();
+                        assert_eq!(objects.len(), 1, "{image} disappeared during editing");
+                        let start = current.find(image).unwrap();
+                        assert_eq!(objects[0].source, start..start + image.len());
+                        assert_eq!(
+                            objects[0].size,
+                            size(px(original.width), px(original.height))
+                        );
+                        assert_eq!(pane.live_objects[0].view, original.view);
+                        assert!(
+                            pane.live_objects[0]
+                                .document
+                                .source_matches(&pane.current_path, &current)
+                        );
+                        assert_eq!(
+                            pane.live_objects[0].document.references[0].target,
+                            "image.png"
+                        );
+                    }
+                    // Entering the image source still reveals it for editing.
+                    let at = pane.live_objects[0].source.start + 2;
+                    pane.editor
+                        .update(cx, |state, cx| state.set_selected_range(at..at, cx));
+                    pane.update_presentation(cx);
+                    assert!(pane.editor.read(cx).display_objects().is_empty());
+                })
+                .unwrap();
+        }
+    }
+
+    #[gpui::test]
+    fn changed_image_dependencies_and_context_do_not_retain_stale_images(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (source, before, after) in [
+            ("top\n\n![alt][pic]\n\n[pic]: old.png", "old.png", "new.png"),
+            ("top\n\n![alt](old.png)", "old.png", "new.png"),
+            ("top\n\n![[old.png]]", "old.png", "new.png"),
+            ("top\n\n![alt](old.png)", "top", "```"),
+        ] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            cx.run_until_parked();
+            handle
+                .update(cx, |pane, window, cx| {
+                    assert_eq!(pane.live_objects.len(), 1);
+                    let start = source.find(before).unwrap();
+                    pane.editor.update(cx, |state, cx| {
+                        state.set_selected_range(start..start + before.len(), cx);
+                        state.replace_text_in_range(None, after, window, cx);
+                        state.set_selected_range(0..0, cx);
+                    });
+                    pane.update_presentation(cx);
+                    assert!(
+                        pane.editor.read(cx).display_objects().is_empty(),
+                        "{source}"
+                    );
+                })
+                .unwrap();
+        }
     }
 
     #[gpui::test]
