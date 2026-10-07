@@ -488,7 +488,11 @@ impl Workspace {
                                 div()
                                     .p_2()
                                     .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                    .child("未保存草稿 · 点击比较、恢复或放弃"),
+                                    .child(if self.recoveries_loading {
+                                        "正在读取未保存草稿……"
+                                    } else {
+                                        "未保存草稿 · 点击比较、恢复或放弃"
+                                    }),
                             )
                             .children(self.recoveries.iter().enumerate().map(|(i, e)| {
                                 let time: chrono::DateTime<chrono::Local> = e.modified.into();
