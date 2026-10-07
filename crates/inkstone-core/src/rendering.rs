@@ -52,6 +52,51 @@ struct SourceMap {
     source_end: usize,
 }
 impl ReadingDocument {
+    /// Isolate a parsed code block from list/quote prefixes and indentation.
+    /// The synthetic fence is presentation only; editing and selection still
+    /// operate on the original candidate range in the source editor.
+    pub(crate) fn code_fragment(
+        path: &Path,
+        source: Arc<str>,
+        range: Range<usize>,
+        code: &markdown_parser::mdast::Code,
+    ) -> Self {
+        let fence = "~".repeat(
+            code.value
+                .split(|c| c != '~')
+                .map(str::len)
+                .max()
+                .unwrap_or(0)
+                .max(2)
+                + 1,
+        );
+        let language: String = code
+            .lang
+            .as_deref()
+            .unwrap_or("")
+            .chars()
+            .map(|ch| {
+                if ch.is_whitespace() || matches!(ch, '&' | '\\') {
+                    format!("&#{};", ch as u32)
+                } else {
+                    ch.to_string()
+                }
+            })
+            .collect();
+        let markdown = format!("{fence}{}\n{}\n{fence}", language, code.value);
+        Self {
+            locations: vec![SourceMap {
+                output: 0..markdown.len(),
+                path: path.to_path_buf(),
+                start: range.start,
+                source_end: range.end,
+            }],
+            markdown,
+            sources: BTreeMap::from([(path.to_path_buf(), source)]),
+            ..Default::default()
+        }
+    }
+
     /// A syntax-validated literal graphic needs no link/footnote expansion.
     /// Retain its source mapping without scanning the whole note again.
     pub(crate) fn graphic_fragment(path: &Path, source: Arc<str>, range: Range<usize>) -> Self {
