@@ -154,3 +154,17 @@ python3 tools/performance/prepare_macos.py target/new-diagnostic-run --scenario 
 `editor_view_composition` 只量化元素组装，不包含 GPUI 后续布局、绘制或 GPU 提交；
 后者仍结合现有无头 frame benchmark 和平台 profiler，不以本日志替代原生帧验收。
 日志同步落盘有诊断成本；正式预算采样默认关闭，前后对照必须保持同一设置。
+
+## 阅读与片段准备基准
+
+```sh
+cargo build --release --locked -p inkstone-core --example projection_benchmark
+# GENERATED_FILE 必须来自 corpus.py 新生成的隔离库。
+target/release/examples/projection_benchmark GENERATED_FILE
+```
+
+语法快照在计时前创建；每进程 5 次预热、20 次正式样本，输出总 p50/p95 与 p50 对应
+的阅读投影耗时，并核对每轮输出散列、任务数、片段数。输出源/结果散列用于跨版本
+一致性检查；源码位置、任务行为和链接语义仍须单独回归。没有包含最初语法解析、
+图形栅格化、GPUI 布局、磁盘打开或原生帧延迟。比较版本时先构建并保留二进制和
+散列，再停止构建，至少三对独立进程交错顺序运行同一 corpus，保存原始 stdout。

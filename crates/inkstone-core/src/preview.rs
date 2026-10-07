@@ -176,7 +176,7 @@ pub fn fragments_cancellable(
     if cancelled() {
         return None;
     }
-    let parsed = crate::index::parse_snapshot(&snapshot);
+    let parsed = Arc::new(crate::index::parse_snapshot(&snapshot));
     let mut out = candidates_with_parsed(&snapshot, &parsed);
     let mut graphic_nodes = BTreeMap::new();
     if let Some(ast) = snapshot.ast.as_deref() {
@@ -238,9 +238,9 @@ pub fn fragments_cancellable(
                 role: Role::Footer(roots),
             });
         }
-        for (range, _) in parsed.footnote_definitions {
+        for (range, _) in &parsed.footnote_definitions {
             out.push(Candidate {
-                source: range,
+                source: range.clone(),
                 block: true,
                 role: Role::Hidden,
             });
@@ -256,6 +256,7 @@ pub fn fragments_cancellable(
             true
         }
     });
+    let mut prepared = None;
     let fragments = out
         .into_iter()
         .map(|candidate| {
@@ -290,10 +291,17 @@ pub fn fragments_cancellable(
                     document.tasks.clear();
                     document
                 }
-                Role::Content => crate::rendering::reading_snapshot(
+                Role::Content => crate::rendering::reading_prepared(
                     index,
                     path,
-                    snapshot.clone(),
+                    prepared
+                        .get_or_insert_with(|| {
+                            Arc::new(crate::rendering::Prepared::with_parsed(
+                                snapshot.clone(),
+                                parsed.clone(),
+                            ))
+                        })
+                        .clone(),
                     candidate.source.clone(),
                 ),
             };
@@ -318,6 +326,66 @@ pub fn fragments_cancellable(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shared_preparation_matches_fresh_fragments_with_references_and_tasks() {
+        let source = "# Title\n\n| A | B |\n| - | - |\n| ==hi== | [link][ref] |\n\n> [!note] Callout\n> - [ ] 中文😀 [[child]]\n\n| C | D |\n| - | - |\n| ![[child]] | $x$ |\n\n[ref]: child.md\n\nend[^n]\n\n[^n]: footnote";
+        let path = Path::new("note.md");
+        for body in ["# Child\n\n- [x] first", "# Child\n\n- [ ] second"] {
+            let mut index = crate::index::Index::default();
+            index.update("child.md".into(), body.into());
+            let snapshot = Arc::new(Snapshot::new(source));
+            let reading =
+                crate::rendering::reading_snapshot(&index, path, snapshot.clone(), 0..source.len());
+            let fragments = fragments(&index, path, snapshot.clone(), &reading);
+            let content: Vec<_> = fragments
+                .iter()
+                .filter(|f| f.candidate.role == Role::Content)
+                .collect();
+            assert!(content.len() >= 3);
+            for fragment in content {
+                let fresh = crate::rendering::reading_snapshot(
+                    &index,
+                    path,
+                    snapshot.clone(),
+                    fragment.candidate.source.clone(),
+                );
+                assert_eq!(fragment.document.markdown, fresh.markdown);
+                assert_eq!(
+                    fragment
+                        .document
+                        .references
+                        .iter()
+                        .map(|r| (&r.from, &r.target, r.wiki))
+                        .collect::<Vec<_>>(),
+                    fresh
+                        .references
+                        .iter()
+                        .map(|r| (&r.from, &r.target, r.wiki))
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    fragment
+                        .document
+                        .tasks
+                        .iter()
+                        .map(|t| (t.rendered_start, &t.path, &t.marker, &t.baseline))
+                        .collect::<Vec<_>>(),
+                    fresh
+                        .tasks
+                        .iter()
+                        .map(|t| (t.rendered_start, &t.path, &t.marker, &t.baseline))
+                        .collect::<Vec<_>>()
+                );
+                for (offset, _) in source.char_indices() {
+                    assert_eq!(
+                        fragment.document.output_offset(path, offset),
+                        fresh.output_offset(path, offset)
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn cancellation_never_returns_partial_fragments() {
         use std::cell::Cell;
