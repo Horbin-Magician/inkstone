@@ -132,6 +132,7 @@ pub struct Workspace {
     refresh_requested: bool,
     refreshing: bool,
     recoveries: Vec<RecoverySummary>,
+    recoveries_loading: bool,
     index: Arc<Index>,
     link_paths: std::collections::HashMap<PathBuf, Arc<Vec<crate::editor_links::CompletionPath>>>,
     link_paths_key: Option<(Arc<Index>, inkstone_core::locations::LinkFormat, bool)>,
