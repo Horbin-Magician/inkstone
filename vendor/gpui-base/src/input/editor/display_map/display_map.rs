@@ -299,8 +299,11 @@ impl DisplayMap {
         metrics: std::rc::Rc<[(std::ops::Range<usize>, Pixels)]>,
         cx: &mut App,
     ) {
-        self.wrap_map.set_inline_metrics(metrics, cx);
-        self.rebuild_fold_projection();
+        // Prepaint supplies cached metrics on every cursor blink. Preserve the
+        // fold projection and typography heights when wrapping did not change.
+        if self.wrap_map.set_inline_metrics(metrics, cx) {
+            self.rebuild_fold_projection();
+        }
     }
 
     pub fn on_layout_changed(&mut self, wrap_width: Option<Pixels>, cx: &mut App) {
@@ -492,6 +495,62 @@ impl DisplayMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn unchanged_inline_metrics_preserve_heights_and_changes_rebuild(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            let text =
+                Rope::from("# Heading\nfolded body\n\nparagraph with a tab\tand more text\n");
+            let font = Font {
+                family: "Arial".into(),
+                ..Default::default()
+            };
+            let make_map = |metrics, cx: &mut App| {
+                let mut map = DisplayMap::new(font.clone(), gpui::px(16.), Some(gpui::px(120.)));
+                map.set_text(&text, cx);
+                map.set_line_typography(
+                    vec![crate::input::LineTypography::new(0..9, 1., 2.)].into(),
+                    cx,
+                );
+                map.set_fold_candidates(vec![FoldRange::new(0, 1)]);
+                map.set_folded(0, true);
+                map.set_inline_metrics(metrics, cx);
+                map
+            };
+            let metrics: std::rc::Rc<[(Range<usize>, Pixels)]> =
+                vec![(42..43, gpui::px(80.))].into();
+            let mut map = make_map(metrics.clone(), cx);
+            assert!(!map.heights.is_empty());
+            let heights = map.heights.as_ptr();
+            for _ in 0..60 {
+                // Equal values in another allocation must also be a no-op.
+                map.set_inline_metrics(metrics.to_vec().into(), cx);
+                assert_eq!(map.heights.as_ptr(), heights);
+            }
+            for changed in [vec![(42..43, gpui::px(180.))], vec![]] {
+                map.set_inline_metrics(changed.clone().into(), cx);
+                let fresh = make_map(changed.into(), cx);
+                assert_eq!(map.wrap_row_count(), fresh.wrap_row_count());
+                assert_eq!(map.display_row_count(), fresh.display_row_count());
+                for row in 0..=map.display_row_count() {
+                    let y = map.row_top(row, gpui::px(24.));
+                    assert_eq!(y, fresh.row_top(row, gpui::px(24.)));
+                    assert_eq!(
+                        map.row_at_y(y, gpui::px(24.)),
+                        fresh.row_at_y(y, gpui::px(24.))
+                    );
+                }
+                for row in 0..map.buffer_line_count() {
+                    assert_eq!(
+                        map.buffer_line_to_display_row_range(row),
+                        fresh.buffer_line_to_display_row_range(row)
+                    );
+                }
+            }
+        });
+    }
     use gpui::{TestAppContext, px};
 
     #[gpui::test]

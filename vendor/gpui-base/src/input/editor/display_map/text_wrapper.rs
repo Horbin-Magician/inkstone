@@ -432,9 +432,9 @@ impl TextWrapper {
         &mut self,
         metrics: Rc<[(Range<usize>, Pixels)]>,
         cx: &mut App,
-    ) {
+    ) -> bool {
         if self.inline_metrics == metrics {
-            return;
+            return false;
         }
         // Only rows whose element geometry changed need another wrap pass.
         let mut affected = Vec::new();
@@ -481,6 +481,7 @@ impl TextWrapper {
                 cx,
             );
         }
+        true
     }
 
     fn _update<F>(
