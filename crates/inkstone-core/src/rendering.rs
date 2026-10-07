@@ -691,8 +691,21 @@ impl Builder<'_> {
         self.stack.pop();
     }
     fn finish(mut self) -> ReadingDocument {
-        let parsed = index::parse(&self.output.markdown);
-        for task in parsed.tasks {
+        // A GFM task checkbox requires a literal opening bracket. Most prose,
+        // code and math projections need no second parse for task mapping.
+        // If output is unchanged, its existing syntax snapshot is also valid.
+        let tasks = if !self.output.markdown.contains('[') {
+            Vec::new()
+        } else if let Some(snapshot) = self
+            .snapshots
+            .values()
+            .find(|snapshot| snapshot.source.as_ref() == self.output.markdown)
+        {
+            index::parse_snapshot(snapshot).tasks
+        } else {
+            index::parse(&self.output.markdown).tasks
+        };
+        for task in tasks {
             if let Some(map) = self
                 .maps
                 .get(
