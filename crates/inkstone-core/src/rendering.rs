@@ -252,6 +252,96 @@ impl ReadingDocument {
             .map(|m| m.output.start)
     }
 }
+/// Source-only preparation shared within one fragment batch. Contextual
+/// footnote numbering and output/source maps remain private to each builder.
+pub(crate) struct Prepared {
+    snapshot: Arc<crate::syntax::Snapshot>,
+    parsed: Arc<index::ParsedNote>,
+    prefix_actions: Vec<(Range<usize>, Action)>,
+    suffix_actions: Vec<(Range<usize>, Action)>,
+}
+impl Prepared {
+    fn new(snapshot: Arc<crate::syntax::Snapshot>) -> Self {
+        let parsed = Arc::new(index::parse_snapshot(&snapshot));
+        Self::with_parsed(snapshot, parsed)
+    }
+    pub(crate) fn with_parsed(
+        snapshot: Arc<crate::syntax::Snapshot>,
+        parsed: Arc<index::ParsedNote>,
+    ) -> Self {
+        let source = &snapshot.source;
+        let html_destinations = snapshot
+            .ast
+            .as_deref()
+            .map(|ast| crate::syntax::html_destinations(ast, &snapshot.structural))
+            .unwrap_or_default();
+        let mut actions: Vec<_> = parsed
+            .comments
+            .iter()
+            .map(|comment| {
+                (
+                    comment.range.clone(),
+                    if comment.block {
+                        Action::Remove
+                    } else {
+                        Action::Literal("<!---->".into())
+                    },
+                )
+            })
+            .collect();
+        if let Some(ast) = snapshot.ast.as_deref() {
+            actions.extend(reference_actions(ast));
+        }
+        let prefix_actions = actions;
+        let mut actions = Vec::new();
+        for link in parsed.links.iter().cloned() {
+            let bang = link
+                .range
+                .start
+                .checked_sub(1)
+                .filter(|i| source.as_bytes()[*i] == b'!');
+            let embed = bang.is_some_and(|i| {
+                source[..i]
+                    .bytes()
+                    .rev()
+                    .take_while(|b| *b == b'\\')
+                    .count()
+                    % 2
+                    == 0
+            });
+            let mut range = link.range.clone();
+            if embed {
+                range.start -= 1;
+            }
+            actions.push((range, Action::Wiki(link, embed)));
+        }
+        for (range, url) in parsed.destinations.iter().cloned() {
+            actions.push((range, Action::Destination(url)));
+        }
+        actions.extend(
+            html_destinations
+                .into_iter()
+                .map(|(range, url)| (range, Action::Destination(url))),
+        );
+        for span in crate::markdown::spans_snapshot(&snapshot)
+            .into_iter()
+            .filter(|s| s.kind == crate::markdown::Kind::Highlight)
+        {
+            actions.push((span.markers[0].clone(), Action::Literal("<mark>".into())));
+            actions.push((span.markers[1].clone(), Action::Literal("</mark>".into())));
+        }
+        for block in &parsed.blocks {
+            actions.push((block.marker.clone(), Action::Remove));
+        }
+        Self {
+            snapshot,
+            parsed,
+            prefix_actions,
+            suffix_actions: actions,
+        }
+    }
+}
+
 struct Builder<'a> {
     index: &'a Index,
     output: ReadingDocument,
@@ -265,8 +355,9 @@ struct Builder<'a> {
     footnote_identifiers: BTreeMap<(PathBuf, String), usize>,
     included_footnotes: std::collections::BTreeSet<(PathBuf, String)>,
     footnote_indent: usize,
-    snapshots: BTreeMap<PathBuf, Arc<crate::syntax::Snapshot>>,
+    snapshots: BTreeMap<PathBuf, Arc<Prepared>>,
 }
+#[derive(Clone)]
 enum Action {
     Wiki(index::WikiLink, bool),
     Destination(String),
@@ -409,37 +500,26 @@ impl Builder<'_> {
         }
         self.stack.push((path.to_path_buf(), range.clone()));
         self.sources.insert(path.to_path_buf(), source.clone());
-        let snapshot = if let Some(cached) = self.snapshots.get(path).filter(|s| s.source == source)
+        let prepared = if let Some(cached) = self
+            .snapshots
+            .get(path)
+            .filter(|p| p.snapshot.source == source)
         {
             cached.clone()
         } else {
-            let snapshot = Arc::new(crate::syntax::Snapshot::new(&source));
-            self.snapshots.insert(path.to_path_buf(), snapshot.clone());
-            snapshot
+            let prepared = Arc::new(Prepared::new(Arc::new(crate::syntax::Snapshot::new(
+                &source,
+            ))));
+            self.snapshots.insert(path.to_path_buf(), prepared.clone());
+            prepared
         };
-        let parsed = index::parse_snapshot(&snapshot);
-        let html_destinations = snapshot
-            .ast
-            .as_deref()
-            .map(|ast| crate::syntax::html_destinations(ast, &snapshot.structural))
-            .unwrap_or_default();
-        let mut actions: Vec<_> = parsed
-            .comments
+        let parsed = &prepared.parsed;
+        let mut actions: Vec<_> = prepared
+            .prefix_actions
             .iter()
-            .map(|comment| {
-                (
-                    comment.range.clone(),
-                    if comment.block {
-                        Action::Remove
-                    } else {
-                        Action::Literal("<!---->".into())
-                    },
-                )
-            })
+            .filter(|(span, _)| range.start <= span.start && span.end <= range.end)
+            .cloned()
             .collect();
-        if let Some(ast) = snapshot.ast.as_deref() {
-            actions.extend(reference_actions(ast));
-        }
         let mut definitions = BTreeMap::new();
         for (span, id) in &parsed.footnote_definitions {
             if definitions.contains_key(id) {
@@ -506,45 +586,13 @@ impl Builder<'_> {
                 actions.push((span.clone(), Action::Literal(format!("fn{namespace}-{id}"))));
             }
         }
-        for link in parsed.links {
-            let bang = link
-                .range
-                .start
-                .checked_sub(1)
-                .filter(|i| source.as_bytes()[*i] == b'!');
-            let embed = bang.is_some_and(|i| {
-                source[..i]
-                    .bytes()
-                    .rev()
-                    .take_while(|b| *b == b'\\')
-                    .count()
-                    % 2
-                    == 0
-            });
-            let mut range = link.range.clone();
-            if embed {
-                range.start -= 1;
-            }
-            actions.push((range, Action::Wiki(link, embed)));
-        }
-        for (range, url) in parsed.destinations {
-            actions.push((range, Action::Destination(url)));
-        }
         actions.extend(
-            html_destinations
-                .into_iter()
-                .map(|(range, url)| (range, Action::Destination(url))),
+            prepared
+                .suffix_actions
+                .iter()
+                .filter(|(span, _)| range.start <= span.start && span.end <= range.end)
+                .cloned(),
         );
-        for span in crate::markdown::spans_snapshot(&snapshot)
-            .into_iter()
-            .filter(|s| s.kind == crate::markdown::Kind::Highlight)
-        {
-            actions.push((span.markers[0].clone(), Action::Literal("<mark>".into())));
-            actions.push((span.markers[1].clone(), Action::Literal("</mark>".into())));
-        }
-        for block in parsed.blocks {
-            actions.push((block.marker, Action::Remove));
-        }
         actions.sort_by_key(|(r, _)| (r.start, std::cmp::Reverse(r.end)));
         let mut cursor = range
             .start
@@ -699,9 +747,9 @@ impl Builder<'_> {
         } else if let Some(snapshot) = self
             .snapshots
             .values()
-            .find(|snapshot| snapshot.source.as_ref() == self.output.markdown)
+            .find(|prepared| prepared.snapshot.source.as_ref() == self.output.markdown)
         {
-            index::parse_snapshot(snapshot).tasks
+            snapshot.parsed.tasks.clone()
         } else {
             index::parse(&self.output.markdown).tasks
         };
@@ -746,7 +794,16 @@ pub fn reading_snapshot(
     range: Range<usize>,
 ) -> ReadingDocument {
     let _span = crate::performance::span(crate::performance::Stage::ReadingProjection);
-    let source = snapshot.source.clone();
+    reading_prepared(index, path, Arc::new(Prepared::new(snapshot)), range)
+}
+
+pub(crate) fn reading_prepared(
+    index: &Index,
+    path: &Path,
+    prepared: Arc<Prepared>,
+    range: Range<usize>,
+) -> ReadingDocument {
+    let source = prepared.snapshot.source.clone();
     let mut builder = Builder {
         index,
         output: ReadingDocument::default(),
@@ -760,7 +817,7 @@ pub fn reading_snapshot(
         footnote_identifiers: BTreeMap::new(),
         included_footnotes: Default::default(),
         footnote_indent: 0,
-        snapshots: BTreeMap::from([(path.to_path_buf(), snapshot)]),
+        snapshots: BTreeMap::from([(path.to_path_buf(), prepared)]),
     };
     builder.note(path, source, range);
     builder.finish()
