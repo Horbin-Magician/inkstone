@@ -162,19 +162,7 @@ pub fn trash_unused(
     {
         return Err(io::Error::other("附件在清理前已变化").into());
     }
-    let trash = vault.root.join(".inkstone-trash");
-    if let Ok(m) = fs::symlink_metadata(&trash)
-        && is_reparse(&m)
-    {
-        return Err(VaultError::InvalidPath);
-    }
-    fs::create_dir_all(&trash)?;
-    let entry = trash.join(unique_id());
-    fs::create_dir(&entry)?;
-    write_new_synced(
-        &entry.join("original-path.json"),
-        &serde_json::to_vec(&current.path).map_err(io::Error::other)?,
-    )?;
+    let entry = vault.create_trash_entry(&current.path)?;
     write_new_synced(&entry.join("payload-name.json"), b"\"content\"")?;
     let dest = entry.join("content");
     move_no_replace(&source, &dest)?;

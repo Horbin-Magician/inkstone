@@ -206,8 +206,8 @@ impl Vault {
         history::links::rename(self, old, new, &source, &dest)?;
         Ok(())
     }
-    pub fn trash_folder(&self, relative: &Path) -> Result<PathBuf, VaultError> {
-        let source = self.folder_path(relative)?;
+    /// Create the shared trash envelope before moving any recoverable payload.
+    fn create_trash_entry(&self, relative: &Path) -> Result<PathBuf, VaultError> {
         let trash = self.root.join(".inkstone-trash");
         if let Ok(meta) = fs::symlink_metadata(&trash)
             && is_reparse(&meta)
@@ -221,6 +221,11 @@ impl Vault {
             &entry.join("original-path.json"),
             &serde_json::to_vec(relative).map_err(io::Error::other)?,
         )?;
+        Ok(entry)
+    }
+    pub fn trash_folder(&self, relative: &Path) -> Result<PathBuf, VaultError> {
+        let source = self.folder_path(relative)?;
+        let entry = self.create_trash_entry(relative)?;
         let dest = entry.join(relative.file_name().ok_or(VaultError::InvalidPath)?);
         move_no_replace(&source, &dest)?;
         Ok(dest)
@@ -589,19 +594,7 @@ impl Vault {
         if read_optional(&source)?.as_deref() != Some(baseline) {
             return Err(VaultError::Conflict { recovery });
         }
-        let trash = self.root.join(".inkstone-trash");
-        if let Ok(meta) = fs::symlink_metadata(&trash)
-            && is_reparse(&meta)
-        {
-            return Err(VaultError::InvalidPath);
-        }
-        fs::create_dir_all(&trash)?;
-        let entry = trash.join(unique_id());
-        fs::create_dir(&entry)?;
-        write_new_synced(
-            &entry.join("original-path.json"),
-            &serde_json::to_vec(relative).map_err(io::Error::other)?,
-        )?;
+        let entry = self.create_trash_entry(relative)?;
         let dest = entry.join(relative.file_name().ok_or(VaultError::InvalidPath)?);
         move_no_replace(&source, &dest)?;
         let _ = fs::rename(&recovery, recovery.with_extension("saved"));
