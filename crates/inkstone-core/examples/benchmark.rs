@@ -38,7 +38,12 @@ fn main() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("inkstone-benchmark-{stamp}"));
+    let retained = std::env::args().nth(3).map(PathBuf::from);
+    let root = retained
+        .clone()
+        .unwrap_or_else(|| std::env::temp_dir().join(format!("inkstone-benchmark-{stamp}")));
+    // Explicit outputs must be fresh, including dangling symlinks.
+    fs::create_dir(&root).unwrap();
     let notes = root.join("vault");
     fs::create_dir_all(&notes).unwrap();
     let sample = "# 中文笔记\n\n这是一篇用于搜索测试的本地 Markdown 文档。English 和 emoji 😀。\n\n**重要内容** 与 `代码`，[[00001]]。\n".repeat(repetitions);
@@ -170,5 +175,7 @@ fn main() {
         parsed.headings.len()
     );
     // Delete only this process's uniquely created benchmark directory.
-    fs::remove_dir_all(root).unwrap();
+    if retained.is_none() {
+        fs::remove_dir_all(root).unwrap();
+    }
 }

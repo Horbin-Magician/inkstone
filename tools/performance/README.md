@@ -118,3 +118,21 @@ python3 tools/performance/sync_scan.py
 现有两秒工作区定时器在 tick 前记录 PID、Unix 毫秒时间、启动后单调毫秒、窗口激活、当前编辑器焦点及加载状态，最多 1,800 条，写失败即停止。不记录笔记路径、正文、选区或输入内容。未开启时不创建文件，不为诊断增加定时器。日志写入有少量开销，前后对照必须保持相同设置；它是间隔采样，不能证明两个采样点之间没有切换焦点，不能替代显示帧追踪。
 
 sample_process.py 的 `sample_start_unix_ms` / `sample_end_unix_ms` 可用于筛选活动日志中正式 CPU 采样区间内的记录；CPU 耗时仍使用单调时钟。缺失记录、仍在加载或窗口未激活时应单独报告，不能只看低 CPU 宣称前台预算通过。
+
+## 全面性能工作恢复（2026-10-07）
+
+当前计划仅对 macOS 做性能验收，保留 Windows 正确性 CI。所有旧结果保持原有
+边界；重新以当前提交测量，不将原生帧数据缺失记为通过。
+
+```sh
+cargo build --release --locked -p inkstone-core --example benchmark
+python3 tools/performance/backend.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/performance -p test_backend.py -v
+```
+
+`backend.py` 对 1,000 / 10,000 篇固定内容的生成库各启动三个独立进程，保存版本化
+JSON、每轮 stdout/stderr、样本逐文件散列、提交/工作树差异、硬件、编译器和二进制散列。
+它不接收用户库路径。计时来自原有 benchmark 的后端阶段；RSS 是整个子进程峰值，
+包含夹具生成、所有阶段和析构，不能当作应用峰值或单阶段内存。夹具核验在计量进程外。
+不清 OS 缓存，不与构建/其他测试并行运行。`--binary` 可选择保留的对照二进制；提交号
+指运行时工作树，比较旧二进制时另行记录其构建提交。原始数据只保留在忽略目录。
