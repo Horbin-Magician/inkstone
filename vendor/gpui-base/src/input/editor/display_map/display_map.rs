@@ -148,6 +148,13 @@ impl DisplayMap {
         // Buffer line → Wrap row range
         let wrap_row_range = self.wrap_map.buffer_line_to_wrap_row_range(line);
 
+        // Without hidden rows the projection is the identity. In particular,
+        // a single long paragraph can contain thousands of soft-wrap rows;
+        // determining its visible range must not walk every one on each frame.
+        if !self.fold_map.has_hidden_lines() {
+            return (!wrap_row_range.is_empty()).then_some(wrap_row_range);
+        }
+
         // Find first and last visible display rows in this range
         let mut first_display_row = None;
         let mut last_display_row = None;
@@ -495,6 +502,87 @@ impl DisplayMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rowwise_range(map: &DisplayMap, line: usize) -> Option<Range<usize>> {
+        let mut first = None;
+        let mut last = None;
+        for row in map.wrap_map.buffer_line_to_wrap_row_range(line) {
+            if let Some(display) = map.fold_map.wrap_row_to_display_row(row) {
+                first.get_or_insert(display);
+                last = Some(display);
+            }
+        }
+        first.zip(last).map(|(first, last)| first..last + 1)
+    }
+
+    #[gpui::test]
+    fn long_paragraph_ranges_match_rowwise_projection_with_and_without_folds(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            let text = Rope::from(format!(
+                "heading\n{}\nend\n",
+                "中文 e\u{301} 👩‍💻 paragraph ".repeat(1000)
+            ));
+            let mut map = DisplayMap::new(
+                Font {
+                    family: "Arial".into(),
+                    ..Default::default()
+                },
+                gpui::px(16.),
+                Some(gpui::px(120.)),
+            );
+            map.set_text(&text, cx);
+            assert!(map.wrap_row_count() > 100);
+            map.set_fold_candidates(vec![FoldRange::new(0, 1)]);
+            for hidden in [false, true, false] {
+                map.set_folded(0, hidden);
+                for line in 0..map.buffer_line_count() + 2 {
+                    let expected = rowwise_range(&map, line);
+                    assert_eq!(map.buffer_line_to_display_row_range(line), expected);
+                    assert_eq!(
+                        map.visible_wrap_row_count_for_buffer_line(line),
+                        expected.map_or(0, |r| r.len())
+                    );
+                }
+            }
+            map.set_concealed_lines(vec![1]);
+            assert_eq!(map.buffer_line_to_display_row_range(1), None);
+            assert_eq!(map.visible_wrap_row_count_for_buffer_line(1), 0);
+            map.set_concealed_lines(vec![]);
+            assert_eq!(
+                map.buffer_line_to_display_row_range(1),
+                rowwise_range(&map, 1)
+            );
+        });
+    }
+
+    /// Isolated lookup CPU comparison; the rowwise branch reconstructs the old
+    /// implementation. This excludes shaping, editing, painting and native input.
+    #[gpui::test]
+    #[ignore = "manual same-host long paragraph lookup comparison"]
+    fn long_paragraph_range_performance(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            let unit = "中文输入、English text、组合字符 e\u{301} 和 emoji 👩‍💻，用于检查光标与选区。";
+            let source = format!("# 长段落\n\n{}\n", unit.repeat(10_000));
+            assert_eq!(source.len(), 1_010_014);
+            let mut map = DisplayMap::new(Font { family: "Arial".into(), ..Default::default() }, gpui::px(16.), Some(gpui::px(600.)));
+            map.set_text(&Rope::from(source), cx);
+            let expected = rowwise_range(&map, 2);
+            assert_eq!(map.buffer_line_to_display_row_range(2), expected);
+            for round in 0..3 {
+                for legacy in if round % 2 == 0 { [true, false] } else { [false, true] } {
+                    let start = std::time::Instant::now();
+                    for _ in 0..1000 {
+                        let map = std::hint::black_box(&map);
+                        let result = if legacy { rowwise_range(map, 2) } else { map.buffer_line_to_display_row_range(2) };
+                        assert_eq!(std::hint::black_box(result), expected);
+                    }
+                    println!("long_paragraph_range_cpu round={round} legacy={legacy} iterations=1000 wrapped_rows={} elapsed_us={}", map.wrap_row_count(), start.elapsed().as_micros());
+                }
+            }
+        });
+    }
 
     #[gpui::test]
     fn unchanged_inline_metrics_preserve_heights_and_changes_rebuild(
