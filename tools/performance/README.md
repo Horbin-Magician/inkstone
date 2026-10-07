@@ -136,3 +136,21 @@ JSON、每轮 stdout/stderr、样本逐文件散列、提交/工作树差异、�
 包含夹具生成、所有阶段和析构，不能当作应用峰值或单阶段内存。夹具核验在计量进程外。
 不清 OS 缓存，不与构建/其他测试并行运行。`--binary` 可选择保留的对照二进制；提交号
 指运行时工作树，比较旧二进制时另行记录其构建提交。原始数据只保留在忽略目录。
+
+## 可选阶段计时（schema v1）
+
+`INKSTONE_TRACE_PERFORMANCE` 指向父目录已存在的新 JSONL 文件；未设置时不创建文件，
+也不为 span 读取时钟。已有文件（含符号链接）不会被覆盖，打开失败时诊断关闭。
+每进程最多 10,000 条，写失败停止记录。日志只含固定 stage、PID、序号、起点 Unix
+毫秒、单调起点微秒及耗时微秒，不含路径、查询、正文。跨度为墙钟时间、允许嵌套，
+不能相加作为总 CPU，不能当作输入到呈现帧时间。
+
+```sh
+python3 tools/performance/prepare_macos.py target/new-diagnostic-run --scenario large-document --mode live --trace-activity --trace-performance
+```
+
+准备器只设置隔离 bundle 环境，不启动程序。阶段包括完整/局部语法、阅读投影、片段、
+展示更新、编辑器视图组装、索引加载、两类搜索、文件刷新、保存事务和同步扫描/事务。
+`editor_view_composition` 只量化元素组装，不包含 GPUI 后续布局、绘制或 GPU 提交；
+后者仍结合现有无头 frame benchmark 和平台 profiler，不以本日志替代原生帧验收。
+日志同步落盘有诊断成本；正式预算采样默认关闭，前后对照必须保持同一设置。

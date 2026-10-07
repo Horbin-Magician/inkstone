@@ -42,6 +42,7 @@ impl Index {
     }
     /// Load the index and visible folders from one directory walk.
     pub fn load_cached(vault: &Vault, path: &Path) -> Result<(Self, Vec<PathBuf>), VaultError> {
+        let _span = crate::performance::span(crate::performance::Stage::IndexLoad);
         let tree = vault.scan_tree()?;
         Ok((
             Self::build_cached_files(vault, path, tree.files)?,

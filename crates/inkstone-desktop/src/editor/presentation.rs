@@ -5,6 +5,8 @@ use std::sync::atomic::Ordering;
 
 impl EditorPane {
     pub(super) fn update_presentation(&mut self, cx: &mut Context<Self>) {
+        let _span =
+            inkstone_core::performance::span(inkstone_core::performance::Stage::PresentationUpdate);
         let state = self.editor.read(cx);
         if state.is_composing() {
             if self.projection_job.take().is_some() {
