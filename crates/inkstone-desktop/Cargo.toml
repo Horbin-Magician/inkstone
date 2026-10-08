@@ -36,3 +36,6 @@ objc2-foundation.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
 ropey.workspace = true
 unicode-segmentation.workspace = true
+
+[build-dependencies]
+embed-resource = "=3.0.11"
