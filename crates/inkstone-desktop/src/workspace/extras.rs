@@ -194,6 +194,17 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.manage_tree_path(old, new, true, window, cx);
+    }
+
+    pub(super) fn manage_tree_path(
+        &mut self,
+        old: PathBuf,
+        new: Option<PathBuf>,
+        folder: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(vault) = self.vault.clone() else {
             return;
         };
@@ -206,7 +217,7 @@ impl Workspace {
                 || t.save.persistence.has_conflict()
         }) {
             self.notifications
-                .publish("请先保存打开的笔记，再管理文件夹。".into());
+                .publish("请先保存打开的笔记，再移动或删除文件。".into());
             self.save_all(window, cx);
             return;
         }
@@ -216,7 +227,7 @@ impl Workspace {
             .any(|id| self.has_pending_input(id, window, cx))
         {
             self.notifications
-                .publish("请完成输入法组词后管理文件夹。".into());
+                .publish("请完成输入法组词后管理文件。".into());
             cx.notify();
             return;
         }
@@ -229,8 +240,13 @@ impl Workspace {
         let task = cx.background_executor().spawn(async move {
             if let Some(to) = to {
                 let index = Index::build(&vault)?;
-                let edits = index.relocation_edits(&from, &to, true, Some(&vault.root));
-                vault.rename_folder(&from, &to)?;
+                let edits = index.relocation_edits(&from, &to, folder, Some(&vault.root));
+                if folder {
+                    vault.rename_folder(&from, &to)?;
+                } else {
+                    let baseline = vault.read(&from)?.ok_or(VaultError::InvalidPath)?;
+                    vault.rename_note(&from, &to, &baseline)?;
+                }
                 Ok(edits)
             } else {
                 vault.trash_folder(&from).map(|_| vec![])
@@ -252,7 +268,11 @@ impl Workspace {
                         this.tabs.retain_mut(|tab| {
                             if let Ok(suffix) = tab.path.strip_prefix(&old) {
                                 if let Some(new) = &new {
-                                    tab.path = new.join(suffix);
+                                    tab.path = if folder {
+                                        new.join(suffix)
+                                    } else {
+                                        new.clone()
+                                    };
                                     tab.save.path.replace(tab.path.clone());
                                 } else if tab.save.persistence.is_dirty() {
                                     tab.save.persistence.preserve_external_change();
@@ -271,7 +291,11 @@ impl Workspace {
                             paths.retain_mut(|path| {
                                 if let Ok(suffix) = path.strip_prefix(&old) {
                                     if let Some(new) = &new {
-                                        *path = new.join(suffix);
+                                        *path = if folder {
+                                            new.join(suffix)
+                                        } else {
+                                            new.clone()
+                                        };
                                     } else {
                                         return false;
                                     }
@@ -282,26 +306,30 @@ impl Workspace {
                         this.ui.closed.retain_mut(|closed| {
                             if let Ok(suffix) = closed.view.path.strip_prefix(&old) {
                                 if let Some(new) = &new {
-                                    closed.view.path = new.join(suffix);
+                                    closed.view.path = if folder {
+                                        new.join(suffix)
+                                    } else {
+                                        new.clone()
+                                    };
                                 } else {
                                     return false;
                                 }
                             }
                             true
                         });
-                        this.relocate_navigation(&old, new.as_deref(), true, cx);
+                        this.relocate_navigation(&old, new.as_deref(), folder, cx);
                         this.active = active
                             .and_then(|id| this.tabs.iter().position(|t| t.id == id))
                             .or_else(|| (!this.tabs.is_empty()).then_some(0));
                         this.remove_missing_views();
                         this.notifications.publish(if new.is_some() {
-                            "文件夹已移动。".into()
+                            "已移动。".into()
                         } else {
                             "文件夹已移入可恢复回收站。".into()
                         });
                         this.schedule_auto_sync(true);
                         // The move is a rename. Reuse parsed notes instead of rebuilding the vault index.
-                        this.apply_relocated_index(&old, new.as_deref(), true, cx);
+                        this.apply_relocated_index(&old, new.as_deref(), folder, cx);
                         this.offer_link_updates(edits, w, cx);
                         this.structure_changed = true;
                         this.refresh_requested = true;

@@ -9,7 +9,79 @@ use gpui_component::{
 };
 use inkstone_core::file_order::SortBy;
 
+#[derive(Clone)]
+pub(super) struct DraggedFile {
+    pub path: PathBuf,
+    pub folder: bool,
+    pub generation: u64,
+}
+
+impl Render for DraggedFile {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .p_2()
+            .rounded(px(6.))
+            .bg(rgb(0x363636))
+            .text_color(rgb(0xdddddd))
+            .child(
+                self.path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            )
+    }
+}
+
+impl DraggedFile {
+    fn destination(&self, folder: &std::path::Path) -> Option<PathBuf> {
+        let destination = folder.join(self.path.file_name()?);
+        if destination == self.path || (self.folder && folder.starts_with(&self.path)) {
+            return None;
+        }
+        Some(destination)
+    }
+}
+
 impl Workspace {
+    pub(super) fn drop_tree_file(
+        &mut self,
+        drag: &DraggedFile,
+        folder: &std::path::Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if drag.generation != self.generation || self.ui.tree_name.is_some() {
+            return;
+        }
+        let Some(destination) = drag.destination(folder) else {
+            return;
+        };
+        if !drag.folder
+            && let Some(id) = self
+                .tabs
+                .iter()
+                .find(|tab| tab.path == drag.path)
+                .map(|tab| tab.id)
+        {
+            self.manage_named_note(
+                id,
+                false,
+                destination.to_string_lossy().to_string(),
+                window,
+                cx,
+            );
+        } else {
+            self.manage_tree_path(
+                drag.path.clone(),
+                Some(destination),
+                drag.folder,
+                window,
+                cx,
+            );
+        }
+    }
+
     fn left_header(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex()
@@ -85,6 +157,7 @@ impl Workspace {
         let editing = self.ui.tree_name.as_ref().map(|edit| edit.row.clone());
         let name_input = self.name.clone();
         let selected_path = self.ui.tree_active.clone().or(active_path);
+        let generation = self.generation;
         let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
             let path = PathBuf::from(entry.item().id.as_ref());
             let folder = entry.is_folder();
@@ -94,6 +167,14 @@ impl Workspace {
             let label_path = path.clone();
             let label_weak = weak.clone();
             let selector = format!("tree-name-{i}");
+            let drop_path = path.clone();
+            let drop_weak = weak.clone();
+            let hover_path = path.clone();
+            let drag = DraggedFile {
+                path: path.clone(),
+                folder,
+                generation,
+            };
             ListItem::new(i)
                 .h(TREE_ROW_HEIGHT)
                 .px_1()
@@ -102,6 +183,28 @@ impl Workspace {
                 .text_size(px(MIN_UI_FONT_SIZE))
                 .text_color(tree_foreground)
                 .accessibility_label(entry.item().label.clone())
+                .when(!is_editing, |s| {
+                    s.on_drag(drag.clone(), |drag, _, _, cx| {
+                        cx.stop_propagation();
+                        cx.new(|_| drag.clone())
+                    })
+                })
+                .when(folder && !is_editing, |s| {
+                    s.drag_over::<DraggedFile>(move |style, drag, _, _| {
+                        if drag.generation == generation && drag.destination(&hover_path).is_some()
+                        {
+                            style.bg(tree_guide)
+                        } else {
+                            style
+                        }
+                    })
+                    .on_drop(move |drag: &DraggedFile, window, cx| {
+                        cx.stop_propagation();
+                        let _ = drop_weak.update(cx, |this, cx| {
+                            this.drop_tree_file(drag, &drop_path, window, cx);
+                        });
+                    })
+                })
                 .child(
                     div()
                         .flex()
@@ -123,11 +226,17 @@ impl Workspace {
                         .child(
                             div()
                                 .id(("tree-name", i))
-                                .debug_selector(move || selector.clone().into())
+                                .debug_selector(move || selector.clone())
                                 .flex_1()
                                 .min_w_0()
                                 .when(selected, |s| s.text_color(tree_active))
                                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .when(!is_editing, |s| {
+                                    s.on_drag(drag, |drag, _, _, cx| {
+                                        cx.stop_propagation();
+                                        cx.new(|_| drag.clone())
+                                    })
+                                })
                                 .when(is_editing, |s| {
                                     s.child(Input::new(&name_input).small().h(px(25.)))
                                 })
@@ -319,6 +428,31 @@ impl Workspace {
                                 }),
                             ),
                         ),
+                )
+                .child(
+                    div()
+                        .id("tree-root-drop")
+                        .debug_selector(|| "tree-root-drop".into())
+                        .mx_3()
+                        .px_2()
+                        .py_1()
+                        .rounded(px(4.))
+                        .text_size(px(MIN_UI_FONT_SIZE))
+                        .text_color(tree_foreground)
+                        .child("笔记库根目录")
+                        .drag_over::<DraggedFile>(move |style, drag, _, _| {
+                            if drag.generation == generation
+                                && drag.destination(std::path::Path::new("")).is_some()
+                            {
+                                style.bg(tree_guide)
+                            } else {
+                                style
+                            }
+                        })
+                        .on_drop(cx.listener(|this, drag: &DraggedFile, window, cx| {
+                            cx.stop_propagation();
+                            this.drop_tree_file(drag, std::path::Path::new(""), window, cx);
+                        })),
                 )
                 .child(
                     div().flex_1().min_h_0().px_3().child(
