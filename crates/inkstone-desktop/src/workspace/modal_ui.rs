@@ -1,6 +1,6 @@
 //! Modal container, keyboard navigation, pickers and property controls.
 use super::focus_reveal::FocusReveal;
-use super::ui::{NameMode, icon, tool};
+use super::ui::{icon, tool};
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_base::FocusTrapElement;
@@ -12,7 +12,6 @@ impl Workspace {
     pub(super) fn modal_is_open(&self) -> bool {
         self.command_open
             || self.ui.quick_open
-            || self.ui.name_mode.is_some()
             || self.ui.property_open
             || self.ui.settings
             || self.ui.trash_open
@@ -206,12 +205,7 @@ impl Workspace {
                     } else if self.ui.trash_open {
                         "文件恢复"
                     } else {
-                        match self.ui.name_mode {
-                            Some(NameMode::Rename) => "重命名或移动文件",
-                            Some(NameMode::Folder) => "新建文件夹",
-                            Some(NameMode::RenameFolder) => "重命名文件夹",
-                            _ => "新建笔记",
-                        }
+                        "操作"
                     })
                     .child(
                         tool("close-modal", "x", "关闭 Esc")
@@ -300,21 +294,6 @@ impl Workspace {
                             "↑↓ 导航　↵ 打开　esc 退出"
                         }),
                 )
-            })
-            .when(self.ui.name_mode.is_some(), |s| {
-                s.child(Input::new(&self.name))
-                    .child(
-                        div()
-                            .text_size(px(MIN_UI_FONT_SIZE))
-                            .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                            .child("使用 / 指定文件夹路径，Enter 确认"),
-                    )
-                    .child(
-                        Button::new("submit-name")
-                            .primary()
-                            .label("确认")
-                            .on_click(cx.listener(|this, _, w, cx| this.submit_name(w, cx))),
-                    )
             })
             .when(self.ui.property_open, |s| {
                 s.child(Input::new(&self.ui.property_key))

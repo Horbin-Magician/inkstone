@@ -257,26 +257,7 @@ impl Workspace {
                 return;
             }
         };
-        let mut suffix = 0;
-        let path = loop {
-            let path = if suffix == 0 {
-                "未命名.md".to_string()
-            } else {
-                format!("未命名 {suffix}.md")
-            };
-            let path = folder.join(path).to_string_lossy().to_string();
-            if !self.files.contains(&PathBuf::from(&path))
-                && !self
-                    .tabs
-                    .iter()
-                    .any(|t| t.path == std::path::Path::new(&path))
-            {
-                break path;
-            }
-            suffix += 1;
-        };
-        self.name.update(cx, |s, cx| s.set_value(path, window, cx));
-        self.create_note(window, cx);
+        self.begin_tree_name(super::ui::NameMode::New, folder, window, cx);
     }
     pub(super) fn quick_capture(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(vault) = &self.vault else {

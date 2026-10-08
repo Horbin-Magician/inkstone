@@ -4,7 +4,9 @@ use super::ui::{NameMode, icon, tool};
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{Disableable, Icon, Selectable, button::*, list::ListItem, tree::Tree};
+use gpui_component::{
+    Disableable, Icon, Selectable, Sizable, button::*, list::ListItem, tree::Tree,
+};
 use inkstone_core::file_order::SortBy;
 
 impl Workspace {
@@ -80,10 +82,18 @@ impl Workspace {
         let tree_guide = self.border();
         let guide_depths = self.tree.read(cx).depths();
         let guide_scroll = self.tree.read(cx).scroll_handle().clone();
+        let editing = self.ui.tree_name.as_ref().map(|edit| edit.row.clone());
+        let name_input = self.name.clone();
+        let selected_path = self.ui.tree_active.clone().or(active_path);
         let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
             let path = PathBuf::from(entry.item().id.as_ref());
             let folder = entry.is_folder();
             let weak = weak.clone();
+            let is_editing = editing.as_ref() == Some(&path);
+            let selected = selected_path.as_ref() == Some(&path);
+            let label_path = path.clone();
+            let label_weak = weak.clone();
+            let selector = format!("tree-name-{i}");
             ListItem::new(i)
                 .h(TREE_ROW_HEIGHT)
                 .px_1()
@@ -112,21 +122,71 @@ impl Workspace {
                         })
                         .child(
                             div()
-                                .truncate()
-                                .when(!folder && active_path.as_ref() == Some(&path), |s| {
-                                    s.text_color(tree_active)
+                                .id(("tree-name", i))
+                                .debug_selector(move || selector.clone().into())
+                                .flex_1()
+                                .min_w_0()
+                                .when(selected, |s| s.text_color(tree_active))
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .when(is_editing, |s| {
+                                    s.child(Input::new(&name_input).small().h(px(25.)))
                                 })
-                                .child(if folder {
-                                    entry.item().label.to_string()
-                                } else {
-                                    entry.item().label.trim_end_matches(".md").to_owned()
+                                .when(!is_editing, |s| {
+                                    s.child(div().truncate().child(if folder {
+                                        entry.item().label.to_string()
+                                    } else {
+                                        entry.item().label.trim_end_matches(".md").to_owned()
+                                    }))
+                                })
+                                .on_click(move |_, window, cx| {
+                                    cx.stop_propagation();
+                                    if is_editing {
+                                        return;
+                                    }
+                                    let _ = label_weak.update(cx, |this, cx| {
+                                        this.tree.update(cx, |tree, cx| {
+                                            tree.set_selected_index(Some(i), cx)
+                                        });
+                                        if selected {
+                                            if folder {
+                                                this.begin_tree_name(
+                                                    NameMode::RenameFolder,
+                                                    label_path.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            } else if this
+                                                .tabs
+                                                .iter()
+                                                .any(|tab| tab.path == label_path)
+                                            {
+                                                this.begin_tree_name(
+                                                    NameMode::Rename,
+                                                    label_path.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            }
+                                        } else {
+                                            this.ui.tree_active = Some(label_path.clone());
+                                            if !folder {
+                                                this.open_note(label_path.clone(), window, cx);
+                                            }
+                                            cx.notify();
+                                        }
+                                    });
                                 }),
                         ),
                 )
                 .on_click(move |_, window, cx| {
-                    if !folder {
-                        let _ =
-                            weak.update(cx, |this, cx| this.open_note(path.clone(), window, cx));
+                    if !is_editing {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.ui.tree_active = Some(path.clone());
+                            if !folder {
+                                this.open_note(path.clone(), window, cx);
+                            }
+                            cx.notify();
+                        });
                     }
                 })
         })
@@ -138,24 +198,25 @@ impl Workspace {
                 let weak = menu_weak.clone();
                 menu = menu.item(PopupMenuItem::new("新建笔记").on_click(move |_, w, cx| {
                     let _ = weak.update(cx, |this, cx| {
-                        this.prompt_name(NameMode::New, w, cx);
-                        this.name
-                            .update(cx, |s, cx| s.set_value(format!("{path}/未命名.md"), w, cx));
+                        this.begin_tree_name(NameMode::New, PathBuf::from(&path), w, cx);
                     });
                 }));
                 let path = PathBuf::from(entry.item().id.as_ref());
                 let weak = menu_weak.clone();
-                menu = menu.item(PopupMenuItem::new("重命名文件夹 / 移动文件夹").on_click(
-                    move |_, w, cx| {
+                menu = menu.item(PopupMenuItem::new("新建文件夹").on_click(move |_, w, cx| {
+                    let _ = weak.update(cx, |this, cx| {
+                        this.begin_tree_name(NameMode::Folder, path.clone(), w, cx)
+                    });
+                }));
+                let path = PathBuf::from(entry.item().id.as_ref());
+                let weak = menu_weak.clone();
+                menu = menu.item(
+                    PopupMenuItem::new("重命名文件夹").on_click(move |_, w, cx| {
                         let _ = weak.update(cx, |this, cx| {
-                            this.ui.folder_target = Some(path.clone());
-                            this.prompt_name(NameMode::RenameFolder, w, cx);
-                            this.name.update(cx, |s, cx| {
-                                s.set_value(path.to_string_lossy().to_string(), w, cx)
-                            });
+                            this.begin_tree_name(NameMode::RenameFolder, path.clone(), w, cx);
                         });
-                    },
-                ));
+                    }),
+                );
                 let path = PathBuf::from(entry.item().id.as_ref());
                 let weak = menu_weak.clone();
                 return menu.item(PopupMenuItem::new("将文件夹移入回收站").on_click(
@@ -359,6 +420,11 @@ impl Workspace {
     pub(super) fn rebuild_sorted_tree(&mut self, cx: &mut Context<Self>) {
         let mut paths = self.tree_files.clone();
         paths.extend(self.ui.folders.iter().cloned());
+        if let Some(edit) = &self.ui.tree_name
+            && edit.creating
+        {
+            paths.push(edit.row.clone());
+        }
         let mut items = make_tree(&paths);
         fn apply(
             items: &mut [TreeItem],
@@ -394,6 +460,25 @@ impl Workspace {
                     descending,
                 )
             });
+        }
+        if let Some(edit) = &self.ui.tree_name
+            && edit.creating
+        {
+            fn mark(items: &mut [TreeItem], row: &std::path::Path, folder: bool) {
+                for item in items {
+                    if std::path::Path::new(item.id.as_ref()) == row {
+                        *item = item.clone().folder(folder);
+                        item.label = if folder {
+                            "未命名文件夹"
+                        } else {
+                            "未命名"
+                        }
+                        .into();
+                    }
+                    mark(&mut item.children, row, folder);
+                }
+            }
+            mark(&mut items, &edit.row, edit.folder);
         }
         apply(
             &mut items,
