@@ -110,13 +110,14 @@ impl Workspace {
             self.file_writes.finish(write_ticket);
             return;
         }
+        let previous_index = self.index.clone();
         let task = cx.background_executor().spawn(async move {
             if trash {
                 vault
                     .trash_note(&path, &baseline)
                     .map(|p| (true, p, LinkEdits::new()))
             } else {
-                let index = Index::build(&vault)?;
+                let index = previous_index.refresh_from_disk(&vault)?;
                 let edits = index.relocation_edits(&path, &dest, false, Some(&vault.root));
                 vault.rename_note(&path, &dest, &baseline)?;
                 Ok((false, dest, edits))
@@ -191,7 +192,6 @@ impl Workspace {
                         this.relocate_navigation(&old, Some(&renamed), false, cx);
                         this.apply_relocated_index(&old, Some(&renamed), false, cx);
                         this.persist_workspace(cx);
-                        this.sync_reference_contexts(cx);
                         if focus_after && let Some(pane) = this.current_pane() {
                             pane.update(cx, |p, cx| p.focus_view(window, cx));
                         }

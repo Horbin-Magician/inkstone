@@ -1,5 +1,85 @@
 use super::*;
 
+#[test]
+fn move_index_reuses_parsing_and_verifies_external_changes() {
+    let root = std::env::temp_dir().join(format!("inkstone-move-index-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("vault")).unwrap();
+    let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+    let text =
+        "# Heading\n\nA paragraph with **bold** and [target](a.md).\n\n- [ ] Task\n".repeat(64);
+    for i in 0..100 {
+        std::fs::write(vault.root.join(format!("note-{i}.md")), &text).unwrap();
+    }
+    std::fs::write(vault.root.join("a.md"), "A").unwrap();
+    std::fs::write(vault.root.join("b.md"), "B").unwrap();
+    std::fs::write(vault.root.join("deleted.md"), "old").unwrap();
+    let start = std::time::Instant::now();
+    let previous = Index::build(&vault).unwrap();
+    let full_elapsed = start.elapsed();
+    let start = std::time::Instant::now();
+    let unchanged = previous.refresh_from_disk(&vault).unwrap();
+    let reused_elapsed = start.elapsed();
+    for (path, note) in &previous.notes {
+        assert!(
+            Arc::ptr_eq(note, &unchanged.notes[path]),
+            "{}",
+            path.display()
+        );
+    }
+    eprintln!(
+        "move preparation, 103 notes: full parse {full_elapsed:?}, reused parse {reused_elapsed:?}"
+    );
+    // Sync tools may preserve timestamps and byte lengths. Compare contents,
+    // not metadata, so a new reference is still included before a move.
+    let changed_path = vault.root.join("note-0.md");
+    let modified = std::fs::metadata(&changed_path)
+        .unwrap()
+        .modified()
+        .unwrap();
+    std::fs::write(&changed_path, text.replace("a.md", "b.md")).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&changed_path)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    std::fs::remove_file(vault.root.join("deleted.md")).unwrap();
+    std::fs::write(vault.root.join("new.md"), "[[b]]").unwrap();
+    std::fs::write(vault.root.join("image.png"), b"asset").unwrap();
+    std::fs::write(vault.root.join("invalid.md"), [0xff]).unwrap();
+    let refreshed = previous.refresh_from_disk(&vault).unwrap();
+    let rebuilt = Index::build(&vault).unwrap();
+    assert_eq!(refreshed.files, rebuilt.files);
+    assert_eq!(refreshed.errors, rebuilt.errors);
+    assert_eq!(refreshed.by_path, rebuilt.by_path);
+    assert_eq!(refreshed.by_stem, rebuilt.by_stem);
+    assert_eq!(refreshed.by_alias, rebuilt.by_alias);
+    assert_eq!(refreshed.backlinks, rebuilt.backlinks);
+    assert_eq!(
+        refreshed.relocation_edits(
+            Path::new("b.md"),
+            Path::new("moved.md"),
+            false,
+            Some(&vault.root)
+        ),
+        rebuilt.relocation_edits(
+            Path::new("b.md"),
+            Path::new("moved.md"),
+            false,
+            Some(&vault.root)
+        )
+    );
+    assert!(!Arc::ptr_eq(
+        &previous.notes[Path::new("note-0.md")],
+        &refreshed.notes[Path::new("note-0.md")]
+    ));
+    assert!(Arc::ptr_eq(
+        &previous.notes[Path::new("note-1.md")],
+        &refreshed.notes[Path::new("note-1.md")]
+    ));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn assert_lookup_matches_rebuild(index: &Index) {
     let mut rebuilt = index.clone();
     rebuilt.rebuild_lookup();

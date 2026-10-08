@@ -79,6 +79,47 @@ impl Index {
     pub fn build(vault: &Vault) -> Result<Self, VaultError> {
         Self::build_from_files(vault, vault.scan_files()?)
     }
+    /// Verify current disk contents while reusing unchanged parsed notes.
+    /// Used before moves so external edits are included in link planning even
+    /// when their watcher events have not yet reached the workspace.
+    pub fn refresh_from_disk(&self, vault: &Vault) -> Result<Self, VaultError> {
+        let mut index = Self {
+            files: vault.scan_files()?,
+            ..Default::default()
+        };
+        for path in &index.files {
+            if !path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+            {
+                continue;
+            }
+            match vault.read_indexed(path) {
+                Ok(Some((text, times))) => {
+                    let note = match self.notes.get(path) {
+                        Some(note) if note.text == text && note.times == times => note.clone(),
+                        Some(note) if note.text == text => Arc::new(IndexedNote {
+                            text,
+                            parsed: note.parsed.clone(),
+                            times,
+                        }),
+                        _ => Arc::new(IndexedNote {
+                            parsed: parse(&text),
+                            text,
+                            times,
+                        }),
+                    };
+                    index.notes.insert(path.clone(), note);
+                }
+                Ok(None) => (),
+                Err(error) => {
+                    index.errors.insert(path.clone(), error.to_string());
+                }
+            }
+        }
+        index.rebuild_lookup();
+        Ok(index)
+    }
     pub fn build_from_files(vault: &Vault, files: Vec<PathBuf>) -> Result<Self, VaultError> {
         let mut index = Self {
             files,

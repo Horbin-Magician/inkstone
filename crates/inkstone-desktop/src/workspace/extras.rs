@@ -234,12 +234,13 @@ impl Workspace {
         let generation = self.generation;
         let from = old.clone();
         let to = new.clone();
+        let previous_index = self.index.clone();
         let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
             return;
         };
         let task = cx.background_executor().spawn(async move {
             if let Some(to) = to {
-                let index = Index::build(&vault)?;
+                let index = previous_index.refresh_from_disk(&vault)?;
                 let edits = index.relocation_edits(&from, &to, folder, Some(&vault.root));
                 if folder {
                     vault.rename_folder(&from, &to)?;
