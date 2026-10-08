@@ -198,6 +198,17 @@ impl Workspace {
         folder: bool,
         cx: &mut Context<Self>,
     ) {
+        if let Some(selected) = &self.ui.tree_active
+            && (selected == old || (folder && selected.starts_with(old)))
+        {
+            self.ui.tree_active = new.map(|new| {
+                if folder {
+                    new.join(selected.strip_prefix(old).unwrap())
+                } else {
+                    new.to_owned()
+                }
+            });
+        }
         self.ui.prefs.anchor_bookmarks.retain_mut(|entry| {
             let affected = entry.path == old || (folder && entry.path.starts_with(old));
             if affected {

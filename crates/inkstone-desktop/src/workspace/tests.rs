@@ -3,6 +3,161 @@ use crate::test_support::PlatformKeys;
 use core::prelude::v1::test;
 
 #[gpui::test]
+fn tree_drag_moves_closed_notes_and_folders_without_overwriting(cx: &mut TestAppContext) {
+    use super::left_sidebar::DraggedFile;
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-drag-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("folder/child")).unwrap();
+    std::fs::write(root.join("a.md"), "A").unwrap();
+    std::fs::write(root.join("folder/a.md"), "existing").unwrap();
+    std::fs::write(root.join("folder/child/b.md"), "B").unwrap();
+    std::fs::write(root.join("links.md"), "[note](a.md)").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+            w.index = Arc::new(Index::build(&vault).unwrap());
+            w.files = w.index.note_paths();
+            w.vault = Some(vault);
+            w.ui.prefs.bookmarks = vec!["a.md".into()];
+            w.ui.prefs.always_update_links = true;
+            w.ui.tree_active = Some("a.md".into());
+            let drag = DraggedFile {
+                path: "a.md".into(),
+                folder: false,
+                generation: w.generation,
+            };
+            w.drop_tree_file(&drag, std::path::Path::new("folder"), window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "A");
+    assert_eq!(
+        std::fs::read_to_string(root.join("folder/a.md")).unwrap(),
+        "existing"
+    );
+    handle
+        .update(cx, |w, window, cx| {
+            let drag = DraggedFile {
+                path: "a.md".into(),
+                folder: false,
+                generation: w.generation,
+            };
+            w.drop_tree_file(&drag, std::path::Path::new("folder/child"), window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(!root.join("a.md").exists());
+    assert_eq!(
+        std::fs::read_to_string(root.join("folder/child/a.md")).unwrap(),
+        "A"
+    );
+    assert!(
+        std::fs::read_to_string(root.join("links.md"))
+            .unwrap()
+            .contains("folder/child/a.md")
+    );
+    handle
+        .update(cx, |w, window, cx| {
+            assert!(w.tabs.is_empty());
+            assert_eq!(w.ui.tree_active, Some("folder/child/a.md".into()));
+            assert_eq!(
+                w.ui.prefs.bookmarks,
+                vec![PathBuf::from("folder/child/a.md")]
+            );
+            let drag = DraggedFile {
+                path: "folder".into(),
+                folder: true,
+                generation: w.generation,
+            };
+            w.drop_tree_file(&drag, std::path::Path::new("folder/child"), window, cx);
+            assert!(!w.file_writes.operation_active());
+            let drag = DraggedFile {
+                path: "folder/child".into(),
+                folder: true,
+                generation: w.generation + 1,
+            };
+            w.drop_tree_file(&drag, std::path::Path::new(""), window, cx);
+            assert!(!w.file_writes.operation_active());
+            let drag = DraggedFile {
+                generation: w.generation,
+                ..drag
+            };
+            w.drop_tree_file(&drag, std::path::Path::new(""), window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(!root.join("folder/child").exists());
+    assert_eq!(
+        std::fs::read_to_string(root.join("child/b.md")).unwrap(),
+        "B"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("child/a.md")).unwrap(),
+        "A"
+    );
+    assert!(
+        std::fs::read_to_string(root.join("links.md"))
+            .unwrap()
+            .contains("child/a.md")
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
+fn tree_drag_from_filename_to_folder_and_back_to_root(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-drag-ui-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("folder")).unwrap();
+    std::fs::write(root.join("a.md"), "A").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+            w.index = Arc::new(Index::build(&vault).unwrap());
+            w.files = w.index.note_paths();
+            w.vault = Some(vault);
+            w.ui.folders = vec!["folder".into()];
+            w.ui.prefs.expanded_folders = vec!["folder".into()];
+            w.ui.prefs.left_open = true;
+            w.ui.left_mode = 0;
+            w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+            w.sync_index_ui(cx);
+            w.rebuild_sorted_tree(cx);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1100.), px(800.)));
+    for target in ["tree-name-0", "tree-root-drop"] {
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let from = visual.debug_bounds("tree-name-1").unwrap().center();
+        let to = visual.debug_bounds(target).unwrap().center();
+        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(
+            from + point(px(8.), px(0.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+        visual.run_until_parked();
+        let expected = if target == "tree-name-0" {
+            "folder/a.md"
+        } else {
+            "a.md"
+        };
+        assert_eq!(std::fs::read_to_string(root.join(expected)).unwrap(), "A");
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.tabs[0].path, PathBuf::from(expected));
+                assert!(w.ui.tree_name.is_none());
+            })
+            .unwrap();
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
 fn restored_tab_batch_keeps_preferences_and_independent_views(cx: &mut TestAppContext) {
     use inkstone_core::preferences::{Preferences, ViewState};
     cx.update(gpui_kit::init);
