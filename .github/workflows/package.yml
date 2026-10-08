@@ -1,0 +1,48 @@
+name: Native packages
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-${{ matrix.target }}
+      - run: cargo fmt --all --check
+      - run: python -m unittest discover -s packaging -p "test_*.py"
+      - run: cargo test --workspace --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        run: choco install nsis --version=3.11 -y --no-progress
+      - name: Build and package
+        run: python packaging/package.py "${{ runner.temp }}/inkstone-package"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/inkstone-package/*.zip
+            ${{ runner.temp }}/inkstone-package/*-setup.exe
+            ${{ runner.temp }}/inkstone-package/*.dmg
+            ${{ runner.temp }}/inkstone-package/*.tar.gz
+            ${{ runner.temp }}/inkstone-package/*.sha256
+          if-no-files-found: error
