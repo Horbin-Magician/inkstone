@@ -97,7 +97,7 @@ def package(output):
             for path in sorted(stage.rglob("*")):
                 if path.is_file():
                     archive.write(path, path.relative_to(stage))
-        run(compiler, f"/DVERSION={version}", f"/DSTAGE={stage}",
+        run(compiler, "/INPUTCHARSET", "UTF8", f"/DVERSION={version}", f"/DSTAGE={stage}",
             f"/DOUTPUT={output / (stem + '-setup.exe')}", ROOT / "packaging/windows/installer.nsi")
     else:
         with tarfile.open(output / f"{stem}.app.tar.gz", "w:gz") as archive:
