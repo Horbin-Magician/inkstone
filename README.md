@@ -12,7 +12,7 @@ cargo run --locked --bin inkstone -- demo-vault
 
 将 `demo-vault` 替换为自己的笔记库路径；也可以不传参数，启动后选择文件夹。不要使用个人笔记做自动或原生验收。
 
-macOS 打包后可双击 `target/debug/墨砚.app`；Windows release 构建后可运行 `target/release/inkstone.exe`。
+在 [GitHub Releases](https://github.com/Horbin-Magician/inkstone/releases) 下载发行包：Windows x64 提供安装器与便携 ZIP，macOS 提供 Apple Silicon / Intel DMG。详细构建、校验和发布步骤见 [原生打包指南](packaging/README.md)。
 
 ## 项目结构
 
@@ -37,7 +37,7 @@ target/       本地构建产物与验收材料，已被 Git 忽略
 ## 构建与验证
 
 
-Windows 已记录的构建环境：Windows 11、Rust 1.98.1、Visual Studio 2022 C++ Build Tools + Windows SDK。
+工具链由 `rust-toolchain.toml` 固定为 Rust 1.97.0；Windows 需要 Visual Studio 2022 C++ Build Tools + Windows SDK。
 
 ```powershell
 cargo build --release --locked --bin inkstone

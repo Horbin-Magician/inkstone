@@ -32,6 +32,10 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$bundle/Contents/Resources/Inkstone.icns"
 cp packaging/macos/Info.plist "$bundle/Contents/Info.plist"
+version="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "inkstone-desktop"))')"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$bundle/Contents/Info.plist"
 cp "target/$profile/inkstone" "$bundle/Contents/MacOS/inkstone"
 codesign --force --sign - "$bundle"
+codesign --verify --deep --strict "$bundle"
 printf 'Built %s\n' "$bundle"
