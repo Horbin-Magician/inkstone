@@ -1,0 +1,57 @@
+name: Publish release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release tag and notes
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, tomllib
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['workspace']['package']['version']
+          assert os.environ['RELEASE_REF'] == f'refs/tags/v{version}', 'Select the matching version tag'
+          assert pathlib.Path(f'docs/releases/{version}.md').read_text(encoding='utf-8').strip(), 'Release notes required'
+          PY
+  packages:
+    needs: validate
+    uses: ./.github/workflows/package.yml
+  publish:
+    needs: [validate, packages]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify all platform assets
+        run: |
+          python3 packaging/verify_release.py release-assets "${RELEASE_TAG#v}"
+      - name: Upload and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft > release-state.json; then
+            python3 -c 'import json; assert json.load(open("release-state.json"))["isDraft"], "Release already published"'
+          else
+            gh release create "$RELEASE_TAG" --draft --verify-tag --title "墨砚 $RELEASE_TAG" --notes-file "docs/releases/${RELEASE_TAG#v}.md"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
