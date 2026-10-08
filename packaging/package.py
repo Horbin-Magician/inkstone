@@ -75,8 +75,9 @@ def package(output):
             "--target-dir", ROOT / "target")
         shutil.copy2(ROOT / "target" / host / "release/inkstone.exe", stage)
     else:
-        run("bash", ROOT / "packaging/macos/bundle.sh", "--release")
-        shutil.copytree(ROOT / "target/release/墨砚.app", stage / "墨砚.app")
+        subprocess.run(["bash", str(ROOT / "packaging/macos/bundle.sh"), "--release"],
+                       cwd=ROOT, check=True,
+                       env={**os.environ, "INKSTONE_BUNDLE_PATH": str(stage / "墨砚.app")})
         run("codesign", "--verify", "--deep", "--strict", stage / "墨砚.app")
     shutil.copy2(ROOT / "LICENSE", stage)
     shutil.copytree(ROOT / "licenses", stage / "licenses")
