@@ -7,6 +7,8 @@ InstallDir "$LOCALAPPDATA\Programs\Inkstone"
 InstallDirRegKey HKCU "Software\Inkstone" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
+!define MUI_ICON "${__FILEDIR__}\..\..\crates\inkstone-desktop\assets\inkstone.ico"
+!define MUI_UNICON "${MUI_ICON}"
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey "ProductName" "Inkstone"
 VIAddVersionKey "FileDescription" "Inkstone Installer"
@@ -30,21 +32,25 @@ Function .onInit
 FunctionEnd
 
 Section "Inkstone"
+  SetShellVarContext current
   SetOutPath "$INSTDIR"
   File /r "${STAGE}\*"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\墨砚.lnk" "$INSTDIR\inkstone.exe"
+  CreateShortcut "$SMPROGRAMS\墨砚.lnk" "$INSTDIR\inkstone.exe" "" "$INSTDIR\inkstone.exe" 0
+  CreateShortcut "$DESKTOP\墨砚.lnk" "$INSTDIR\inkstone.exe" "" "$INSTDIR\inkstone.exe" 0
   WriteRegStr HKCU "Software\Inkstone" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Inkstone" "DisplayName" "墨砚"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Inkstone" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Inkstone" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Inkstone" "DisplayIcon" "$INSTDIR\inkstone.exe"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Inkstone" "DisplayIcon" '$\"$INSTDIR\inkstone.exe$\",0'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Inkstone" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Inkstone" "NoRepair" 1
 SectionEnd
 
 Section "Uninstall"
+  SetShellVarContext current
   Delete "$SMPROGRAMS\墨砚.lnk"
+  Delete "$DESKTOP\墨砚.lnk"
   Delete "$INSTDIR\inkstone.exe"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\GUIDE.md"
