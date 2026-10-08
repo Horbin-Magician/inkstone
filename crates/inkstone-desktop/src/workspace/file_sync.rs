@@ -40,7 +40,7 @@ impl Workspace {
             let (index, folders) = if rescan {
                 let tree = vault.scan_tree()?;
                 (
-                    Arc::new(Index::build_from_files(&vault, tree.files)?),
+                    Arc::new(previous.refresh_from_files(&vault, tree.files)?),
                     tree.folders,
                 )
             } else if structure_changed {

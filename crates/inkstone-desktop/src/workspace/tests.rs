@@ -4514,12 +4514,18 @@ fn bad_note_does_not_block_vault_loading_or_external_refresh(cx: &mut TestAppCon
     let root = std::env::temp_dir().join(format!("inkstone-partial-index-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("good.md"), "original").unwrap();
+    std::fs::write(root.join("stable.md"), "unchanged").unwrap();
     std::fs::write(root.join("z-bad.md"), [0xff]).unwrap();
     let handle = cx.add_window(Workspace::new);
     handle
         .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
         .unwrap();
     cx.run_until_parked();
+    let stable = handle
+        .update(cx, |w, _, _| {
+            w.index.notes[std::path::Path::new("stable.md")].clone()
+        })
+        .unwrap();
     handle
         .update(cx, |w, window, cx| {
             assert!(w.vault.is_some());
@@ -4545,6 +4551,10 @@ fn bad_note_does_not_block_vault_loading_or_external_refresh(cx: &mut TestAppCon
                 Some("external update")
             );
             assert_eq!(w.index.errors.len(), 1);
+            assert!(Arc::ptr_eq(
+                &stable,
+                &w.index.notes[std::path::Path::new("stable.md")]
+            ));
             std::fs::write(root.join("z-bad.md"), "repaired").unwrap();
             w.changed_paths.insert("z-bad.md".into());
             w.refresh(window, cx);

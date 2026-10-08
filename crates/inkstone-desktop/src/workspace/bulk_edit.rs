@@ -138,8 +138,10 @@ impl Workspace {
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
         let generation = self.generation;
+        let previous_index = self.index.clone();
         let task = cx.background_executor().spawn(async move {
-            Index::build(&vault)
+            previous_index
+                .refresh_from_disk(&vault)
                 .map_err(|e| e.to_string())
                 .and_then(|index| batch::plan(&index, &spec))
         });
