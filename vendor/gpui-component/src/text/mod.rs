@@ -89,6 +89,10 @@ pub(crate) fn component_code_block_highlighter(
         let Some(lang) = block.lang() else {
             return Vec::new();
         };
+        // Use the same language-name normalization as the source editor:
+        // fences such as `Python` and `JS` should resolve like `python` and
+        // `javascript`, while exact custom registrations keep precedence.
+        let lang = LanguageRegistry::singleton().editing_language_name(lang.as_ref());
         let code = block.code();
         HIGHLIGHTERS.with(|cache| {
             let mut cache = cache.borrow_mut();
@@ -279,6 +283,55 @@ mod tests {
                 dark_number,
                 "a theme change must not reuse syntax styles from the previous theme"
             );
+        }
+
+        #[test]
+        fn fenced_language_names_normalize_case_and_preserve_custom_registrations() {
+            let highlighter =
+                super::super::component_code_block_highlighter(HighlightTheme::default_light());
+            let code = "{\"value\": 42}";
+            let expected = highlighter(&CodeBlock::from_code(code, Some("json")));
+            assert!(color_at(&expected, 10..12).is_some());
+            for language in ["JSON", "Json", "JSONC"] {
+                assert_eq!(
+                    highlighter(&CodeBlock::from_code(code, Some(language))),
+                    expected
+                );
+            }
+            let custom = SharedString::from("CustomFenceCase");
+            register_json(&custom);
+            let styles = highlighter(&CodeBlock::from_code(code, Some(custom)));
+            assert!(
+                color_at(&styles, 10..12).is_some(),
+                "exact custom names must not be lowercased"
+            );
+        }
+
+        #[cfg(feature = "tree-sitter-python")]
+        #[test]
+        fn fenced_python_language_names_match_editor_normalization() {
+            let code = "def for_loop(n: int) -> int:\n\tres = 0\n\tfor i in range(1, n+1)\n\t\tres += i\n\treturn res";
+            for theme in [
+                HighlightTheme::default_light(),
+                HighlightTheme::default_dark(),
+            ] {
+                let highlighter = super::super::component_code_block_highlighter(theme);
+                let expected = highlighter(&CodeBlock::from_code(code, Some("python")));
+                assert!(
+                    color_at(&expected, 0..3).is_some(),
+                    "def must be colored even with incomplete code"
+                );
+                for language in ["Python", "PYTHON", "PyThOn", "py", "PY", "pyi"] {
+                    let block = CodeBlock::from_code(code, Some(language));
+                    assert_eq!(highlighter(&block), expected, "{language}");
+                    assert_eq!(block.lang().unwrap(), language);
+                    assert_eq!(block.code(), code);
+                }
+                for language in [None, Some("unknown-language")] {
+                    let styles = highlighter(&CodeBlock::from_code(code, language));
+                    assert!(styles.iter().all(|(_, style)| style.color.is_none()));
+                }
+            }
         }
 
         #[test]

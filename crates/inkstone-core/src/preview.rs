@@ -20,21 +20,21 @@ pub struct Candidate {
 }
 
 pub fn candidates(snapshot: &Snapshot) -> Vec<Candidate> {
+    candidates_with_parsed(snapshot, &crate::index::parse_snapshot(snapshot))
+}
+
+fn candidates_with_parsed(
+    snapshot: &Snapshot,
+    parsed: &crate::index::ParsedNote,
+) -> Vec<Candidate> {
     fn walk(node: &Node, source: &str, out: &mut Vec<Candidate>) {
         let raw = node
             .position()
             .and_then(|p| source.get(p.start.offset..p.end.offset))
             .unwrap_or_default();
         let block = match node {
-            Node::Math(_) | Node::Table(_) => Some(true),
+            Node::Math(_) | Node::Table(_) | Node::Code(_) => Some(true),
             Node::InlineMath(_) | Node::Image(_) | Node::ImageReference(_) => Some(false),
-            Node::Code(n)
-                if n.lang
-                    .as_deref()
-                    .is_some_and(|l| l.eq_ignore_ascii_case("mermaid")) =>
-            {
-                Some(true)
-            }
             Node::Blockquote(_)
                 if raw
                     .lines()
@@ -79,7 +79,7 @@ pub fn candidates(snapshot: &Snapshot) -> Vec<Candidate> {
     if let Some(ast) = snapshot.ast.as_deref() {
         walk(ast, &snapshot.source, &mut out);
     }
-    for link in crate::index::parse_snapshot(snapshot).links {
+    for link in &parsed.links {
         if link.range.start > 0
             && snapshot.source.as_bytes()[link.range.start - 1] == b'!'
             && snapshot.source[..link.range.start - 1]
@@ -153,13 +153,52 @@ pub fn fragments(
     snapshot: Arc<Snapshot>,
     reading: &crate::rendering::ReadingDocument,
 ) -> Vec<Fragment> {
-    let mut out = candidates(&snapshot);
+    fragments_cancellable(index, path, snapshot, reading, || false).unwrap()
+}
+
+/// Cancel between preparation stages and individual fragments. Never return a
+/// partial projection; an individual parser/render call is not preempted.
+pub fn fragments_cancellable(
+    index: &crate::index::Index,
+    path: &Path,
+    snapshot: Arc<Snapshot>,
+    reading: &crate::rendering::ReadingDocument,
+    cancelled: impl Fn() -> bool,
+) -> Option<Vec<Fragment>> {
+    let _span = crate::performance::span(crate::performance::Stage::PreviewFragments);
+    if cancelled() {
+        return None;
+    }
+    let parsed = Arc::new(crate::index::parse_snapshot(&snapshot));
+    let mut out = candidates_with_parsed(&snapshot, &parsed);
     let mut graphic_nodes = BTreeMap::new();
+    let mut code_nodes = BTreeMap::new();
     if let Some(ast) = snapshot.ast.as_deref() {
         graphics(ast, &mut graphic_nodes);
+        fn codes<'a>(
+            node: &'a Node,
+            out: &mut BTreeMap<(usize, usize), &'a markdown_parser::mdast::Code>,
+        ) {
+            if let Node::Code(code) = node
+                && let Some(p) = &code.position
+            {
+                out.insert((p.start.offset, p.end.offset), code);
+            }
+            if let Some(children) = node.children() {
+                for child in children {
+                    codes(child, out);
+                }
+            }
+        }
+        codes(ast, &mut code_nodes);
+    }
+    if cancelled() {
+        return None;
     }
     let numbers = reading.footnote_numbers();
-    let parsed = crate::index::parse_snapshot(&snapshot);
+    if cancelled() {
+        return None;
+    }
     let refs = parsed
         .footnote_references
         .iter()
@@ -209,9 +248,9 @@ pub fn fragments(
                 role: Role::Footer(roots),
             });
         }
-        for (range, _) in parsed.footnote_definitions {
+        for (range, _) in &parsed.footnote_definitions {
             out.push(Candidate {
-                source: range,
+                source: range.clone(),
                 block: true,
                 role: Role::Hidden,
             });
@@ -227,13 +266,18 @@ pub fn fragments(
             true
         }
     });
-    out.into_iter()
+    let mut prepared = None;
+    let fragments = out
+        .into_iter()
         .map(|candidate| {
+            if cancelled() {
+                return None;
+            }
             let graphic = (candidate.role == Role::Content)
                 .then(|| graphic_nodes.remove(&(candidate.source.start, candidate.source.end)))
                 .flatten();
             if graphic.is_some() {
-                return Fragment {
+                return Some(Fragment {
                     document: crate::rendering::ReadingDocument::graphic_fragment(
                         path,
                         snapshot.source.clone(),
@@ -243,7 +287,24 @@ pub fn fragments(
                     numbers: BTreeMap::new(),
                     targets: vec![],
                     graphic,
-                };
+                });
+            }
+            if candidate.role == Role::Content
+                && let Some(code) =
+                    code_nodes.remove(&(candidate.source.start, candidate.source.end))
+            {
+                return Some(Fragment {
+                    document: crate::rendering::ReadingDocument::code_fragment(
+                        path,
+                        snapshot.source.clone(),
+                        candidate.source.clone(),
+                        code,
+                    ),
+                    candidate,
+                    numbers: BTreeMap::new(),
+                    targets: vec![],
+                    graphic: None,
+                });
             }
             let document = match candidate.role {
                 Role::Footer(_) => reading.clone(),
@@ -257,10 +318,17 @@ pub fn fragments(
                     document.tasks.clear();
                     document
                 }
-                Role::Content => crate::rendering::reading_snapshot(
+                Role::Content => crate::rendering::reading_prepared(
                     index,
                     path,
-                    snapshot.clone(),
+                    prepared
+                        .get_or_insert_with(|| {
+                            Arc::new(crate::rendering::Prepared::with_parsed(
+                                snapshot.clone(),
+                                parsed.clone(),
+                            ))
+                        })
+                        .clone(),
                     candidate.source.clone(),
                 ),
             };
@@ -270,20 +338,159 @@ pub fn fragments(
             } else {
                 vec![]
             };
-            Fragment {
+            Some(Fragment {
                 candidate,
                 document,
                 numbers: overrides,
                 targets,
                 graphic: None,
-            }
+            })
         })
-        .collect()
+        .collect::<Option<Vec<_>>>()?;
+    (!cancelled()).then_some(fragments)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn code_fragments_preserve_literals_in_containers_and_indented_blocks() {
+        for source in [
+            "前文\n\n```rust\nlet 中文 = \"😀 [[note]] **bold**\";\n```\n\n后文",
+            "前文\r\n\r\n> ```python\r\n> print('😀')\r\n> ```\r\n\r\n后文",
+            "前文\n\n- item\n\n  ```text\n  ~~~~\n  ```\n\n后文",
+            "前文\n\n    <b>literal</b>\n    [[note]]\n\n后文",
+            "前文\n\n```\n```\n\n后文",
+            "前文\n\n```unknown\n未闭合😀",
+            "前文\n\n```a&#32;b&#10;c\nliteral\n```",
+        ] {
+            let snapshot = Arc::new(Snapshot::new(source));
+            fn code(node: &Node) -> Option<&markdown_parser::mdast::Code> {
+                if let Node::Code(code) = node {
+                    return Some(code);
+                }
+                node.children()?.iter().find_map(code)
+            }
+            let original = code(snapshot.ast.as_deref().unwrap()).unwrap().clone();
+            let path = Path::new("note.md");
+            let index = crate::index::Index::default();
+            let reading =
+                crate::rendering::reading_snapshot(&index, path, snapshot.clone(), 0..source.len());
+            let fragments = fragments(&index, path, snapshot, &reading);
+            assert_eq!(fragments.len(), 1, "{source}");
+            let fragment = &fragments[0];
+            let parsed = Snapshot::new(&fragment.document.markdown);
+            let rendered = code(parsed.ast.as_deref().unwrap()).unwrap();
+            assert_eq!(rendered.value, original.value, "{source}");
+            assert_eq!(rendered.lang, original.lang);
+            assert!(fragment.document.references.is_empty());
+            assert!(fragment.document.tasks.is_empty());
+            assert!(fragment.document.source_matches(path, source));
+            assert!(fragment.graphic.is_none());
+            let p = original.position.unwrap();
+            assert_eq!(fragment.candidate.source, p.start.offset..p.end.offset);
+        }
+        let source = "> [!note]\n> ```rust\n> fn main() {}\n> ```";
+        assert_eq!(
+            candidates(&Snapshot::new(source)).len(),
+            1,
+            "callout owns nested code"
+        );
+    }
+
+    #[test]
+    fn shared_preparation_matches_fresh_fragments_with_references_and_tasks() {
+        let source = "# Title\n\n| A | B |\n| - | - |\n| ==hi== | [link][ref] |\n\n> [!note] Callout\n> - [ ] 中文😀 [[child]]\n\n| C | D |\n| - | - |\n| ![[child]] | $x$ |\n\n[ref]: child.md\n\nend[^n]\n\n[^n]: footnote";
+        let path = Path::new("note.md");
+        for body in ["# Child\n\n- [x] first", "# Child\n\n- [ ] second"] {
+            let mut index = crate::index::Index::default();
+            index.update("child.md".into(), body.into());
+            let snapshot = Arc::new(Snapshot::new(source));
+            let reading =
+                crate::rendering::reading_snapshot(&index, path, snapshot.clone(), 0..source.len());
+            let fragments = fragments(&index, path, snapshot.clone(), &reading);
+            let content: Vec<_> = fragments
+                .iter()
+                .filter(|f| f.candidate.role == Role::Content)
+                .collect();
+            assert!(content.len() >= 3);
+            for fragment in content {
+                let fresh = crate::rendering::reading_snapshot(
+                    &index,
+                    path,
+                    snapshot.clone(),
+                    fragment.candidate.source.clone(),
+                );
+                assert_eq!(fragment.document.markdown, fresh.markdown);
+                assert_eq!(
+                    fragment
+                        .document
+                        .references
+                        .iter()
+                        .map(|r| (&r.from, &r.target, r.wiki))
+                        .collect::<Vec<_>>(),
+                    fresh
+                        .references
+                        .iter()
+                        .map(|r| (&r.from, &r.target, r.wiki))
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    fragment
+                        .document
+                        .tasks
+                        .iter()
+                        .map(|t| (t.rendered_start, &t.path, &t.marker, &t.baseline))
+                        .collect::<Vec<_>>(),
+                    fresh
+                        .tasks
+                        .iter()
+                        .map(|t| (t.rendered_start, &t.path, &t.marker, &t.baseline))
+                        .collect::<Vec<_>>()
+                );
+                for (offset, _) in source.char_indices() {
+                    assert_eq!(
+                        fragment.document.output_offset(path, offset),
+                        fresh.output_offset(path, offset)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cancellation_never_returns_partial_fragments() {
+        use std::cell::Cell;
+        let source = "$a$ and $b$ and $c$\n\n| a | b |\n| - | - |\n| 中 | 😀 |";
+        let path = Path::new("note.md");
+        let index = crate::index::Index::default();
+        let snapshot = Arc::new(Snapshot::new(source));
+        let reading =
+            crate::rendering::reading_snapshot(&index, path, snapshot.clone(), 0..source.len());
+        let expected = fragments(&index, path, snapshot.clone(), &reading);
+        assert_eq!(expected.len(), 4);
+        for stop in 0..=7 {
+            let calls = Cell::new(0);
+            let result = fragments_cancellable(&index, path, snapshot.clone(), &reading, || {
+                let call = calls.get();
+                calls.set(call + 1);
+                call >= stop
+            });
+            assert!(result.is_none(), "cancel checkpoint {stop}");
+        }
+        let result = fragments_cancellable(&index, path, snapshot, &reading, || false).unwrap();
+        assert_eq!(
+            result
+                .iter()
+                .map(|f| (&f.candidate, &f.document.markdown))
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|f| (&f.candidate, &f.document.markdown))
+                .collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn graphic_fragments_preserve_literal_content_and_source_mapping() {
         let source = format!(

@@ -577,6 +577,7 @@ fn element(
         .when(sprite.is_none(), |view| {
             view.child(
                 TextView::new(&widget.view)
+                    .code_block_actions(code_blocks::actions)
                     .font_family(appearance.font_family.clone())
                     .markdown_extensions({
                         let mut extensions = crate::native_graphics::extensions(
@@ -619,6 +620,7 @@ fn element(
                             .with_foreground(crate::theme::palette(light).foreground.into())
                             .with_link(crate::theme::palette(light).accent.into())
                             .with_code_background(crate::theme::palette(light).surface.into())
+                            .with_code_block(code_blocks::style(font))
                             .with_border(crate::theme::palette(light).border.into())
                             .with_paragraph_gap(rems(0.)),
                     )
@@ -826,6 +828,114 @@ pub(super) fn overlay(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn code_copy_button_preserves_source_and_live_projection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "前文\n\n```rust\nlet 中文 = \"😀\";\n```\n\n后文";
+        for reading in [false, true] {
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            handle
+                .update(cx, |pane, _, cx| {
+                    pane.reading = reading;
+                    pane.update_presentation(cx);
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.simulate_resize(size(px(640.), px(480.)));
+            for _ in 0..8 {
+                visual.run_until_parked();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+            }
+            let bounds = visual
+                .debug_bounds("copy-code-control")
+                .expect("code copy button");
+            visual.simulate_click(bounds.center(), Modifiers::default());
+            visual.update(|_, cx| {
+                assert_eq!(
+                    cx.read_from_clipboard().unwrap().text().unwrap(),
+                    "let 中文 = \"😀\";"
+                )
+            });
+            handle
+                .update(&mut visual, |pane, _, cx| {
+                    assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+                    assert_eq!(pane.editor.read(cx).selected_range(), 0..0);
+                    if !reading {
+                        assert_eq!(pane.editor.read(cx).display_objects().len(), 1);
+                    }
+                })
+                .unwrap();
+        }
+    }
+
+    #[gpui::test]
+    fn code_blocks_preview_reveal_and_edit_without_changing_source(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "前文\n\n> ```rust\n> let 中文 = \"😀\";\n> ```\n\n后文";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        cx.run_until_parked();
+        handle
+            .update(cx, |pane, window, cx| {
+                assert_eq!(pane.live_objects.len(), 1);
+                let widget = &pane.live_objects[0];
+                assert_eq!(
+                    widget.view.read(cx).rendered_text().as_str().trim(),
+                    "let 中文 = \"😀\";"
+                );
+                let range = widget.source.clone();
+                assert_eq!(
+                    pane.active_live_objects(source, std::slice::from_ref(&(0..0)), &[])
+                        .len(),
+                    1
+                );
+                let cursor = source.find("中文").unwrap();
+                assert!(
+                    pane.active_live_objects(source, std::slice::from_ref(&(cursor..cursor)), &[])
+                        .is_empty()
+                );
+                assert!(
+                    pane.active_live_objects(
+                        source,
+                        std::slice::from_ref(&(0..0)),
+                        std::slice::from_ref(&(cursor..cursor + 6))
+                    )
+                    .is_empty()
+                );
+                assert!(
+                    pane.active_live_objects(source, std::slice::from_ref(&(0..source.len())), &[])
+                        .is_empty()
+                );
+                pane.reading = true;
+                assert!(
+                    pane.active_live_objects(source, std::slice::from_ref(&(0..0)), &[])
+                        .is_empty()
+                );
+                pane.reading = false;
+                pane.live = false;
+                assert!(
+                    pane.active_live_objects(source, std::slice::from_ref(&(0..0)), &[])
+                        .is_empty()
+                );
+                pane.live = true;
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(cursor..cursor + 6, cx);
+                    state.replace("变量", window, cx);
+                });
+                pane.update_presentation(cx);
+                assert_eq!(
+                    pane.editor.read(cx).value().as_ref(),
+                    source.replace("中文", "变量")
+                );
+                pane.editor.update(cx, |state, cx| {
+                    state.undo(&gpui_component::input::Undo, window, cx)
+                });
+                pane.update_presentation(cx);
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+                assert_eq!(&source[range], "```rust\n> let 中文 = \"😀\";\n> ```");
+            })
+            .unwrap();
+    }
 
     #[gpui::test]
     fn large_images_fit_live_editor_and_preserve_aspect_ratio(cx: &mut TestAppContext) {

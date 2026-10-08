@@ -118,3 +118,85 @@ python3 tools/performance/sync_scan.py
 现有两秒工作区定时器在 tick 前记录 PID、Unix 毫秒时间、启动后单调毫秒、窗口激活、当前编辑器焦点及加载状态，最多 1,800 条，写失败即停止。不记录笔记路径、正文、选区或输入内容。未开启时不创建文件，不为诊断增加定时器。日志写入有少量开销，前后对照必须保持相同设置；它是间隔采样，不能证明两个采样点之间没有切换焦点，不能替代显示帧追踪。
 
 sample_process.py 的 `sample_start_unix_ms` / `sample_end_unix_ms` 可用于筛选活动日志中正式 CPU 采样区间内的记录；CPU 耗时仍使用单调时钟。缺失记录、仍在加载或窗口未激活时应单独报告，不能只看低 CPU 宣称前台预算通过。
+
+活动日志还记录当前编辑器的累计 `editor_renders` 和 `input_notifications`；无活动
+编辑器时为 null，切换编辑器后计数可能重置。仅启用活动诊断时累加，不增加定时器。
+正式区间需同时检查计数增量：前台/焦点为 true 但没有持续重绘时，低 CPU 不足以
+代表闪烁光标的空闲成本。渲染计数是 CPU 侧视图组装次数，不是显示帧或 GPU 提交数，
+不能替代真实画面、原生输入与帧跟踪。不同诊断字段版本的开销需在对照中说明。
+
+## 全面性能工作恢复（2026-10-07）
+
+当前计划仅对 macOS 做性能验收，保留 Windows 正确性 CI。所有旧结果保持原有
+边界；重新以当前提交测量，不将原生帧数据缺失记为通过。
+
+```sh
+cargo build --release --locked -p inkstone-core --example benchmark
+python3 tools/performance/backend.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/performance -p test_backend.py -v
+```
+
+`backend.py` 对 1,000 / 10,000 篇固定内容的生成库各启动三个独立进程，保存版本化
+JSON、每轮 stdout/stderr、样本逐文件散列、提交/工作树差异、硬件、编译器和二进制散列。
+它不接收用户库路径。计时来自原有 benchmark 的后端阶段；RSS 是整个子进程峰值，
+包含夹具生成、所有阶段和析构，不能当作应用峰值或单阶段内存。夹具核验在计量进程外。
+不清 OS 缓存，不与构建/其他测试并行运行。`--binary` 可选择保留的对照二进制；提交号
+指运行时工作树，比较旧二进制时另行记录其构建提交。原始数据只保留在忽略目录。
+
+## 可选阶段计时（schema v1）
+
+`INKSTONE_TRACE_PERFORMANCE` 指向父目录已存在的新 JSONL 文件；未设置时不创建文件，
+也不为 span 读取时钟。已有文件（含符号链接）不会被覆盖，打开失败时诊断关闭。
+每进程最多 10,000 条，写失败停止记录。日志只含固定 stage、PID、序号、起点 Unix
+毫秒、单调起点微秒及耗时微秒，不含路径、查询、正文。跨度为墙钟时间、允许嵌套，
+不能相加作为总 CPU，不能当作输入到呈现帧时间。
+
+```sh
+python3 tools/performance/prepare_macos.py target/new-diagnostic-run --scenario large-document --mode live --trace-activity --trace-performance
+```
+
+准备器只设置隔离 bundle 环境，不启动程序。阶段包括完整/局部语法、阅读投影、片段、
+展示更新、编辑器视图组装、索引加载、两类搜索、文件刷新、保存事务和同步扫描/事务。
+`editor_view_composition` 只量化元素组装，不包含 GPUI 后续布局、绘制或 GPU 提交；
+后者仍结合现有无头 frame benchmark 和平台 profiler，不以本日志替代原生帧验收。
+日志同步落盘有诊断成本；正式预算采样默认关闭，前后对照必须保持同一设置。
+
+## 阅读与片段准备基准
+
+```sh
+cargo build --release --locked -p inkstone-core --example projection_benchmark
+# GENERATED_FILE 必须来自 corpus.py 新生成的隔离库。
+target/release/examples/projection_benchmark GENERATED_FILE
+```
+
+语法快照在计时前创建；每进程 5 次预热、20 次正式样本，输出总 p50/p95 与 p50 对应
+的阅读投影耗时，并核对每轮输出散列、任务数、片段数。输出源/结果散列用于跨版本
+一致性检查；源码位置、任务行为和链接语义仍须单独回归。没有包含最初语法解析、
+图形栅格化、GPUI 布局、磁盘打开或原生帧延迟。比较版本时先构建并保留二进制和
+散列，再停止构建，至少三对独立进程交错顺序运行同一 corpus，保存原始 stdout。
+
+## 单个长段落的 GUI CPU 对照
+
+```sh
+cargo test --locked --release -p inkstone-desktop long_paragraph_frame_performance -- --ignored --nocapture --test-threads=1
+```
+
+无头基准内置 corpus v1 的 `long-paragraph.md`，运行前校验 manifest 散列，不拆段。
+源码与实时预览分别在段首、中、末测强制重绘、24 像素往返滚动、交替插字/换行，
+每组 5 次预热、20 次正式样本，JSON 行保留全部耗时及 p50/p95/max。每次编辑后
+撤销并断言正文完全恢复；撤销和重新定位不计入编辑样本。计时包含同步操作、
+排空可运行任务及绘制，窗口为 1200×820；不含完整工作区、原生输入事件、GPU
+呈现或实际闪烁定时器，不能据此宣布原生延迟或空闲 CPU 百分比达标。
+不同构建配置不可混比；先保留前后测试可执行文件，停止编译后以独立进程交错运行。
+
+可见范围查询的独立定位基准（先通过 vendor 回归入口准备当前暂存源码）：
+
+```sh
+python3 tools/vendor-regression/run.py
+cargo test --locked --manifest-path target/vendor-regression/Cargo.toml --target-dir target -p gpui-base --lib long_paragraph_range_performance -- --ignored --nocapture --test-threads=1
+```
+
+它对同一 corpus v1 长段落的已准备映射交错调用逐显示行扫描的旧算法和当前查询，
+每组 1,000 次、三组，并核对所有结果。这里的旧算法是在测试中重建的原实现，
+不是旧版应用二进制；默认 debug 配置，排除初始整形、编辑、绘制和原生交互，
+不能将其改善倍数作为整段输入或滚动的改善倍数。

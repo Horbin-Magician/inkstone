@@ -127,12 +127,14 @@ impl Workspace {
             self.ui.prefs.search_query = query.clone();
         }
         let index = self.index.clone();
+        let mut seen = std::collections::HashSet::new();
         let drafts: std::collections::BTreeMap<_, _> = self
             .tabs
             .iter()
+            .filter(|t| seen.insert(t.save.editor.entity_id()))
             .filter(|t| !t.save.editor.read(cx).is_composing())
             .filter_map(|t| {
-                let text = t.save.editor.read(cx).value();
+                let text = t.save.text_snapshot(cx);
                 (index
                     .notes
                     .get(&t.path)

@@ -1063,6 +1063,7 @@ impl Workspace {
         };
         let generation = self.generation;
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
+        self.recoveries_loading = true;
         let request = self.ui.recovery_refresh;
         self.refresh_sync_recovery(cx);
         self.refresh_history_catalog(cx);
@@ -1076,6 +1077,7 @@ impl Workspace {
                 if this.generation != generation || this.ui.recovery_refresh != request {
                     return;
                 }
+                this.recoveries_loading = false;
                 match trash {
                     Ok(entries) => this.ui.trash = entries,
                     Err(e) => this.notifications.publish(e.to_string()),

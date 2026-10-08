@@ -1,6 +1,8 @@
+mod code_blocks;
 mod counts;
 mod editing;
 mod presentation;
+mod projection;
 mod reading;
 #[cfg(test)]
 mod tests;
@@ -62,6 +64,8 @@ struct PropertySnapshot {
 }
 
 pub struct EditorPane {
+    // Optional activity diagnostics: renders and input notifications, no text.
+    activity_counts: Option<(u64, u64)>,
     pub navigation: inkstone_core::preferences::Navigation,
     count_cache: Option<CountSnapshot>,
     property_cache: Option<PropertySnapshot>,
@@ -70,6 +74,7 @@ pub struct EditorPane {
     footnote_edit: Option<footnotes::FootnoteEdit>,
     live_tasks: Vec<live_tasks::TaskWidget>,
     live_quotes: Vec<std::ops::Range<usize>>,
+    quote_rem_size: Pixels,
     live_rules: Vec<std::ops::Range<usize>>,
     live_lists: Vec<std::ops::Range<usize>>,
     pub editor: Entity<EditorState>,
@@ -80,6 +85,7 @@ pub struct EditorPane {
     parse_revision: u64,
     spans: Vec<markdown::Span>,
     parse_task: Option<Task<()>>,
+    projection_job: Option<projection::Job>,
     pub parsed: ParsedNote,
     pub reading: bool,
     pub font_size: f32,
@@ -124,6 +130,9 @@ pub struct EditorPane {
 }
 
 impl EditorPane {
+    pub(crate) fn activity_counts(&self) -> Option<(u64, u64)> {
+        self.activity_counts
+    }
     pub fn set_reference_context(
         &mut self,
         path: PathBuf,
@@ -163,6 +172,9 @@ impl EditorPane {
             state.create_decorations_collection(vec![], cx)
         });
         let subscription = cx.observe_in(&editor, window, |this, editor, window, cx| {
+            if let Some((_, notifications)) = &mut this.activity_counts {
+                *notifications = notifications.saturating_add(1);
+            }
             let state = editor.read(cx);
             let visible = state.cursor_layout().is_some_and(|(mut caret, _)| {
                 caret.origin += state.scroll_offset();
@@ -262,6 +274,7 @@ impl EditorPane {
         });
         editor.update(cx, |state, cx| state.focus(window, cx));
         Self {
+            activity_counts: std::env::var_os("INKSTONE_TRACE_ACTIVITY").map(|_| (0, 0)),
             editor,
             footnote_edit: None,
             count_cache: None,
@@ -275,11 +288,13 @@ impl EditorPane {
             parse_revision: 0,
             spans: vec![],
             parse_task: None,
+            projection_job: None,
             parsed: ParsedNote::default(),
             reading: false,
             navigation: Default::default(),
             live_tasks: vec![],
             live_quotes: vec![],
+            quote_rem_size: window.rem_size(),
             live_rules: vec![],
             live_lists: vec![],
             font_size: 16.,

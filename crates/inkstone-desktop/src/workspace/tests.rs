@@ -1,6 +1,87 @@
 use super::*;
 use crate::test_support::PlatformKeys;
 use core::prelude::v1::test;
+
+#[gpui::test]
+fn restored_tab_batch_keeps_preferences_and_independent_views(cx: &mut TestAppContext) {
+    use inkstone_core::preferences::{Preferences, ViewState};
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!(
+        "inkstone-restore-batch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let paths: Vec<PathBuf> = (0..12)
+        .map(|i| format!("note-{}.md", i / 2).into())
+        .collect();
+    for path in &paths {
+        std::fs::write(root.join(path), "# Heading\n\nbody text\n").unwrap();
+    }
+    Preferences {
+        open_paths: paths.clone(),
+        active_tab_index: Some(7),
+        font_size: 24.,
+        line_spacing: 1.8,
+        tab_size: 2,
+        use_tabs: false,
+        fold_headings: false,
+        fold_indentation: false,
+        views: paths
+            .iter()
+            .enumerate()
+            .map(|(i, path)| ViewState {
+                path: path.clone(),
+                live: i % 2 == 0,
+                selection: (i + 2)..(i + 2),
+                pinned: Some(i % 3 == 0),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
+    .save(&root.join(".inkstone-workspace.json"))
+    .unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |w, _, cx| {
+            assert!(!w.loading);
+            assert_eq!(w.active, Some(7));
+            assert_eq!(w.tabs.len(), 12);
+            for (i, tab) in w.tabs.iter().enumerate() {
+                assert_eq!(tab.path, paths[i]);
+                assert_eq!(tab.pinned, i % 3 == 0);
+                let pane = tab.pane.read(cx);
+                assert_eq!(pane.font_size, 24.);
+                assert_eq!(pane.line_spacing, 1.8);
+                assert_eq!(pane.indentation.tab_size, 2);
+                assert!(!pane.indentation.hard_tabs);
+                assert!(!pane.fold_headings);
+                assert!(!pane.fold_indentation);
+                assert_eq!(pane.live, i % 2 == 0);
+                assert_eq!(pane.editor.read(cx).selected_range(), (i + 2)..(i + 2));
+                assert_eq!(pane.editor.read(cx).value(), "# Heading\n\nbody text\n");
+            }
+            for pair in w.tabs.chunks_exact(2) {
+                assert!(std::rc::Rc::ptr_eq(&pair[0].save, &pair[1].save));
+                assert_ne!(pair[0].pane.entity_id(), pair[1].pane.entity_id());
+            }
+        })
+        .unwrap();
+    handle
+        .update(cx, |_, window, _| window.remove_window())
+        .unwrap();
+    cx.run_until_parked();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[gpui::test]
 fn single_line_inputs_keep_text_and_caret_inside_the_frame(cx: &mut TestAppContext) {
     use gpui_component::{Sizable, Size};
@@ -5353,4 +5434,58 @@ fn stale_file_moves_release_only_their_own_operation_guard(cx: &mut TestAppConte
         );
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[gpui::test]
+fn document_snapshots_follow_silent_edits_history_and_composition(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            let initial = "中文😀 original".repeat(100);
+            w.add_tab(
+                "snapshot.md".into(),
+                Some(initial.clone()),
+                false,
+                window,
+                cx,
+            );
+            let document = w.tabs[0].save.clone();
+            let original = document.text_snapshot(cx);
+            let again = document.text_snapshot(cx);
+            assert_eq!(original.as_ptr(), again.as_ptr());
+            document
+                .editor
+                .update(cx, |s, cx| s.set_selected_range(0..0, cx));
+            assert_eq!(original.as_ptr(), document.text_snapshot(cx).as_ptr());
+            document
+                .editor
+                .update(cx, |s, cx| s.set_value("中文😀 changed", window, cx));
+            assert_eq!(document.text_snapshot(cx).as_ref(), "中文😀 changed");
+            assert_eq!(
+                original.as_ref(),
+                initial.as_str(),
+                "old snapshots stay immutable"
+            );
+            document
+                .editor
+                .update(cx, |s, cx| s.replace_all("中文😀 edited", window, cx));
+            assert_eq!(document.text_snapshot(cx).as_ref(), "中文😀 edited");
+            document
+                .editor
+                .update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+            assert_eq!(document.text_snapshot(cx).as_ref(), "中文😀 changed");
+            document.editor.update(cx, |s, cx| {
+                s.set_selected_range(0..0, cx);
+                s.replace_and_mark_text_in_range(None, "ni", None, window, cx);
+            });
+            assert!(document.editor.read(cx).is_composing());
+            assert!(document.text_snapshot(cx).starts_with("ni"));
+            document
+                .editor
+                .update(cx, |s, cx| s.replace_text_in_range(None, "你", window, cx));
+            assert_eq!(document.text_snapshot(cx), document.editor.read(cx).value());
+            assert!(document.text_snapshot(cx).starts_with("你中文"));
+        })
+        .unwrap();
 }

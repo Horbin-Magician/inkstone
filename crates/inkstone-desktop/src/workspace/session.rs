@@ -55,10 +55,14 @@ impl Workspace {
                                     .focus_handle(cx)
                                     .is_focused(window)
                             });
+                            let counts = this
+                                .current_pane()
+                                .and_then(|pane| pane.read(cx).activity_counts());
                             let keep = this.activity_trace.as_mut().unwrap().record(
                                 window.is_window_active(),
                                 focused,
                                 this.loading,
+                                counts,
                             );
                             if !keep {
                                 this.activity_trace = None;
@@ -120,6 +124,7 @@ impl Workspace {
             refresh_requested: false,
             refreshing: false,
             recoveries: vec![],
+            recoveries_loading: false,
             index: Arc::new(Index::default()),
             link_paths: Default::default(),
             link_paths_key: None,
@@ -211,6 +216,7 @@ impl Workspace {
         inkstone_core::startup_trace::mark("load_requested");
         self.startup_pending = false;
         self.loading = true;
+        self.recoveries_loading = false;
         self.search_jobs.cancel();
         self.generation += 1;
         let generation = self.generation;
@@ -230,12 +236,10 @@ impl Workspace {
             let (index, folders) = Index::load_cached(&vault, &cache_path)?;
             inkstone_core::startup_trace::mark("index_ready");
             let files = index.note_paths();
-            let recoveries = vault.recovery_summaries()?;
             let _ = std::fs::write(
                 app_dir().join("recent.txt"),
                 vault.root.to_string_lossy().as_bytes(),
             );
-            inkstone_core::startup_trace::mark("recovery_ready");
             inkstone_core::startup_trace::mark("folders_ready");
             let (prefs, preference_warning) =
                 inkstone_core::preferences::Preferences::load_with_warning(
@@ -265,7 +269,6 @@ impl Workspace {
                 files,
                 watcher,
                 receiver,
-                recoveries,
                 index,
                 folders,
                 (prefs, preference_warning, cloud_secret),
@@ -285,23 +288,14 @@ impl Workspace {
                         .iter()
                         .any(|t| t.save.persistence.is_dirty() || t.save.persistence.is_saving())
                 {
-                    this.notifications.publish("读取期间产生了新编辑，已保留当前笔记库。".into());
+                    this.notifications
+                        .publish("读取期间产生了新编辑，已保留当前笔记库。".into());
                     cx.notify();
                     return;
                 }
                 inkstone_core::startup_trace::mark("ui_apply_started");
                 match result {
-                    Ok((
-                        vault,
-                        files,
-                        watcher,
-                        receiver,
-                        recoveries,
-                        index,
-                        folders,
-                        prefs,
-                        restored,
-                    )) => {
+                    Ok((vault, files, watcher, receiver, index, folders, prefs, restored)) => {
                         let (prefs, preference_warning, cloud_secret) = prefs;
                         this.ui.folders = folders;
                         let restore_active = prefs.active_path.clone();
@@ -352,7 +346,7 @@ impl Workspace {
                         this.vault = Some(vault);
                         this.watcher = Some(watcher);
                         this.watch_events = Some(receiver);
-                        this.recoveries = recoveries;
+                        this.recoveries.clear();
                         this.index = Arc::new(index);
                         let cached_index = this.index.clone();
                         let maintenance_vault = this.vault.as_ref().unwrap().clone();
@@ -383,13 +377,8 @@ impl Workspace {
                         this.views = Default::default();
                         this.tabs.clear();
                         this.active = None;
-                        this.notifications.publish(preference_warning.unwrap_or_default());
-                        if !this.recoveries.is_empty() {
-                            this.notifications.append(&format!(
-                                " 检测到 {} 条未保存草稿，可在命令面板的“文件恢复”中比较、恢复副本或放弃。",
-                                this.recoveries.len()
-                            ));
-                        }
+                        this.notifications
+                            .publish(preference_warning.unwrap_or_default());
                         this.loading = true;
                         let mut restored_active = None;
                         let saved_views = this.ui.prefs.views.clone();
@@ -428,6 +417,9 @@ impl Workspace {
                             }
                         }
                         inkstone_core::startup_trace::mark("tabs_created");
+                        // Set shared preferences once, before per-view mode,
+                        // selection and scroll restoration override the defaults.
+                        this.apply_editor_preferences(window, cx);
                         for (id, pane, view_index) in view_restores {
                             if let Some(tab) = this.tabs.iter_mut().find(|tab| tab.id == id) {
                                 tab.pinned = saved_views[view_index].pinned.unwrap_or(tab.pinned);
@@ -456,6 +448,7 @@ impl Workspace {
                         }
                         this.restore_split(window, cx);
                         inkstone_core::startup_trace::mark("ui_loaded");
+                        this.load_startup_recoveries(cx);
                         if inkstone_core::startup_trace::enabled() {
                             cx.on_next_frame(window, |_, window, cx| {
                                 cx.on_next_frame(window, |_, _, _| {
@@ -472,5 +465,119 @@ impl Workspace {
         })
         .detach();
         cx.notify();
+    }
+
+    fn load_startup_recoveries(&mut self, cx: &mut Context<Self>) {
+        let Some(vault) = self.vault.clone() else {
+            return;
+        };
+        self.recoveries_loading = true;
+        let generation = self.generation;
+        let request = self.ui.recovery_refresh;
+        let task = cx
+            .background_executor()
+            .spawn(async move { vault.recovery_summaries() });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.finish_startup_recoveries(generation, request, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn finish_startup_recoveries(
+        &mut self,
+        generation: u64,
+        request: u64,
+        result: Result<Vec<RecoverySummary>, VaultError>,
+        cx: &mut Context<Self>,
+    ) {
+        // Switching vaults or opening/refreshing the recovery hub supersedes
+        // this startup snapshot. It must not replace a newer user-requested list.
+        if self.generation != generation || self.ui.recovery_refresh != request {
+            return;
+        }
+        self.recoveries_loading = false;
+        inkstone_core::startup_trace::mark("recovery_ready");
+        match result {
+            Ok(entries) => {
+                self.recoveries = entries;
+                if !self.recoveries.is_empty() {
+                    self.notifications.append(&format!(
+                        " 检测到 {} 条未保存草稿，可在命令面板的“文件恢复”中比较、恢复副本或放弃。",
+                        self.recoveries.len()
+                    ));
+                }
+            }
+            Err(error) => self
+                .notifications
+                .append(&format!(" 无法读取草稿恢复目录：{error}")),
+        }
+        cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn startup_recovery_results_are_scoped_and_errors_keep_notes_usable(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab(
+                    "note.md".into(),
+                    Some("saved text".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.generation = 5;
+                w.ui.recovery_refresh = 7;
+                w.recoveries_loading = true;
+                let entries = || {
+                    vec![RecoverySummary {
+                        journal: "draft.json".into(),
+                        relative: "note.md".into(),
+                        modified: std::time::UNIX_EPOCH,
+                        bytes: 123,
+                    }]
+                };
+                w.finish_startup_recoveries(4, 7, Ok(entries()), cx);
+                w.finish_startup_recoveries(5, 6, Ok(entries()), cx);
+                assert!(w.recoveries.is_empty());
+                assert!(w.recoveries_loading);
+                w.finish_startup_recoveries(5, 7, Ok(entries()), cx);
+                assert_eq!(w.recoveries.len(), 1);
+                assert!(!w.recoveries_loading);
+                assert!(w.notifications.text().contains("1 条未保存草稿"));
+                w.recoveries_loading = true;
+                w.finish_startup_recoveries(
+                    5,
+                    7,
+                    Err(VaultError::Io(std::io::Error::other(
+                        "test recovery read failure",
+                    ))),
+                    cx,
+                );
+                assert!(!w.loading);
+                assert!(!w.recoveries_loading);
+                assert_eq!(w.recoveries.len(), 1);
+                assert!(w.notifications.text().contains("无法读取草稿恢复目录"));
+                let pane = w.tabs[0].pane.clone();
+                pane.update(cx, |pane, cx| {
+                    pane.editor.update(cx, |editor, cx| {
+                        editor.set_selected_range(0..0, cx);
+                        editor.replace("new ", window, cx);
+                        assert_eq!(editor.value(), "new saved text");
+                    });
+                });
+            })
+            .unwrap();
     }
 }

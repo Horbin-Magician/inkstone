@@ -4,6 +4,12 @@ use super::*;
 
 impl Render for EditorPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some((renders, _)) = &mut self.activity_counts {
+            *renders = renders.saturating_add(1);
+        }
+        let _span = inkstone_core::performance::span(
+            inkstone_core::performance::Stage::EditorViewComposition,
+        );
         let appearance = (
             self.font_size.to_bits(),
             _window.scale_factor().to_bits(),
@@ -17,6 +23,10 @@ impl Render for EditorPane {
             self.context_revision += 1;
         }
         self.graphic_dpi = _window.scale_factor();
+        if self.quote_rem_size != _window.rem_size() {
+            self.quote_rem_size = _window.rem_size();
+            self.last_presentation = None;
+        }
         self.update_presentation(cx);
         self.refresh_visible_graphics(cx);
         if let Some(anchor) = self.pending_live_anchor.take() {
@@ -52,6 +62,7 @@ impl Render for EditorPane {
             });
         }
         if self.reading
+            && self.pending_preview_jump.is_some()
             && self.preview.read(cx).is_parsed()
             && self
                 .rendered
@@ -74,11 +85,11 @@ impl Render for EditorPane {
             }
         }
         if self.reading
+            && self.pending_reading_position.is_some()
             && self.preview.read(cx).is_parsed()
             && self
                 .rendered
                 .source_matches(&self.current_path, &self.editor.read(cx).value())
-            && self.pending_reading_position.is_some()
         {
             cx.defer_in(_window, |this, _, cx| {
                 if !this.reading
@@ -116,6 +127,7 @@ impl Render for EditorPane {
         let weak = cx.entity().downgrade();
         let font_size = self.font_size;
         let preview = TextView::new(&self.preview)
+            .code_block_actions(code_blocks::actions)
             .font_family(self.text_font.clone())
             .markdown_extensions(crate::native_graphics::extensions(
                 font_size,
@@ -154,7 +166,7 @@ impl Render for EditorPane {
                             })
                             .line_height(relative([1.2, 1.2, 1.3, 1.4, 1.5, 1.5][i]))
                     })
-                    .with_code_block(StyleRefinement::default().text_size(px(font_size * 0.875)))
+                    .with_code_block(code_blocks::style(font_size))
                     .with_table_cell(StyleRefinement::default().text_size(px(font_size)))
                     .with_table_head(
                         StyleRefinement::default()
@@ -473,7 +485,8 @@ impl Render for EditorPane {
                 view.child(live_quotes::overlay(
                     self.editor.clone(),
                     self.live_quotes.clone(),
-                    self.font_size,
+                    self.quote_rem_size,
+                    self.light,
                 ))
             })
             .when(!self.reading && self.live, |view| {

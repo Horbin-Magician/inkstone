@@ -41,6 +41,13 @@ class PreparationTests(unittest.TestCase):
             self.assertTrue(link.is_symlink())
             self.assertFalse((root / "missing").exists())
 
+    def test_performance_trace_uses_a_new_file_in_the_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "trace"
+            report = prepare_macos.prepare(root, Path("/usr/bin/true"), "ordinary", "live", trace_performance=True)
+            self.assertEqual(report["environment"]["INKSTONE_TRACE_PERFORMANCE"], str(root / "performance.jsonl"))
+            self.assertFalse((root / "performance.jsonl").exists())
+
     def test_invalid_request_does_not_create_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "new"
