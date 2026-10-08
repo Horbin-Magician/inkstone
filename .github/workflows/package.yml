@@ -35,14 +35,14 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install nsis --version=3.11 -y --no-progress
       - name: Build and package
-        run: python packaging/package.py target/native-package
+        run: python packaging/package.py "${{ runner.temp }}/inkstone-package"
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.target }}
           path: |
-            target/native-package/*.zip
-            target/native-package/*-setup.exe
-            target/native-package/*.dmg
-            target/native-package/*.tar.gz
-            target/native-package/*.sha256
+            ${{ runner.temp }}/inkstone-package/*.zip
+            ${{ runner.temp }}/inkstone-package/*-setup.exe
+            ${{ runner.temp }}/inkstone-package/*.dmg
+            ${{ runner.temp }}/inkstone-package/*.tar.gz
+            ${{ runner.temp }}/inkstone-package/*.sha256
           if-no-files-found: error
