@@ -27,3 +27,4 @@ macOS Intel 与 Apple Silicon 使用各自 runner 构建。
 所有平台成功后先上传附件至草稿，再公开 GitHub Release。失败时不会公开不完整版本。
 已存在的正式 Release 不覆盖；草稿可通过手动运行工作流重试。手动运行必须选择对应版本标签。
 日常 `package.yml` 支持手动构建候选产物，不发布 Release。
+CI 将待发布文件写入 runner 临时目录，与 Cargo 依赖缓存隔离；分支检查会取消同一分支的旧任务，版本标签只触发发布工作流。
