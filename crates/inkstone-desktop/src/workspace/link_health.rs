@@ -4,6 +4,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
 };
 use inkstone_core::link_audit::Issue;
+
 pub(super) struct Review {
     issues: Vec<Issue>,
     loading: bool,
@@ -31,8 +32,9 @@ impl Workspace {
         window.focus(&self.ui.modal_focus, cx);
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
+        let previous_index = self.index.clone();
         let task = cx.background_executor().spawn(async move {
-            let mut index = Index::build(&vault)?;
+            let mut index = previous_index.refresh_from_disk(&vault)?;
             for (path, text) in drafts {
                 index.update(path, text.to_string());
             }
@@ -71,5 +73,43 @@ impl Workspace {
             .child(uniform_list("link-health-list",r.issues.len(),cx.processor(|this,range:std::ops::Range<usize>,_,cx|{
                 let Some(r)=&this.ui.link_health else{return vec![];};range.filter_map(|i|{let issue=r.issues.get(i)?;let path=issue.from.clone();Some(Button::new(("link-issue",i)).ghost().label(format!("{} · {} → {}",issue.reason,path.display(),issue.target)).on_click(cx.listener(move|this,_,w,cx|{this.close_overlays(w,cx);this.open_note(path.clone(),w,cx);})).into_any_element())}).collect()
             })).h(px(320.)).w_full()).into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn link_health_refresh_includes_external_edits_and_open_drafts(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-link-refresh-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "# old").unwrap();
+        std::fs::write(root.join("source.md"), "[bad](missing.md)").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.vault = Some(vault);
+                w.add_tab("a.md".into(), Some("# new".into()), false, window, cx);
+                std::fs::write(root.join("source.md"), "[ok](a.md#new)").unwrap();
+                w.open_link_health(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                let review = w.ui.link_health.as_ref().unwrap();
+                assert!(!review.loading);
+                assert!(review.message.is_empty());
+                assert!(review.issues.is_empty());
+            })
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "# old");
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

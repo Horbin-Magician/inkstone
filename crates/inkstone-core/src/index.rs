@@ -83,8 +83,16 @@ impl Index {
     /// Used before moves so external edits are included in link planning even
     /// when their watcher events have not yet reached the workspace.
     pub fn refresh_from_disk(&self, vault: &Vault) -> Result<Self, VaultError> {
+        self.refresh_from_files(vault, vault.scan_files()?)
+    }
+    /// Reuse a caller's directory listing, including non-note assets.
+    pub fn refresh_from_files(
+        &self,
+        vault: &Vault,
+        files: Vec<PathBuf>,
+    ) -> Result<Self, VaultError> {
         let mut index = Self {
-            files: vault.scan_files()?,
+            files,
             ..Default::default()
         };
         for path in &index.files {
