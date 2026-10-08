@@ -2890,6 +2890,53 @@ fn explorer_sort_preserves_folders_selection_and_reacts_to_dates(cx: &mut TestAp
 }
 
 #[gpui::test]
+fn explorer_rebuild_preserves_large_nested_expansion_and_selection(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, _, cx| {
+            for i in 0..500 {
+                let parent = PathBuf::from(format!("Folder{i}"));
+                let child = parent.join("nested");
+                w.tree_files.push(child.join("note.md"));
+                w.ui.folders
+                    .extend([parent.clone(), child.clone(), parent.join("empty")]);
+                w.ui.prefs.expanded_folders.extend([parent, child]);
+            }
+            w.rebuild_sorted_tree(cx);
+            let selected: SharedString = PathBuf::from("Folder250")
+                .join("nested")
+                .join("note.md")
+                .to_string_lossy()
+                .to_string()
+                .into();
+            w.tree.update(cx, |tree, cx| {
+                let index = tree.index_of(&selected).unwrap();
+                tree.set_selected_index(Some(index), cx);
+            });
+            w.ui.prefs.sort_descending = true;
+            w.rebuild_sorted_tree(cx);
+            let tree = w.tree.read(cx);
+            assert_eq!(tree.selected_item().unwrap().id, selected);
+            assert_eq!(tree.entry(0).unwrap().item().label.as_ref(), "Folder499");
+            for i in 0..500 {
+                let parent = PathBuf::from(format!("Folder{i}"));
+                for folder in [parent.clone(), parent.join("nested")] {
+                    let id: SharedString = folder.to_string_lossy().to_string().into();
+                    let entry = tree.entry(tree.index_of(&id).unwrap()).unwrap();
+                    assert!(entry.is_folder());
+                    assert!(entry.is_expanded());
+                }
+                let id: SharedString = parent.join("empty").to_string_lossy().to_string().into();
+                let entry = tree.entry(tree.index_of(&id).unwrap()).unwrap();
+                assert!(entry.is_folder());
+                assert!(!entry.is_expanded());
+            }
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn inline_title_renames_original_tab_and_preserves_failed_input(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let root = std::env::temp_dir().join(format!("inkstone-inline-title-{}", std::process::id()));
