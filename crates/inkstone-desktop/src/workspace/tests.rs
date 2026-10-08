@@ -5289,7 +5289,7 @@ fn settings_minimum_window_scale_matrix_keeps_content_inside_viewport(cx: &mut T
     ] {
         visual.simulate_scale_factor_change(scale);
         visual.update(|window, _| window.set_rem_size(px(rem)));
-        for tab in [0, 2, 5, 6, 7, 8] {
+        for tab in [0, 1, 2, 5, 6, 7, 8] {
             handle
                 .update(&mut visual, |w, _, _| {
                     w.ui.settings_tab = tab;
@@ -5519,7 +5519,70 @@ fn settings_sliders_accept_keyboard_changes_and_keep_focus(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn shortcut_rows_scroll_with_keyboard_focus_inside_their_own_viewport(cx: &mut TestAppContext) {
+fn shortcut_wheel_uses_full_settings_viewport_and_reaches_last_row(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    for height in [500., 900.] {
+        visual.simulate_resize(size(px(1000.), px(height)));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.settings = true;
+                w.ui.settings_tab = 1;
+                w.ui.settings_scroll.set_offset(Point::default());
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let bounds = handle
+            .update(&mut visual, |w, _, _| w.ui.settings_scroll.bounds())
+            .unwrap();
+        // Wheel near the bottom, including the former blank area below the 430px list.
+        let position = point(bounds.center().x, bounds.bottom() - px(40.));
+        let wheel = |y| ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Pixels(point(px(0.), px(y))),
+            modifiers: Modifiers::default(),
+            touch_phase: TouchPhase::Moved,
+        };
+        visual.simulate_event(wheel(-160.));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert!(
+                    w.ui.settings_scroll.offset().y < px(0.),
+                    "wheel must scroll at height={height}"
+                );
+            })
+            .unwrap();
+        visual.simulate_event(wheel(-100000.));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, _, _| {
+                let scroll = &w.ui.settings_scroll;
+                let last = scroll.bounds_for_item(scroll.children_count() - 1).unwrap();
+                assert!(last.top() + scroll.offset().y >= bounds.top());
+                assert!(last.bottom() + scroll.offset().y <= bounds.bottom() + px(1.));
+                // GPUI includes both 28px vertical insets in the scroll extent.
+                assert!(
+                    last.bottom() + scroll.offset().y >= bounds.bottom() - px(57.),
+                    "unused space below last row: height={height} last={last:?} viewport={bounds:?} offset={:?} max={:?}", scroll.offset(), scroll.max_offset()
+                );
+            })
+            .unwrap();
+        visual.simulate_event(wheel(100000.));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.ui.settings_scroll.offset().y, px(0.));
+            })
+            .unwrap();
+    }
+}
+
+#[gpui::test]
+fn shortcut_rows_scroll_with_keyboard_focus_inside_settings_viewport(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(Workspace::new);
     cx.run_until_parked();
@@ -5532,7 +5595,6 @@ fn shortcut_rows_scroll_with_keyboard_focus_inside_their_own_viewport(cx: &mut T
                 w.ui.settings = true;
                 w.ui.settings_tab = 1;
                 w.ui.settings_scroll.set_offset(Point::default());
-                w.ui.hotkey_scroll.set_offset(Point::default());
                 window.focus(&w.ui.modal_focus, cx);
             })
             .unwrap();
@@ -5553,12 +5615,7 @@ fn shortcut_rows_scroll_with_keyboard_focus_inside_their_own_viewport(cx: &mut T
                 if let Some(target) = visual.debug_bounds("focus-revealed-control") {
                     handle
                         .update(&mut visual, |w, window, cx| {
-                            let viewport = w.ui.hotkey_scroll.bounds();
-                            let outer = w.ui.settings_scroll.bounds();
-                            assert!(
-                                viewport.top() >= outer.top()
-                                    && viewport.bottom() <= outer.bottom()
-                            );
+                            let viewport = w.ui.settings_scroll.bounds();
                             assert!(
                                 target.top() >= viewport.top()
                                     && target.bottom() <= viewport.bottom(),
