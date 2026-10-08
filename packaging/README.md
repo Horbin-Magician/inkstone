@@ -10,7 +10,7 @@ python -m unittest discover -s packaging -p "test_*.py"
 
 输出目录必须不存在。脚本每次先构建 release，再复制当前产物，禁止复用手工指定的旧二进制。
 Windows 需要 MSVC C++ Build Tools、Windows SDK 和 NSIS 3（可通过 `NSIS_MAKENSIS` 指定 makensis.exe）。
-产物为 x64 便携 ZIP、当前用户安装器 EXE；安装器无需管理员权限，卸载保留用户创建的文件及应用数据。
+产物为 x64 便携 ZIP、当前用户安装器 EXE；使用静态 C 运行库，无需另装 Visual C++ 运行库。安装器无需管理员权限，卸载保留用户创建的文件及应用数据。
 macOS 需要 Xcode Command Line Tools，按本机 Rust host 架构输出 DMG 和 app.tar.gz；应用使用临时签名。
 macOS Intel 与 Apple Silicon 使用各自 runner 构建。
 包内包含使用指南、许可和 `resources.json`，包外 `.sha256` 校验下载完整性；校验和不等同于数字签名。

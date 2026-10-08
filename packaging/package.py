@@ -71,8 +71,15 @@ def package(output):
     stage = output / "stage"
     stage.mkdir()
     if system == "Windows":
-        run("cargo", "build", "--release", "--locked", "--bin", "inkstone", "--target", host,
-            "--target-dir", ROOT / "target")
+        # Explicit --target keeps this flag off host proc-macro/build-script crates.
+        # Static CRT makes the portable archive usable without a VC++ installation.
+        subprocess.run([
+            "cargo", "build", "--release", "--locked", "--bin", "inkstone", "--target", host,
+            "--target-dir", str(ROOT / "target"),
+        ], cwd=ROOT, check=True, env={
+            **os.environ,
+            "CARGO_ENCODED_RUSTFLAGS": "-C\x1ftarget-feature=+crt-static",
+        })
         shutil.copy2(ROOT / "target" / host / "release/inkstone.exe", stage)
     else:
         subprocess.run(["bash", str(ROOT / "packaging/macos/bundle.sh"), "--release"],
