@@ -561,24 +561,26 @@ impl Workspace {
         }
         let mut items = make_tree(&paths);
         fn apply(
-            items: &mut [TreeItem],
-            folders: &[PathBuf],
-            expanded: &[PathBuf],
+            items: Vec<TreeItem>,
+            folders: &std::collections::HashSet<&std::path::Path>,
+            expanded: &std::collections::HashSet<&std::path::Path>,
             index: &Index,
             by: SortBy,
             descending: bool,
-        ) {
-            for item in items.iter_mut() {
-                let folder = item.is_folder()
-                    || folders
-                        .iter()
-                        .any(|p| p == std::path::Path::new(item.id.as_ref()));
-                let open = expanded
-                    .iter()
-                    .any(|p| p == std::path::Path::new(item.id.as_ref()));
-                *item = item.clone().folder(folder).expanded(open);
-                apply(&mut item.children, folders, expanded, index, by, descending);
-            }
+        ) -> Vec<TreeItem> {
+            // Consume each node instead of cloning all its descendants once
+            // per ancestor. Membership checks must not scan every folder for
+            // every row on the UI thread.
+            let mut items: Vec<_> = items
+                .into_iter()
+                .map(|mut item| {
+                    let path = std::path::Path::new(item.id.as_ref());
+                    let folder = item.is_folder() || folders.contains(path);
+                    let open = expanded.contains(path);
+                    item.children = apply(item.children, folders, expanded, index, by, descending);
+                    item.folder(folder).expanded(open)
+                })
+                .collect();
             items.sort_by(|a, b| {
                 let times = |item: &TreeItem| {
                     index
@@ -594,6 +596,7 @@ impl Workspace {
                     descending,
                 )
             });
+            items
         }
         if let Some(edit) = &self.ui.tree_name
             && edit.creating
@@ -614,10 +617,18 @@ impl Workspace {
             }
             mark(&mut items, &edit.row, edit.folder);
         }
-        apply(
-            &mut items,
-            &self.ui.folders,
-            &self.ui.prefs.expanded_folders,
+        let folders = self.ui.folders.iter().map(PathBuf::as_path).collect();
+        let expanded = self
+            .ui
+            .prefs
+            .expanded_folders
+            .iter()
+            .map(PathBuf::as_path)
+            .collect();
+        let items = apply(
+            items,
+            &folders,
+            &expanded,
             &self.index,
             self.ui.prefs.sort_by,
             self.ui.prefs.sort_descending,
