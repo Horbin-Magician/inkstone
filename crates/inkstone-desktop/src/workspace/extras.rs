@@ -239,19 +239,26 @@ impl Workspace {
             return;
         };
         let task = cx.background_executor().spawn(async move {
-            if let Some(to) = to {
+            let edits = if let Some(to) = &to {
                 let index = previous_index.refresh_from_disk(&vault)?;
-                let edits = index.relocation_edits(&from, &to, folder, Some(&vault.root));
+                let edits = index.relocation_edits(&from, to, folder, Some(&vault.root));
                 if folder {
-                    vault.rename_folder(&from, &to)?;
+                    vault.rename_folder(&from, to)?;
                 } else {
                     let baseline = vault.read(&from)?.ok_or(VaultError::InvalidPath)?;
-                    vault.rename_note(&from, &to, &baseline)?;
+                    vault.rename_note(&from, to, &baseline)?;
                 }
                 Ok(edits)
             } else {
                 vault.trash_folder(&from).map(|_| vec![])
-            }
+            }?;
+            let prepared = super::file_sync::PreparedRelocation::new(
+                previous_index,
+                &from,
+                to.as_deref(),
+                folder,
+            );
+            Ok::<_, VaultError>((edits, prepared))
         });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
@@ -261,7 +268,7 @@ impl Workspace {
                     return;
                 }
                 match result {
-                    Ok(edits) => {
+                    Ok((edits, prepared)) => {
                         if let Some(new) = &new {
                             this.ui.prefs.locations.relocate(&old, new);
                         }
@@ -330,7 +337,7 @@ impl Workspace {
                         });
                         this.schedule_auto_sync(true);
                         // The move is a rename. Reuse parsed notes instead of rebuilding the vault index.
-                        this.apply_relocated_index(&old, new.as_deref(), folder, cx);
+                        this.apply_relocated_index(&old, new.as_deref(), folder, prepared, cx);
                         this.offer_link_updates(edits, w, cx);
                         this.structure_changed = true;
                         this.refresh_requested = true;

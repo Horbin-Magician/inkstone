@@ -2,6 +2,41 @@
 
 use super::*;
 
+/// Build lookup/backlink maps on the file worker, then install them on the UI
+/// thread. A changed source snapshot must never be overwritten by old work.
+pub(super) struct PreparedRelocation {
+    source: Arc<Index>,
+    relocated: Arc<Index>,
+}
+
+impl PreparedRelocation {
+    pub(super) fn new(
+        source: Arc<Index>,
+        old: &std::path::Path,
+        new: Option<&std::path::Path>,
+        folder: bool,
+    ) -> Self {
+        let relocated = Arc::new(source.relocate(old, new, folder));
+        Self { source, relocated }
+    }
+
+    fn resolve(
+        self,
+        current: &Arc<Index>,
+        old: &std::path::Path,
+        new: Option<&std::path::Path>,
+        folder: bool,
+    ) -> Arc<Index> {
+        if Arc::ptr_eq(&self.source, current) {
+            self.relocated
+        } else {
+            // Normally the exclusive file-operation guard keeps this snapshot
+            // stable. Preserve newer data if another index update slipped in.
+            Arc::new(current.relocate(old, new, folder))
+        }
+    }
+}
+
 impl Workspace {
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.file_writes.operation_active() {
@@ -196,6 +231,7 @@ impl Workspace {
         old: &std::path::Path,
         new: Option<&std::path::Path>,
         folder: bool,
+        prepared: PreparedRelocation,
         cx: &mut Context<Self>,
     ) {
         if let Some(selected) = &self.ui.tree_active
@@ -242,7 +278,7 @@ impl Workspace {
             self.ui.folders.dedup();
             self.folder_revision += 1;
         }
-        self.index = Arc::new(self.index.relocate(old, new, folder));
+        self.index = prepared.resolve(&self.index, old, new, folder);
         self.files = self.index.note_paths();
         self.sync_index_ui(cx);
     }
@@ -336,4 +372,47 @@ pub(super) fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
             .collect()
     }
     build(std::path::Path::new(""), &children)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use std::path::Path;
+
+    #[test]
+    fn prepared_relocation_installs_worker_result_and_preserves_newer_updates() {
+        let mut index = Index::default();
+        index.update("folder/a.md".into(), "A".into());
+        index.update("other.md".into(), "old".into());
+        let source = Arc::new(index);
+        let old = Path::new("folder");
+        let new = Some(Path::new("moved"));
+        let prepared = PreparedRelocation::new(source.clone(), old, new, true);
+        let worker_result = prepared.relocated.clone();
+        let installed = prepared.resolve(&source, old, new, true);
+        assert!(Arc::ptr_eq(&worker_result, &installed));
+        assert!(!installed.notes.contains_key(Path::new("folder/a.md")));
+        assert_eq!(installed.notes[Path::new("moved/a.md")].text, "A");
+
+        let prepared = PreparedRelocation::new(source.clone(), old, new, true);
+        let mut latest = (*source).clone();
+        latest.update("other.md".into(), "newer external text".into());
+        latest.update("added.md".into(), "new file".into());
+        let installed = prepared.resolve(&Arc::new(latest), old, new, true);
+        assert_eq!(
+            installed.notes[Path::new("other.md")].text,
+            "newer external text"
+        );
+        assert!(installed.notes.contains_key(Path::new("added.md")));
+        assert!(installed.notes.contains_key(Path::new("moved/a.md")));
+
+        let prepared = PreparedRelocation::new(installed.clone(), Path::new("moved"), None, true);
+        let removed = prepared.resolve(&installed, Path::new("moved"), None, true);
+        assert!(!removed.notes.contains_key(Path::new("moved/a.md")));
+        assert_eq!(
+            removed.notes[Path::new("other.md")].text,
+            "newer external text"
+        );
+    }
 }
