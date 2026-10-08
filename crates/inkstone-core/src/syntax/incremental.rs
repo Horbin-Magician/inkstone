@@ -1,9 +1,10 @@
-//! Reparse independent top-level inline blocks; structural/global edits fall back.
+//! Reparse independent top-level inline blocks and fenced-code interiors.
 use super::*;
 use markdown_parser::unist::Point;
 
 impl Snapshot {
     pub fn update_block(&self, source: &str) -> Option<Self> {
+        let _span = crate::performance::span(crate::performance::Stage::SyntaxIncremental);
         if let Some(snapshot) = self.update_plain_paragraph(source) {
             return Some(snapshot);
         }
@@ -41,10 +42,12 @@ impl Snapshot {
         // A changed paragraph must remain one complete block; its parsed line span
         // determines how later nodes move, including mixed CR/LF boundaries.
         let (index, block) = root.children.iter().enumerate().find(|(_, node)| {
-            matches!(node, Node::Paragraph(_) | Node::Heading(_))
+            (matches!(node, Node::Paragraph(_) | Node::Heading(_))
+                || fenced_interior(node, old, start, old_end))
                 && node.position().is_some_and(|p| {
                     p.start.column == 1
-                        && (matches!(node, Node::Paragraph(_)) || p.start.line == p.end.line)
+                        && (matches!(node, Node::Paragraph(_) | Node::Code(_))
+                            || p.start.line == p.end.line)
                         && p.start.offset < start
                         && old_end <= p.end.offset
                 })
@@ -89,6 +92,36 @@ impl Snapshot {
         })
     }
 }
+// Only edit the body of a closed top-level fence. Both fence lines and their
+// separating newlines stay intact; changed boundaries keep the full-parse path.
+fn fenced_interior(node: &Node, source: &str, start: usize, end: usize) -> bool {
+    if !matches!(node, Node::Code(_)) {
+        return false;
+    }
+    let Some(p) = node.position() else {
+        return false;
+    };
+    let raw = &source[p.start.offset..p.end.offset];
+    let Some(marker @ (b'`' | b'~')) = raw.as_bytes().first().copied() else {
+        return false;
+    };
+    let fence_len = raw.bytes().take_while(|b| *b == marker).count();
+    if fence_len < 3 {
+        return false;
+    }
+    let Some(open_end) = raw.find(['\r', '\n']) else {
+        return false;
+    };
+    let Some(close_start) = raw.rfind(['\r', '\n']) else {
+        return false;
+    };
+    let closing = raw[close_start + 1..].trim();
+    closing.len() >= fence_len
+        && closing.bytes().all(|b| b == marker)
+        && p.start.offset + open_end < start
+        && end <= p.start.offset + close_start
+}
+
 fn has_definitions(node: &Node) -> bool {
     matches!(node, Node::Definition(_) | Node::FootnoteDefinition(_))
         || node
@@ -140,6 +173,44 @@ fn shift(node: &mut Node, at: usize, delta: isize, line: usize, line_delta: isiz
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fenced_body_edits_match_full_parse_and_keep_boundaries() {
+        for newline in ["\n", "\r\n", "\r"] {
+            for fence in ["```", "~~~~"] {
+                let before = format!(
+                    "# Before{newline}{newline}{fence}rust{newline}let value = 1;{newline}中文😀{newline}{fence}{newline}{newline}## After{newline}tail"
+                );
+                let base = Snapshot::new(&before);
+                let start = before.find("value").unwrap();
+                for replacement in ["other", "中文 é 👩‍💻", "x\nnext", "", "**bold**"] {
+                    let mut after = before.clone();
+                    after.replace_range(start..start + 5, replacement);
+                    let updated = base.update_block(&after).expect("closed fence interior");
+                    let full = Snapshot::new(&after);
+                    assert_eq!(updated.ast, full.ast, "{after:?}");
+                    assert_eq!(
+                        crate::markdown::spans_snapshot(&updated),
+                        crate::markdown::spans_snapshot(&full)
+                    );
+                    assert_eq!(
+                        crate::index::parse_snapshot(&updated).headings,
+                        crate::index::parse_snapshot(&full).headings
+                    );
+                }
+                let after = before.replacen("rust", "text", 1);
+                assert!(
+                    base.update_block(&after).is_none(),
+                    "fence header must fall back"
+                );
+                let after = before.replacen("value", &format!("{newline}{fence}{newline}end"), 1);
+                assert!(
+                    base.update_block(&after).is_none(),
+                    "new closing fence must fall back"
+                );
+            }
+        }
+    }
+
     #[test]
     fn rich_block_edits_match_full_ast_styles_and_source_coordinates() {
         for newline in ["\n", "\r\n"] {

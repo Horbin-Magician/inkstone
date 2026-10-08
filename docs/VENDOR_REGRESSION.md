@@ -20,6 +20,16 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-07 代码块高亮：Component 的 `src/highlighter/languages.rs` 为 TSX 复用完整 TypeScript / JavaScript 查询，并新增 `src/highlighter/languages/typescript/jsx.scm`。原查询只覆盖 TypeScript 扩展，普通关键字及 JSX 没有颜色。专项回归 `tsx_highlights_javascript_types_and_jsx` 需开启 `tree-sitter-tsx`；应用另检查全部启用语言的深浅主题高亮及 UTF-8 范围。
+
+2026-10-07 空闲重绘修复：`TextWrapper::set_inline_metrics` 将实际变化标志向上
+传递至 `DisplayMap`，相同度量不再重建折叠映射及标题高度表。变化和清空仍重建；
+新增回归用相同值的独立分配验证复用，并将变化后的映射和高度与全新构造的结果比较。
+
+同日补充长段落范围查询：无折叠/隐藏行时直接使用 WrapMap 的范围和长度，避免逐个
+软换行行扫描；有隐藏行的路径保持原逻辑。回归覆盖长 Unicode 段落、折叠/展开、
+整行隐藏/恢复及越界行号，独立 ignored 微基准比较查询算法而非原生交互。
+
 | 补丁范围 | 目的 | 验证入口 |
 | --- | --- | --- |
 | Base input/base、input/editor | 字素光标、IME、共享撤销、多光标、Markdown 编辑、显示投影、布局缓存与滚动 | Base library 全量；应用 grapheme_cursor、grapheme_wrap、display_objects 集成测试及 editor/workspace 回归 |

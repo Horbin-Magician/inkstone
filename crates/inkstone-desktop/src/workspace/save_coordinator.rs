@@ -49,6 +49,8 @@ impl SaveJob {
         }
     }
     pub fn run(self) -> SaveOutcome {
+        let _span =
+            inkstone_core::performance::span(inkstone_core::performance::Stage::SaveTransaction);
         let mut draft = self.draft.as_ref().map(|io| io.session.lock().unwrap());
         let result = if self.baseline.is_none() {
             self.vault.create(&self.path, &self.text)

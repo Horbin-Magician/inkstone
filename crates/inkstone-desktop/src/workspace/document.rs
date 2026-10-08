@@ -1,4 +1,4 @@
-use gpui::{Entity, Subscription};
+use gpui::{App, Entity, SharedString, Subscription};
 use gpui_component::input::EditorState;
 use std::cell::RefCell;
 
@@ -8,10 +8,27 @@ pub(super) struct DocumentState {
     pub editor: Entity<EditorState>,
     pub persistence: super::save_state::SaveState,
     pub draft: RefCell<Option<super::drafts::DraftState>>,
+    snapshot: RefCell<Option<(u64, SharedString)>>,
     _changes: Subscription,
 }
 
 impl DocumentState {
+    /// One immutable flattened snapshot per owner revision. Callers that persist
+    /// committed text still check IME composition before requesting this value.
+    pub(super) fn text_snapshot(&self, cx: &App) -> SharedString {
+        let editor = self.editor.read(cx);
+        let revision = editor.text_revision();
+        let mut cache = self.snapshot.borrow_mut();
+        if let Some((version, text)) = cache.as_ref()
+            && *version == revision
+        {
+            return text.clone();
+        }
+        let text = editor.value();
+        *cache = Some((revision, text.clone()));
+        text
+    }
+
     pub(super) fn new(
         path: std::path::PathBuf,
         baseline: Option<String>,
@@ -24,6 +41,7 @@ impl DocumentState {
             editor,
             persistence: super::save_state::SaveState::new(baseline, dirty),
             draft: RefCell::new(None),
+            snapshot: RefCell::new(None),
             _changes: changes,
         }
     }
@@ -75,7 +93,7 @@ impl Workspace {
         }) {
             return;
         }
-        let text = owner.read(cx).value();
+        let text = document.text_snapshot(cx);
         document.persistence.edited(text.as_ref());
         let mut sources = Vec::new();
         for tab in self

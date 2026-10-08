@@ -1,11 +1,19 @@
 //! Versioned parsing, decorations, and live preview projection.
 
 use super::*;
+use std::sync::atomic::Ordering;
 
 impl EditorPane {
     pub(super) fn update_presentation(&mut self, cx: &mut Context<Self>) {
+        let _span =
+            inkstone_core::performance::span(inkstone_core::performance::Stage::PresentationUpdate);
         let state = self.editor.read(cx);
         if state.is_composing() {
+            if self.projection_job.take().is_some() {
+                // A cancelled initial/context projection must be rescheduled even
+                // when IME cancellation restores exactly the previous text.
+                self.parsed_context_revision = self.context_revision.wrapping_sub(1);
+            }
             // The component rebases prepared objects during preedit. Keep their
             // geometry and widget resources until the candidate is committed.
             let text = state.value();
@@ -29,6 +37,7 @@ impl EditorPane {
             .then(|| state.search_session().query.clone());
         let search_matches = state.search_session().matcher.matched_ranges();
         if self.parse_source != text || self.parsed_context_revision != self.context_revision {
+            self.projection_job = None;
             self.pending_live_anchor = None;
             let initial_parse = self.parse_revision == 0;
             // Present only syntax for the current text. Dropping edited spans or
@@ -70,10 +79,20 @@ impl EditorPane {
             let cached_snapshot = self.syntax_snapshot.clone();
             let graphics = crate::native_graphics::Service::get(cx);
             let light = self.light;
+            let job = projection::Job::default();
+            let token = job.token();
+            self.projection_job = Some(job);
             let task = cx.background_executor().spawn(async move {
+                let cancelled = || token.load(Ordering::Acquire);
+                if cancelled() {
+                    return None;
+                }
                 let snapshot = cached_snapshot
                     .filter(|s| s.source.as_ref() == source.as_ref())
                     .unwrap_or_else(|| Arc::new(inkstone_core::syntax::Snapshot::new(&source)));
+                if cancelled() {
+                    return None;
+                }
                 let initial = initial_parse.then(|| {
                     (
                         snapshot.clone(),
@@ -81,35 +100,53 @@ impl EditorPane {
                         index::parse_snapshot(&snapshot),
                     )
                 });
+                if cancelled() {
+                    return None;
+                }
                 let reading = inkstone_core::rendering::reading_snapshot(
                     &references,
                     &path,
                     snapshot.clone(),
                     0..source.len(),
                 );
-                let fragments =
-                    inkstone_core::preview::fragments(&references, &path, snapshot, &reading)
-                        .into_iter()
-                        .map(|fragment| {
-                            let measured = fragment
-                                .graphic
-                                .as_ref()
-                                .map(|(kind, source)| graphics.measure_only(*kind, source, light));
-                            (fragment, measured)
-                        })
-                        .collect();
-                (initial, reading, fragments)
+                let fragments = inkstone_core::preview::fragments_cancellable(
+                    &references,
+                    &path,
+                    snapshot,
+                    &reading,
+                    cancelled,
+                )?
+                .into_iter()
+                .map(|fragment| {
+                    if cancelled() {
+                        return None;
+                    }
+                    let measured = fragment
+                        .graphic
+                        .as_ref()
+                        .map(|(kind, source)| graphics.measure_only(*kind, source, light));
+                    Some((fragment, measured))
+                })
+                .collect::<Option<Vec<_>>>()?;
+                (!cancelled()).then_some((initial, reading, fragments))
             });
             self.parse_task = Some(cx.spawn(async move |this, cx| {
-                let (initial, reading, fragments) = task.await;
+                let Some((initial, reading, fragments)) = task.await else {
+                    return;
+                };
                 let _ = this.update(cx, |this, cx| {
                     if this.editor.read(cx).is_composing()
                         || this.parse_revision != revision
                         || this.context_revision != context_revision
-                        || this.editor.read(cx).value() != this.parse_source
+                        || ((
+                            this.editor.entity_id(),
+                            this.editor.read(cx).text_revision(),
+                        ) != input_revision
+                            && this.editor.read(cx).value() != this.parse_source)
                     {
                         return;
                     }
+                    this.projection_job = None;
                     if let Some((snapshot, spans, parsed)) = initial {
                         this.syntax_snapshot = Some(snapshot);
                         this.spans = spans;
@@ -159,6 +196,19 @@ impl EditorPane {
         self.live_rules.clear();
         self.live_lists.clear();
         if self.live {
+            // Apply the quote's inherited foreground before inline styles so links,
+            // code and headings retain their own colors, as in the reading view.
+            for span in &self.spans {
+                if matches!(span.kind, Kind::QuoteMarker | Kind::QuoteContinuation) {
+                    decorations.push(TextDecoration::new(
+                        span.source.clone(),
+                        HighlightStyle {
+                            color: Some(crate::theme::palette(self.light).muted.into()),
+                            ..Default::default()
+                        },
+                    ));
+                }
+            }
             for span in &self.spans {
                 let style = match span.kind {
                     Kind::Comment => continue,
@@ -314,7 +364,7 @@ impl EditorPane {
                         .all(|ch| matches!(ch, ' ' | '\t'))
             });
             let width = if nested {
-                live_quotes::inset(self.font_size)
+                live_quotes::inset(self.quote_rem_size)
             } else {
                 px(0.)
             };
@@ -518,7 +568,7 @@ impl EditorPane {
                 continue;
             }
             let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
-            let padding = live_quotes::inset(self.font_size);
+            let padding = live_quotes::inset(self.quote_rem_size);
             if let Some(style) = typography
                 .iter_mut()
                 .find(|style| (start..end).contains(&style.source_anchor().start))

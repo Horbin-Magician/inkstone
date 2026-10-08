@@ -51,7 +51,7 @@ impl Workspace {
             if tab.save.persistence.is_dirty()
                 && (tab.save.persistence.has_conflict() || tab.save.persistence.error().is_some())
             {
-                let text = tab.save.editor.read(cx).value().to_string();
+                let text = tab.save.text_snapshot(cx).to_string();
                 if tab.save.persistence.begin_journal(&text) {
                     let vault = vault.clone();
                     let path = tab.save.path.borrow().clone();
@@ -86,7 +86,7 @@ impl Workspace {
             let save = tab.save.clone();
             let path = tab.save.path.borrow().clone();
             let baseline = tab.save.persistence.baseline().clone();
-            let text = tab.save.editor.read(cx).value().to_string();
+            let text = tab.save.text_snapshot(cx).to_string();
             let vault = vault.clone();
             let draft = save.draft.borrow().as_ref().map(|state| state.io.clone());
             let job = super::save_coordinator::SaveJob::new(vault, path, baseline, text, draft);
@@ -122,7 +122,7 @@ impl Workspace {
                                 let saved_text = receipt.text.clone();
                                 tab.save
                                     .persistence
-                                    .saved(receipt.text, tab.save.editor.read(cx).value().as_ref());
+                                    .saved(receipt.text, tab.save.text_snapshot(cx).as_ref());
                                 if !this.files.contains(&tab.path) {
                                     this.files.push(tab.path.clone());
                                     this.files.sort();

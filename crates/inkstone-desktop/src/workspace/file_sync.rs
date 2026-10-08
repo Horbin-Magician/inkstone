@@ -35,6 +35,8 @@ impl Workspace {
             .map(|t| (t.id, t.path.clone(), t.save.persistence.baseline().clone()))
             .collect();
         let task = cx.background_executor().spawn(async move {
+            let _span =
+                inkstone_core::performance::span(inkstone_core::performance::Stage::FileRefresh);
             let (index, folders) = if rescan {
                 let tree = vault.scan_tree()?;
                 (

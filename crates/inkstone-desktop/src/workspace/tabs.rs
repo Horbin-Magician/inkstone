@@ -189,7 +189,11 @@ impl Workspace {
         }
         self.close_quick_search(window, cx);
         self.ui.name_mode = None;
-        self.apply_editor_preferences(window, cx);
+        // Startup restores a batch. Applying to every existing pane after each
+        // insertion makes N restored tabs configure N*(N+1)/2 panes.
+        if !self.loading {
+            self.apply_editor_preferences(window, cx);
+        }
         if let Some((path, command)) = self.ui.pending_command.take()
             && self
                 .active

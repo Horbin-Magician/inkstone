@@ -38,7 +38,13 @@ impl ActivityTrace {
     }
 
     /// False disables tracing after an error or the one-hour sample budget.
-    pub fn record(&mut self, active: bool, focused: bool, loading: bool) -> bool {
+    pub fn record(
+        &mut self,
+        active: bool,
+        focused: bool,
+        loading: bool,
+        counts: Option<(u64, u64)>,
+    ) -> bool {
         if self.samples >= MAX_SAMPLES {
             return false;
         }
@@ -48,13 +54,18 @@ impl ActivityTrace {
             .as_millis();
         let result = writeln!(
             self.file,
-            "{{\"pid\":{},\"unix_ms\":{},\"elapsed_ms\":{},\"window_active\":{},\"editor_focused\":{},\"loading\":{}}}",
+            "{{\"pid\":{},\"unix_ms\":{},\"elapsed_ms\":{},\"window_active\":{},\"editor_focused\":{},\"loading\":{},\"editor_renders\":{},\"input_notifications\":{}}}",
             std::process::id(),
             unix_ms,
             self.started.elapsed().as_millis(),
             active,
             focused,
             loading,
+            counts.map_or_else(|| "null".into(), |(renders, _)| renders.to_string()),
+            counts.map_or_else(
+                || "null".into(),
+                |(_, notifications)| notifications.to_string()
+            ),
         );
         self.samples += 1;
         if let Err(error) = result {
@@ -82,8 +93,8 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let path = root.join("activity.jsonl");
         let mut trace = ActivityTrace::create(&path).unwrap();
-        assert!(trace.record(true, false, true));
-        assert!(trace.record(false, true, false));
+        assert!(trace.record(true, false, true, None));
+        assert!(trace.record(false, true, false, Some((7, 11))));
         let bytes = std::fs::read(&path).unwrap();
         assert!(ActivityTrace::create(&path).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
@@ -98,9 +109,13 @@ mod tests {
         assert_eq!(records[0]["loading"], true);
         assert_eq!(records[1]["window_active"], false);
         assert_eq!(records[1]["editor_focused"], true);
-        assert_eq!(records[1].as_object().unwrap().len(), 6);
+        assert_eq!(records[0]["editor_renders"], serde_json::Value::Null);
+        assert_eq!(records[0]["input_notifications"], serde_json::Value::Null);
+        assert_eq!(records[1]["editor_renders"], 7);
+        assert_eq!(records[1]["input_notifications"], 11);
+        assert_eq!(records[1].as_object().unwrap().len(), 8);
         trace.samples = MAX_SAMPLES;
-        assert!(!trace.record(true, true, false));
+        assert!(!trace.record(true, true, false, Some((8, 12))));
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         drop(trace);
         std::fs::remove_dir_all(root).unwrap();
