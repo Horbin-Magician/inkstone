@@ -312,10 +312,17 @@ mod tests {
                 };
                 w.open_anchor_bookmark(&missing, window, cx);
                 assert!(w.notifications.text().contains("书签目标不存在"));
+                let prepared = super::super::file_sync::PreparedRelocation::new(
+                    w.index.clone(),
+                    std::path::Path::new("a.md"),
+                    Some(std::path::Path::new("folder/a.md")),
+                    false,
+                );
                 w.apply_relocated_index(
                     std::path::Path::new("a.md"),
                     Some(std::path::Path::new("folder/a.md")),
                     false,
+                    prepared,
                     cx,
                 );
                 assert!(
@@ -324,10 +331,17 @@ mod tests {
                         .iter()
                         .all(|b| b.path == std::path::Path::new("folder/a.md"))
                 );
+                let prepared = super::super::file_sync::PreparedRelocation::new(
+                    w.index.clone(),
+                    std::path::Path::new("folder"),
+                    Some(std::path::Path::new("moved")),
+                    true,
+                );
                 w.apply_relocated_index(
                     std::path::Path::new("folder"),
                     Some(std::path::Path::new("moved")),
                     true,
+                    prepared,
                     cx,
                 );
                 assert!(
@@ -336,7 +350,13 @@ mod tests {
                         .iter()
                         .all(|b| b.path == std::path::Path::new("moved/a.md"))
                 );
-                w.apply_relocated_index(std::path::Path::new("moved"), None, true, cx);
+                let prepared = super::super::file_sync::PreparedRelocation::new(
+                    w.index.clone(),
+                    std::path::Path::new("moved"),
+                    None,
+                    true,
+                );
+                w.apply_relocated_index(std::path::Path::new("moved"), None, true, prepared, cx);
                 assert!(w.ui.prefs.anchor_bookmarks.is_empty());
                 w.toggle_anchor_bookmark(heading.clone(), cx);
                 w.toggle_anchor_bookmark(heading, cx);

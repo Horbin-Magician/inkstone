@@ -112,7 +112,7 @@ impl Workspace {
         }
         let previous_index = self.index.clone();
         let task = cx.background_executor().spawn(async move {
-            if trash {
+            let (trashed, destination, edits) = if trash {
                 vault
                     .trash_note(&path, &baseline)
                     .map(|p| (true, p, LinkEdits::new()))
@@ -121,7 +121,14 @@ impl Workspace {
                 let edits = index.relocation_edits(&path, &dest, false, Some(&vault.root));
                 vault.rename_note(&path, &dest, &baseline)?;
                 Ok((false, dest, edits))
-            }
+            }?;
+            let prepared = super::file_sync::PreparedRelocation::new(
+                previous_index,
+                &path,
+                (!trashed).then_some(destination.as_path()),
+                false,
+            );
+            Ok::<_, VaultError>((trashed, destination, edits, prepared))
         });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
@@ -139,7 +146,7 @@ impl Workspace {
                     return;
                 };
                 match result {
-                    Ok((true, path, _)) => {
+                    Ok((true, path, _, prepared)) => {
                         let removed = this.tabs[index].path.clone();
                         this.notifications
                             .publish(format!("已移入可恢复回收区：{}", path.display()));
@@ -158,10 +165,10 @@ impl Workspace {
                             };
                             this.remove_missing_views();
                         }
-                        this.apply_relocated_index(&removed, None, false, cx);
+                        this.apply_relocated_index(&removed, None, false, prepared, cx);
                         this.persist_workspace(cx);
                     }
-                    Ok((false, path, edits)) => {
+                    Ok((false, path, edits, prepared)) => {
                         let focus_after = this
                             .ui
                             .inline_title
@@ -190,7 +197,7 @@ impl Workspace {
                         this.relocate_document(&document, path);
                         let renamed = this.tabs[index].path.clone();
                         this.relocate_navigation(&old, Some(&renamed), false, cx);
-                        this.apply_relocated_index(&old, Some(&renamed), false, cx);
+                        this.apply_relocated_index(&old, Some(&renamed), false, prepared, cx);
                         this.persist_workspace(cx);
                         if focus_after && let Some(pane) = this.current_pane() {
                             pane.update(cx, |p, cx| p.focus_view(window, cx));
