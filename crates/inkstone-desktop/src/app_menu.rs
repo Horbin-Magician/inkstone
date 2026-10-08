@@ -143,7 +143,7 @@ fn install_menus(cx: &App) {
             MenuItem::action("关闭标签页", workspace::CloseTab),
             MenuItem::separator(),
             MenuItem::action("保存全部", workspace::Save),
-            MenuItem::action("重命名笔记…", workspace::RenameNote),
+            MenuItem::action("重命名笔记", workspace::RenameNote),
         ]),
         Menu::new("编辑").items([
             MenuItem::os_action("撤销", input::Undo, OsAction::Undo),

@@ -27,7 +27,14 @@ impl Workspace {
         );
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜索文件名 / 全文"));
         let name_subscription = cx.subscribe_in(&name, window, |this, _, event, window, cx| {
-            if matches!(event, InputEvent::PressEnter { .. }) {
+            if matches!(event, InputEvent::Blur)
+                && this.ui.tree_name.is_some()
+                && this.name.read(cx).value().trim().is_empty()
+            {
+                this.cancel_tree_name(cx);
+            } else if matches!(event, InputEvent::PressEnter { .. })
+                || (matches!(event, InputEvent::Blur) && this.ui.tree_name.is_some())
+            {
                 this.submit_name(window, cx);
             }
         });
@@ -218,6 +225,8 @@ impl Workspace {
         self.loading = true;
         self.recoveries_loading = false;
         self.search_jobs.cancel();
+        self.cancel_tree_name(cx);
+        self.ui.tree_active = None;
         self.generation += 1;
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {

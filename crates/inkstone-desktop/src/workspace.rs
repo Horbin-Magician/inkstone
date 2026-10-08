@@ -49,6 +49,7 @@ mod remote_check;
 mod search_tools;
 mod sync_recovery;
 mod table_editor;
+mod tree_name;
 mod ui;
 mod views;
 mod webdav_secret;

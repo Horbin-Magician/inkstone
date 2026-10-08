@@ -2533,6 +2533,8 @@ fn file_location_settings_control_note_and_attachment_writes(cx: &mut TestAppCon
             );
             w.ui.prefs.locations.notes = Location::Current;
             w.focus_new(window, cx);
+            w.name.update(cx, |s, cx| s.set_value("未命名", window, cx));
+            w.submit_name(window, cx);
         })
         .unwrap();
     cx.run_until_parked();
@@ -2577,6 +2579,8 @@ fn file_location_settings_control_note_and_attachment_writes(cx: &mut TestAppCon
             w.ui.prefs.locations.notes = Location::Folder;
             w.ui.prefs.locations.note_folder = "inbox".into();
             w.focus_new(window, cx);
+            w.name.update(cx, |s, cx| s.set_value("未命名", window, cx));
+            w.submit_name(window, cx);
         })
         .unwrap();
     cx.run_until_parked();
@@ -3634,7 +3638,7 @@ fn quick_capture_respects_location_and_opens_distinct_editable_notes(cx: &mut Te
 }
 
 #[gpui::test]
-fn empty_tabs_reuse_their_slot_and_new_notes_receive_unique_names(cx: &mut TestAppContext) {
+fn empty_tabs_reuse_their_slot_and_new_notes_use_confirmed_names(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(Workspace::new);
     let root = std::env::temp_dir().join(format!("inkstone-blank-{}", std::process::id()));
@@ -3646,6 +3650,8 @@ fn empty_tabs_reuse_their_slot_and_new_notes_receive_unique_names(cx: &mut TestA
             assert!(w.tabs[0].path.as_os_str().is_empty());
             assert!(!w.tabs[0].save.persistence.is_dirty());
             w.focus_new(window, cx);
+            w.name.update(cx, |s, cx| s.set_value("未命名", window, cx));
+            w.submit_name(window, cx);
             assert_eq!(w.tabs.len(), 1);
             assert_eq!(w.tabs[0].path, PathBuf::from("未命名.md"));
         })
@@ -3660,6 +3666,9 @@ fn empty_tabs_reuse_their_slot_and_new_notes_receive_unique_names(cx: &mut TestA
             assert_eq!(w.tabs[1].path, PathBuf::from("未命名.md"));
             assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
             w.focus_new(window, cx);
+            w.name
+                .update(cx, |s, cx| s.set_value("未命名 1", window, cx));
+            w.submit_name(window, cx);
             assert_eq!(w.tabs[2].path, PathBuf::from("未命名 1.md"));
         })
         .unwrap();
@@ -5488,4 +5497,219 @@ fn document_snapshots_follow_silent_edits_history_and_composition(cx: &mut TestA
             assert!(document.text_snapshot(cx).starts_with("你中文"));
         })
         .unwrap();
+}
+
+#[gpui::test]
+fn tree_naming_blank_blur_and_escape_leave_no_files(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-cancel-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let handle = cx.add_window(Workspace::new);
+    for mode in [ui::NameMode::New, ui::NameMode::Folder] {
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+                w.begin_tree_name(mode, PathBuf::new(), window, cx);
+                assert!(!w.modal_is_open());
+                assert!(w.name.read(cx).value().is_empty());
+                let row = w.ui.tree_name.as_ref().unwrap().row.clone();
+                assert!(
+                    w.tree
+                        .read(cx)
+                        .index_of(&row.to_string_lossy().to_string().into())
+                        .is_some()
+                );
+                assert!(!root.join(row).exists());
+                assert!(w.tabs.is_empty());
+                w.name.update(cx, |_, cx| cx.emit(InputEvent::Blur));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.ui.tree_name.is_none());
+                assert!(w.ui.name_mode.is_none());
+                w.begin_tree_name(mode, PathBuf::new(), window, cx);
+                w.name
+                    .update(cx, |input, cx| input.set_value("放弃创建", window, cx));
+                w.close_overlays(window, cx);
+                assert!(w.ui.tree_name.is_none());
+                assert!(w.tabs.is_empty());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(!root.join("放弃创建").exists());
+        assert!(!root.join("放弃创建.md").exists());
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
+fn tree_naming_creates_in_parent_and_keeps_invalid_input(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-create-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("parent")).unwrap();
+    std::fs::write(root.join("parent/existing.md"), "original").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+            w.begin_tree_name(ui::NameMode::Folder, "parent".into(), window, cx);
+            w.name
+                .update(cx, |input, cx| input.set_value("子文件夹", window, cx));
+            w.submit_name(window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(root.join("parent/子文件夹").is_dir());
+    handle
+        .update(cx, |w, window, cx| {
+            w.begin_tree_name(ui::NameMode::New, "parent".into(), window, cx);
+            for invalid in ["existing", "../outside", "a/b", ".."] {
+                w.name
+                    .update(cx, |input, cx| input.set_value(invalid, window, cx));
+                w.submit_name(window, cx);
+                assert!(w.ui.tree_name.is_some());
+                assert_eq!(w.name.read(cx).value(), invalid);
+                assert!(w.tabs.is_empty());
+            }
+            w.name
+                .update(cx, |input, cx| input.set_value("新笔记", window, cx));
+            w.submit_name(window, cx);
+            assert!(w.ui.tree_name.is_none());
+            assert_eq!(w.tabs[0].path, PathBuf::from("parent/新笔记.md"));
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(root.join("parent/新笔记.md").is_file());
+    assert_eq!(
+        std::fs::read_to_string(root.join("parent/existing.md")).unwrap(),
+        "original"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
+fn tree_naming_rename_keeps_original_target_and_folder_children(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-rename-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("parent")).unwrap();
+    std::fs::write(root.join("parent/a.md"), "A").unwrap();
+    std::fs::write(root.join("b.md"), "B").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+            w.index = Arc::new(Index::build(&vault).unwrap());
+            w.files = w.index.note_paths();
+            w.vault = Some(vault);
+            w.sync_index_ui(cx);
+            w.add_tab("parent/a.md".into(), Some("A".into()), false, window, cx);
+            w.add_tab("b.md".into(), Some("B".into()), false, window, cx);
+            w.begin_tree_name(ui::NameMode::Rename, "parent/a.md".into(), window, cx);
+            assert_eq!(w.name.read(cx).value(), "a");
+            w.name
+                .update(cx, |input, cx| input.set_value("改名", window, cx));
+            w.submit_name(window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(!root.join("parent/a.md").exists());
+    assert_eq!(
+        std::fs::read_to_string(root.join("parent/改名.md")).unwrap(),
+        "A"
+    );
+    assert_eq!(std::fs::read_to_string(root.join("b.md")).unwrap(), "B");
+    handle
+        .update(cx, |w, window, cx| {
+            w.begin_tree_name(ui::NameMode::RenameFolder, "parent".into(), window, cx);
+            w.name
+                .update(cx, |input, cx| input.set_value("新目录", window, cx));
+            w.submit_name(window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(!root.join("parent").exists());
+    assert_eq!(
+        std::fs::read_to_string(root.join("新目录/改名.md")).unwrap(),
+        "A"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
+fn tree_naming_second_click_edits_without_collapsing_folder(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-click-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("folder")).unwrap();
+    std::fs::write(root.join("folder/note.md"), "text").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, _, cx| {
+            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+            w.index = Arc::new(Index::build(&vault).unwrap());
+            w.files = w.index.note_paths();
+            w.vault = Some(vault);
+            w.ui.folders = vec!["folder".into()];
+            w.ui.prefs.expanded_folders = vec!["folder".into()];
+            w.ui.prefs.left_open = true;
+            w.ui.left_mode = 0;
+            w.sync_index_ui(cx);
+            w.rebuild_sorted_tree(cx);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1100.), px(800.)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let bounds = visual.debug_bounds("tree-name-0").unwrap();
+    visual.simulate_click(bounds.center(), Modifiers::default());
+    visual.run_until_parked();
+    handle
+        .update(&mut visual, |w, _, _| {
+            assert!(w.ui.tree_name.is_none());
+            assert_eq!(w.ui.tree_active, Some("folder".into()));
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_click(bounds.center(), Modifiers::default());
+    visual.run_until_parked();
+    handle
+        .update(&mut visual, |w, _, cx| {
+            assert!(w.ui.tree_name.is_some());
+            assert_eq!(w.name.read(cx).value(), "folder");
+            assert!(!w.modal_is_open());
+            assert!(
+                w.ui.prefs
+                    .expanded_folders
+                    .contains(&PathBuf::from("folder"))
+            );
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_platform_keystrokes("escape");
+    visual.run_until_parked();
+    handle
+        .update(&mut visual, |w, _, _| assert!(w.ui.tree_name.is_none()))
+        .unwrap();
+    assert!(root.join("folder/note.md").is_file());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let note_bounds = visual.debug_bounds("tree-name-1").unwrap();
+    visual.simulate_click(note_bounds.center(), Modifiers::default());
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_click(note_bounds.center(), Modifiers::default());
+    visual.run_until_parked();
+    handle
+        .update(&mut visual, |w, _, cx| {
+            assert!(w.ui.name_mode == Some(ui::NameMode::Rename));
+            assert_eq!(w.name.read(cx).value(), "note");
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_input("改名");
+    visual.simulate_platform_keystrokes("enter");
+    visual.run_until_parked();
+    assert!(root.join("folder/改名.md").is_file());
+    assert!(!root.join("folder/note.md").exists());
+    std::fs::remove_dir_all(root).unwrap();
 }

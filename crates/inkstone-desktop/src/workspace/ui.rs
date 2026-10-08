@@ -85,6 +85,8 @@ pub(super) struct UiState {
     pub quick_open: bool,
     pub name_mode: Option<NameMode>,
     pub folder_target: Option<PathBuf>,
+    pub tree_name: Option<super::tree_name::TreeName>,
+    pub tree_active: Option<PathBuf>,
     pub settings: bool,
     pub settings_tab: usize,
     pub focus_mode: bool,
@@ -421,6 +423,8 @@ impl UiState {
             right_mode: 0,
             quick_open: false,
             name_mode: None,
+            tree_name: None,
+            tree_active: None,
             folder_target: None,
             settings: false,
             settings_tab: 0,
@@ -782,27 +786,39 @@ impl Workspace {
         {
             mode = NameMode::New;
         }
-        self.ui.name_mode = Some(mode);
-        let name = if mode == NameMode::Rename {
-            self.active
+        let path = match mode {
+            NameMode::Rename => self
+                .active
                 .and_then(|i| self.tabs.get(i))
-                .map(|t| t.path.to_string_lossy().to_string())
-                .unwrap_or_default()
-        } else {
-            String::new()
+                .map(|t| t.path.clone()),
+            NameMode::RenameFolder => self.ui.folder_target.clone(),
+            NameMode::New => {
+                self.focus_new(window, cx);
+                return;
+            }
+            NameMode::Folder => Some(
+                self.ui
+                    .tree_active
+                    .clone()
+                    .filter(|path| self.ui.folders.contains(path))
+                    .unwrap_or_default(),
+            ),
         };
-        self.name.update(cx, |s, cx| {
-            s.set_value(name, window, cx);
-            s.focus(window, cx);
-            s.select_all(window, cx);
-        });
-        cx.notify();
+        if let Some(path) = path {
+            self.begin_tree_name(mode, path, window, cx);
+        }
     }
     pub(super) fn submit_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.file_writes.operation_active() || self.ui.link_update.is_some() {
             return;
         }
-        match self.ui.name_mode.take().unwrap_or(NameMode::New) {
+        if self.ui.tree_name.is_some() && !self.prepare_tree_name(window, cx) {
+            return;
+        }
+        let Some(mode) = self.ui.name_mode.take() else {
+            return;
+        };
+        match mode {
             NameMode::New => self.create_note(window, cx),
             NameMode::Rename => self.manage_note(false, window, cx),
             NameMode::RenameFolder => {
@@ -1143,7 +1159,7 @@ impl Workspace {
         }
         self.command_open = false;
         self.close_quick_search(window, cx);
-        self.ui.name_mode = None;
+        self.cancel_tree_name(cx);
         self.ui.settings = false;
         self.ui.hotkey_recording = None;
         self.ui.hotkey_recording_focus = None;
@@ -1672,7 +1688,11 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.ui.prefs.auto_reveal_file && self.ui.prefs.left_open && self.ui.left_mode == 0 {
+        if self.ui.tree_name.is_none()
+            && self.ui.prefs.auto_reveal_file
+            && self.ui.prefs.left_open
+            && self.ui.left_mode == 0
+        {
             let key = self
                 .active
                 .and_then(|i| self.tabs.get(i))
@@ -1682,7 +1702,8 @@ impl Render for Workspace {
                 self.ui.last_revealed_file = None;
             } else if self.ui.last_revealed_file != key {
                 cx.defer_in(_window, |this, _, cx| {
-                    if this.ui.prefs.auto_reveal_file
+                    if this.ui.tree_name.is_none()
+                        && this.ui.prefs.auto_reveal_file
                         && this.ui.prefs.left_open
                         && this.ui.left_mode == 0
                     {
@@ -1916,6 +1937,16 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &CloseTab, w, cx| this.close_tab(w, cx)))
             .on_action(cx.listener(|this, _: &CommandPalette, w, cx| this.open_commands(w, cx)))
             .on_action(cx.listener(|this, _: &ClosePalette, w, cx| this.close_overlays(w, cx)))
+            .on_action(
+                cx.listener(|this, _: &gpui_component::input::Escape, w, cx| {
+                    if this.ui.tree_name.is_some() {
+                        this.cancel_tree_name(cx);
+                        this.ui.workspace_focus.focus(w, cx);
+                    } else {
+                        cx.propagate();
+                    }
+                }),
+            )
             .on_action(cx.listener(|this, _: &ToggleLeft, w, cx| this.execute_command(12, w, cx)))
             .on_action(cx.listener(|this, _: &ToggleRight, w, cx| this.execute_command(13, w, cx)))
             .on_action(cx.listener(|this, _: &Settings, w, cx| this.execute_command(14, w, cx)))
