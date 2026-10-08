@@ -11,6 +11,7 @@ VIProductVersion "${VERSION}.0"
 VIAddVersionKey "ProductName" "Inkstone"
 VIAddVersionKey "FileDescription" "Inkstone Installer"
 VIAddVersionKey "FileVersion" "${VERSION}"
+VIAddVersionKey "LegalCopyright" "Licensed under Apache-2.0"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${STAGE}\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
