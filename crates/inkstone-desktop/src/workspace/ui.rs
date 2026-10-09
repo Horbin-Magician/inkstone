@@ -1057,20 +1057,6 @@ impl Workspace {
             .long_press(Duration::from_millis(400))
             .into_any_element()
     }
-    fn select_view_mode(&mut self, mode: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(pane) = self.current_pane() {
-            pane.update(cx, |pane, cx| {
-                pane.reading = mode == 0;
-                if mode != 0 {
-                    pane.live = mode == 1;
-                }
-                pane.focus_view(window, cx);
-                cx.notify();
-            });
-            self.persist_workspace(cx);
-            cx.notify();
-        }
-    }
     pub(super) fn refresh_trash(&mut self, cx: &mut Context<Self>) {
         let Some(vault) = self.vault.clone() else {
             return;
@@ -1749,19 +1735,8 @@ impl Render for Workspace {
             self.vault.is_some() || self.tabs.iter().any(|tab| !tab.path.as_os_str().is_empty());
         let active = self.active.and_then(|i| self.tabs.get(i));
         let pane = self.current_pane();
-        let status_mode = pane
-            .as_ref()
-            .filter(|_| active.is_some_and(|tab| !tab.path.as_os_str().is_empty()))
-            .map(|pane| {
-                let pane = pane.read(cx);
-                if pane.reading {
-                    ("book-open", "阅读视图")
-                } else if pane.live {
-                    ("pencil", "实时预览")
-                } else {
-                    ("code", "源码模式")
-                }
-            });
+        let has_active_note =
+            pane.is_some() && active.is_some_and(|tab| !tab.path.as_os_str().is_empty());
         let count = pane
             .as_ref()
             .filter(|_| active.is_some_and(|tab| !tab.path.as_os_str().is_empty()))
@@ -1771,31 +1746,6 @@ impl Render for Workspace {
             })
             .unwrap_or_default();
         let error = active.and_then(|t| t.save.persistence.error().clone());
-        let save_status = active.filter(|t| !t.path.as_os_str().is_empty()).map(|t| {
-            let label = if t.save.persistence.has_conflict() {
-                "外部修改冲突"
-            } else if t.save.persistence.error().is_some() {
-                "保存失败"
-            } else if t.save.persistence.is_saving() {
-                "正在保存…"
-            } else if t.save.persistence.is_dirty() {
-                "尚未保存"
-            } else {
-                "已保存"
-            };
-            let detail = t.save.persistence.error().clone().unwrap_or_else(|| {
-                format!(
-                    "{}：{label}。{}",
-                    t.path.display(),
-                    if t.save.persistence.has_conflict() {
-                        "点击比较并处理外部修改。"
-                    } else {
-                        "点击保存当前更改。"
-                    }
-                )
-            });
-            (label, detail, t.save.persistence.has_conflict())
-        });
         _window.set_window_title(crate::product::name());
         let main_index = self.main_tab();
         let main_pane = main_index
@@ -2093,7 +2043,6 @@ impl Render for Workspace {
                         .occlude()
                         .w_full()
                         .flex_shrink_0()
-                        .justify_end()
                         .border_t_1()
                         .border_color(self.border())
                         .flex()
@@ -2104,6 +2053,31 @@ impl Render for Workspace {
                         .bg(self.bg())
                         .text_size(px(MIN_UI_FONT_SIZE))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                        .when(has_active_note, |bar| {
+                            bar.child(
+                                Button::new("status-backlinks")
+                                    .ghost()
+                                    .compact()
+                                    .h(px(22.))
+                                    .accessibility_label("显示反向链接")
+                                    .child(
+                                        div()
+                                            .text_size(px(MIN_UI_FONT_SIZE))
+                                            .text_color(
+                                                crate::theme::palette(self.ui.prefs.light).muted,
+                                            )
+                                            .child(format!("{} 条反向链接", self.backlinks.len())),
+                                    )
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.ui.focus_mode = false;
+                                        this.ui.prefs.right_open = true;
+                                        this.ui.right_mode = 1;
+                                        this.persist_workspace(cx);
+                                        cx.notify();
+                                    })),
+                            )
+                        })
+                        .child(div().flex_shrink_0().px_1().child(count))
                         .when(self.settings_save.error().is_some(), |bar| {
                             bar.child(
                                 Button::new("retry-workspace-save")
@@ -2146,94 +2120,14 @@ impl Render for Workspace {
                                     .tooltip(detail),
                             )
                         })
-                        .when(!self.notifications.text().is_empty(), |bar| {
-                            bar.child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .child(self.notifications.text().to_owned()),
-                            )
-                        })
-                        .when_some(status_mode, |bar, (symbol, mode)| {
-                            let weak = cx.entity().downgrade();
-                            bar.child(
-                                Button::new("status-backlinks")
-                                    .ghost()
-                                    .compact()
-                                    .h(px(22.))
-                                    .accessibility_label("显示反向链接")
-                                    .child(
-                                        div()
-                                            .text_size(px(MIN_UI_FONT_SIZE))
-                                            .text_color(
-                                                crate::theme::palette(self.ui.prefs.light).muted,
-                                            )
-                                            .child(format!("{} 条反向链接", self.backlinks.len())),
-                                    )
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.ui.focus_mode = false;
-                                        this.ui.prefs.right_open = true;
-                                        this.ui.right_mode = 1;
-                                        this.persist_workspace(cx);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new("status-editor-mode")
-                                    .ghost()
-                                    .compact()
-                                    .w(px(24.))
-                                    .h(px(22.))
-                                    .icon(icon(symbol).size(px(15.)))
-                                    .accessibility_label(format!("{mode}；选择视图模式"))
-                                    .tooltip(mode)
-                                    .dropdown_menu_with_anchor(
-                                        gpui::Anchor::BottomRight,
-                                        move |mut menu, _, _| {
-                                            menu = menu.check_side(gpui_component::Side::Right);
-                                            for (value, label, symbol) in [
-                                                (0, "阅读视图", "book-open"),
-                                                (2, "源码模式", "code"),
-                                                (1, "实时预览", "pencil"),
-                                            ] {
-                                                let weak = weak.clone();
-                                                menu = menu.item(
-                                                    PopupMenuItem::new(label)
-                                                        .icon(icon(symbol))
-                                                        .checked(mode == label)
-                                                        .on_click(move |_, window, cx| {
-                                                            let _ = weak.update(cx, |this, cx| {
-                                                                this.select_view_mode(
-                                                                    value, window, cx,
-                                                                )
-                                                            });
-                                                        }),
-                                                );
-                                            }
-                                            menu
-                                        },
-                                    ),
-                            )
-                        })
-                        .when_some(save_status, |bar, (label, detail, conflict)| {
-                            bar.child(
-                                Button::new("current-save-status")
-                                    .ghost()
-                                    .compact()
-                                    .label(label)
-                                    .accessibility_label(format!("当前笔记：{label}"))
-                                    .tooltip(detail)
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        if conflict {
-                                            this.execute_command(100, w, cx);
-                                        } else {
-                                            this.save_all(w, cx);
-                                        }
-                                    })),
-                            )
-                        })
-                        .child(div().px_1().child(count)),
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_right()
+                                .truncate()
+                                .child(self.notifications.text().to_owned()),
+                        ),
                 )
             })
             .when(self.modal_is_open(), |s| s.child(self.modal(_window, cx)))
