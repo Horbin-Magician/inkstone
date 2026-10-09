@@ -26,6 +26,8 @@ pub struct Span {
     pub source: Range<usize>,
     pub content: Range<usize>,
     pub markers: Vec<Range<usize>>,
+    /// Enclosing lists. Reading mode indents one rem per list.
+    pub list_depth: usize,
 }
 impl Span {
     /// Stable source prefixes for every logical line of a heading's content.
@@ -142,7 +144,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
     fn boundary(node: &Node) -> Option<Range<usize>> {
         node.position().map(|p| p.start.offset..p.end.offset)
     }
-    fn walk(node: &Node, text: &str, out: &mut Vec<Span>, quote_depth: usize) {
+    fn walk(node: &Node, text: &str, out: &mut Vec<Span>, quote_depth: usize, list_depth: usize) {
         let Some(range) = boundary(node) else {
             return;
         };
@@ -156,6 +158,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                 source: start..end,
                 content: range.clone(),
                 markers: std::iter::once(range).collect(),
+                list_depth: 0,
             });
             return;
         }
@@ -170,8 +173,10 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                 source: marker.clone(),
                 content: marker,
                 markers: vec![],
+                list_depth: 0,
             });
         }
+        let list_depth = list_depth + usize::from(matches!(node, Node::List(_)));
         let quote_depth = quote_depth + usize::from(matches!(node, Node::Blockquote(_)));
         if matches!(node, Node::Blockquote(_)) {
             let mut offset = range.start;
@@ -194,6 +199,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                                 source: start..end,
                                 content: marker..marker + 1,
                                 markers: std::iter::once(marker..marker + 1).collect(),
+                                list_depth,
                             });
                             break;
                         }
@@ -228,6 +234,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                         source: start..end,
                         content: start..start,
                         markers: vec![],
+                        list_depth,
                     });
                 }
                 offset += part.len();
@@ -260,6 +267,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                 source: range.clone(),
                 content,
                 markers,
+                list_depth: 0,
             });
         }
         if let Node::InlineCode(_) = node {
@@ -274,6 +282,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                         range.start..range.start + count,
                         range.end - count..range.end,
                     ],
+                    list_depth: 0,
                 });
             }
             return;
@@ -332,6 +341,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                                 range.start + i..range.start + label,
                                 range.start + end..range.start + end + close.len(),
                             ],
+                            list_depth: 0,
                         });
                         i = end + close.len();
                         continue;
@@ -342,7 +352,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
         }
         if let Some(children) = children {
             for child in children {
-                walk(child, text, out, quote_depth);
+                walk(child, text, out, quote_depth, list_depth);
             }
         }
     }
@@ -354,10 +364,11 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
             source: comment.range.clone(),
             content: comment.range.clone(),
             markers: vec![],
+            list_depth: 0,
         })
         .collect();
     if let Some(node) = snapshot.ast.as_deref() {
-        walk(node, text, &mut result, 0);
+        walk(node, text, &mut result, 0, 0);
         fn excluded(node: &Node, out: &mut Vec<Range<usize>>) {
             if matches!(
                 node,
@@ -419,6 +430,7 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                         source: start..offset + 2,
                         content: start + 2..offset,
                         markers: vec![start..start + 2, offset..offset + 2],
+                        list_depth: 0,
                     });
                 }
             } else if can_open {
@@ -445,7 +457,7 @@ mod tests {
     }
     #[test]
     fn list_markers_follow_syntax_and_preserve_nested_source_offsets() {
-        let source = "* 中文\n  - nested\n\n+ other\n\n> * quoted\n\n1. ordered\n\n***\n\n\\* escaped\n\n```md\n* code\n```\n\n    * indented code";
+        let source = "* 中文\n  - nested\n\n+ other\n\n> * quoted\n\n1. ordered\n\n***\n\n\\* escaped\n\n```md\n* code\n```\n\n    * indented item";
         let markers: Vec<_> = spans(source)
             .into_iter()
             .filter(|span| span.kind == Kind::ListMarker)
@@ -457,7 +469,8 @@ mod tests {
                 0,
                 source.find("- nested").unwrap(),
                 source.find("+ other").unwrap(),
-                source.find("* quoted").unwrap()
+                source.find("* quoted").unwrap(),
+                source.find("* indented item").unwrap(),
             ]
         );
     }
@@ -480,8 +493,14 @@ mod tests {
 
     #[test]
     fn code_fences_and_escaped_markers_stay_source() {
-        let literal = spans("```md\n**不是粗体**\n```\n\\[[不是链接]]\n\n    **代码**");
+        let literal = spans("```md\n**不是粗体**\n```\n\\[[不是链接]]");
         assert!(literal.is_empty(), "{literal:?}");
+        // Four spaces after a blank line are indentation, not an unlabelled code block.
+        assert!(
+            spans("前文\n\n    **粗体**")
+                .iter()
+                .any(|span| span.kind == Kind::Strong)
+        );
         assert_eq!(spans("`**literal**` [[真链接]]").len(), 2);
     }
     #[test]
@@ -606,6 +625,15 @@ mod tests {
                 .iter()
                 .any(|span| span.content.start == source.find("> list").unwrap())
         );
+        assert_eq!(
+            quotes
+                .iter()
+                .find(|span| span.content.start == source.find("> list").unwrap())
+                .unwrap()
+                .list_depth,
+            1
+        );
+        assert!(quotes.iter().any(|span| span.list_depth == 0));
     }
     #[test]
     fn lazy_quote_lines_retain_source_without_invented_markers() {

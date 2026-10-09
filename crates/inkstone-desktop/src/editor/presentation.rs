@@ -193,6 +193,7 @@ impl EditorPane {
         let mut quote_markers = vec![];
         let mut concealed_lines = vec![];
         self.live_quotes.clear();
+        self.live_quote_indents.clear();
         self.live_rules.clear();
         self.live_lists.clear();
         if self.live {
@@ -250,6 +251,9 @@ impl EditorPane {
                     }
                     Kind::QuoteContinuation => {
                         self.live_quotes.push(span.source.clone());
+                        self.live_quote_indents.push(
+                            live_quotes::list_indent(self.quote_rem_size) * span.list_depth as f32,
+                        );
                         continue;
                     }
                     Kind::QuoteMarker => {
@@ -283,6 +287,9 @@ impl EditorPane {
                             quote_markers.push(span.content.clone());
                         }
                         self.live_quotes.push(span.content.start..span.source.end);
+                        self.live_quote_indents.push(
+                            live_quotes::list_indent(self.quote_rem_size) * span.list_depth as f32,
+                        );
                         continue;
                     }
                     Kind::Heading => HighlightStyle {
@@ -531,11 +538,21 @@ impl EditorPane {
                     .filter(|&i| i < range.end),
             );
         }
-        self.live_quotes.retain(|r| {
-            !object_ranges
-                .iter()
-                .any(|o| o.start <= r.start && r.end <= o.end)
-        });
+        let dropped: Vec<_> = self
+            .live_quotes
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| {
+                object_ranges
+                    .iter()
+                    .any(|o| o.start <= r.start && r.end <= o.end)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for i in dropped.into_iter().rev() {
+            self.live_quotes.remove(i);
+            self.live_quote_indents.remove(i);
+        }
         self.live_lists.retain(|r| {
             !object_ranges
                 .iter()
@@ -657,13 +674,21 @@ impl EditorPane {
         self.live_rules.retain_mut(rebase);
         self.live_tasks.retain_mut(|task| rebase(&mut task.range));
         // Quote borders cover the whole line, including the composing text.
+        // Indent follows the marker and does not move during preedit.
+        let mut index = 0;
         self.live_quotes.retain_mut(|range| {
-            if range.start <= start && end <= range.end {
+            let keep = if range.start <= start && end <= range.end {
                 range.end = range.end.checked_add_signed(delta).unwrap();
                 true
             } else {
                 rebase(range)
+            };
+            if keep {
+                index += 1;
+            } else if index < self.live_quote_indents.len() {
+                self.live_quote_indents.remove(index);
             }
+            keep
         });
         self.overlay_source = text.clone();
     }
