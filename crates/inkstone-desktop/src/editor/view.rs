@@ -485,6 +485,8 @@ impl Render for EditorPane {
                 view.child(live_quotes::overlay(
                     self.editor.clone(),
                     self.live_quotes.clone(),
+                    self.live_quote_indents.clone(),
+                    self.overlay_source.clone(),
                     self.quote_rem_size,
                     self.light,
                 ))

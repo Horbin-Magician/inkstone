@@ -5,9 +5,17 @@ pub(super) fn inset(rem_size: Pixels) -> Pixels {
     px(3.) + rem_size
 }
 
+/// Reading-mode list items indent continuation blocks by one rem, independent
+/// of how many source spaces the author used.
+pub(super) fn list_indent(rem_size: Pixels) -> Pixels {
+    rem_size
+}
+
 pub(super) fn overlay(
     editor: Entity<EditorState>,
     lines: Vec<std::ops::Range<usize>>,
+    indents: Vec<Pixels>,
+    text: SharedString,
     rem_size: Pixels,
     light: bool,
 ) -> impl IntoElement {
@@ -17,16 +25,36 @@ pub(super) fn overlay(
             let inset = inset(rem_size);
             let borders: Vec<_> = lines
                 .iter()
-                .filter_map(|range| {
-                    let bounds = editor.read(cx).range_to_bounds(range)?;
-                    viewport
-                        .intersects(&bounds)
-                        .then_some((range.start, bounds))
+                .zip(indents)
+                .filter_map(|(range, indent)| {
+                    let state = editor.read(cx);
+                    let bounds = state.range_to_bounds(range)?;
+                    if !viewport.intersects(&bounds) {
+                        return None;
+                    }
+                    // Source spaces before a list quote already move the range.
+                    // Reading mode indents by list depth instead, so cancel only
+                    // that leading space. Nested `>` markers stay in place.
+                    let line = text[..range.start].rfind('\n').map_or(0, |i| i + 1);
+                    let spaces = text[line..range.start]
+                        .bytes()
+                        .take_while(|b| matches!(b, b' ' | b'\t'))
+                        .count();
+                    let shift = if spaces == 0 {
+                        px(0.)
+                    } else {
+                        state
+                            .range_to_bounds(&(line + spaces..line + spaces))
+                            .zip(state.range_to_bounds(&(line..line)))
+                            .map(|(content, line)| content.left() - line.left())
+                            .unwrap_or(px(0.))
+                    };
+                    Some((range.start, bounds, indent - shift))
                 })
                 .collect();
             let mut elements = Vec::new();
             window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
-                for (offset, bounds) in borders {
+                for (offset, bounds, indent) in borders {
                     let mut border = div()
                         .id(("live-quote", offset))
                         .debug_selector(move || format!("live-quote-{offset}"))
@@ -35,7 +63,7 @@ pub(super) fn overlay(
                         .bg(crate::theme::palette(light).border)
                         .into_any_element();
                     border.prepaint_as_root(
-                        bounds.origin - point(inset, px(0.)),
+                        bounds.origin - point(inset, px(0.)) + point(indent, px(0.)),
                         size(px(3.), bounds.size.height).into(),
                         window,
                         cx,
@@ -197,6 +225,65 @@ mod tests {
                     state.range_to_bounds(&(2..2)).unwrap().left(),
                     text_x - inset(p.quote_rem_size) + prefix_width
                 );
+                assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn list_quote_borders_use_reading_indent(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "1. > 首行引用\n\n- > 首行项目\n\n1. 标题\n   > 后续引用\n   续行\n\n- 项目\n  - 嵌套\n    > 深层\n    深层续行\n\n> 顶层\n续行\n";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        handle
+            .update(cx, |p, _, cx| {
+                p.editor.update(cx, |s, cx| {
+                    s.set_selected_range(source.len()..source.len(), cx)
+                });
+                p.update_presentation(cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(900.), px(700.)));
+        for _ in 0..6 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let (quotes, indents) = handle
+            .update(&mut visual, |p, _, _| {
+                (p.live_quotes.clone(), p.live_quote_indents.clone())
+            })
+            .unwrap();
+        let borders: Vec<_> = quotes
+            .iter()
+            .map(|range| {
+                let id = Box::leak(format!("live-quote-{}", range.start).into_boxed_str());
+                visual.debug_bounds(id).unwrap()
+            })
+            .collect();
+        let step = handle
+            .update(&mut visual, |p, _, _| list_indent(p.quote_rem_size))
+            .unwrap();
+        // Same levels measured against the reading blockquote: one rem per list.
+        let expected = [step, step, step, step, step * 2., step * 2., px(0.), px(0.)];
+        assert_eq!(indents, expected);
+        // A quote opening a list item keeps that item marker's column. A later
+        // quote in the item is indented one rem per list, as in reading mode.
+        let column = borders[6].left();
+        // Opening quotes keep their marker column: "1. " is wider than "- ".
+        assert!(borders[0].left() > borders[1].left());
+        assert!(borders[1].left() > column + step);
+        assert_eq!(borders[2].left(), borders[3].left());
+        assert_eq!(borders[2].left(), column + step);
+        assert_eq!(borders[4].left(), borders[5].left());
+        assert_eq!(borders[4].left(), column + step * 2.);
+        // A lazy continuation shares its marker line's rail, not column zero.
+        assert_eq!(borders[2].left(), borders[3].left());
+        assert_eq!(borders[2].bottom(), borders[3].top());
+        assert_eq!(borders[4].left(), borders[5].left());
+        assert_eq!(borders[6].left(), borders[7].left());
+        handle
+            .update(&mut visual, |p, _, cx| {
                 assert_eq!(p.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
