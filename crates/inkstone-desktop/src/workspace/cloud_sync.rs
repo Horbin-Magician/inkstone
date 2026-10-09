@@ -69,7 +69,7 @@ pub(super) struct State {
     cleanup: cleanup::State,
 }
 impl State {
-    fn scheduling_label(&self) -> &'static str {
+    pub(super) fn scheduling_label(&self) -> &'static str {
         if self.run.as_ref().is_some_and(Run::is_cancelled) {
             "正在取消，等待已发出的请求结束"
         } else if self.schedule.busy {
@@ -309,7 +309,7 @@ impl Workspace {
         })
         .detach();
     }
-    fn sync_success_label(&self) -> String {
+    pub(super) fn sync_success_label(&self) -> String {
         let date = self
             .ui
             .cloud_sync
@@ -406,7 +406,7 @@ impl Workspace {
         })
         .detach();
     }
-    fn request_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn request_cloud_sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.cloud_settings_disabled() {
             return;
         }

@@ -1,10 +1,15 @@
 use super::commands::command;
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
+use gpui::{
+    Animation, AnimationExt as _, AnyElement, InteractiveElement as _, IntoElement,
+    StatefulInteractiveElement as _, Transformation, linear, percentage,
+};
 use gpui_component::date_picker::{DatePickerEvent, DatePickerState};
 use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_component::select::{SearchableVec, SelectEvent, SelectState};
 use gpui_component::slider::{SliderEvent, SliderState};
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{
     Disableable, Icon, TitleBar,
     button::*,
@@ -654,6 +659,11 @@ pub(super) fn icon(name: &str) -> Icon {
         "link" | "links" => Some(
             "M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2",
         ),
+        "refresh-cw" => Some(
+            "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16M21 21v-5h-5",
+        ),
+        "cloud" => Some("M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6 19z"),
+        "info" => Some("M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"),
         "tags" => Some("M3 3h8l10 10-8 8L3 11zM7 7h.01"),
         "pencil" => Some("M16 3l5 5-13 13H3v-5zM13 6l5 5"),
         _ => None,
@@ -705,6 +715,21 @@ impl Workspace {
     }
     pub(super) fn border(&self) -> Rgba {
         crate::theme::palette(self.ui.prefs.light).border
+    }
+    fn status_corner_detail(&self) -> String {
+        let sync = &self.ui.cloud_sync;
+        let mut lines = Vec::new();
+        if self.ui.prefs.webdav.url.trim().is_empty() {
+            lines.push("云同步未配置".to_owned());
+        } else {
+            lines.push(sync.scheduling_label().to_owned());
+            lines.push(self.sync_success_label());
+        }
+        let notice = self.notifications.text().trim();
+        if !notice.is_empty() && lines.iter().all(|line| line != notice) {
+            lines.push(notice.to_owned());
+        }
+        lines.join("\n")
     }
     pub(super) fn apply_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.apply_font_preferences(cx);
@@ -2054,20 +2079,19 @@ impl Render for Workspace {
                         .text_size(px(MIN_UI_FONT_SIZE))
                         .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                         .when(has_active_note, |bar| {
+                            let backlink_count = self.backlinks.len();
+                            let backlink_tip = format!("{backlink_count} 条反向链接");
                             bar.child(
                                 Button::new("status-backlinks")
                                     .ghost()
                                     .compact()
+                                    .w(px(24.))
                                     .h(px(22.))
-                                    .accessibility_label("显示反向链接")
-                                    .child(
-                                        div()
-                                            .text_size(px(MIN_UI_FONT_SIZE))
-                                            .text_color(
-                                                crate::theme::palette(self.ui.prefs.light).muted,
-                                            )
-                                            .child(format!("{} 条反向链接", self.backlinks.len())),
-                                    )
+                                    .icon(icon("links").size(px(15.)).text_color(
+                                        crate::theme::palette(self.ui.prefs.light).muted,
+                                    ))
+                                    .accessibility_label(backlink_tip.clone())
+                                    .tooltip(backlink_tip)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.ui.focus_mode = false;
                                         this.ui.prefs.right_open = true;
@@ -2120,14 +2144,55 @@ impl Render for Workspace {
                                     .tooltip(detail),
                             )
                         })
-                        .child(
+                        .child(div().flex_1().min_w_0())
+                        .child({
+                            let spinning = self.ui.cloud_sync.is_busy();
+                            let detail = self.status_corner_detail();
+                            let mark = icon("refresh-cw")
+                                .size(px(15.))
+                                .text_color(crate::theme::palette(self.ui.prefs.light).muted);
+                            let mark: AnyElement = if spinning {
+                                mark.with_animation(
+                                    "status-sync-spin",
+                                    Animation::new(Duration::from_millis(900))
+                                        .repeat()
+                                        .with_easing(linear),
+                                    |icon, delta| {
+                                        icon.transform(Transformation::rotate(percentage(delta)))
+                                    },
+                                )
+                                .into_any_element()
+                            } else {
+                                mark.into_any_element()
+                            };
                             div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_right()
-                                .truncate()
-                                .child(self.notifications.text().to_owned()),
-                        ),
+                                .id("status-sync")
+                                .flex_shrink_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .w(px(24.))
+                                .h(px(22.))
+                                .cursor_pointer()
+                                .child(mark)
+                                .tooltip(move |window, cx| {
+                                    let lines = detail.clone();
+                                    Tooltip::element(move |_, _| {
+                                        div().flex().flex_col().gap_1().children(
+                                            lines
+                                                .lines()
+                                                .filter(|line| !line.is_empty())
+                                                .map(|line| div().child(line.to_owned())),
+                                        )
+                                    })
+                                    .build(window, cx)
+                                })
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    if !this.ui.cloud_sync.is_busy() {
+                                        this.request_cloud_sync(window, cx);
+                                    }
+                                }))
+                        }),
                 )
             })
             .when(self.modal_is_open(), |s| s.child(self.modal(_window, cx)))
