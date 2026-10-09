@@ -429,7 +429,10 @@ mod provider_tests {
         for (marked, expected) in [
             ("```md\n[[note@\n```", false),
             ("~~~\n[[note@", false),
-            ("    [[note@", false),
+            // Indentation is ordinary Markdown; only fenced blocks are code.
+            ("    [[note@", true),
+            ("\t[[note@", true),
+            ("text\n\n    [[note@", true),
             ("> ```\n> [[note@\n> ```", false),
             ("`[[note@`", false),
             ("``a ` [[note@``", false),
