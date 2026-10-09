@@ -3,11 +3,21 @@ import unittest
 from pathlib import Path
 
 from package import inventory, verify
-from package import digest
+from package import digest, dmg_size_mb
 from verify_release import verify_release
 
 
 class InventoryTests(unittest.TestCase):
+    def test_dmg_capacity_includes_nested_payload_and_filesystem_headroom(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(dmg_size_mb(root), 64)
+            binary = root / "app/Contents/MacOS/inkstone"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"x" * (5 * 1024 * 1024))
+            (root / "GUIDE.md").write_bytes(b"x")
+            self.assertEqual(dmg_size_mb(root), 71)
+
     def test_release_requires_all_platforms_and_valid_checksums(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

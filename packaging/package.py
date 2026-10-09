@@ -50,6 +50,13 @@ def verify(stage):
         raise ValueError("Package inventory mismatch")
 
 
+def dmg_size_mb(directory):
+    """Reserve filesystem overhead instead of relying on hdiutil's size estimate."""
+    size = sum(p.stat().st_size for p in directory.rglob("*")
+               if p.is_file() and not p.is_symlink())
+    return (size * 12 + 10 * 1024 * 1024 - 1) // (10 * 1024 * 1024) + 64
+
+
 def package(output):
     system = platform.system()
     host = subprocess.check_output(["rustc", "-vV"], text=True).split("host: ")[1].splitlines()[0]
@@ -107,6 +114,7 @@ def package(output):
         shutil.copytree(stage, image)
         (image / "Applications").symlink_to("/Applications")
         run("hdiutil", "create", "-volname", "墨砚", "-srcfolder", image,
+            "-size", f"{dmg_size_mb(image)}m", "-fs", "HFS+",
             "-format", "UDZO", output / f"{stem}.dmg")
     assets = sorted(p for p in output.iterdir() if p.is_file())
     (output / f"{stem}.sha256").write_text(
