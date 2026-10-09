@@ -3418,7 +3418,7 @@ dependencies = [
 
 [[package]]
 name = "inkstone-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3446,7 +3446,7 @@ dependencies = [
 
 [[package]]
 name = "inkstone-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
