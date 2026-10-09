@@ -17,12 +17,10 @@ impl Sections {
         {
             return sections.clone();
         }
-        let mut options = markdown_parser::ParseOptions::gfm();
-        options.constructs.frontmatter = true;
         let mut headings = vec![];
         let comments = crate::comments::ranges(text);
         let clean = crate::comments::masked(text, &comments);
-        if let Ok(root) = markdown_parser::to_mdast(&clean, &options) {
+        if let Ok(root) = markdown_parser::to_mdast(&clean, &crate::syntax::options()) {
             let mut stack = vec![&root];
             while let Some(node) = stack.pop() {
                 if let Node::Heading(heading) = node

@@ -54,9 +54,8 @@ fn accepts_wiki_completion(source: &str, start: usize) -> bool {
         node.children()
             .is_some_and(|children| children.iter().any(|child| blocked(child, at)))
     }
-    let mut options = markdown_parser::ParseOptions::gfm();
-    options.constructs.frontmatter = true;
-    markdown_parser::to_mdast(source, &options).is_ok_and(|root| !blocked(&root, start))
+    markdown_parser::to_mdast(source, &inkstone_core::syntax::options())
+        .is_ok_and(|root| !blocked(&root, start))
 }
 
 pub fn target_uri(target: &str) -> lsp_types::Uri {

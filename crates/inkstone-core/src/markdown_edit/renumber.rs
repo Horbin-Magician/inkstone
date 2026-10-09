@@ -67,9 +67,7 @@ pub(super) fn removal_anchors(source: &str, edits: &[(usize, Edit)]) -> Vec<(usi
         }
     }
     let mut anchors = Vec::new();
-    let mut options = markdown_parser::ParseOptions::gfm();
-    options.constructs.frontmatter = true;
-    if let Ok(root) = markdown_parser::to_mdast(source, &options) {
+    if let Ok(root) = markdown_parser::to_mdast(source, &crate::syntax::options()) {
         walk(&root, source, &removals, &mut anchors);
     }
     anchors
@@ -135,9 +133,7 @@ pub(super) fn at_rows(
         }
     }
     let mut changes = vec![];
-    let mut options = markdown_parser::ParseOptions::gfm();
-    options.constructs.frontmatter = true;
-    if let Ok(root) = markdown_parser::to_mdast(source, &options) {
+    if let Ok(root) = markdown_parser::to_mdast(source, &crate::syntax::options()) {
         walk(&root, source, rows, starts, &mut changes);
     }
     changes.sort_by_key(|(range, _)| range.start);
@@ -157,7 +153,7 @@ pub(super) fn removed_item(source: &str, mut edit: Edit) -> Edit {
         .filter(|b| *b == b'\n')
         .count()
         + 1;
-    let Ok(root) = markdown_parser::to_mdast(source, &markdown_parser::ParseOptions::gfm()) else {
+    let Ok(root) = markdown_parser::to_mdast(source, &crate::syntax::options()) else {
         return edit;
     };
     fn next_item(node: &Node, row: usize, source: &str) -> Option<(usize, u32)> {
@@ -203,7 +199,7 @@ fn renumber_from(source: &str, edit: &mut Edit, target: Option<(usize, u32)>) {
         },
         |(row, _)| row,
     );
-    let Ok(root) = markdown_parser::to_mdast(&result, &markdown_parser::ParseOptions::gfm()) else {
+    let Ok(root) = markdown_parser::to_mdast(&result, &crate::syntax::options()) else {
         return;
     };
     fn siblings(node: &Node, row: usize) -> Option<&[Node]> {

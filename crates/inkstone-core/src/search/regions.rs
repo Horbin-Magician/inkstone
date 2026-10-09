@@ -23,12 +23,10 @@ impl Regions {
         {
             return ranges.clone();
         }
-        let mut options = markdown_parser::ParseOptions::gfm();
-        options.constructs.frontmatter = true;
         let mut ranges = vec![];
         let comments = crate::comments::ranges(text);
         let clean = crate::comments::masked(text, &comments);
-        if let Ok(root) = markdown_parser::to_mdast(&clean, &options) {
+        if let Ok(root) = markdown_parser::to_mdast(&clean, &crate::syntax::options()) {
             if matches!(self.kind, Kind::Block)
                 && let Some(children) = root.children()
             {

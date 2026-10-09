@@ -120,9 +120,7 @@ struct Table {
 }
 impl Table {
     fn at(text: &str, offset: usize) -> Option<(Self, usize, usize)> {
-        let mut options = markdown_parser::ParseOptions::gfm();
-        options.constructs.frontmatter = true;
-        let root = markdown_parser::to_mdast(text, &options).ok()?;
+        let root = markdown_parser::to_mdast(text, &crate::syntax::options()).ok()?;
         for node in root.children()? {
             let Node::Table(table) = node else {
                 continue;

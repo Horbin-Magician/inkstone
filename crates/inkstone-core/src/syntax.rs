@@ -8,6 +8,10 @@ pub fn options() -> ParseOptions {
     options.constructs.frontmatter = true;
     options.constructs.math_text = true;
     options.constructs.math_flow = true;
+    // CommonMark treats a blank line followed by four spaces or a tab as an
+    // unlabelled code block. Pasted notes indent ordinary lists and formulas
+    // that way; fenced blocks remain the code syntax.
+    options.constructs.code_indented = false;
     options
 }
 
@@ -698,5 +702,47 @@ mod tests {
                 .iter()
                 .any(|s| s.kind == crate::markdown::Kind::Highlight)
         );
+    }
+    #[test]
+    fn indented_formula_lists_stay_prose_instead_of_unlabelled_code() {
+        fn has_code(node: &Node) -> bool {
+            matches!(node, Node::Code(_))
+                || node
+                    .children()
+                    .is_some_and(|children| children.iter().any(has_code))
+        }
+        let body = "2. **推广**：又设 $a(y)$ ，$b(y)$ 都在 $[c, d]$ 上可导，满足 $a(y), b(y) \\in[a, b](y \\in\n[c, d])$。则函数：$F(y)=\\int_{a(y)}^{b(y)} f(x, y) d x$ 在 $[c, d]$ 上可导，且成立:";
+        for source in [
+            format!("前文\n\n    {body}\n\n$$x$$\n"),
+            format!("前文\n\n\t{body}\n"),
+            format!("> 引用\n\n    {body}\n"),
+        ] {
+            let snapshot = Snapshot::new(&source);
+            let ast = snapshot.ast.as_deref().unwrap();
+            assert!(!has_code(ast), "{source}");
+            let candidates = crate::preview::candidates(&snapshot);
+            assert!(
+                candidates.iter().any(|candidate| {
+                    !candidate.block && source[candidate.source.clone()].contains("a(y)")
+                }),
+                "{candidates:?}"
+            );
+            let styles = crate::markdown::spans_snapshot(&snapshot);
+            assert!(
+                styles
+                    .iter()
+                    .any(|span| span.kind == crate::markdown::Kind::Strong),
+                "{source}"
+            );
+            fn has_list(node: &Node) -> bool {
+                matches!(node, Node::List(_))
+                    || node
+                        .children()
+                        .is_some_and(|children| children.iter().any(has_list))
+            }
+            assert!(has_list(ast), "{source}");
+        }
+        let fenced = Snapshot::new("前文\n\n    ```text\n    literal\n    ```\n");
+        assert!(has_code(fenced.ast.as_deref().unwrap()));
     }
 }

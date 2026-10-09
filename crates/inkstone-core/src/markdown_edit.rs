@@ -504,10 +504,8 @@ fn literal_ranges(text: &str) -> Vec<Range<usize>> {
             }
         }
     }
-    let mut options = markdown_parser::ParseOptions::gfm();
-    options.constructs.frontmatter = true;
     let mut ranges = vec![];
-    if let Ok(root) = markdown_parser::to_mdast(text, &options) {
+    if let Ok(root) = markdown_parser::to_mdast(text, &crate::syntax::options()) {
         walk(&root, &mut ranges);
     }
     ranges
@@ -1118,11 +1116,12 @@ mod tests {
             "---\n- yaml|\n---",
             "***|",
             "- - | -",
-            "    - code|",
             "1|. text",
         ] {
             assert_eq!(press(text, Key::Enter), text);
         }
+        // Four spaces after a blank line are list indentation, not an unlabelled code block.
+        assert_eq!(press("    - 条目|", Key::Enter), "    - 条目\n    - |");
     }
     #[test]
     fn prefix_backspace_and_indent_preserve_unicode() {

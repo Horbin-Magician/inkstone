@@ -2022,24 +2022,19 @@ mod tests {
     }
 
     #[test]
-    fn selected_source_range_maps_indented_code_content() {
-        let source = "    rust";
-        let mut cx = NodeContext::default();
-        let document = parse(source, &mut cx).unwrap();
-        let BlockNode::CodeBlock(code) = &document.blocks[0] else {
-            panic!("expected code block");
-        };
-        code.set_selection(0..4);
-
-        assert_eq!(document.selected_source_range(), Some(4..8));
-    }
-
-    #[test]
-    fn selected_source_range_maps_multiline_indented_code() {
-        let source = "    one\n    two\n    three";
-        assert_eq!(selected_code_range(source, 0..3), Some(4..7));
-        assert_eq!(selected_code_range(source, 4..7), Some(12..15));
-        assert_eq!(selected_code_range(source, 0..13), Some(4..25));
+    fn indented_prose_is_not_an_unlabelled_code_block() {
+        for source in ["    rust", "    one\n    two\n    three", "\tformula $x$"] {
+            let mut cx = NodeContext::default();
+            cx.markdown_extensions = Arc::new(MarkdownExtensions::default().frontmatter());
+            let document = parse(source, &mut cx).unwrap();
+            assert!(
+                document
+                    .blocks
+                    .iter()
+                    .all(|block| first_code_block(block).is_none()),
+                "{source}"
+            );
+        }
     }
 
     #[test]

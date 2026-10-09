@@ -359,7 +359,7 @@ mod tests {
             "前文\n\n```rust\nlet 中文 = \"😀 [[note]] **bold**\";\n```\n\n后文",
             "前文\r\n\r\n> ```python\r\n> print('😀')\r\n> ```\r\n\r\n后文",
             "前文\n\n- item\n\n  ```text\n  ~~~~\n  ```\n\n后文",
-            "前文\n\n    <b>literal</b>\n    [[note]]\n\n后文",
+            "前文\n\n```html\n<b>literal</b>\n[[note]]\n```\n\n后文",
             "前文\n\n```\n```\n\n后文",
             "前文\n\n```unknown\n未闭合😀",
             "前文\n\n```a&#32;b&#10;c\nliteral\n```",

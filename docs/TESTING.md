@@ -1822,3 +1822,9 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - `cargo test --locked --workspace`：core 331、desktop 385、集成 5 + 1 + 2 项通过，6 项既有手动/容量测试忽略。`cargo clippy --locked --workspace --all-targets -- -D warnings`、工作区格式检查和修改的 vendor 文件格式检查通过。
 - vendor 正式入口通过 Base 1,240 项（1 项既有手动基准忽略）、Component 573 项；另启用 `tree-sitter-tsx` 运行新专项回归通过，确认 JavaScript、类型和 JSX 均有高亮。TSX 修复及查询文件已记入 vendor 补丁清单。SQL 语法依赖要求 `cc ~1.2.1`，主锁文件相应固定为兼容的 1.2.67。
 - 日志保存在 `target/code-block-checks/`。本轮为 macOS 本地自动检查及无头界面交互测试，未新增原生窗口截图、Windows、DPI 或输入性能验收；源码编辑仍展示原文，不宣称已接入源码代码高亮。
+
+### 2026-10-08：缩进正文不再显示为无语言代码块
+
+- 空行后缩进四个空格或一个 Tab 的列表、公式和正文不再识别为无语言代码块。笔记原文不变；代码块只保留围栏。阅读、实时预览、搜索、列表续写和链接补全共用同一解析配置。
+- 回归覆盖用户报告的有序列表公式、仅首行 Tab、引用内四空格缩进，以及围栏代码仍保持代码块。列表续写把四空格条目当作列表，不再跳过。
+- `cargo test -p inkstone-core --offline --lib` 中解析、预览、搜索、表格、注释和编辑相关 114 项通过，1 项既有手动计时测试忽略。桌面端已用新解析配置编译通过。未做原生窗口截图。
