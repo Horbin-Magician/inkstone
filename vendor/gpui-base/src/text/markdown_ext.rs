@@ -458,6 +458,10 @@ impl MarkdownExtensions {
         // construct swallows a `$$` block, so a block plugin matching
         // `Node::Math` never fires and the formula renders inline.
         options.constructs.math_flow = true;
+        // Match the note parser: four-space and tab indentation is a list or
+        // paragraph continuation, not an unlabelled code block. MDX already
+        // turns this construct off.
+        options.constructs.code_indented = false;
         if self.enable_mdx {
             options.constructs.html_flow = false;
             options.constructs.html_text = false;
