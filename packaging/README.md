@@ -15,6 +15,7 @@ Windows 程序内嵌多尺寸应用图标；安装器和卸载器使用同一图
 更新图标原稿后，安装 Pillow 并运行 `python packaging/windows/generate_icon.py`，重新生成并提交 `crates/inkstone-desktop/assets/inkstone.ico`。生成器去除原稿为 macOS Dock 预留的透明边距，保持图案比例，并输出 16–256 像素的 Windows 图标（含常见缩放比例需要的 20、40、96 像素）。正常构建使用已提交的 ICO，无需 Pillow。
 macOS 需要 Xcode Command Line Tools，按本机 Rust host 架构输出 DMG 和 app.tar.gz；应用使用临时签名。
 macOS Intel 与 Apple Silicon 使用各自 runner 构建。
+DMG 按源文件逻辑大小额外预留 20% 和 64 MiB 的文件系统空间，避免自动估算容量不足。
 包内包含使用指南、许可和 `resources.json`，包外 `.sha256` 校验下载完整性；校验和不等同于数字签名。
 当前没有 Windows 发行签名、Apple Developer ID 公证或自动更新功能。
 
