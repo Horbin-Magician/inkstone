@@ -44,6 +44,22 @@ impl DraggedFile {
 }
 
 impl Workspace {
+    pub(super) fn open_dropped_file(
+        &mut self,
+        drag: &DraggedFile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if drag.folder
+            || drag.generation != self.generation
+            || self.ui.tree_name.is_some()
+            || self.modal_is_open()
+        {
+            return;
+        }
+        self.open_note_target(drag.path.clone(), None, true, window, cx);
+    }
+
     pub(super) fn drop_tree_file(
         &mut self,
         drag: &DraggedFile,
