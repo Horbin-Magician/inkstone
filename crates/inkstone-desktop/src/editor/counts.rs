@@ -73,13 +73,19 @@ impl EditorPane {
     }
 
     pub fn properties(&mut self, cx: &App) -> &[inkstone_core::properties::Property] {
-        let source = self.editor.read(cx).value();
-        if self.property_cache.as_ref().is_none_or(|cache| {
-            !std::ptr::eq(cache.source.as_ref(), source.as_ref()) && cache.source != source
-        }) {
+        let editor = self.editor.read(cx);
+        let input_revision = (self.editor.entity_id(), editor.text_revision());
+        if self
+            .property_cache
+            .as_ref()
+            .is_none_or(|cache| cache.input_revision != input_revision)
+        {
+            // value() flattens the rope: only materialize changed text and do
+            // not keep a second whole-document copy alive in the property cache.
+            let source = editor.value();
             self.property_cache = Some(PropertySnapshot {
                 properties: inkstone_core::properties::parse(&source),
-                source,
+                input_revision,
             });
         }
         &self.property_cache.as_ref().unwrap().properties

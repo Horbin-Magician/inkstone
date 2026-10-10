@@ -59,7 +59,7 @@ struct CountSnapshot {
 }
 
 struct PropertySnapshot {
-    source: SharedString,
+    input_revision: (EntityId, u64),
     properties: Vec<inkstone_core::properties::Property>,
 }
 
