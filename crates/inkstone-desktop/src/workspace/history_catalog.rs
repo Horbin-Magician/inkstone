@@ -22,6 +22,8 @@ pub(super) struct State {
     notes: Vec<HistoryNote>,
     page: usize,
     loading: bool,
+    in_flight: Option<(u64, u64)>,
+    refresh_pending: bool,
     message: String,
     pager_focus: std::cell::OnceCell<FocusHandle>,
 }
@@ -30,23 +32,47 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        self.ui.history_catalog = State {
-            loading: true,
-            ..Default::default()
-        };
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
+        let state = &mut self.ui.history_catalog;
+        if state
+            .in_flight
+            .is_some_and(|(active_generation, _)| active_generation == generation)
+        {
+            // A running filesystem scan cannot be cancelled. Queue one fresh
+            // scan for any number of refreshes, instead of scanning in parallel.
+            state.refresh_pending = true;
+            return;
+        }
+        self.ui.history_catalog = State {
+            loading: true,
+            in_flight: Some((generation, request)),
+            ..Default::default()
+        };
         let task = cx
             .background_executor()
             .spawn(async move { vault.history_notes() });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
-                if this.generation != generation || this.ui.recovery_refresh != request {
+                if this.generation != generation
+                    || this.ui.history_catalog.in_flight != Some((generation, request))
+                {
                     return;
                 }
                 let state = &mut this.ui.history_catalog;
+                state.in_flight = None;
+                if state.refresh_pending {
+                    // Discard the superseded result; the next scan uses the
+                    // latest request token and sees writes made in the meantime.
+                    this.refresh_history_catalog(cx);
+                    return;
+                }
                 state.loading = false;
+                if this.ui.recovery_refresh != request {
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(notes) => state.notes = notes,
                     Err(error) => state.message = format!("无法读取整库历史：{error}"),
@@ -192,6 +218,94 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn repeated_catalog_refreshes_coalesce_and_publish_the_latest_request(cx: &mut TestAppContext) {
+        use std::path::Path;
+        cx.update(gpui_kit::init);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("inkstone-catalog-coalesce-{stamp}"));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        vault.save(Path::new("first.md"), None, "第一版").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                w.vault = Some(vault.clone());
+                w.refresh_history_catalog(cx);
+                let active = w.ui.history_catalog.in_flight;
+                assert!(active.is_some());
+                for _ in 0..20 {
+                    w.ui.recovery_refresh += 1;
+                    w.refresh_history_catalog(cx);
+                    assert_eq!(w.ui.history_catalog.in_flight, active);
+                    assert!(w.ui.history_catalog.refresh_pending);
+                    assert!(w.ui.history_catalog.loading);
+                }
+                vault
+                    .save(Path::new("latest.md"), None, "后来保存")
+                    .unwrap();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let state = &w.ui.history_catalog;
+                assert!(!state.loading);
+                assert!(!state.refresh_pending);
+                assert!(state.in_flight.is_none());
+                assert!(state.message.is_empty());
+                assert_eq!(state.notes.len(), 2);
+                assert_eq!(state.notes[1].relative, Path::new("latest.md"));
+                // Closing while a rescan is pending must not restart it or let the
+                // old completion clear a newly opened catalog's request.
+                w.refresh_history_catalog(cx);
+                w.refresh_history_catalog(cx);
+                w.close_overlays(window, cx);
+                w.refresh_history_catalog(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(!w.ui.history_catalog.loading);
+                assert!(!w.ui.history_catalog.refresh_pending);
+                assert!(w.ui.history_catalog.in_flight.is_none());
+                assert_eq!(w.ui.history_catalog.notes.len(), 2);
+            })
+            .unwrap();
+        // A failed queued scan must become idle and permit an explicit retry.
+        std::fs::remove_dir_all(root.join("recovery")).unwrap();
+        handle
+            .update(cx, |w, _, cx| {
+                w.refresh_history_catalog(cx);
+                w.refresh_history_catalog(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert!(!w.ui.history_catalog.loading);
+                assert!(w.ui.history_catalog.in_flight.is_none());
+                assert!(!w.ui.history_catalog.message.is_empty());
+                std::fs::create_dir_all(root.join("recovery")).unwrap();
+                w.refresh_history_catalog(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(!w.ui.history_catalog.loading);
+                assert!(w.ui.history_catalog.message.is_empty());
+                assert!(w.ui.history_catalog.notes.is_empty());
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[gpui::test]
     fn history_catalog_requests_are_invalidated_by_close_and_library_switch(
         cx: &mut TestAppContext,
