@@ -24,9 +24,10 @@ class InventoryTests(unittest.TestCase):
             inventory(stage, "0.1.0", "aarch64-apple-darwin")
             prepare_dmg(stage, image)
             self.assertEqual({p.name for p in image.iterdir() if not p.name.startswith(".")},
-                             {"墨砚.app", "Applications", "使用指南与许可"})
+                             {"墨砚.app", "Applications"})
             self.assertEqual((image / "Applications").readlink(), Path("/Applications"))
-            self.assertEqual((image / "使用指南与许可/licenses/font.txt").read_text(), "font license")
+            self.assertEqual((image / ".support/licenses/font.txt").read_text(), "font license")
+            self.assertFalse((image / ".support/GUIDE.md").exists())
             verify(stage)
             verify(image, manifest=".resources.json")
             (image / "墨砚.app/Contents/MacOS/inkstone").write_bytes(b"corrupt")

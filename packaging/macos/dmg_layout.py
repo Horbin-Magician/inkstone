@@ -1,15 +1,10 @@
-"""Regenerate the Finder layout with ds-store==1.3.1 (development only).
-
-A solid background avoids machine-specific aliases and works without Finder,
-AppleScript permissions, or pip dependencies on the release runner.
-"""
-from pathlib import Path
-
+"""Write Finder metadata against the mounted volume so background aliases resolve."""
 from ds_store import DSStore
+from mac_alias import Alias
 
 
-def main():
-    destination = Path(__file__).with_name("finder-layout.dsstore")
+def write_layout(root):
+    destination = root / ".DS_Store"
     with DSStore.open(str(destination), "w+") as store:
         store["."]["vSrn"] = ("long", 1)
         store["."]["icvl"] = ("type", b"icnv")
@@ -26,7 +21,8 @@ def main():
         }
         store["."]["icvp"] = {
             "viewOptionsVersion": 1,
-            "backgroundType": 1,
+            "backgroundType": 2,
+            "backgroundImageAlias": Alias.for_file(str(root / ".background.tiff")).to_bytes(),
             "backgroundColorRed": 245 / 255,
             "backgroundColorGreen": 244 / 255,
             "backgroundColorBlue": 240 / 255,
@@ -42,10 +38,5 @@ def main():
             "scrollPositionX": 0.0,
             "scrollPositionY": 0.0,
         }
-        store["墨砚.app"]["Iloc"] = (180, 120)
-        store["Applications"]["Iloc"] = (460, 120)
-        store["使用指南与许可"]["Iloc"] = (320, 290)
-
-
-if __name__ == "__main__":
-    main()
+        store["墨砚.app"]["Iloc"] = (180, 172)
+        store["Applications"]["Iloc"] = (460, 172)
