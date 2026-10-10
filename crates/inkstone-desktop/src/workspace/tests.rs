@@ -3794,6 +3794,77 @@ fn middle_click_closes_only_the_pressed_tab_and_preserves_conflicts(cx: &mut Tes
 }
 
 #[gpui::test]
+fn closing_reading_tab_clears_tree_selection_and_allows_reopening(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-close-reading-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("note.md"), "text").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, _, cx| {
+            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+            w.index = Arc::new(Index::build(&vault).unwrap());
+            w.files = w.index.note_paths();
+            w.vault = Some(vault);
+            w.ui.prefs.left_open = true;
+            w.ui.prefs.default_reading = true;
+            w.ui.left_mode = 0;
+            w.sync_index_ui(cx);
+            w.rebuild_sorted_tree(cx);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1100.), px(800.)));
+    for _ in 0..2 {
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let bounds = visual.debug_bounds("tree-name-0").unwrap();
+        visual.simulate_click(bounds.center(), Modifiers::default());
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(w.tabs.len(), 1);
+                assert!(w.tabs[0].pane.read(cx).reading);
+                assert_eq!(w.ui.tree_active, Some("note.md".into()));
+                assert!(w.ui.tree_name.is_none());
+                w.close_tab(window, cx);
+                assert!(w.tabs.is_empty());
+                assert!(w.active.is_none());
+                assert!(w.ui.tree_active.is_none());
+            })
+            .unwrap();
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
+fn closing_tabs_preserves_tree_selection_until_last_matching_view(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            for name in ["a", "a", "b"] {
+                w.add_tab(
+                    format!("{name}.md").into(),
+                    Some(name.into()),
+                    false,
+                    window,
+                    cx,
+                );
+            }
+            w.ui.tree_active = Some("a.md".into());
+            w.close_tab_at(0, window, cx);
+            assert_eq!(w.ui.tree_active, Some("a.md".into()));
+            w.close_tab_at(0, window, cx);
+            assert!(w.ui.tree_active.is_none());
+            assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("b.md"));
+            w.ui.tree_active = Some("folder".into());
+            w.close_tab_at(0, window, cx);
+            assert_eq!(w.ui.tree_active, Some("folder".into()));
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn closing_background_tab_preserves_current_editor(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(Workspace::new);
