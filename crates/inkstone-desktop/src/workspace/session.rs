@@ -115,6 +115,7 @@ impl Workspace {
             quit_requested: false,
             views: Default::default(),
             vault: None,
+            standalone: false,
             files: vec![],
             tabs: vec![],
             active: None,
@@ -305,6 +306,7 @@ impl Workspace {
                 inkstone_core::startup_trace::mark("ui_apply_started");
                 match result {
                     Ok((vault, files, watcher, receiver, index, folders, prefs, restored)) => {
+                        this.standalone = false;
                         let (prefs, preference_warning, cloud_secret) = prefs;
                         this.ui.folders = folders;
                         let restore_active = prefs.active_path.clone();
