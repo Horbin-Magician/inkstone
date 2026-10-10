@@ -121,6 +121,7 @@ impl Workspace {
             return false;
         }
         let preferences_pending = !self.ui.discard_workspace_on_close
+            && !self.standalone
             && self.vault.is_some()
             && (self.settings_save.is_busy()
                 || serde_json::to_string(&self.ui.prefs)

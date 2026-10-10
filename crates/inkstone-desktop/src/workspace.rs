@@ -118,6 +118,7 @@ pub struct Workspace {
     #[cfg(target_os = "macos")]
     quit_requested: bool,
     vault: Option<Vault>,
+    standalone: bool,
     files: Vec<PathBuf>,
     tabs: Vec<Tab>,
     active: Option<usize>,

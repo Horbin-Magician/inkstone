@@ -1816,6 +1816,10 @@ impl Render for Workspace {
         let center = div()
             .id("file-open-drop")
             .debug_selector(|| "file-open-drop".into())
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, w, cx| {
+                cx.stop_propagation();
+                this.open_external_files(paths.paths().to_vec(), w, cx);
+            }))
             .on_drop(
                 cx.listener(|this, drag: &super::left_sidebar::DraggedFile, w, cx| {
                     cx.stop_propagation();
@@ -1908,7 +1912,10 @@ impl Render for Workspace {
             .text_color(self.fg())
             .text_size(px(14.))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, w, cx| {
-                this.import_files(paths.paths().to_vec(), w, cx)
+                cx.stop_propagation();
+                if this.vault.is_none() {
+                    this.open_external_files(paths.paths().to_vec(), w, cx);
+                }
             }))
             .on_action(cx.listener(|this, _: &NewTab, w, cx| this.new_blank(w, cx)))
             .on_action(cx.listener(|this, _: &SplitRight, w, cx| this.split_active(false, w, cx)))

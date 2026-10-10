@@ -16,6 +16,9 @@ impl BackgroundSync {
 }
 
 pub fn window_closed(cx: &mut App) {
+    if !cx.windows().is_empty() {
+        return;
+    }
     let state = cx.default_global::<BackgroundSync>();
     state.window_closed = true;
     if state.ready_to_quit() {
@@ -44,6 +47,25 @@ pub fn retain<T: 'static>(task: Task<T>, cx: &mut App) -> Task<T> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[gpui::test]
+    fn closing_main_window_keeps_file_windows_alive(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_kit::init);
+        let main = cx.add_window(crate::workspace::Workspace::new);
+        let file = cx.add_window(crate::workspace::Workspace::new);
+        main.update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.update(|cx| {
+            window_closed(cx);
+            assert!(!cx.default_global::<BackgroundSync>().ready_to_quit());
+        });
+        file.update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.update(|cx| {
+            window_closed(cx);
+            assert!(cx.global::<BackgroundSync>().ready_to_quit());
+        });
+    }
 
     #[gpui::test]
     fn closed_window_waits_for_all_tasks_including_failures(cx: &mut gpui::TestAppContext) {

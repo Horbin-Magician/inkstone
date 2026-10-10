@@ -23,17 +23,32 @@ pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
         {
             crate::background_sync::window_closed(cx);
         }
+        // Each file window owns its save/conflict guard. Let every live window
+        // handle Quit before the last-window callback ends the application.
+        cx.propagate();
     });
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.on_action(move |_: &Minimize, cx| {
+        if cx.active_window() != Some(handle) {
+            cx.propagate();
+            return;
+        }
         let _ = handle.update(cx, |_, window, _| window.minimize_window());
     });
     cx.on_action(move |_: &Zoom, cx| {
+        if cx.active_window() != Some(handle) {
+            cx.propagate();
+            return;
+        }
         let _ = handle.update(cx, |_, window, _| window.zoom_window());
     });
     cx.on_action(move |_: &Fullscreen, cx| {
+        if cx.active_window() != Some(handle) {
+            cx.propagate();
+            return;
+        }
         let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
     });
     cx.bind_keys([

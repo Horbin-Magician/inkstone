@@ -62,7 +62,7 @@ impl State {
 
 impl Workspace {
     pub(super) fn persist_workspace(&mut self, cx: &mut Context<Self>) {
-        if self.loading || self.ui.backup.busy {
+        if self.standalone || self.loading || self.ui.backup.busy {
             return;
         }
         self.snapshot_views(cx);

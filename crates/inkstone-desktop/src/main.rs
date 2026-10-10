@@ -180,9 +180,8 @@ fn main() {
                         ..gpui_component::TitleBar::window_options()
                     },
                     |window, cx| {
-                        let main_window_id = window.window_handle().window_id();
-                        cx.on_window_closed(move |cx, window_id| {
-                            if window_id == main_window_id {
+                        cx.on_window_closed(move |cx, _| {
+                            if cx.windows().is_empty() {
                                 background_sync::window_closed(cx);
                             }
                         })
