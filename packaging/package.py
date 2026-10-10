@@ -61,7 +61,7 @@ def package(output):
     system = platform.system()
     host = subprocess.check_output(["rustc", "-vV"], text=True).split("host: ")[1].splitlines()[0]
     if system not in ("Windows", "Darwin") or host not in (
-        "x86_64-pc-windows-msvc", "aarch64-apple-darwin", "x86_64-apple-darwin"
+        "x86_64-pc-windows-msvc", "aarch64-apple-darwin"
     ):
         raise ValueError(f"Unsupported native host: {host}")
     version = metadata()["version"]

@@ -24,7 +24,6 @@ class InventoryTests(unittest.TestCase):
             for target, suffixes in (
                 ("x86_64-pc-windows-msvc", (".zip", "-setup.exe")),
                 ("aarch64-apple-darwin", (".dmg", ".app.tar.gz")),
-                ("x86_64-apple-darwin", (".dmg", ".app.tar.gz")),
             ):
                 stem = f"inkstone-0.1.0-{target}"
                 lines = []
