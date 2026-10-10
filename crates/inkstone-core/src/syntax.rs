@@ -1,4 +1,5 @@
 //! One source-coordinate parse shared by indexing and live presentation.
+mod changed_range;
 mod incremental;
 use markdown_parser::{ParseOptions, mdast::Node};
 use std::sync::Arc;
@@ -306,25 +307,26 @@ impl Snapshot {
         if !self.comments.is_empty() || !self.inline_footnotes.is_empty() {
             return None;
         }
+        self.update_plain_paragraph_with_change(
+            source,
+            changed_range::ChangedRange::between(&self.source, source),
+        )
+    }
+
+    fn update_plain_paragraph_with_change(
+        &self,
+        source: &str,
+        change: changed_range::ChangedRange,
+    ) -> Option<Self> {
         let before = self.source.as_ref();
-        let start = before
-            .chars()
-            .zip(source.chars())
-            .take_while(|(a, b)| a == b)
-            .map(|(ch, _)| ch.len_utf8())
-            .sum::<usize>();
+        let changed_range::ChangedRange {
+            start,
+            old_end,
+            new_end,
+        } = change;
         if start == before.len() && start == source.len() {
             return Some(self.clone());
         }
-        let suffix = before[start..]
-            .chars()
-            .rev()
-            .zip(source[start..].chars().rev())
-            .take_while(|(a, b)| a == b)
-            .map(|(ch, _)| ch.len_utf8())
-            .sum::<usize>();
-        let old_end = before.len() - suffix;
-        let new_end = source.len() - suffix;
         let Node::Root(root) = self.ast.as_deref()? else {
             return None;
         };

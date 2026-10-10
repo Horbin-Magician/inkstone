@@ -5,32 +5,22 @@ use markdown_parser::unist::Point;
 impl Snapshot {
     pub fn update_block(&self, source: &str) -> Option<Self> {
         let _span = crate::performance::span(crate::performance::Stage::SyntaxIncremental);
-        if let Some(snapshot) = self.update_plain_paragraph(source) {
+        if !self.comments.is_empty() || !self.inline_footnotes.is_empty() {
+            return None;
+        }
+        let change = changed_range::ChangedRange::between(&self.source, source);
+        if let Some(snapshot) = self.update_plain_paragraph_with_change(source, change) {
             return Some(snapshot);
         }
-        if !self.comments.is_empty()
-            || !self.inline_footnotes.is_empty()
-            || source.contains("%%")
-            || source.contains("^[")
-        {
+        if source.contains("%%") || source.contains("^[") {
             return None;
         }
         let old = self.source.as_ref();
-        let start: usize = old
-            .chars()
-            .zip(source.chars())
-            .take_while(|(a, b)| a == b)
-            .map(|(c, _)| c.len_utf8())
-            .sum();
-        let suffix: usize = old[start..]
-            .chars()
-            .rev()
-            .zip(source[start..].chars().rev())
-            .take_while(|(a, b)| a == b)
-            .map(|(c, _)| c.len_utf8())
-            .sum();
-        let old_end = old.len() - suffix;
-        let new_end = source.len() - suffix;
+        let changed_range::ChangedRange {
+            start,
+            old_end,
+            new_end,
+        } = change;
         let ast = self.ast.as_deref()?;
         if has_definitions(ast) {
             return None;
