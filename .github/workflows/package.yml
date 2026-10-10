@@ -32,6 +32,9 @@ jobs:
       - name: Install NSIS
         if: runner.os == 'Windows'
         run: choco install nsis --version=3.11 -y --no-progress
+      - name: Install DMG metadata dependencies
+        if: runner.os == 'macOS'
+        run: python -m pip install -r packaging/macos/requirements.txt
       - name: Build and package
         run: python packaging/package.py "${{ runner.temp }}/inkstone-package"
       - uses: actions/upload-artifact@v4

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and package the native host target (Python 3.10+, no pip dependencies)."""
+"""Build and package the native host target (Python 3.10+)."""
 
 import argparse
 import hashlib
@@ -58,14 +58,14 @@ def dmg_size_mb(directory):
 
 
 def prepare_dmg(stage, image):
-    """Keep the install action prominent and collect supporting files below it."""
+    """Show only the drag-to-install pair; keep attribution files hidden."""
     image.mkdir()
     shutil.copytree(stage / "墨砚.app", image / "墨砚.app")
     (image / "Applications").symlink_to("/Applications")
-    support = image / "使用指南与许可"
+    support = image / ".support"
     support.mkdir()
     for path in stage.iterdir():
-        if path.name == "墨砚.app":
+        if path.name in ("墨砚.app", "GUIDE.md"):
             continue
         if path.is_dir():
             shutil.copytree(path, support / path.name)
@@ -73,7 +73,6 @@ def prepare_dmg(stage, image):
             shutil.copy2(path, support / path.name)
     # Paths changed, so the DMG gets its own inventory covering the whole payload.
     (support / "resources.json").unlink()
-    shutil.copy2(ROOT / "packaging/macos/finder-layout.dsstore", image / ".DS_Store")
     data = json.loads((stage / "resources.json").read_text(encoding="utf-8"))
     # Keep the machine-readable inventory out of Finder's install view.
     inventory(image, data["version"], data["target"], manifest=".resources.json")
@@ -87,6 +86,9 @@ def package(output):
         "x86_64-pc-windows-msvc", "aarch64-apple-darwin"
     ):
         raise ValueError(f"Unsupported native host: {host}")
+    if system == "Darwin":
+        # Fail before building if the DMG metadata dependencies are unavailable.
+        from macos.dmg import build_dmg
     version = metadata()["version"]
     compiler = None
     if system == "Windows":
@@ -135,9 +137,7 @@ def package(output):
                 archive.add(path, arcname=path.name)
         image = output / "dmg-root"
         prepare_dmg(stage, image)
-        run("hdiutil", "create", "-volname", "墨砚 · 拖入 Applications 安装", "-srcfolder", image,
-            "-size", f"{dmg_size_mb(image)}m", "-fs", "HFS+",
-            "-format", "UDZO", output / f"{stem}.dmg")
+        build_dmg(image, output / f"{stem}.dmg", dmg_size_mb(image))
     assets = sorted(p for p in output.iterdir() if p.is_file())
     (output / f"{stem}.sha256").write_text(
         "".join(f"{digest(p)}  {p.name}\n" for p in assets), encoding="utf-8")
