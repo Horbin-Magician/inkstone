@@ -163,6 +163,21 @@ python3 tools/performance/prepare_macos.py target/new-diagnostic-run --scenario 
 
 ## 阅读与片段准备基准
 
+Markdown 样式与局部重解析也可单独测量：
+
+```sh
+cargo build --release --locked -p inkstone-core --example markdown_benchmark
+# GENERATED_FILE 必须来自 corpus.py 新生成的隔离库。
+target/release/examples/markdown_benchmark GENERATED_FILE
+```
+
+每阶段 5 次预热、20 次正式样本，输出 p50/p95；样式阶段复用已有快照，编辑阶段
+在中部段落插入普通文本或强调语法，包含改动定位、局部解析和树坐标更新。
+完整解析作为计时外的正确性对照，每轮核对 AST 与源文本；输出源、样式、元数据
+及编辑后 AST 散列，跨版本须一致。先保留改前和改后的 release 二进制，再停止构建，
+用同一生成样本至少交错运行三对独立进程。这是后端 CPU 阶段，不含原生输入、
+图形、布局或显示帧；单个长段落仍按整段重解析，不拆分样本。
+
 ```sh
 cargo build --release --locked -p inkstone-core --example projection_benchmark
 # GENERATED_FILE 必须来自 corpus.py 新生成的隔离库。
