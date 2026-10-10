@@ -5519,6 +5519,127 @@ fn settings_sliders_accept_keyboard_changes_and_keep_focus(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn settings_scrollbar_remains_interactive_after_wheeling_to_bottom(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1000.), px(500.)));
+    handle
+        .update(&mut visual, |w, window, cx| {
+            w.ui.settings = true;
+            w.ui.settings_tab = 0;
+            window.focus(&w.ui.modal_focus, cx);
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let bounds = handle
+        .update(&mut visual, |w, _, _| w.ui.settings_scroll.bounds())
+        .unwrap();
+    visual.simulate_event(ScrollWheelEvent {
+        position: bounds.center(),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-100000.))),
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let bottom = handle
+        .update(&mut visual, |w, _, _| w.ui.settings_scroll.offset().y)
+        .unwrap();
+    assert!(bottom < -bounds.size.height);
+    // The track must stay at the viewport's right edge after its content moves.
+    let position = point(bounds.right() - px(4.), bounds.top() + px(20.));
+    visual.simulate_mouse_move(position, None, Modifiers::default());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_mouse_down(position, MouseButton::Left, Modifiers::default());
+    visual.simulate_mouse_up(position, MouseButton::Left, Modifiers::default());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    handle
+        .update(&mut visual, |w, _, _| {
+            assert!(
+                w.ui.settings_scroll.offset().y > bottom,
+                "scrollbar track must remain visible and clickable after scrolling"
+            );
+        })
+        .unwrap();
+    visual.simulate_event(ScrollWheelEvent {
+        position: bounds.center(),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-100000.))),
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let thumb = point(bounds.right() - px(8.), bounds.bottom() - px(12.));
+    visual.simulate_mouse_move(thumb, None, Modifiers::default());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_mouse_down(thumb, MouseButton::Left, Modifiers::default());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_mouse_move(position, MouseButton::Left, Modifiers::default());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_mouse_up(position, MouseButton::Left, Modifiers::default());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    handle
+        .update(&mut visual, |w, _, _| {
+            assert_eq!(
+                w.ui.settings_scroll.offset().y,
+                px(0.),
+                "dragging the visible thumb must reach the top"
+            );
+        })
+        .unwrap();
+}
+
+#[gpui::test]
+fn settings_wheel_keeps_viewport_stable_across_categories(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    cx.run_until_parked();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1000.), px(600.)));
+    for tab in [0, 1, 2, 5, 6, 7, 8] {
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.settings = true;
+                w.ui.settings_tab = tab;
+                w.ui.settings_scroll.set_offset(Point::default());
+                window.focus(&w.ui.modal_focus, cx);
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let (bounds, maximum) = handle
+            .update(&mut visual, |w, _, _| {
+                (
+                    w.ui.settings_scroll.bounds(),
+                    w.ui.settings_scroll.max_offset().y,
+                )
+            })
+            .unwrap();
+        let mut expected = px(0.);
+        for y in [-60., -60., -60., 60., -60., -100000., 60., 100000.] {
+            expected = (expected + px(y)).clamp(-maximum, px(0.));
+            visual.simulate_event(ScrollWheelEvent {
+                position: bounds.center(),
+                delta: ScrollDelta::Pixels(point(px(0.), px(y))),
+                modifiers: Modifiers::default(),
+                touch_phase: TouchPhase::Moved,
+            });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |w, _, _| {
+                    assert_eq!(w.ui.settings_scroll.bounds(), bounds, "tab={tab}");
+                    assert_eq!(w.ui.settings_scroll.max_offset().y, maximum, "tab={tab}");
+                    assert_eq!(
+                        w.ui.settings_scroll.offset().y,
+                        expected,
+                        "tab={tab} delta={y}"
+                    );
+                })
+                .unwrap();
+        }
+    }
+}
+
+#[gpui::test]
 fn shortcut_wheel_uses_full_settings_viewport_and_reaches_last_row(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(Workspace::new);

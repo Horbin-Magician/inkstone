@@ -31,7 +31,14 @@ impl Workspace {
             .id("settings-content")
             .track_scroll(&self.ui.settings_scroll)
             .relative()
-            .vertical_scrollbar(&self.ui.settings_scroll)
+            // This child moves with the scrolled content. Anchor the painted
+            // track to the handle's viewport, not to the child's layout bounds.
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(gpui_base::Scrollbar::vertical(&self.ui.settings_scroll)),
+            )
             .overflow_y_scroll()
             .min_h_0()
             .h_full()
