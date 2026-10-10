@@ -26,6 +26,36 @@ enum EditorSetting {
 }
 
 impl Workspace {
+    pub(super) fn settings_label(
+        &self,
+        id: &'static str,
+        name: &str,
+        description: &str,
+    ) -> Stateful<Div> {
+        let description = description.to_string();
+        div()
+            .id((ElementId::from(id), "name"))
+            .role(gpui::Role::Label)
+            .aria_label(name.to_string())
+            .text_size(px(MIN_UI_FONT_SIZE))
+            .line_height(relative(1.3))
+            .child(name.to_string())
+            .when(!description.is_empty(), |label| {
+                label
+                    .aria_description(description.clone())
+                    .tooltip(move |window, cx| {
+                        let description = description.clone();
+                        gpui_component::tooltip::Tooltip::element(move |_, _| {
+                            div()
+                                .max_w(px(360.))
+                                .whitespace_normal()
+                                .child(description.clone())
+                        })
+                        .build(window, cx)
+                    })
+            })
+    }
+
     pub(super) fn settings_content(&self) -> Stateful<Div> {
         div()
             .id("settings-content")
@@ -61,7 +91,7 @@ impl Workspace {
     ) -> AnyElement {
         div()
             .flex()
-            .items_start()
+            .items_center()
             .gap_4()
             .flex_shrink_0()
             .py(px(padding))
@@ -81,28 +111,7 @@ impl Workspace {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .child(
-                        div()
-                            .id((ElementId::from(id), "name"))
-                            .role(gpui::Role::Label)
-                            .aria_label(name.to_string())
-                            .text_size(px(MIN_UI_FONT_SIZE))
-                            .line_height(relative(1.3))
-                            .child(name.to_string()),
-                    )
-                    .child(
-                        div()
-                            .id((ElementId::from(id), "description"))
-                            .role(gpui::Role::Label)
-                            .aria_label(description.to_string())
-                            .text_size(px(MIN_UI_FONT_SIZE))
-                            .line_height(relative(1.3))
-                            .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                            .child(description.to_string()),
-                    ),
+                    .child(self.settings_label(id, name, description)),
             )
             .child(FocusReveal::new(
                 (ElementId::from(id), "focus"),
@@ -172,16 +181,11 @@ impl Workspace {
                 "允许折叠列表等缩进内容。",
                 p.fold_indentation,
             ),
-            LineNumbers => (
-                "line-number-setting",
-                "行号",
-                "在编辑区左侧显示行号。",
-                p.line_numbers,
-            ),
+            LineNumbers => ("line-number-setting", "行号", "", p.line_numbers),
             IndentGuides => (
                 "indent-guides-setting",
                 "缩进参考线",
-                "在缩进行之间显示参考线。",
+                "",
                 p.show_indent_guides,
             ),
             PairBrackets => (
@@ -248,15 +252,6 @@ impl Workspace {
             .flex_col()
             .gap_1()
             .child(Input::new(&self.ui.settings_filter).w_full())
-            .child(
-                div()
-                    .px_2()
-                    .pt_3()
-                    .pb_2()
-                    .text_size(px(MIN_UI_FONT_SIZE))
-                    .text_color(rgb(0x777777))
-                    .child("选项"),
-            )
             .children(
                 [
                     (5, "外观", "palette"),
@@ -375,29 +370,13 @@ impl Workspace {
                     let haystack = format!("{label} {terms}").to_lowercase();
                     query.split_whitespace().all(|word| haystack.contains(word))
                 })
-                .map(|(id, (tab, label, terms))| {
+                .map(|(id, (tab, label, _))| {
                     Button::new(("settings-search-result", id))
                         .ghost()
                         .w_full()
                         .h_auto()
                         .accessibility_label(label)
-                        .child(
-                            div()
-                                .w_full()
-                                .py_2()
-                                .flex()
-                                .flex_col()
-                                .gap_1()
-                                .child(label)
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(
-                                            crate::theme::palette(self.ui.prefs.light).muted,
-                                        )
-                                        .child(terms),
-                                ),
-                        )
+                        .child(div().w_full().py_2().flex().flex_col().gap_1().child(label))
                         .on_click(cx.listener(move |this, _, w, cx| {
                             this.ui
                                 .settings_filter
@@ -422,8 +401,8 @@ impl Workspace {
                 .child(
                     self.settings_content()
                         .gap_2()
-                        .child("设置搜索 · 选择结果打开对应分类")
-                        .when(empty, |s| s.child("未找到设置，请尝试名称或功能关键词。"))
+                        .child("搜索结果")
+                        .when(empty, |s| s.child("未找到相关设置"))
                         .children(rows),
                 )
                 .into_any_element();
@@ -583,7 +562,7 @@ impl Workspace {
                             .child(self.settings_row(
                                 "default-view-row",
                                 "新标签页的默认视图",
-                                "选择新标签页使用编辑视图还是阅读视图。",
+                                "",
                                 default_view,
                                 false,
                                 20.,
@@ -591,7 +570,7 @@ impl Workspace {
                             .child(self.settings_row(
                                 "default-mode-row",
                                 "默认编辑模式",
-                                "选择编辑视图默认使用实时预览还是源码模式。",
+                                "",
                                 editing_mode,
                                 true,
                                 20.,

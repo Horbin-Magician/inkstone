@@ -200,6 +200,7 @@ impl Workspace {
                 "note-location"
             })
             .label(label)
+            .tooltip("仅影响之后创建的笔记和导入的附件；文件夹路径相对于当前笔记库。")
             .accessibility_label(format!(
                 "{}：{label}",
                 if attachment {
@@ -243,27 +244,11 @@ impl Workspace {
                         .items_center()
                         .justify_between()
                         .gap_4()
-                        .child(
-                            div()
-                                .flex_1()
-                                .child(if attachment {
-                                    "附件默认存放路径"
-                                } else {
-                                    "新建笔记的存放位置"
-                                })
-                                .child(
-                                    div()
-                                        .text_size(px(MIN_UI_FONT_SIZE))
-                                        .text_color(
-                                            crate::theme::palette(self.ui.prefs.light).muted,
-                                        )
-                                        .child(if attachment {
-                                            "设置新添加附件的存放位置。"
-                                        } else {
-                                            "指定新建笔记的存放路径。"
-                                        }),
-                                ),
-                        )
+                        .child(div().flex_1().child(if attachment {
+                            "附件默认存放路径"
+                        } else {
+                            "新建笔记的存放位置"
+                        }))
                         .child(FocusReveal::new(
                             if attachment {
                                 "attachment-location-focus"
@@ -336,16 +321,7 @@ impl Workspace {
                             .items_center()
                             .justify_between()
                             .gap_4()
-                            .child(
-                                div().flex_1().child("内部链接类型").child(
-                                    div()
-                                        .text_size(px(MIN_UI_FONT_SIZE))
-                                        .text_color(
-                                            crate::theme::palette(self.ui.prefs.light).muted,
-                                        )
-                                        .child("设置链接到库内文件时使用的路径格式。"),
-                                ),
-                            )
+                            .child(div().flex_1().child("内部链接类型"))
                             .child(FocusReveal::new(
                                 "link-format-focus",
                                 &self.ui.settings_scroll,
@@ -379,11 +355,12 @@ impl Workspace {
                             .justify_between()
                             .gap_3()
                             .child(
-                                div().flex_1().child("自动更新内部链接").child(
-                                    div()
-                                        .text_size(px(MIN_UI_FONT_SIZE))
-                                        .child("关闭时，重命名或移动后会询问是否更新链接。"),
-                                ),
+                                self.settings_label(
+                                    "update-links-label",
+                                    "自动更新内部链接",
+                                    "关闭时，重命名或移动后会询问是否更新链接。",
+                                )
+                                .flex_1(),
                             )
                             .child(FocusReveal::new(
                                 "always-update-links-focus",
@@ -397,10 +374,7 @@ impl Workspace {
                                         cx.notify();
                                     })),
                             )),
-                    )
-                    .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(
-                        "文件夹路径相对于当前笔记库。位置设置只影响之后创建的笔记和导入的附件。",
-                    )),
+                    ),
             )
             .into_any_element()
     }

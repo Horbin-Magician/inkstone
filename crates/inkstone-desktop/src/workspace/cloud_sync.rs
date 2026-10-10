@@ -6,7 +6,6 @@ mod schedule;
 use schedule::{Pump, Schedule, WaitKind};
 mod watch;
 use super::*;
-use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
     Disableable,
     button::{Button, ButtonVariants},
@@ -573,14 +572,13 @@ impl Workspace {
             self.settings_content().gap_3().whitespace_normal()
                 .child("云同步 · WebDAV")
                 .when(self.vault.is_none(), |s| s.child("请先打开笔记库，再配置云同步。同步配置按笔记库分别保存。"))
-                .child("在各设备填写同一个已存在的 WebDAV 目录；不同笔记库请使用不同目录。")
-                .child("服务器目录地址")
+                .child(self.settings_label("webdav-url-label", "服务器目录地址", "各设备使用同一个已存在的 WebDAV 目录；不同笔记库使用不同目录。建议使用 HTTPS。"))
                 .child(super::focus_reveal::FocusReveal::new("webdav-url-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-url-field".into()).child(Input::new(&state.url).disabled(disabled))))
                 .child("用户名")
                 .child(super::focus_reveal::FocusReveal::new("webdav-username-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-username-field".into()).child(Input::new(&state.username).disabled(disabled))))
-                .child("密码 / 应用专用密码")
+                .child(self.settings_label("webdav-password-label", "密码 / 应用专用密码", "密码保存在本机应用数据中，不写入笔记库或上传；重启后自动填回。"))
                 .child(super::focus_reveal::FocusReveal::new("webdav-password-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-password-field".into()).child(Input::new(&state.password).disabled(disabled))))
-                .child("密码以明文保存在本机应用数据中，不写入笔记库，也不会上传。重启或切换回来后会自动填回。建议使用 HTTPS。")
+                .child("密码以明文保存在本机，建议使用应用专用密码。")
                 .child(
                     div()
                         .flex()
@@ -590,11 +588,7 @@ impl Workspace {
                         .flex_shrink_0()
                         .min_w_0()
                         .child(
-                            div().flex_1().min_w_0().child("自动同步").child(
-                                div().text_size(px(MIN_UI_FONT_SIZE)).child(
-                                    "打开笔记库，以及新建、保存、删除或外部修改文件后自动同步。连续修改会稍等片刻再合并同步；关闭后仅在点击“立即同步”时同步。",
-                                ),
-                            ),
+                            self.settings_label("webdav-auto-label", "自动同步", "打开笔记库或文件变更后自动同步，连续修改会合并处理；关闭后需点击立即同步。未保存正文需先手动保存。").flex_1().min_w_0(),
                         )
                         .child(
                             super::focus_reveal::FocusReveal::new("webdav-auto-focus", &self.ui.settings_scroll, div().id("webdav-auto-control").debug_selector(|| "webdav-auto-control".into()).flex_shrink_0().child(super::settings_ui::setting_switch("webdav-auto")
@@ -639,10 +633,9 @@ impl Workspace {
                             this.cloud_message("已取消本次等待；开启自动同步时，后续变更或定期检查仍会触发同步。".into(), cx);
                         })))
                 ))
-                .child("双向同步笔记与附件，包含修改、重命名和删除。首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。")
-                .child("隐藏文件、空文件夹、工作区设置和历史记录不参与同步。单文件上限 128 MiB；传输使用本地临时空间，中断后可复用已校验的下载。")
-                .child(super::focus_reveal::FocusReveal::new("webdav-poll-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-poll-control".into()).child(Button::new("webdav-poll-interval")
-                    .label(format!("远端检查间隔：{} 分钟（点击切换）", self.ui.prefs.webdav.poll_minutes.clamp(1, 1440)))
+                .child(self.settings_label("webdav-scope-label", "双向同步笔记与附件，包括删除。", "首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。隐藏文件、空文件夹、工作区设置和历史不参与同步；单文件上限 128 MiB。中断后可复用已校验的下载。"))
+                .child(super::focus_reveal::FocusReveal::new("webdav-poll-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-poll-control".into()).child(Button::new("webdav-poll-interval").tooltip("点击切换间隔。自动同步开启且应用打开时定期检查远端，重新激活窗口也会检查。")
+                    .label(format!("远端检查间隔：{} 分钟", self.ui.prefs.webdav.poll_minutes.clamp(1, 1440)))
                     .disabled(disabled)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.ui.prefs.webdav.poll_minutes = match this.ui.prefs.webdav.poll_minutes {
@@ -651,7 +644,6 @@ impl Workspace {
                         this.persist_workspace(cx);
                         cx.notify();
                     })))))
-                .child("自动同步开启时，应用持续打开会定期检查远端，重新激活窗口也会检查；未保存正文仍等待手动保存。")
                 .when(state.run.is_some(), |s| {
                     let progress = state.progress.as_ref().filter(|p| p.total > 0);
                     s.child(gpui_component::progress::Progress::new("cloud-sync-progress")
@@ -775,29 +767,26 @@ mod tests {
                     w.ui.cloud_sync.schedule.defer_quiet = waiting;
                 })
                 .unwrap();
-            for (index, value) in [(4, "https://example.test/dav/"), (6, "user"), (8, "secret")] {
+            for (selector, value) in [
+                ("webdav-url-field", "https://example.test/dav/"),
+                ("webdav-username-field", "user"),
+                ("webdav-password-field", "secret"),
+            ] {
                 visual.update(|window, cx| window.draw(cx).clear(cx));
-                let position = handle
-                    .update(&mut visual, |w, _, _| {
-                        w.ui.settings_scroll
-                            .bounds_for_item(index)
-                            .unwrap()
-                            .center()
-                    })
-                    .unwrap();
+                let position = visual.debug_bounds(selector).unwrap().center();
                 visual.simulate_click(position, Modifiers::default());
                 visual.simulate_platform_keystrokes("ctrl-a");
                 visual.simulate_input(value);
                 handle
                     .update(&mut visual, |w, window, cx| {
-                        let input = match index {
-                            4 => &w.ui.cloud_sync.url,
-                            6 => &w.ui.cloud_sync.username,
+                        let input = match selector {
+                            "webdav-url-field" => &w.ui.cloud_sync.url,
+                            "webdav-username-field" => &w.ui.cloud_sync.username,
                             _ => &w.ui.cloud_sync.password,
                         };
                         assert!(
                             input.read(cx).focus_handle(cx).is_focused(window),
-                            "input {index}, waiting={waiting}"
+                            "input {selector}, waiting={waiting}"
                         );
                         assert_eq!(input.read(cx).value().as_ref(), value);
                     })
@@ -806,12 +795,7 @@ mod tests {
         }
         // The switch must remain clickable so a queued attempt can be cancelled.
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        let switch = handle
-            .update(&mut visual, |w, _, _| {
-                let row = w.ui.settings_scroll.bounds_for_item(10).unwrap();
-                point(row.right() - px(16.), row.center().y)
-            })
-            .unwrap();
+        let switch = visual.debug_bounds("webdav-auto-control").unwrap().center();
         visual.simulate_click(switch, Modifiers::default());
         handle
             .update(&mut visual, |w, _, _| {

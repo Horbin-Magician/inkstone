@@ -193,7 +193,7 @@ impl Workspace {
             ]
         } else {
             let mut fonts: Vec<_> = [
-                ("界面字体", "选择应用界面使用的字体。"),
+                ("界面字体", ""),
                 ("正文字体", "选择编辑与阅读视图中笔记正文使用的字体。"),
                 ("等宽字体", "选择代码等内容使用的等宽字体。"),
             ]
@@ -246,14 +246,7 @@ impl Workspace {
                     .rounded(px(12.))
                     .bg(card)
                     .flex_shrink_0()
-                    .child(self.settings_row(
-                        "theme-row",
-                        "基础颜色",
-                        "选择深色、浅色或跟随系统的配色。",
-                        theme,
-                        false,
-                        16.,
-                    ))
+                    .child(self.settings_row("theme-row", "基础颜色", "", theme, false, 16.))
                     .into_any_element(),
                 self.settings_group("字体", {
                     fonts.push(
