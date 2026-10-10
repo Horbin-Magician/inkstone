@@ -1,4 +1,5 @@
 mod activity_trace;
+mod file_drop;
 mod file_sync;
 mod file_writes;
 mod focus_reveal;
