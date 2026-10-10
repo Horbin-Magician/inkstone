@@ -31,3 +31,8 @@ DMG 按源文件逻辑大小额外预留 20% 和 64 MiB 的文件系统空间，
 已存在的正式 Release 不覆盖；草稿可通过手动运行工作流重试。手动运行必须选择对应版本标签。
 日常 `package.yml` 支持手动构建候选产物，不发布 Release。
 CI 将待发布文件写入 runner 临时目录，与 Cargo 依赖缓存隔离；分支检查会取消同一分支的旧任务，版本标签只触发发布工作流。
+
+## 安装界面资源
+
+Windows 使用纸白背景、墨色文字与现有应用图标，支持 DPI 缩放；安装完成页可直接启动应用。引导文案提供中英文版本，安装与卸载共用品牌页眉。
+`packaging/windows/assets/` 中的 BMP 是已提交的构建输入。修改视觉资源时，安装 Pillow 11.3.0 并运行 `python packaging/windows/generate_installer_art.py`；正常打包无需 Pillow。
