@@ -619,6 +619,7 @@ fn element(
                         gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
                             .with_foreground(crate::theme::palette(light).foreground.into())
                             .with_link(crate::theme::palette(light).accent.into())
+                            .with_strong_color(crate::theme::palette(light).accent.into())
                             .with_code_background(crate::theme::palette(light).surface.into())
                             .with_code_block(code_blocks::style(font))
                             .with_border(crate::theme::palette(light).border.into())
