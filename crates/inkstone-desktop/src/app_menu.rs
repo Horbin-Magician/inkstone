@@ -5,11 +5,31 @@ use gpui_component::input;
 
 actions!(
     app_menu,
-    [Quit, Hide, HideOthers, ShowAll, Minimize, Zoom, Fullscreen]
+    [
+        Quit,
+        Hide,
+        HideOthers,
+        ShowAll,
+        Minimize,
+        Zoom,
+        Fullscreen,
+        CheckUpdates
+    ]
 );
 
 pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
     let observed = workspace.clone();
+    let update_workspace = workspace.downgrade();
+    let update_handle = window.window_handle();
+    cx.on_action(move |_: &CheckUpdates, cx| {
+        if cx.active_window() != Some(update_handle) {
+            cx.propagate();
+            return;
+        }
+        let _ = update_handle.update(cx, |_, window, cx| {
+            let _ = update_workspace.update(cx, |workspace, cx| workspace.show_updates(window, cx));
+        });
+    });
     let workspace = workspace.downgrade();
     let handle = window.window_handle();
     cx.on_action(move |_: &Quit, cx| {
@@ -139,6 +159,7 @@ fn install_menus(cx: &App) {
     cx.set_menus([
         Menu::new(crate::product::name()).items([
             MenuItem::action("设置…", workspace::Settings),
+            MenuItem::action("检查更新…", CheckUpdates),
             MenuItem::separator(),
             MenuItem::os_submenu("服务", SystemMenuType::Services),
             MenuItem::separator(),

@@ -52,6 +52,7 @@ mod sync_recovery;
 mod table_editor;
 mod tree_name;
 mod ui;
+mod updates;
 mod views;
 mod webdav_secret;
 mod welcome;
@@ -112,6 +113,7 @@ struct Tab {
     _focus: Subscription,
 }
 pub struct Workspace {
+    updates: updates::State,
     activity_trace: Option<activity_trace::ActivityTrace>,
     settings_save: settings_save::State,
     file_writes: file_writes::FileWrites,
@@ -178,6 +180,7 @@ fn app_dir() -> PathBuf {
 }
 impl Workspace {
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_update_progress(cx);
         let mut sync_paths = Vec::new();
         if let Some(receiver) = &self.watch_events {
             for event in receiver.try_iter() {
