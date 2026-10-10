@@ -1,13 +1,38 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from package import inventory, verify
+from package import inventory, verify, prepare_dmg
 from package import digest, dmg_size_mb
 from verify_release import verify_release
 
 
 class InventoryTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "DMG staging requires macOS symlinks")
+    def test_dmg_layout_preserves_payload_and_rebuilds_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage, image = root / "stage", root / "dmg"
+            app = stage / "墨砚.app/Contents/MacOS/inkstone"
+            app.parent.mkdir(parents=True)
+            app.write_bytes(b"app fixture")
+            (stage / "licenses").mkdir()
+            (stage / "licenses/font.txt").write_text("font license")
+            (stage / "GUIDE.md").write_text("guide")
+            (stage / "LICENSE").write_text("license")
+            inventory(stage, "0.1.0", "aarch64-apple-darwin")
+            prepare_dmg(stage, image)
+            self.assertEqual({p.name for p in image.iterdir() if not p.name.startswith(".")},
+                             {"墨砚.app", "Applications", "使用指南与许可"})
+            self.assertEqual((image / "Applications").readlink(), Path("/Applications"))
+            self.assertEqual((image / "使用指南与许可/licenses/font.txt").read_text(), "font license")
+            verify(stage)
+            verify(image, manifest=".resources.json")
+            (image / "墨砚.app/Contents/MacOS/inkstone").write_bytes(b"corrupt")
+            with self.assertRaises(ValueError):
+                verify(image, manifest=".resources.json")
+
     def test_dmg_capacity_includes_nested_payload_and_filesystem_headroom(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

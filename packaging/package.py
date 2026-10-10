@@ -34,18 +34,18 @@ def digest(path):
     return result.hexdigest()
 
 
-def inventory(stage, version, target):
+def inventory(stage, version, target, manifest="resources.json"):
     files = {p.relative_to(stage).as_posix(): digest(p)
-             for p in sorted(stage.rglob("*")) if p.is_file() and p.name != "resources.json"}
-    (stage / "resources.json").write_text(json.dumps({
+             for p in sorted(stage.rglob("*")) if p.is_file() and p.name != manifest}
+    (stage / manifest).write_text(json.dumps({
         "version": version, "target": target, "files": files,
     }, indent=2) + "\n", encoding="utf-8")
 
 
-def verify(stage):
-    data = json.loads((stage / "resources.json").read_text(encoding="utf-8"))
+def verify(stage, manifest="resources.json"):
+    data = json.loads((stage / manifest).read_text(encoding="utf-8"))
     actual = {p.relative_to(stage).as_posix(): digest(p)
-              for p in stage.rglob("*") if p.is_file() and p.name != "resources.json"}
+              for p in stage.rglob("*") if p.is_file() and p.name != manifest}
     if actual != data["files"]:
         raise ValueError("Package inventory mismatch")
 
@@ -55,6 +55,29 @@ def dmg_size_mb(directory):
     size = sum(p.stat().st_size for p in directory.rglob("*")
                if p.is_file() and not p.is_symlink())
     return (size * 12 + 10 * 1024 * 1024 - 1) // (10 * 1024 * 1024) + 64
+
+
+def prepare_dmg(stage, image):
+    """Keep the install action prominent and collect supporting files below it."""
+    image.mkdir()
+    shutil.copytree(stage / "墨砚.app", image / "墨砚.app")
+    (image / "Applications").symlink_to("/Applications")
+    support = image / "使用指南与许可"
+    support.mkdir()
+    for path in stage.iterdir():
+        if path.name == "墨砚.app":
+            continue
+        if path.is_dir():
+            shutil.copytree(path, support / path.name)
+        else:
+            shutil.copy2(path, support / path.name)
+    # Paths changed, so the DMG gets its own inventory covering the whole payload.
+    (support / "resources.json").unlink()
+    shutil.copy2(ROOT / "packaging/macos/finder-layout.dsstore", image / ".DS_Store")
+    data = json.loads((stage / "resources.json").read_text(encoding="utf-8"))
+    # Keep the machine-readable inventory out of Finder's install view.
+    inventory(image, data["version"], data["target"], manifest=".resources.json")
+    verify(image, manifest=".resources.json")
 
 
 def package(output):
@@ -111,9 +134,8 @@ def package(output):
             for path in sorted(stage.iterdir()):
                 archive.add(path, arcname=path.name)
         image = output / "dmg-root"
-        shutil.copytree(stage, image)
-        (image / "Applications").symlink_to("/Applications")
-        run("hdiutil", "create", "-volname", "墨砚", "-srcfolder", image,
+        prepare_dmg(stage, image)
+        run("hdiutil", "create", "-volname", "墨砚 · 拖入 Applications 安装", "-srcfolder", image,
             "-size", f"{dmg_size_mb(image)}m", "-fs", "HFS+",
             "-format", "UDZO", output / f"{stem}.dmg")
     assets = sorted(p for p in output.iterdir() if p.is_file())

@@ -36,3 +36,6 @@ CI 将待发布文件写入 runner 临时目录，与 Cargo 依赖缓存隔离�
 
 Windows 使用纸白背景、墨色文字与现有应用图标，支持 DPI 缩放；安装完成页可直接启动应用。引导文案提供中英文版本，安装与卸载共用品牌页眉。
 `packaging/windows/assets/` 中的 BMP 是已提交的构建输入。修改视觉资源时，安装 Pillow 11.3.0 并运行 `python packaging/windows/generate_installer_art.py`；正常打包无需 Pillow。
+
+macOS DMG 使用 640 × 400 的暖白窗口，左右并列显示墨砚和 Applications，窗口标题提示拖放安装；指南和许可收纳在下方的“使用指南与许可”文件夹。DMG 根目录使用隐藏的 `.resources.json` 记录调整布局后的文件路径；`app.tar.gz` 仍保留原来的目录结构和 `resources.json`。
+Finder 布局来自已提交的 `packaging/macos/finder-layout.dsstore`，无需在 CI 中启动 Finder 或授权 AppleScript。调整布局时，安装 ds-store 1.3.1 并运行 `python packaging/macos/generate_layout.py`。纯色背景不依赖本机图片路径或卷别名。
