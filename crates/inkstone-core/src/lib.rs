@@ -18,6 +18,7 @@ pub mod syntax;
 pub mod tables;
 pub mod tags;
 pub mod text_changes;
+pub mod updates;
 pub mod vault;
 pub mod word_count;
 mod yaml_source;

@@ -3435,11 +3435,13 @@ dependencies = [
  "regex",
  "reqwest",
  "roxmltree 0.20.0",
+ "semver",
  "serde",
  "serde-saphyr",
  "serde_json",
  "sha2 0.10.9",
  "similar",
+ "tempfile",
  "unicode-segmentation",
  "windows-sys 0.61.2",
 ]
