@@ -26,6 +26,53 @@ impl From<&std::fs::Metadata> for FileTimes {
 }
 
 pub fn natural_name(a: &str, b: &str) -> Ordering {
+    if a.is_ascii() && b.is_ascii() {
+        return natural_ascii_name(a.as_bytes(), b.as_bytes());
+    }
+    natural_unicode_name(a, b)
+}
+
+// ASCII case folding is one byte to one byte, so compare in place instead of
+// allocating two lowercase strings for every comparison in a sort.
+fn natural_ascii_name(a: &[u8], b: &[u8]) -> Ordering {
+    let (mut left, mut right) = (a, b);
+    while let (Some(&x), Some(&y)) = (left.first(), right.first()) {
+        if x.is_ascii_digit() && y.is_ascii_digit() {
+            let x_len = left.iter().take_while(|c| c.is_ascii_digit()).count();
+            let y_len = right.iter().take_while(|c| c.is_ascii_digit()).count();
+            let x_start = left[..x_len].iter().take_while(|c| **c == b'0').count();
+            let y_start = right[..y_len].iter().take_while(|c| **c == b'0').count();
+            let x_digits = &left[x_start..x_len];
+            let y_digits = &right[y_start..y_len];
+            let order = x_digits
+                .len()
+                .cmp(&y_digits.len())
+                .then_with(|| x_digits.cmp(y_digits));
+            if order != Ordering::Equal {
+                return order;
+            }
+            left = &left[x_len..];
+            right = &right[y_len..];
+        } else {
+            let order = x.to_ascii_lowercase().cmp(&y.to_ascii_lowercase());
+            if order != Ordering::Equal {
+                return order;
+            }
+            left = &left[1..];
+            right = &right[1..];
+        }
+    }
+    left.len()
+        .cmp(&right.len())
+        .then_with(|| {
+            a.iter()
+                .map(u8::to_ascii_lowercase)
+                .cmp(b.iter().map(u8::to_ascii_lowercase))
+        })
+        .then_with(|| a.cmp(b))
+}
+
+fn natural_unicode_name(a: &str, b: &str) -> Ordering {
     let left = a.to_lowercase();
     let right = b.to_lowercase();
     let (mut a_rest, mut b_rest) = (left.as_str(), right.as_str());
@@ -103,6 +150,41 @@ pub fn compare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ascii_fast_path_preserves_natural_order_and_tie_breaks() {
+        let mut names = vec![String::new()];
+        for prefix in ["", "a", "A", "folder/Note", "FOLDER/note", "z-"] {
+            for number in [
+                "",
+                "0",
+                "00",
+                "1",
+                "01",
+                "2",
+                "10",
+                "999999999999999999999999",
+            ] {
+                for suffix in ["", ".md", "a2", "A02"] {
+                    names.push(format!("{prefix}{number}{suffix}"));
+                }
+            }
+        }
+        for a in &names {
+            for b in &names {
+                assert_eq!(
+                    natural_name(a, b),
+                    natural_unicode_name(a, b),
+                    "{a:?} vs {b:?}"
+                );
+            }
+        }
+        for a in ["中文2", "中文10", "İ2", "i\u{307}2", "ΟΣ", "ος", "😀01"] {
+            for b in &names {
+                assert_eq!(natural_name(a, b), natural_unicode_name(a, b));
+                assert_eq!(natural_name(b, a), natural_unicode_name(b, a));
+            }
+        }
+    }
     #[test]
     fn sorts_numbers_without_overflow_and_keeps_folders_first() {
         let mut names = [
