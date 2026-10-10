@@ -200,3 +200,15 @@ cargo test --locked --manifest-path target/vendor-regression/Cargo.toml --target
 每组 1,000 次、三组，并核对所有结果。这里的旧算法是在测试中重建的原实现，
 不是旧版应用二进制；默认 debug 配置，排除初始整形、编辑、绘制和原生交互，
 不能将其改善倍数作为整段输入或滚动的改善倍数。
+
+## 属性面板缓存命中成本
+
+```sh
+cargo test --locked -p inkstone-desktop property_cache_performance -- --ignored --nocapture --test-threads=1
+```
+
+无头微基准生成带 YAML 属性的 1,000,021 字节 Unicode 文档，预先填充缓存，
+交错执行旧/新、新/旧、旧/新，每组读取 1,000 次并核对属性值。旧路径在测试中
+重建原来的 `value()` 加字符串比较缓存；新路径调用生产 `properties()`。
+默认 debug 配置；没有初始化、正文编辑、布局、绘制或原生事件成本。
+正式比较时停止其他构建和测试，不将此局部耗时换算为应用空闲 CPU 降幅。

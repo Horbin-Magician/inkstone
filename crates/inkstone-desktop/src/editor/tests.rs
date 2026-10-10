@@ -2,6 +2,49 @@ use super::*;
 use crate::test_support::PlatformKeys;
 use core::prelude::v1::test;
 #[gpui::test]
+fn property_cache_tracks_silent_edits_undo_and_editor_identity(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = "---\ntitle: Alpha\n---\n中文😀";
+    let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+    handle
+        .update(cx, |pane, window, cx| {
+            assert_eq!(pane.properties(cx)[0].value, "\"Alpha\"");
+            let revision = pane.property_cache.as_ref().unwrap().input_revision;
+            let cached = pane.properties(cx).as_ptr();
+            for offset in [0, 2, 4] {
+                pane.editor
+                    .update(cx, |s, cx| s.set_selected_range(offset..offset, cx));
+                assert_eq!(pane.properties(cx).as_ptr(), cached);
+                assert_eq!(
+                    pane.property_cache.as_ref().unwrap().input_revision,
+                    revision
+                );
+            }
+            pane.editor.update(cx, |s, cx| {
+                s.set_value(source.replace("Alpha", "Bravo"), window, cx)
+            });
+            assert_eq!(pane.properties(cx)[0].value, "\"Bravo\"");
+            pane.editor.update(cx, |s, cx| {
+                s.replace_all(source.replace("Alpha", "Delta"), window, cx)
+            });
+            assert_eq!(pane.properties(cx)[0].value, "\"Delta\"");
+            pane.editor
+                .update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+            assert_eq!(pane.properties(cx)[0].value, "\"Bravo\"");
+            pane.editor
+                .update(cx, |s, cx| s.redo(&gpui_component::input::Redo, window, cx));
+            assert_eq!(pane.properties(cx)[0].value, "\"Delta\"");
+            let replacement = cx.new(|cx| EditorPane::new(source, window, cx));
+            pane.editor = replacement.read(cx).editor.clone();
+            assert_eq!(pane.properties(cx)[0].value, "\"Alpha\"");
+            pane.editor
+                .update(cx, |s, cx| s.set_value("no frontmatter", window, cx));
+            assert!(pane.properties(cx).is_empty());
+        })
+        .unwrap();
+}
+
+#[gpui::test]
 fn presentation_revision_handles_silent_same_length_replacement(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(|window, cx| EditorPane::new("# Alpha", window, cx));

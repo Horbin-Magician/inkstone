@@ -3,6 +3,57 @@ use super::*;
 use core::prelude::v1::test;
 use std::time::Instant;
 
+/// Isolate unchanged property reads; the reference reconstructs the previous
+/// value/string-equality cache, not an old application or a rendered frame.
+#[gpui::test]
+#[ignore = "manual property cache CPU comparison"]
+fn property_cache_performance(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = format!(
+        "---\ntitle: Alpha\n---\n{}",
+        "正文 English 😀 ".repeat(50_000)
+    );
+    let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+    handle
+        .update(cx, |pane, _, cx| {
+            let mut old_source = pane.editor.read(cx).value();
+            let mut old_properties = inkstone_core::properties::parse(&old_source);
+            assert_eq!(pane.properties(cx)[0].value, old_properties[0].value);
+            for round in 0..3 {
+                for old in if round % 2 == 0 {
+                    [true, false]
+                } else {
+                    [false, true]
+                } {
+                    let start = Instant::now();
+                    for _ in 0..1_000 {
+                        if old {
+                            let current = pane.editor.read(cx).value();
+                            if !std::ptr::eq(old_source.as_ref(), current.as_ref())
+                                && old_source != current
+                            {
+                                old_properties = inkstone_core::properties::parse(&current);
+                                old_source = current;
+                            }
+                            std::hint::black_box(&old_properties);
+                        } else {
+                            std::hint::black_box(pane.properties(cx));
+                        }
+                    }
+                    println!(
+                        "property_cache bytes={} old={} round={} calls=1000 total_ms={:.6}",
+                        source.len(),
+                        old,
+                        round,
+                        start.elapsed().as_secs_f64() * 1000.
+                    );
+                    assert_eq!(pane.properties(cx)[0].value, old_properties[0].value);
+                }
+            }
+        })
+        .unwrap();
+}
+
 /// The exact corpus-v1 long paragraph, including its Unicode graphemes. This
 /// deliberately does not split the paragraph to make wrapping cheaper.
 #[gpui::test]
