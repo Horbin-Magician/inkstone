@@ -185,6 +185,8 @@ impl Workspace {
             let selector = format!("tree-name-{i}");
             let drop_path = path.clone();
             let drop_weak = weak.clone();
+            let external_weak = weak.clone();
+            let external_path = path.clone();
             let hover_path = path.clone();
             let drag = DraggedFile {
                 path: path.clone(),
@@ -206,20 +208,33 @@ impl Workspace {
                     })
                 })
                 .when(folder && !is_editing, |s| {
-                    s.drag_over::<DraggedFile>(move |style, drag, _, _| {
-                        if drag.generation == generation && drag.destination(&hover_path).is_some()
-                        {
-                            style.bg(tree_guide)
-                        } else {
-                            style
-                        }
-                    })
-                    .on_drop(move |drag: &DraggedFile, window, cx| {
-                        cx.stop_propagation();
-                        let _ = drop_weak.update(cx, |this, cx| {
-                            this.drop_tree_file(drag, &drop_path, window, cx);
-                        });
-                    })
+                    s.drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(tree_guide))
+                        .on_drop(move |paths: &ExternalPaths, window, cx| {
+                            cx.stop_propagation();
+                            let _ = external_weak.update(cx, |this, cx| {
+                                this.import_tree_files(
+                                    paths.paths().to_vec(),
+                                    external_path.clone(),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        })
+                        .drag_over::<DraggedFile>(move |style, drag, _, _| {
+                            if drag.generation == generation
+                                && drag.destination(&hover_path).is_some()
+                            {
+                                style.bg(tree_guide)
+                            } else {
+                                style
+                            }
+                        })
+                        .on_drop(move |drag: &DraggedFile, window, cx| {
+                            cx.stop_propagation();
+                            let _ = drop_weak.update(cx, |this, cx| {
+                                this.drop_tree_file(drag, &drop_path, window, cx);
+                            });
+                        })
                 })
                 .child(
                     div()
@@ -373,7 +388,11 @@ impl Workspace {
             .bg(self.side())
             .child(self.left_header(cx))
             .when(self.ui.left_mode == 0, |s| {
-                s.child(
+                s.on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                    cx.stop_propagation();
+                    this.import_tree_files(paths.paths().to_vec(), PathBuf::new(), window, cx);
+                }))
+                .child(
                     div()
                         .flex()
                         .h(px(38.))
