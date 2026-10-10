@@ -106,18 +106,17 @@ impl Workspace {
         let state = &self.ui.cloud_sync.capacity;
         let current = state.key == Some(self.cloud_capacity_key(cx));
         div().flex().flex_col().gap_2().min_w_0().whitespace_normal()
-            .child("云端对象容量")
+            .child(self.settings_label("cloud-capacity-label", "云端对象容量", "按当前表单读取，不保存配置。仅统计服务器报告的对象长度，不含清单和存储开销；不代表内容已校验。"))
             .child(super::super::focus_reveal::FocusReveal::new("cloud-capacity-focus", &self.ui.settings_scroll,
                 div().debug_selector(|| "cloud-capacity-control".into()).child(Button::new("cloud-capacity-refresh").label("刷新云端容量")
                     .disabled(self.cloud_settings_disabled() || current && state.busy)
                     .on_click(cx.listener(|this, _, _, cx| this.refresh_cloud_capacity(cx))))))
-            .child("按当前表单读取云端，不保存配置或笔记。仅统计服务器报告的对象长度，不含清单及服务器存储开销；不代表内容已校验。")
             .when(current && !state.message.is_empty(), |s| s.child(state.message.clone()))
             .when_some(state.report.as_ref().filter(|_| current), |s, report| s
                 .child(format!("当前清单引用：{} 个对象 · {:.2} MiB", report.referenced_objects, report.referenced_bytes as f64 / 1048576.))
                 .child(format!("当前清单未引用：{} 个对象 · {:.2} MiB", report.unreferenced_objects, report.unreferenced_bytes as f64 / 1048576.))
                 .child(format!("缺失或大小未知的引用：{} 个；无法识别的列表项：{} 条", report.missing_or_unknown_objects, report.unrecognized_entries)))
-            .child("未引用对象可能属于其他设备尚未完成的同步，不等于可释放空间。清理前还需使用下方预览并完成核验。")
+            .child("未引用对象不等于可释放空间，清理前需预览并核验。")
             .into_any_element()
     }
 }

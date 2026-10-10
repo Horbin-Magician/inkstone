@@ -276,12 +276,11 @@ impl Workspace {
         let current = state.directory == self.ui.prefs.backup.directory;
         let available = !self.ui.backup.busy && self.ui.backup.pending.is_none();
         div().flex().flex_col().gap_2()
-            .child("整库备份容量")
+            .child(self.settings_label("backup-capacity-label", "整库备份容量", "统计此位置所有来源中可读取备份的正文和清单，不含异常项、额外文件及磁盘开销。容量列表不代表内容已校验；恢复前会完整校验。"))
             .child(FocusReveal::new((ElementId::from("backup-capacity-refresh"), "focus"), &self.ui.settings_scroll, Button::new("backup-capacity-refresh").label("刷新备份容量")
                 .disabled(self.ui.prefs.backup.directory.is_none() || current && state.loading)
                 .on_click(cx.listener(|this, _, _, cx| this.refresh_backup_capacity(cx)))))
-            .child("统计此备份位置中的所有来源。仅统计可读取备份的正文和清单，不含异常项、额外文件及磁盘分配开销。容量列表不代表内容已校验；恢复前仍会完整校验。备份不会自动清理。")
-            .child("清理预览：按来源保留最新份数，同一截止时间的记录全部保留。来源不明或读取异常时保护记录；候选尚未执行内容校验。预览本身不会删除备份；清理需要另行确认。")
+            .child(self.settings_label("backup-cleanup-label", "清理预览", "按来源保留最新份数，同一截止时间的记录全部保留；来源不明或读取异常的记录受保护。预览不会删除备份，清理时另行确认并校验；备份不会自动清理。"))
             .child(div().flex().flex_wrap().gap_2().children([1usize, 3, 5, 10].into_iter().map(|keep| {
                 FocusReveal::new((ElementId::from(("backup-retention-keep", keep)), "focus"), &self.ui.settings_scroll, Button::new(("backup-retention-keep", keep)).label(format!("每个来源保留 {keep} 份"))
                     .when(state.keep == keep || state.keep == 0 && keep == 3, |b| b.primary())
