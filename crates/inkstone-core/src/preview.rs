@@ -197,6 +197,61 @@ pub fn fragments(
     fragments_cancellable(index, path, snapshot, reading, || false).unwrap()
 }
 
+// A footer needs preceding references for numbering, not the entire preceding
+// body. Keeping only those references makes unrelated prose edits leave its
+// Markdown and hidden-block positions unchanged, so the measured view survives.
+fn footer_document(
+    reading: &crate::rendering::ReadingDocument,
+    hidden: &[Range<usize>],
+) -> (crate::rendering::ReadingDocument, Vec<Range<usize>>) {
+    fn refs(node: &Node, ranges: &mut Vec<Range<usize>>) {
+        if let Node::FootnoteReference(n) = node
+            && let Some(p) = &n.position
+        {
+            ranges.push(p.start.offset..p.end.offset);
+        }
+        if let Some(children) = node.children() {
+            for child in children {
+                refs(child, ranges);
+            }
+        }
+    }
+    let snapshot = Snapshot::new(&reading.markdown);
+    let mut ranges = vec![];
+    let mut hidden_indices = vec![];
+    for node in snapshot
+        .ast
+        .as_deref()
+        .and_then(Node::children)
+        .into_iter()
+        .flatten()
+    {
+        let Some(p) = node.position() else {
+            continue;
+        };
+        let range = p.start.offset..p.end.offset;
+        if hidden.contains(&range) {
+            let first = ranges.len();
+            refs(node, &mut ranges);
+            hidden_indices.extend(first..ranges.len());
+        } else {
+            ranges.push(range);
+        }
+    }
+    let mut offset = 0;
+    let mut projected_hidden = vec![];
+    for (i, range) in ranges.iter().enumerate() {
+        if i > 0 {
+            offset += 2;
+        }
+        if hidden_indices.contains(&i) {
+            projected_hidden.push(offset..offset + range.len());
+        }
+        offset += range.len();
+    }
+    (reading.select_output(&ranges), projected_hidden)
+}
+
 /// Cancel between preparation stages and individual fragments. Never return a
 /// partial projection; an individual parser/render call is not preempted.
 pub fn fragments_cancellable(
@@ -310,7 +365,7 @@ pub fn fragments_cancellable(
     let mut prepared = None;
     let fragments = out
         .into_iter()
-        .map(|candidate| {
+        .map(|mut candidate| {
             if cancelled() {
                 return None;
             }
@@ -348,7 +403,11 @@ pub fn fragments_cancellable(
                 });
             }
             let document = match candidate.role {
-                Role::Footer(_) => reading.clone(),
+                Role::Footer(ref hidden) => {
+                    let (document, hidden) = footer_document(reading, hidden);
+                    candidate.role = Role::Footer(hidden);
+                    document
+                }
                 Role::Reference | Role::Hidden => {
                     let mut document = reading.clone();
                     document.markdown = if candidate.role == Role::Reference {
@@ -394,6 +453,61 @@ pub fn fragments_cancellable(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn footer_projection_is_stable_and_preserves_action_origins() {
+        let path = Path::new("note.md");
+        let index = crate::index::Index::default();
+        let body =
+            "top\n\ntext[^n] and ^[中文]\n\n- [ ] tail\n\n[^n]: [link](other.md)\n\n    - [ ] task";
+        let make = |source: &str| {
+            let snapshot = Arc::new(Snapshot::new(source));
+            let reading =
+                crate::rendering::reading_snapshot(&index, path, snapshot.clone(), 0..source.len());
+            fragments(&index, path, snapshot, &reading)
+                .into_iter()
+                .find(|f| matches!(f.candidate.role, Role::Footer(_)))
+                .unwrap()
+        };
+        let before = make(body);
+        let prefix = "新增😀\n";
+        let new = format!("{prefix}{body}");
+        let after = make(&new);
+        assert_eq!(before.document.markdown, after.document.markdown);
+        assert_eq!(before.candidate.role, after.candidate.role);
+        assert_eq!(before.numbers, after.numbers);
+        assert!(!after.document.markdown.contains("top"));
+        assert!(after.document.source_matches(path, &new));
+        assert_eq!(after.document.tasks.len(), 2);
+        assert_eq!(
+            after
+                .document
+                .tasks
+                .iter()
+                .map(|t| t.rendered_start)
+                .collect::<Vec<_>>(),
+            crate::index::parse(&after.document.markdown)
+                .tasks
+                .iter()
+                .map(|t| t.start)
+                .collect::<Vec<_>>()
+        );
+        for task in &after.document.tasks {
+            assert_eq!(&new[task.marker.clone()], " ");
+            assert_eq!(task.baseline.as_ref(), new);
+            assert!(
+                after
+                    .document
+                    .output_offset(path, task.marker.start)
+                    .is_some()
+            );
+        }
+        assert!(!after.targets.is_empty());
+        for ((a, p, old), (b, q, new)) in before.targets.iter().zip(&after.targets) {
+            assert_eq!((a, p), (b, q));
+            assert_eq!(*new, old + prefix.len());
+        }
+    }
+
     #[test]
     fn code_fragments_preserve_literals_in_containers_and_indented_blocks() {
         for source in [

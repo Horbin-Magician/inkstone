@@ -234,6 +234,60 @@ impl EditorPane {
                 widget.graphic_source = None;
             }
         }
+        // Footnote roles depend on document-wide numbering and on the final
+        // content block. Rebuild that metadata before the intermediate frame,
+        // then retain only projections whose visible content is unchanged.
+        if self.live_objects.iter().any(|w| {
+            (w.role != Role::Content || !w.numbers.is_empty())
+                && !w.document.source_matches(&self.current_path, new)
+        }) {
+            let reading = inkstone_core::rendering::reading_snapshot(
+                &self.reference_index,
+                &self.current_path,
+                snapshot.clone(),
+                0..new.len(),
+            );
+            let fragments = inkstone_core::preview::fragments(
+                &self.reference_index,
+                &self.current_path,
+                snapshot.clone(),
+                &reading,
+            );
+            for widget in &mut self.live_objects {
+                if widget.formula.is_some()
+                    || widget.document.source_matches(&self.current_path, new)
+                {
+                    continue;
+                }
+                let range = if widget.source.end <= prefix {
+                    widget.source.clone()
+                } else if widget.source.start >= old.len() - suffix {
+                    new.len() - (old.len() - widget.source.start)
+                        ..new.len() - (old.len() - widget.source.end)
+                } else {
+                    continue;
+                };
+                if let Some(fragment) = fragments.iter().find(|f| {
+                    f.candidate.source == range
+                        && f.candidate.block == widget.block
+                        && f.candidate.role == widget.role
+                        && f.document.markdown == widget.document.markdown
+                        && f.numbers == widget.numbers
+                        && f.document.references.len() == widget.document.references.len()
+                        && f.document
+                            .references
+                            .iter()
+                            .zip(&widget.document.references)
+                            .all(|(a, b)| {
+                                a.from == b.from && a.target == b.target && a.wiki == b.wiki
+                            })
+                }) {
+                    widget.source = range;
+                    widget.document = Arc::new(fragment.document.clone());
+                    widget.targets = fragment.targets.clone();
+                }
+            }
+        }
     }
 
     pub(super) fn active_live_objects(
@@ -1612,6 +1666,85 @@ mod tests {
                     crate::native_graphics::Service::get(cx).raster_count() * 3 < formulas.len()
                 );
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
+    fn footnotes_keep_geometry_and_hidden_rows_during_unrelated_edits(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "top\n\nA[^n] B^[中文]\n\ntail\n\n[^n]: definition";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..10 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let original = handle
+            .update(&mut visual, |pane, window, cx| {
+                let original = pane.live_objects.clone();
+                assert!(original.iter().any(|w| matches!(w.role, Role::Footer(_))));
+                for inserted in ["中文😀\n", "more "] {
+                    pane.editor.update(cx, |state, cx| {
+                        state.set_selected_range(0..0, cx);
+                        state.replace_text_in_range(None, inserted, window, cx);
+                    });
+                    pane.update_presentation(cx);
+                    let current = pane.editor.read(cx).value();
+                    let shift = current.len() - source.len();
+                    assert_eq!(
+                        pane.editor.read(cx).display_objects().len(),
+                        original.iter().filter(|w| w.role != Role::Hidden).count()
+                    );
+                    assert!(!pane.editor.read(cx).concealed_lines().is_empty());
+                    for (before, after) in original.iter().zip(&pane.live_objects) {
+                        assert!(after.document.source_matches(&pane.current_path, &current));
+                        assert_eq!(
+                            after.source,
+                            before.source.start + shift..before.source.end + shift
+                        );
+                        assert_eq!((after.width, after.height), (before.width, before.height));
+                        assert_eq!(after.view, before.view);
+                    }
+                }
+                original
+            })
+            .unwrap();
+        for _ in 0..6 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, window, cx| {
+                for (before, after) in original.iter().zip(&pane.live_objects) {
+                    assert_eq!(
+                        after.view, before.view,
+                        "background completion replaced an unchanged view"
+                    );
+                    assert_eq!((after.width, after.height), (before.width, before.height));
+                }
+                // A changed definition must never leave its old footer active.
+                let current = pane.editor.read(cx).value();
+                let at = current.find("definition").unwrap();
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(at..at + "definition".len(), cx);
+                    state.replace_text_in_range(None, "changed", window, cx);
+                    state.set_selected_range(0..0, cx);
+                });
+                pane.update_presentation(cx);
+                let footer = pane
+                    .live_objects
+                    .iter()
+                    .find(|w| matches!(w.role, Role::Footer(_)))
+                    .unwrap();
+                assert!(
+                    !pane
+                        .editor
+                        .read(cx)
+                        .display_objects()
+                        .iter()
+                        .any(|o| o.source == footer.source)
+                );
             })
             .unwrap();
     }

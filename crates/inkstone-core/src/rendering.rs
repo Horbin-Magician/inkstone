@@ -52,6 +52,46 @@ struct SourceMap {
     source_end: usize,
 }
 impl ReadingDocument {
+    /// Keep selected output spans while preserving their source and action maps.
+    /// Callers supply ordered, disjoint UTF-8 ranges from parsed Markdown nodes.
+    pub(crate) fn select_output(&self, ranges: &[Range<usize>]) -> Self {
+        let mut result = self.clone();
+        result.markdown.clear();
+        result.locations.clear();
+        result.tasks.clear();
+        for range in ranges {
+            if !result.markdown.is_empty() {
+                result.markdown.push_str("\n\n");
+            }
+            let start = result.markdown.len();
+            result.markdown.push_str(&self.markdown[range.clone()]);
+            for map in &self.locations {
+                let a = map.output.start.max(range.start);
+                let b = map.output.end.min(range.end);
+                if a >= b {
+                    continue;
+                }
+                let mut next = map.clone();
+                if map.output.len() == map.source_end - map.start {
+                    next.start += a - map.output.start;
+                    next.source_end = next.start + b - a;
+                }
+                next.output = start + a - range.start..start + b - range.start;
+                result.locations.push(next);
+            }
+            for task in self
+                .tasks
+                .iter()
+                .filter(|task| range.contains(&task.rendered_start))
+            {
+                let mut task = task.clone();
+                task.rendered_start = start + task.rendered_start - range.start;
+                result.tasks.push(task);
+            }
+        }
+        result
+    }
+
     /// Isolate a parsed code block from list/quote prefixes and indentation.
     /// The synthetic fence is presentation only; editing and selection still
     /// operate on the original candidate range in the source editor.
@@ -611,13 +651,10 @@ impl Builder<'_> {
             .footnote_namespaces
             .entry(path.to_path_buf())
             .or_insert(next);
-        for note in &parsed.inline_footnotes {
+        for (ordinal, note) in parsed.inline_footnotes.iter().enumerate() {
             actions.push((
                 note.range.clone(),
-                Action::InlineFootnote(
-                    note.clone(),
-                    format!("inline-fn{namespace}-{}", note.range.start),
-                ),
+                Action::InlineFootnote(note.clone(), format!("inline-fn{namespace}-{ordinal}")),
             ));
         }
         let mut inline_definitions = vec![];
