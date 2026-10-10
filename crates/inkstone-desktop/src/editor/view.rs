@@ -143,6 +143,7 @@ impl Render for EditorPane {
                 gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
                     .with_foreground(crate::theme::palette(self.light).foreground.into())
                     .with_link(crate::theme::palette(self.light).accent.into())
+                    .with_strong_color(crate::theme::palette(self.light).accent.into())
                     .with_code_background(crate::theme::palette(self.light).surface.into())
                     .with_inline_code(HighlightStyle {
                         color: Some(crate::theme::palette(self.light).foreground.into()),

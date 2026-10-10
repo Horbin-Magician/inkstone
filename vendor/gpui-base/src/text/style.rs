@@ -15,6 +15,7 @@ pub struct TextViewStyle {
     foreground: Hsla,
     muted_foreground: Hsla,
     link: Hsla,
+    strong_color: Option<Hsla>,
     selection: Hsla,
     code_background: Hsla,
     border: Hsla,
@@ -35,6 +36,7 @@ impl PartialEq for TextViewStyle {
             && self.foreground == other.foreground
             && self.muted_foreground == other.muted_foreground
             && self.link == other.link
+            && self.strong_color == other.strong_color
             && self.selection == other.selection
             && self.code_background == other.code_background
             && self.border == other.border
@@ -74,6 +76,7 @@ impl TextViewStyle {
             foreground: colors.foreground,
             muted_foreground: colors.muted_foreground,
             link: colors.primary,
+            strong_color: None,
             selection: colors.selection,
             code_background: colors.accent,
             border: colors.border,
@@ -108,6 +111,17 @@ impl TextViewStyle {
     pub fn with_link(mut self, color: Hsla) -> Self {
         self.link = color;
         self
+    }
+
+    /// Sets an optional text color for bold spans, preserving their font weight.
+    pub fn with_strong_color(mut self, color: Hsla) -> Self {
+        self.strong_color = Some(color);
+        self
+    }
+
+    /// Bold spans inherit the surrounding color unless explicitly configured.
+    pub fn strong_color(&self) -> Option<Hsla> {
+        self.strong_color
     }
 
     /// Sets the background painted behind selected text.

@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-10 加粗颜色：Base 的 `TextViewStyle::with_strong_color` 为加粗片段提供可选前景色，默认继承正文颜色；该配置参与样式比较以刷新缓存。`node::mark_highlight` 在保留粗体的同时应用颜色，行内代码和链接仍可覆盖前景色。Inkstone 的阅读视图和实时预览对象使用主题强调色，与实时正文加粗保持一致。
+
 2026-10-07 代码块高亮：Component 的 `src/highlighter/languages.rs` 为 TSX 复用完整 TypeScript / JavaScript 查询，并新增 `src/highlighter/languages/typescript/jsx.scm`。原查询只覆盖 TypeScript 扩展，普通关键字及 JSX 没有颜色。专项回归 `tsx_highlights_javascript_types_and_jsx` 需开启 `tree-sitter-tsx`；应用另检查全部启用语言的深浅主题高亮及 UTF-8 范围。
 
 2026-10-07 空闲重绘修复：`TextWrapper::set_inline_metrics` 将实际变化标志向上

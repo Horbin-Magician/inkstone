@@ -2106,6 +2106,7 @@ fn mark_highlight(mark: &TextMark, node_cx: &NodeContext, cx: &App) -> InlineHig
     let mut highlight = HighlightStyle::default();
     if mark.bold {
         highlight.font_weight = Some(FontWeight::BOLD);
+        highlight.color = node_cx.style.strong_color();
     }
     if mark.italic {
         highlight.font_style = Some(FontStyle::Italic);
