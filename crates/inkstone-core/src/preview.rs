@@ -118,6 +118,47 @@ pub struct Fragment {
     pub graphic: Option<(crate::graphics::Kind, String)>,
 }
 
+/// Resolve one retained content candidate using the same representation as the
+/// background projection, including synthetic fences for literal code blocks.
+pub fn content_document(
+    index: &crate::index::Index,
+    path: &Path,
+    snapshot: Arc<Snapshot>,
+    range: Range<usize>,
+) -> crate::rendering::ReadingDocument {
+    fn code_at<'a>(
+        node: &'a Node,
+        range: &Range<usize>,
+    ) -> Option<&'a markdown_parser::mdast::Code> {
+        let position = node.position()?;
+        if position.start.offset > range.start || position.end.offset < range.end {
+            return None;
+        }
+        if let Node::Code(code) = node
+            && position.start.offset == range.start
+            && position.end.offset == range.end
+        {
+            return Some(code);
+        }
+        node.children()?
+            .iter()
+            .find_map(|child| code_at(child, range))
+    }
+    if let Some(code) = snapshot
+        .ast
+        .as_deref()
+        .and_then(|node| code_at(node, &range))
+    {
+        return crate::rendering::ReadingDocument::code_fragment(
+            path,
+            snapshot.source.clone(),
+            range,
+            code,
+        );
+    }
+    crate::rendering::reading_snapshot(index, path, snapshot, range)
+}
+
 // Index once: looking up each formula by walking the entire AST makes opening
 // a note quadratic in its formula count. Exact ranges exclude nested graphics
 // owned by a table, callout, or footnote footer.
@@ -379,6 +420,13 @@ mod tests {
             let fragments = fragments(&index, path, snapshot, &reading);
             assert_eq!(fragments.len(), 1, "{source}");
             let fragment = &fragments[0];
+            let retained = content_document(
+                &index,
+                path,
+                Arc::new(Snapshot::new(source)),
+                fragment.candidate.source.clone(),
+            );
+            assert_eq!(retained.markdown, fragment.document.markdown);
             let parsed = Snapshot::new(&fragment.document.markdown);
             let rendered = code(parsed.ast.as_deref().unwrap()).unwrap();
             assert_eq!(rendered.value, original.value, "{source}");
