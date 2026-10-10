@@ -10,7 +10,6 @@ def verify_release(directory, version):
     for target, suffixes in (
         ("x86_64-pc-windows-msvc", (".zip", "-setup.exe")),
         ("aarch64-apple-darwin", (".dmg", ".app.tar.gz")),
-        ("x86_64-apple-darwin", (".dmg", ".app.tar.gz")),
     ):
         stem = f"inkstone-{version}-{target}"
         packages = {stem + suffix for suffix in suffixes}

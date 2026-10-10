@@ -12,7 +12,7 @@ cargo run --locked --bin inkstone -- demo-vault
 
 将 `demo-vault` 替换为自己的笔记库路径；也可以不传参数，启动后选择文件夹。不要使用个人笔记做自动或原生验收。
 
-在 [GitHub Releases](https://github.com/Horbin-Magician/inkstone/releases) 下载发行包：Windows x64 提供安装器与便携 ZIP，macOS 提供 Apple Silicon / Intel DMG。详细构建、校验和发布步骤见 [原生打包指南](packaging/README.md)。
+在 [GitHub Releases](https://github.com/Horbin-Magician/inkstone/releases) 下载发行包：Windows x64 提供安装器与便携 ZIP，macOS 提供 Apple Silicon DMG。详细构建、校验和发布步骤见 [原生打包指南](packaging/README.md)。
 
 ## 项目结构
 
