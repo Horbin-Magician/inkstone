@@ -1255,6 +1255,12 @@ impl Workspace {
                         div()
                             .id(("tab", t.id))
                             .occlude()
+                            .on_drop(cx.listener(
+                                |this, drag: &super::left_sidebar::DraggedFile, w, cx| {
+                                    cx.stop_propagation();
+                                    this.open_dropped_file(drag, w, cx);
+                                },
+                            ))
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                             .on_mouse_down(
                                 MouseButton::Middle,
@@ -1808,6 +1814,14 @@ impl Render for Workspace {
             primary
         };
         let center = div()
+            .id("file-open-drop")
+            .debug_selector(|| "file-open-drop".into())
+            .on_drop(
+                cx.listener(|this, drag: &super::left_sidebar::DraggedFile, w, cx| {
+                    cx.stop_propagation();
+                    this.open_dropped_file(drag, w, cx);
+                }),
+            )
             .flex()
             .flex_col()
             .size_full()

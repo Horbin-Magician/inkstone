@@ -3,6 +3,83 @@ use crate::test_support::PlatformKeys;
 use core::prelude::v1::test;
 
 #[gpui::test]
+fn tree_drag_to_content_and_navigation_opens_new_tabs(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-open-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("a.md"), "A").unwrap();
+    std::fs::write(root.join("b.md"), "B").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+            w.index = Arc::new(Index::build(&vault).unwrap());
+            w.files = w.index.note_paths();
+            w.vault = Some(vault);
+            w.ui.prefs.left_open = true;
+            w.ui.left_mode = 0;
+            w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+            w.sync_index_ui(cx);
+            w.rebuild_sorted_tree(cx);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1100.), px(800.)));
+    // Content, tab strip, and the view navigation header all accept file drags.
+    for (iteration, y) in [300., 20., 60.].into_iter().enumerate() {
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let from = visual.debug_bounds("tree-name-1").unwrap().center();
+        let bounds = visual.debug_bounds("file-open-drop").unwrap();
+        let to = point(bounds.center().x, bounds.top() + px(y));
+        visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(
+            from + point(px(8.), px(0.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.tabs.len(), iteration + 2);
+                assert_eq!(w.tabs[0].path, PathBuf::from("a.md"));
+                assert_eq!(w.tabs.last().unwrap().path, PathBuf::from("b.md"));
+                assert_eq!(w.active, Some(iteration + 1));
+                assert_eq!(
+                    w.tabs.last().unwrap().pane.read(cx).editor.read(cx).value(),
+                    "B"
+                );
+                assert!(std::rc::Rc::ptr_eq(
+                    &w.tabs[1].save,
+                    &w.tabs.last().unwrap().save
+                ));
+                assert_ne!(w.tabs[0].pane, w.tabs.last().unwrap().pane);
+            })
+            .unwrap();
+    }
+    handle
+        .update(&mut visual, |w, window, cx| {
+            for (folder, generation) in [(true, w.generation), (false, w.generation + 1)] {
+                w.open_dropped_file(
+                    &super::left_sidebar::DraggedFile {
+                        path: "a.md".into(),
+                        folder,
+                        generation,
+                    },
+                    window,
+                    cx,
+                );
+            }
+            assert_eq!(w.tabs.len(), 4);
+        })
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "A");
+    assert_eq!(std::fs::read_to_string(root.join("b.md")).unwrap(), "B");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
 fn tree_drag_moves_closed_notes_and_folders_without_overwriting(cx: &mut TestAppContext) {
     use super::left_sidebar::DraggedFile;
     cx.update(gpui_kit::init);
