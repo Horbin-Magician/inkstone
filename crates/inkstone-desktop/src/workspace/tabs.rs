@@ -402,6 +402,15 @@ impl Workspace {
         let main_before = self.views.main;
         let active_id = self.active.and_then(|i| self.tabs.get(i)).map(|t| t.id);
         let removed = self.tabs.remove(index);
+        // A closed note must not keep the tree selection (which also controls
+        // whether clicking its title opens the note or starts renaming it).
+        if self.ui.tree_active.as_ref() == Some(&removed.path)
+            && !self.tabs.iter().any(|tab| tab.path == removed.path)
+        {
+            self.ui.tree_active = None;
+            self.tree
+                .update(cx, |tree, cx| tree.set_selected_index(None, cx));
+        }
         if self
             .ui
             .inline_title
