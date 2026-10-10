@@ -295,8 +295,14 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
         }
         if let Node::Text(_) = node {
             let raw = &text[range.clone()];
+            if !raw.contains("[[") {
+                return;
+            }
             let mut i = 0;
-            while i < raw.len() {
+            // Jump over ordinary prose without decoding every Unicode scalar.
+            // Only an opening bracket or an escape can affect a wiki link.
+            while let Some(relative) = raw[i..].find(['[', '\\']) {
+                i += relative;
                 let rest = &raw[i..];
                 if rest.starts_with('\\') {
                     i += 1;
@@ -305,49 +311,48 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
                     }
                     continue;
                 }
-                let pair = if rest.starts_with("[[") {
-                    Some(("[[", "]]", Kind::WikiLink))
-                } else {
-                    None
-                };
-                if let Some((open, close, kind)) = pair {
-                    if text[..range.start + i]
-                        .bytes()
-                        .rev()
-                        .take_while(|b| *b == b'\\')
-                        .count()
-                        % 2
-                        == 1
-                    {
-                        i += open.len();
-                        continue;
-                    }
-                    let start = i + open.len();
-                    if let Some(end) = raw[start..]
-                        .find(close)
-                        .map(|p| p + start)
-                        .filter(|end| *end > start && !raw[start..*end].contains(['\r', '\n']))
-                    {
-                        let label = if kind == Kind::WikiLink {
-                            raw[start..end].find('|').map_or(start, |p| start + p + 1)
-                        } else {
-                            start
-                        };
-                        out.push(Span {
-                            kind,
-                            source: range.start + i..range.start + end + close.len(),
-                            content: range.start + label..range.start + end,
-                            markers: vec![
-                                range.start + i..range.start + label,
-                                range.start + end..range.start + end + close.len(),
-                            ],
-                            list_depth: 0,
-                        });
-                        i = end + close.len();
-                        continue;
-                    }
+                if !rest.starts_with("[[") {
+                    i += 1;
+                    continue;
                 }
-                i += rest.chars().next().unwrap().len_utf8();
+                if text[..range.start + i]
+                    .bytes()
+                    .rev()
+                    .take_while(|b| *b == b'\\')
+                    .count()
+                    % 2
+                    == 1
+                {
+                    i += 2;
+                    continue;
+                }
+                let start = i + 2;
+                let Some(end) = raw[start..].find("]]").map(|p| p + start) else {
+                    // Later openers cannot succeed either. Incomplete links
+                    // must not repeatedly scan the rest of a long paragraph.
+                    break;
+                };
+                if let Some(newline) = raw[start..end].rfind(['\r', '\n']) {
+                    // No opener before this newline can pair with the closer.
+                    i = start + newline + 1;
+                    continue;
+                }
+                if end == start {
+                    i += 1;
+                    continue;
+                }
+                let label = raw[start..end].find('|').map_or(start, |p| start + p + 1);
+                out.push(Span {
+                    kind: Kind::WikiLink,
+                    source: range.start + i..range.start + end + 2,
+                    content: range.start + label..range.start + end,
+                    markers: vec![
+                        range.start + i..range.start + label,
+                        range.start + end..range.start + end + 2,
+                    ],
+                    list_depth: 0,
+                });
+                i = end + 2;
             }
         }
         if let Some(children) = children {
@@ -369,6 +374,9 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
         .collect();
     if let Some(node) = snapshot.ast.as_deref() {
         walk(node, text, &mut result, 0, 0);
+        if !text.contains("==") {
+            return result;
+        }
         fn excluded(node: &Node, out: &mut Vec<Range<usize>>) {
             if matches!(
                 node,
@@ -529,6 +537,37 @@ mod tests {
                 .iter()
                 .any(|s| s.kind == Kind::Strong)
         );
+    }
+    #[test]
+    fn wiki_scanning_skips_prose_and_recovers_after_incomplete_links() {
+        for newline in ["\n", "\r\n", "\r"] {
+            let source = format!(
+                "中文😀 e\u{301} [普通] \\[[转义]] \\\\[[偶数转义]] [[]] [[目标|别名😀]] [[未完成{newline}[[后续]] `[[代码]]` [[未闭合 [[再开"
+            );
+            let wiki: Vec<_> = spans(&source)
+                .into_iter()
+                .filter(|span| span.kind == Kind::WikiLink)
+                .collect();
+            assert_eq!(
+                wiki.iter()
+                    .map(|span| &source[span.content.clone()])
+                    .collect::<Vec<_>>(),
+                ["偶数转义", "别名😀", "后续"],
+                "{source:?}"
+            );
+            for span in wiki {
+                assert_eq!(&source[span.markers[1].clone()], "]]", "{source:?}");
+                assert_eq!(span.source.start, span.markers[0].start);
+                assert_eq!(span.content.end, span.markers[1].start);
+            }
+        }
+        let source = format!("{}\n[[最后|中文😀]]", "[[未闭合 ".repeat(512));
+        let wiki: Vec<_> = spans(&source)
+            .into_iter()
+            .filter(|span| span.kind == Kind::WikiLink)
+            .collect();
+        assert_eq!(wiki.len(), 1);
+        assert_eq!(&source[wiki[0].content.clone()], "中文😀");
     }
     #[test]
     fn task_line_formatting_keeps_quote_indentation_and_crlf() {
