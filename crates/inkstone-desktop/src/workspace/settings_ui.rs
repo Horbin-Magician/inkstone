@@ -261,6 +261,7 @@ impl Workspace {
                     (7, "备份与恢复", "history"),
                     (8, "云同步", "folder"),
                     (1, "快捷键", "command"),
+                    (9, "关于与更新", "info"),
                 ]
                 .into_iter()
                 .map(|(i, title, symbol)| {
@@ -335,6 +336,11 @@ impl Workspace {
                     "编辑器 · 智能列表与缩进",
                     "换行 编号 制表符宽度 空格 tab",
                 ),
+                (
+                    9,
+                    "关于与更新 · 检查更新",
+                    "版本 下载 安装 更新说明 update version",
+                ),
                 (2, "文件与链接 · 存放位置", "新笔记 附件 目录 路径 文件夹"),
                 (
                     2,
@@ -406,6 +412,9 @@ impl Workspace {
                         .children(rows),
                 )
                 .into_any_element();
+        }
+        if self.ui.settings_tab == 9 {
+            return self.update_settings_panel(cx);
         }
         if self.ui.settings_tab == 8 {
             return self.cloud_sync_settings_panel(cx);

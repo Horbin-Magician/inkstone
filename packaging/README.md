@@ -41,3 +41,12 @@ macOS DMG 使用 640 × 400 的暖白窗口，仅并列显示墨砚和 Applicati
 
 DMG 在临时可写磁盘上生成 Finder 布局和背景别名，再转为压缩的只读镜像，因此背景不依赖构建机器的路径。此步骤使用 `packaging/macos/requirements.txt` 中锁定的依赖，无需启动 Finder 或授权 AppleScript；CI 自动安装这些依赖。
 背景资源 `packaging/macos/background.tiff` 包含普通与 Retina 两种分辨率。调整文案或图形时，在 macOS 安装 Pillow 11.3.0 并运行 `python packaging/macos/generate_background.py`；正常打包无需 Pillow。图标位置与窗口尺寸定义在 `packaging/macos/dmg_layout.py`。
+
+## 应用内更新
+
+“设置 → 关于与更新”支持检查正式版本、查看更新说明、下载、取消和重试；macOS 应用菜单也提供“检查更新…”。
+使用 GitHub Releases latest API 和语义版本比较，Windows x64 匹配 `-setup.exe`，macOS Apple Silicon 匹配 `.dmg`。发布流程无需新增附件，沿用同版本的 `.sha256` 文件；不提示降级或预发布版本。
+附件必须来自本仓库同一版本，下载有大小与超时限制，下载完成及打开前均校验 SHA-256。校验和只校验完整性，信任来源是 HTTPS 和本项目的 GitHub 发布权限，不等同于 Rotor 的更新数字签名。
+
+临时包位于应用数据目录的 `updates/update-*`。失败、取消或未打开时退出会清理对应临时包；成功打开后保留，避免安装器读取期间被删除，可用“显示安装包”定位并在安装后手动清理。
+取消在网络读写之间生效；连接等待期间显示“正在取消下载”，请求返回或超时后完成清理。
