@@ -205,14 +205,11 @@ impl EditorPane {
                         range.clone(),
                     )
                     .or_else(|| {
-                        // Images carry reference metadata, so the dependency-free
-                        // rebase deliberately rejects them. Resolve just this image
-                        // against the current syntax (including reference definitions)
-                        // before retaining its already laid-out view.
-                        if widget.block || !old.get(widget.source.clone())?.starts_with("![") {
-                            return None;
-                        }
-                        let document = inkstone_core::rendering::reading_snapshot(
+                        // Callouts, task lists, embeds and tables with links also
+                        // carry dependencies (or brackets in their source). Resolve
+                        // the fragment again before retaining its measured view;
+                        // byte equality alone cannot validate reference definitions.
+                        let document = inkstone_core::preview::content_document(
                             &self.reference_index,
                             &self.current_path,
                             snapshot.clone(),
@@ -1036,6 +1033,65 @@ mod tests {
                         .update(cx, |state, cx| state.set_selected_range(at..at, cx));
                     pane.update_presentation(cx);
                     assert!(pane.editor.read(cx).display_objects().is_empty());
+                })
+                .unwrap();
+        }
+    }
+
+    #[gpui::test]
+    fn dependent_content_stays_visible_before_background_parse(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for content in [
+            "> [!note]+ title\n> body",
+            "> [!note]+ tasks\n> - [ ] 中文😀",
+            "| A | B |\n| --- | --- |\n| [link][ref] | text |",
+            "| A | B |\n| --- | --- |\n| [unresolved] | text |",
+            "```rust\nlet a = [1, 2];\n```",
+        ] {
+            let source = format!("top\n\n{content}\n\ntail\n\n[ref]: other.md");
+            let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            for _ in 0..10 {
+                visual.run_until_parked();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+            }
+            handle
+                .update(&mut visual, |pane, window, cx| {
+                    let original = pane.live_objects[0].clone();
+                    for inserted in ["中文😀\n", "more "] {
+                        pane.editor.update(cx, |state, cx| {
+                            state.set_selected_range(0..0, cx);
+                            state.replace_text_in_range(None, inserted, window, cx);
+                        });
+                        pane.update_presentation(cx);
+                        let current = pane.editor.read(cx).value();
+                        let objects = pane.editor.read(cx).display_objects();
+                        assert_eq!(objects.len(), 1, "{content} disappeared before parsing");
+                        assert_eq!(
+                            objects[0].size,
+                            size(px(original.width), px(original.height))
+                        );
+                        assert_eq!(pane.live_objects[0].view, original.view);
+                        assert!(
+                            pane.live_objects[0]
+                                .document
+                                .source_matches(&pane.current_path, &current)
+                        );
+                        let expected = inkstone_core::rendering::reading_snapshot(
+                            &pane.reference_index,
+                            &pane.current_path,
+                            pane.syntax_snapshot.clone().unwrap(),
+                            objects[0].source.clone(),
+                        );
+                        let actual = &pane.live_objects[0].document.tasks;
+                        assert_eq!(actual.len(), expected.tasks.len());
+                        for (a, b) in actual.iter().zip(&expected.tasks) {
+                            assert_eq!(
+                                (&a.path, &a.marker, &a.baseline),
+                                (&b.path, &b.marker, &b.baseline)
+                            );
+                        }
+                    }
                 })
                 .unwrap();
         }
