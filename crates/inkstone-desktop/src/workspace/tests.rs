@@ -6105,7 +6105,7 @@ fn tree_naming_rename_keeps_original_target_and_folder_children(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn tree_naming_second_click_edits_without_collapsing_folder(cx: &mut TestAppContext) {
+fn tree_folder_name_toggles_and_file_second_click_edits(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let root = std::env::temp_dir().join(format!("inkstone-tree-click-{}", std::process::id()));
     std::fs::create_dir_all(root.join("folder")).unwrap();
@@ -6132,9 +6132,12 @@ fn tree_naming_second_click_edits_without_collapsing_folder(cx: &mut TestAppCont
     visual.simulate_click(bounds.center(), Modifiers::default());
     visual.run_until_parked();
     handle
-        .update(&mut visual, |w, _, _| {
+        .update(&mut visual, |w, _, cx| {
             assert!(w.ui.tree_name.is_none());
             assert_eq!(w.ui.tree_active, Some("folder".into()));
+            assert!(!w.tree.read(cx).entry(0).unwrap().is_expanded());
+            assert!(w.tree.read(cx).entry(1).is_none());
+            assert!(w.ui.prefs.expanded_folders.is_empty());
         })
         .unwrap();
     visual.update(|window, cx| window.draw(cx).clear(cx));
@@ -6142,8 +6145,9 @@ fn tree_naming_second_click_edits_without_collapsing_folder(cx: &mut TestAppCont
     visual.run_until_parked();
     handle
         .update(&mut visual, |w, _, cx| {
-            assert!(w.ui.tree_name.is_some());
-            assert_eq!(w.name.read(cx).value(), "folder");
+            assert!(w.ui.tree_name.is_none());
+            assert!(w.tree.read(cx).entry(0).unwrap().is_expanded());
+            assert!(w.tree.read(cx).entry(1).is_some());
             assert!(!w.modal_is_open());
             assert!(
                 w.ui.prefs

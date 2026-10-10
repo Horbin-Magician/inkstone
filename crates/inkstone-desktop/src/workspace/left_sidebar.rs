@@ -246,7 +246,11 @@ impl Workspace {
                                 .flex_1()
                                 .min_w_0()
                                 .when(selected, |s| s.text_color(tree_active))
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                    if !folder || is_editing {
+                                        cx.stop_propagation();
+                                    }
+                                })
                                 .when(!is_editing, |s| {
                                     s.on_drag(drag, |drag, _, _, cx| {
                                         cx.stop_propagation();
@@ -264,6 +268,9 @@ impl Workspace {
                                     }))
                                 })
                                 .on_click(move |_, window, cx| {
+                                    if folder && !is_editing {
+                                        return;
+                                    }
                                     cx.stop_propagation();
                                     if is_editing {
                                         return;
@@ -273,18 +280,7 @@ impl Workspace {
                                             tree.set_selected_index(Some(i), cx)
                                         });
                                         if selected {
-                                            if folder {
-                                                this.begin_tree_name(
-                                                    NameMode::RenameFolder,
-                                                    label_path.clone(),
-                                                    window,
-                                                    cx,
-                                                );
-                                            } else if this
-                                                .tabs
-                                                .iter()
-                                                .any(|tab| tab.path == label_path)
-                                            {
+                                            if this.tabs.iter().any(|tab| tab.path == label_path) {
                                                 this.begin_tree_name(
                                                     NameMode::Rename,
                                                     label_path.clone(),
