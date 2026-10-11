@@ -211,9 +211,10 @@ impl EditorPane {
                     }
                     let text = state.value();
                     let before = &text[..state.selected_range().start];
-                    if before
-                        .rfind("[[")
-                        .is_some_and(|start| !before[start + 2..].contains([']', '|', '\n', '\r']))
+                    if editor_links::slash::query(&text, state.selected_range().start).is_some()
+                        || before.rfind("[[").is_some_and(|start| {
+                            !before[start + 2..].contains([']', '|', '\n', '\r'])
+                        })
                     {
                         // The host provider filters the complete link query. A pasted prefix
                         // must not become the component's separate fuzzy-search query.
