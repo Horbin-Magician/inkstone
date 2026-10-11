@@ -523,6 +523,73 @@ fn reading_position_restores_after_parse_and_explicit_jump_wins(cx: &mut TestApp
         .unwrap();
 }
 #[gpui::test]
+fn slash_menu_filters_confirms_and_undoes_in_both_editing_modes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for live in [false, true] {
+        let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+        let editor = handle
+            .update(cx, |p, w, cx| {
+                p.live = live;
+                p.editor.update(cx, |s, cx| {
+                    s.focus(w, cx);
+                    s.replace_text_in_range(None, "/", w, cx);
+                });
+                p.editor.clone()
+            })
+            .unwrap();
+        cx.run_until_parked();
+        editor.read_with(cx, |s, _| {
+            assert!(s.completion_menu_state().open);
+            assert!(s.completion_menu_state().items.len() > 10);
+        });
+        handle
+            .update(cx, |_, w, cx| {
+                editor.update(cx, |s, cx| {
+                    s.replace_text_in_range(None, "标题", w, cx);
+                })
+            })
+            .unwrap();
+        cx.run_until_parked();
+        editor.read_with(cx, |s, _| {
+            assert_eq!(s.completion_menu_state().items.len(), 6);
+            assert!(s.completion_menu_state().query.is_empty());
+        });
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.simulate_platform_keystrokes("down enter");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "## "));
+        visual.simulate_platform_keystrokes("ctrl-z");
+        editor.read_with(&visual, |s, _| assert_eq!(s.value(), "/标题"));
+    }
+}
+
+#[gpui::test]
+fn slash_menu_escape_keeps_literal_slash(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+    let editor = handle
+        .update(cx, |p, w, cx| {
+            p.editor.update(cx, |s, cx| {
+                s.focus(w, cx);
+                s.replace_text_in_range(None, "/table", w, cx);
+            });
+            p.editor.clone()
+        })
+        .unwrap();
+    cx.run_until_parked();
+    editor.read_with(cx, |s, _| {
+        assert_eq!(s.completion_menu_state().items.len(), 1)
+    });
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.update(|w, cx| w.draw(cx).clear(cx));
+    visual.simulate_platform_keystrokes("escape");
+    editor.read_with(&visual, |s, _| {
+        assert!(!s.completion_menu_state().open);
+        assert_eq!(s.value(), "/table");
+    });
+}
+
+#[gpui::test]
 fn committed_wiki_prefix_opens_attachment_completion(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));

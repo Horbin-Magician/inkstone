@@ -1,4 +1,5 @@
 //! Public editor extension interfaces only; no component patches.
+pub(crate) mod slash;
 use gpui::{App, SharedString, Task, WeakEntity, Window};
 use gpui_component::input::{CompletionProvider, DefinitionProvider, EditorState, Rope, RopeExt};
 use inkstone_core::index::ParsedNote;
@@ -148,6 +149,9 @@ impl CompletionProvider for WikiCompletions {
         let paths = self.0.borrow().clone();
         let task = cx.background_executor().spawn(async move {
             let source = text.to_string();
+            if let Some(items) = slash::completions(&source, &text, offset) {
+                return Ok(lsp_types::CompletionResponse::Array(items));
+            }
             let Some(before) = source.get(..offset) else {
                 return Ok(lsp_types::CompletionResponse::Array(vec![]));
             };

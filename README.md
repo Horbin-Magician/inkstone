@@ -12,6 +12,8 @@ cargo run --locked --bin inkstone -- demo-vault
 
 将 `demo-vault` 替换为自己的笔记库路径；也可以不传参数，启动后选择文件夹。不要使用个人笔记做自动或原生验收。
 
+在源码或实时预览模式的行首输入 `/`，可插入一至六级标题、列表、任务、表格、Callout、引用、代码块和分隔线。继续输入中文名称或英文关键词（如 `/标题`、`/table`）筛选，使用上下方向键选择、Enter 确认，Esc 关闭菜单并保留输入。
+
 在 [GitHub Releases](https://github.com/Horbin-Magician/inkstone/releases) 下载发行包：Windows x64 提供安装器与便携 ZIP，macOS 提供 Apple Silicon DMG。详细构建、校验和发布步骤见 [原生打包指南](packaging/README.md)。
 
 ## 项目结构
