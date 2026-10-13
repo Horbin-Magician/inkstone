@@ -46,11 +46,11 @@ fn candidates_with_parsed(
             Node::Paragraph(p)
                 if p.children
                     .iter()
-                    .any(|n| matches!(n, Node::Html(h) if !h.value.starts_with("<!--"))) =>
+                    .any(|n| matches!(n, Node::Html(h) if presented_html(&h.value))) =>
             {
                 Some(true)
             }
-            Node::Html(h) if !h.value.trim_start().starts_with("<!--") => Some(true),
+            Node::Html(h) if presented_html(&h.value) => Some(true),
             _ => None,
         };
         if let Some(block) = block {
@@ -108,6 +108,80 @@ fn candidates_with_parsed(
         }
     });
     out
+}
+
+/// Tags the reading renderer actually restyles or replaces. Anything else,
+/// including custom elements such as `<user-context>`, must stay literal source.
+/// Promoting it to a live widget drops the tag, and the widget is removed for a
+/// frame on every unrelated edit, so the tag flickers.
+fn presented_html(value: &str) -> bool {
+    const NAMES: &[&str] = &[
+        "a",
+        "b",
+        "blockquote",
+        "br",
+        "code",
+        "del",
+        "details",
+        "div",
+        "em",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "hr",
+        "i",
+        "img",
+        "kbd",
+        "li",
+        "mark",
+        "ol",
+        "p",
+        "pre",
+        "s",
+        "span",
+        "strike",
+        "strong",
+        "sub",
+        "summary",
+        "sup",
+        "table",
+        "tbody",
+        "td",
+        "th",
+        "thead",
+        "tr",
+        "u",
+        "ul",
+    ];
+    if value.trim_start().starts_with("<!--") {
+        return false;
+    }
+    let mut rest = value;
+    while let Some(start) = rest.find('<') {
+        rest = &rest[start + 1..];
+        let rest_trimmed = rest.trim_start_matches(['/', '!', ' ', '\t', '\n', '\r']);
+        let end = rest_trimmed
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .unwrap_or(rest_trimmed.len());
+        let name = &rest_trimmed[..end];
+        // Custom elements contain a hyphen. A prefix such as `user` must not
+        // match a known tag, and `b-custom` is not `<b>`.
+        if !name.is_empty()
+            && !name.contains('-')
+            && NAMES.iter().any(|known| name.eq_ignore_ascii_case(known))
+        {
+            return true;
+        }
+        rest = if end < rest_trimmed.len() {
+            &rest_trimmed[end..]
+        } else {
+            ""
+        };
+    }
+    false
 }
 
 pub struct Fragment {
@@ -834,6 +908,44 @@ mod tests {
         assert!(
             out.windows(2)
                 .all(|pair| pair[0].source.end <= pair[1].source.start)
+        );
+    }
+
+    #[test]
+    fn unrecognized_html_stays_source_while_known_tags_remain_widgets() {
+        let prose = "硬契约在启动 prompt 的 <user-context> 中，agents[i].durable_context";
+        let unknown = candidates(&Snapshot::new(prose));
+        assert!(
+            unknown.is_empty(),
+            "custom elements must not become live widgets: {unknown:?}"
+        );
+        assert!(!presented_html("<user-context>"));
+        assert!(!presented_html("</user-context>"));
+        assert!(!presented_html("<!-- note -->"));
+        assert!(presented_html("<b>x</b>"));
+        assert!(presented_html("<user-context> <br>"));
+
+        let mixed = format!("前文\n\n{prose} <b>强调</b>\n\n后文");
+        let mixed_candidates = candidates(&Snapshot::new(&mixed));
+        assert!(
+            mixed_candidates
+                .iter()
+                .any(|c| mixed[c.source.clone()].contains("<user-context>") && c.block),
+            "a known tag still owns the paragraph"
+        );
+
+        let block = "<user-context>\n硬契约\n</user-context>\n\n后文";
+        assert!(
+            candidates(&Snapshot::new(block))
+                .iter()
+                .all(|c| !block[c.source.clone()].contains("user-context")),
+            "an unrecognized HTML block stays source"
+        );
+        let known_block = "<details>\n<summary>标题</summary>\n正文\n</details>";
+        assert!(
+            candidates(&Snapshot::new(known_block))
+                .iter()
+                .any(|c| known_block[c.source.clone()].contains("<details>"))
         );
     }
 }

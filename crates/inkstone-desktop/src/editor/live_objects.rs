@@ -1671,6 +1671,48 @@ mod tests {
     }
 
     #[gpui::test]
+    fn unrecognized_html_does_not_flicker_when_other_text_is_edited(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "其他段落\n\n硬契约在启动 prompt 的 <user-context> 中，agents[i].durable_context 保持原文。";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for _ in 0..8 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        handle
+            .update(&mut visual, |pane, window, cx| {
+                let tag = source.find("<user-context>").unwrap();
+                assert!(
+                    pane.editor.read(cx).display_objects().iter().all(|object| {
+                        object.source.end <= tag
+                            || object.source.start >= tag + "<user-context>".len()
+                    }),
+                    "the custom element must stay source, not a live widget"
+                );
+                pane.editor.update(cx, |state, cx| {
+                    state.set_selected_range(0..0, cx);
+                    state.replace_text_in_range(None, "新增", window, cx);
+                });
+                pane.update_presentation(cx);
+                let current = pane.editor.read(cx).value();
+                assert!(current.contains("<user-context>"));
+                let tag = current.find("<user-context>").unwrap();
+                assert!(
+                    pane.editor.read(cx).display_objects().iter().all(|object| {
+                        object.source.end <= tag
+                            || object.source.start >= tag + "<user-context>".len()
+                    }),
+                    "editing elsewhere must not install or remove a widget over the tag"
+                );
+                assert!(pane.editor.read(cx).concealed_ranges().iter().all(|range| {
+                    range.end <= tag || range.start >= tag + "<user-context>".len()
+                }));
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn footnotes_keep_geometry_and_hidden_rows_during_unrelated_edits(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let source = "top\n\nA[^n] B^[中文]\n\ntail\n\n[^n]: definition";
