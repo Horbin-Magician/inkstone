@@ -956,6 +956,11 @@ fn mapped_inline(
 /// Known formatting tags may be dropped when unclosed. Custom elements and
 /// other unrecognized tags are author text and must remain visible.
 fn keeps_literal_html(value: &str) -> bool {
+    // Comments include the invisible placeholders used for Markdown comments.
+    // They must not become visible text or appear in copied reading content.
+    if value.trim_start().starts_with("<!--") {
+        return false;
+    }
     let inner = value.trim().strip_prefix('<').unwrap_or(value);
     let inner = inner.strip_prefix('/').unwrap_or(inner);
     let name: String = inner
@@ -2746,6 +2751,13 @@ mod tests {
         );
         assert!(!keeps_literal_html("<strong>"));
         assert!(keeps_literal_html("<user-context>"));
+    }
+
+    #[test]
+    fn inline_html_comments_remain_hidden() {
+        let mut cx = NodeContext::default();
+        let document = parse("pre<!---->fix<!-- hidden -->", &mut cx).unwrap();
+        assert_eq!(document.text(), "prefix\n");
     }
 
     #[test]
