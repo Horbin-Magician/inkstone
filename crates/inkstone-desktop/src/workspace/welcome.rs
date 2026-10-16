@@ -306,8 +306,8 @@ mod tests {
         cx.run_until_parked();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        // Header settings, then creation, then existing vault.
-        for key in "tab tab enter".split_whitespace() {
+        // Creation, existing vault, then the bottom-right settings button.
+        for key in "tab enter".split_whitespace() {
             let keystroke = gpui::Keystroke::parse(key).unwrap();
             visual.simulate_event(gpui::KeyDownEvent {
                 keystroke: keystroke.clone(),
@@ -330,7 +330,7 @@ mod tests {
             })
             .unwrap();
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        for key in "tab tab tab enter".split_whitespace() {
+        for key in "tab tab enter".split_whitespace() {
             let keystroke = gpui::Keystroke::parse(key).unwrap();
             visual.simulate_event(gpui::KeyDownEvent {
                 keystroke: keystroke.clone(),
@@ -352,7 +352,7 @@ mod tests {
             })
             .unwrap();
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        for key in "tab tab tab shift-tab enter".split_whitespace() {
+        for key in "tab tab shift-tab enter".split_whitespace() {
             let keystroke = gpui::Keystroke::parse(key).unwrap();
             visual.simulate_event(gpui::KeyDownEvent {
                 keystroke: keystroke.clone(),

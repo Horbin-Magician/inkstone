@@ -1197,6 +1197,45 @@ impl Workspace {
         cx.notify();
     }
 
+    // On macOS the panel headers share the native title-bar row. Reuse TitleBar
+    // so empty header space retains window dragging and system double-click behavior.
+    pub(super) fn workspace_header(&self, content: impl IntoElement, leading: bool) -> AnyElement {
+        if cfg!(target_os = "macos") {
+            TitleBar::new()
+                .h(crate::TITLE_BAR_HEIGHT)
+                .pl(px(if leading { 80. } else { 0. }))
+                .bg(self.side())
+                .border_color(self.border())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                            // Buttons prevent default on press; keep their gestures out
+                            // of TitleBar's window-drag handling while leaving gaps draggable.
+                            if window.default_prevented() {
+                                cx.stop_propagation();
+                            }
+                        })
+                        .child(content),
+                )
+                .into_any_element()
+        } else {
+            content.into_any_element()
+        }
+    }
+
+    pub(super) fn sidebar_toggle(&self, right: bool, open: bool, cx: &mut Context<Self>) -> Button {
+        let (id, symbol, label, command) = match (right, open) {
+            (false, false) => ("toggle-left", "panel-left", "展开左侧栏", 12),
+            (false, true) => ("toggle-left", "panel-left-filled", "收起左侧栏", 12),
+            (true, false) => ("toggle-right", "panel-right", "展开右侧栏", 13),
+            (true, true) => ("toggle-right", "panel-right-filled", "收起右侧栏", 13),
+        };
+        tool(id, symbol, label)
+            .on_click(cx.listener(move |this, _, w, cx| this.execute_command(command, w, cx)))
+    }
+
     fn tab_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let menu_tabs: Vec<_> = self
             .tabs
@@ -1226,7 +1265,7 @@ impl Workspace {
             .and_then(|i| self.tabs.get(i))
             .map(|tab| tab.id);
         let weak = cx.entity().downgrade();
-        div()
+        let header = div()
             .flex()
             .w_full()
             .min_w_0()
@@ -1235,6 +1274,9 @@ impl Workspace {
             .bg(self.side())
             .border_b_1()
             .border_color(self.border())
+            .when(!self.ui.prefs.left_open, |bar| {
+                bar.child(self.sidebar_toggle(false, false, cx))
+            })
             .child(
                 div()
                     .id("tabs")
@@ -1500,7 +1542,10 @@ impl Workspace {
                     },
                 ),
             )
-            .into_any_element()
+            .when(!self.ui.prefs.right_open, |bar| {
+                bar.child(self.sidebar_toggle(true, false, cx))
+            });
+        self.workspace_header(header, !self.ui.prefs.left_open)
     }
     fn editor_group(
         &self,
@@ -1851,7 +1896,13 @@ impl Render for Workspace {
                 resizable_panel()
                     .size(px(self.ui.prefs.left_width))
                     .flex_none()
-                    .size_range(px(180.)..px(500.))
+                    .size_range(
+                        px(if cfg!(target_os = "macos") {
+                            240.
+                        } else {
+                            180.
+                        })..px(500.),
+                    )
                     .child(self.left_panel(cx)),
             )
         })
@@ -1865,7 +1916,7 @@ impl Render for Workspace {
                 resizable_panel()
                     .size(px(self.ui.prefs.right_width))
                     .flex_none()
-                    .size_range(px(180.)..px(500.))
+                    .size_range(px(208.)..px(500.))
                     .child(self.right_panel(_window, cx)),
             )
         })
@@ -1954,99 +2005,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &Bold, w, cx| this.execute_command(24, w, cx)))
             .on_action(cx.listener(|this, _: &Italic, w, cx| this.execute_command(25, w, cx)))
             .on_action(cx.listener(|this, _: &InsertLink, w, cx| this.execute_command(59, w, cx)))
-            .child(
-                TitleBar::new()
-                    .h(crate::TITLE_BAR_HEIGHT)
-                    .bg(self.side())
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_size(px(MIN_UI_FONT_SIZE))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child(crate::product::name()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .px_2()
-                            // Keep title-bar actions out of the native window drag hitbox.
-                            .occlude()
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                cx.stop_propagation();
-                            })
-                            .when(has_workspace, |bar| {
-                                bar.child(
-                                    Button::new("toggle-focus-mode")
-                                        .ghost()
-                                        .compact()
-                                        .label(if self.ui.focus_mode {
-                                            "退出专注"
-                                        } else {
-                                            "专注"
-                                        })
-                                        .accessibility_label(if self.ui.focus_mode {
-                                            "退出专注模式"
-                                        } else {
-                                            "进入专注模式"
-                                        })
-                                        .on_click(cx.listener(|this, _, w, cx| {
-                                            this.execute_command(109, w, cx)
-                                        })),
-                                )
-                                .child(
-                                    tool(
-                                        "title-toggle-left",
-                                        if left_open {
-                                            "panel-left-filled"
-                                        } else {
-                                            "panel-left"
-                                        },
-                                        if left_open {
-                                            "收起左侧栏"
-                                        } else {
-                                            "展开左侧栏"
-                                        },
-                                    )
-                                    .on_click(
-                                        cx.listener(|this, _, w, cx| {
-                                            this.execute_command(12, w, cx)
-                                        }),
-                                    ),
-                                )
-                                .child(
-                                    tool(
-                                        "title-toggle-right",
-                                        if right_open {
-                                            "panel-right-filled"
-                                        } else {
-                                            "panel-right"
-                                        },
-                                        if right_open {
-                                            "收起右侧栏"
-                                        } else {
-                                            "展开右侧栏"
-                                        },
-                                    )
-                                    .on_click(
-                                        cx.listener(|this, _, w, cx| {
-                                            this.execute_command(13, w, cx)
-                                        }),
-                                    ),
-                                )
-                            })
-                            .child(tool("title-settings", "settings", "设置").on_click(
-                                cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
-                            )),
-                    ),
+            .when(
+                !cfg!(target_os = "macos") || !has_workspace || self.ui.focus_mode,
+                |s| s.child(TitleBar::new().h(crate::TITLE_BAR_HEIGHT).bg(self.side())),
             )
             .when(!has_workspace, |s| {
                 if self.startup_pending || self.loading {
@@ -2213,7 +2174,34 @@ impl Render for Workspace {
                                         this.request_cloud_sync(window, cx);
                                     }
                                 }))
-                        }),
+                        })
+                        .child(
+                            tool("status-settings", "settings", "设置")
+                                .w(px(24.))
+                                .h(px(22.))
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
+                                ),
+                        ),
+                )
+            })
+            .when(!has_workspace, |s| {
+                s.child(
+                    div()
+                        .flex()
+                        .flex_shrink_0()
+                        .justify_end()
+                        .items_center()
+                        .h(px(28.))
+                        .px_2()
+                        .child(
+                            tool("welcome-settings", "settings", "设置")
+                                .w(px(24.))
+                                .h(px(22.))
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
+                                ),
+                        ),
                 )
             })
             .when(self.modal_is_open(), |s| s.child(self.modal(_window, cx)))
