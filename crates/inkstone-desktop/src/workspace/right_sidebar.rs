@@ -65,7 +65,9 @@ impl OutlineState {
 
 impl Workspace {
     fn right_header(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
+        let header = div()
+            .w_full()
+            .min_w_0()
             .flex()
             .items_center()
             .h(px(40.))
@@ -103,7 +105,9 @@ impl Workspace {
                         }))
                 }),
             )
-            .into_any_element()
+            .child(div().flex_1().min_w_0())
+            .child(self.sidebar_toggle(true, true, cx));
+        self.workspace_header(header, false)
     }
     pub(super) fn right_panel(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let pane = self.current_pane();

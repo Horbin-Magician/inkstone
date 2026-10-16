@@ -99,7 +99,9 @@ impl Workspace {
     }
 
     fn left_header(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
+        let header = div()
+            .w_full()
+            .min_w_0()
             .flex()
             .items_center()
             .h(px(40.))
@@ -131,7 +133,9 @@ impl Workspace {
                         cx.notify();
                     })),
             )
-            .into_any_element()
+            .child(div().flex_1().min_w_0())
+            .child(self.sidebar_toggle(false, true, cx));
+        self.workspace_header(header, true)
     }
     pub(super) fn reveal_current_file(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(path) = self
