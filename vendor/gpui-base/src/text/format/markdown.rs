@@ -953,6 +953,64 @@ fn mapped_inline(
     InlineNode::new(text).source_segments(segments)
 }
 
+/// Known formatting tags may be dropped when unclosed. Custom elements and
+/// other unrecognized tags are author text and must remain visible.
+fn keeps_literal_html(value: &str) -> bool {
+    // Comments include the invisible placeholders used for Markdown comments.
+    // They must not become visible text or appear in copied reading content.
+    if value.trim_start().starts_with("<!--") {
+        return false;
+    }
+    let inner = value.trim().strip_prefix('<').unwrap_or(value);
+    let inner = inner.strip_prefix('/').unwrap_or(inner);
+    let name: String = inner
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    name.contains('-')
+        || !matches!(
+            name.to_ascii_lowercase().as_str(),
+            "a" | "b"
+                | "blockquote"
+                | "br"
+                | "code"
+                | "del"
+                | "details"
+                | "div"
+                | "em"
+                | "h1"
+                | "h2"
+                | "h3"
+                | "h4"
+                | "h5"
+                | "h6"
+                | "hr"
+                | "i"
+                | "img"
+                | "kbd"
+                | "li"
+                | "mark"
+                | "ol"
+                | "p"
+                | "pre"
+                | "s"
+                | "span"
+                | "strike"
+                | "strong"
+                | "sub"
+                | "summary"
+                | "sup"
+                | "table"
+                | "tbody"
+                | "td"
+                | "th"
+                | "thead"
+                | "tr"
+                | "u"
+                | "ul"
+        )
+}
+
 fn append_inline_html_blocks(paragraph: &mut Paragraph, blocks: Vec<BlockNode>) -> Option<String> {
     let mut text = String::new();
 
@@ -1128,32 +1186,38 @@ fn parse_paragraph(
                     .marks(vec![(0..text.len(), TextMark::default())]),
             );
         }
-        Node::Html(val) => match super::html::parse_at(
-            &val.value,
-            val.position
-                .as_ref()
-                .map_or(cx.offset, |p| cx.offset + p.start.offset),
-            cx,
-        ) {
-            Ok(el) => {
-                if let Some(inline_text) =
-                    append_inline_html_blocks(paragraph, Arc::unwrap_or_clone(el.blocks))
-                {
-                    text = inline_text;
-                } else {
+        Node::Html(val) => {
+            let before = paragraph.children.len();
+            let parsed = super::html::parse_at(
+                &val.value,
+                val.position
+                    .as_ref()
+                    .map_or(cx.offset, |p| cx.offset + p.start.offset),
+                cx,
+            );
+            let inline_text = match parsed {
+                Ok(el) => append_inline_html_blocks(paragraph, Arc::unwrap_or_clone(el.blocks)),
+                Err(err) => {
                     if cfg!(debug_assertions) {
-                        tracing::warn!("unsupported inline html tag: {:#?}", val.value);
+                        tracing::warn!("failed parsing html: {:#?}", err);
                     }
+                    None
                 }
-            }
-            Err(err) => {
-                if cfg!(debug_assertions) {
-                    tracing::warn!("failed parsing html: {:#?}", err);
+            };
+            if paragraph.children.len() > before {
+                if let Some(inline_text) = inline_text {
+                    text = inline_text;
                 }
-
-                text.push_str(&val.value);
+            } else if keeps_literal_html(&val.value) {
+                // html5ever accepts unknown elements and then drops the tag.
+                // Keep the source so `<user-context>` does not vanish and flash
+                // back when a live widget is rebuilt after an unrelated edit.
+                text = val.value.clone();
+                paragraph.push(mapped_inline(source, text.clone(), node, cx));
+            } else if cfg!(debug_assertions) {
+                tracing::warn!("unsupported inline html tag: {:#?}", val.value);
             }
-        },
+        }
         Node::FootnoteReference(foot) => {
             let info = cx.footnotes.get(&foot.identifier);
             let prefix = info.map_or_else(
@@ -2673,6 +2737,27 @@ mod tests {
         };
         assert_eq!(marked(|mark| mark.italic), ["c", "d", "g"]);
         assert_eq!(marked(|mark| mark.strikethrough), ["h"]);
+    }
+
+    #[test]
+    fn unrecognized_inline_html_stays_literal() {
+        let source = "硬契约在 <user-context> 中，agents[i] 不变";
+        let mut cx = NodeContext::default();
+        let document = parse(source, &mut cx).unwrap();
+        assert!(
+            document.text().contains("<user-context>"),
+            "{}",
+            document.text()
+        );
+        assert!(!keeps_literal_html("<strong>"));
+        assert!(keeps_literal_html("<user-context>"));
+    }
+
+    #[test]
+    fn inline_html_comments_remain_hidden() {
+        let mut cx = NodeContext::default();
+        let document = parse("pre<!---->fix<!-- hidden -->", &mut cx).unwrap();
+        assert_eq!(document.text(), "prefix\n");
     }
 
     #[test]
