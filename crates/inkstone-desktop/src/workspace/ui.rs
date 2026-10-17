@@ -599,7 +599,7 @@ impl Workspace {
     }
 }
 
-pub(super) const ICON_SIZE: f32 = 19.;
+pub(super) const ICON_SIZE: f32 = 18.;
 
 pub(super) fn icon(name: &str) -> Icon {
     if matches!(
