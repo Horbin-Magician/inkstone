@@ -1842,12 +1842,12 @@ fn fonts_restore_across_vault_and_theme_changes(cx: &mut TestAppContext) {
                 assert_eq!(w.ui.prefs.text_font, expected);
                 assert_eq!(
                     w.tabs[0].pane.read(cx).text_font,
-                    w.resolved_font(expected, "Microsoft YaHei UI")
+                    w.resolved_text_font(expected)
                 );
                 w.execute_command(22, window, cx);
                 assert_eq!(
                     w.tabs[0].pane.read(cx).text_font,
-                    w.resolved_font(expected, "Microsoft YaHei UI")
+                    w.resolved_text_font(expected)
                 );
                 assert_eq!(
                     w.tabs[0].pane.read(cx).editor.read(cx).value().as_ref(),
@@ -1947,7 +1947,7 @@ fn font_preferences_reach_split_views_and_missing_fonts_fall_back(cx: &mut TestA
             w.ui.prefs.monospace_font = chosen;
             w.add_tab("a.md".into(), Some("中文😀".into()), false, window, cx);
             w.split_active(false, window, cx);
-            let expected = w.resolved_font(&w.ui.prefs.text_font, "Microsoft YaHei UI");
+            let expected = w.resolved_text_font(&w.ui.prefs.text_font);
             assert_eq!(w.tabs[0].pane.read(cx).text_font, expected);
             assert_eq!(
                 w.views.split.as_ref().unwrap().pane.read(cx).text_font,
@@ -1963,14 +1963,33 @@ fn font_preferences_reach_split_views_and_missing_fonts_fall_back(cx: &mut TestA
             );
             w.ui.prefs.text_font = "inkstone-nonexistent-font-123".into();
             w.apply_editor_preferences(window, cx);
-            assert_eq!(
-                w.tabs[0].pane.read(cx).text_font.as_ref(),
-                "Microsoft YaHei UI"
-            );
+            assert_eq!(w.tabs[0].pane.read(cx).text_font, w.ui.default_fonts.0);
             assert_eq!(
                 w.tabs[0].pane.read(cx).editor.read(cx).value().as_ref(),
                 "中文😀"
             );
+        })
+        .unwrap();
+}
+#[gpui::test]
+fn text_font_resolution_skips_uninstalled_families(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, _, _| {
+            let system = w.ui.default_fonts.0.clone();
+            w.ui.available_fonts = Arc::new(vec!["PingFang SC".into()]);
+            // Neither the configured nor the Windows fallback is installed.
+            // The platform UI family stays resolvable, so bold spans keep
+            // their weight instead of dropping to a default-weight fallback.
+            assert_eq!(w.resolved_text_font(""), system);
+            assert_eq!(w.resolved_text_font("Inkstone Missing Font"), system);
+            // An installed CJK fallback wins over the system family.
+            w.ui.available_fonts =
+                Arc::new(vec!["PingFang SC".into(), "Microsoft YaHei UI".into()]);
+            assert_eq!(w.resolved_text_font("").as_ref(), "Microsoft YaHei UI");
+            // An installed user choice wins over every fallback.
+            assert_eq!(w.resolved_text_font("pingfang sc").as_ref(), "PingFang SC");
         })
         .unwrap();
 }

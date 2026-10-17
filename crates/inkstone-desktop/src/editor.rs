@@ -304,7 +304,7 @@ impl EditorPane {
             line_spacing: 1.5,
             quick_font_size: false,
             font_zoom: Default::default(),
-            text_font: "Microsoft YaHei UI".into(),
+            text_font: ".SystemUIFont".into(),
             readable_width: true,
             strict_line_breaks: false,
             indentation,

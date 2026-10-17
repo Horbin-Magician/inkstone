@@ -195,7 +195,7 @@ impl EditorPane {
                     .bordered(false)
                     .text_size(px(self.font_size * 0.875))
                     .line_height(relative(1.5))
-                    .font_family("Microsoft YaHei UI"),
+                    .font_family(self.text_font.clone()),
             )
             .when(edit.error, |s| {
                 s.child("笔记已变化，无法自动写回。请保留此处内容并复制到笔记。")
