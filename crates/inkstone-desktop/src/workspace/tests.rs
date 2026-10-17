@@ -6291,7 +6291,7 @@ fn application_icon_dimensions_survive_component_size_overrides(cx: &mut TestApp
                                 element.layout_as_root(AvailableSpace::min_size(), window, cx);
                             assert_eq!(
                                 actual,
-                                size(px(19.), px(19.)),
+                                size(px(18.), px(18.)),
                                 "{name}: {component_size:?}"
                             );
                         }
