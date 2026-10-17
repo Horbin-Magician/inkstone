@@ -753,7 +753,11 @@ impl Workspace {
                                         .compact()
                                         .w(px(20.))
                                         .h(px(24.))
-                                        .label(if row.collapsed { "›" } else { "⌄" })
+                                        .icon(icon(if row.collapsed {
+                                            "chevron-right"
+                                        } else {
+                                            "chevron-down"
+                                        }))
                                         .accessibility_label(format!("展开或折叠标签 {tag}"))
                                         .on_click(cx.listener(move |this, _, w, cx| {
                                             cx.stop_propagation();

@@ -184,7 +184,8 @@ impl Icon {
             .flex_shrink_0()
             .text_color(text_color)
             .when(!has_base_size, |this| this.size(text_size))
-            .when_some(self.size, |this, size| match size {
+            // Explicit dimensions take precedence over component size defaults.
+            .when_some(self.size.filter(|_| !has_base_size), |this, size| match size {
                 Size::Size(px) => this.size(px),
                 Size::XSmall => this.size_3(),
                 Size::Small => this.size_3p5(),
