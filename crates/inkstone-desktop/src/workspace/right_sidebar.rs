@@ -107,7 +107,7 @@ impl Workspace {
             )
             .child(div().flex_1().min_w_0())
             .child(self.sidebar_toggle(true, true, cx));
-        self.workspace_header(header, false)
+        self.workspace_header(header, false, false)
     }
     pub(super) fn right_panel(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let pane = self.current_pane();

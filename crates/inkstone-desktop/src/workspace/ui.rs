@@ -18,6 +18,64 @@ use gpui_component::{
 use inkstone_core::file_order::SortBy;
 use inkstone_core::preferences::Preferences;
 
+/// Paint an open-bottom tab with outward curves that join the header divider.
+/// Keep the curves inside the tab bounds so scrolling cannot clip an overhang.
+fn active_tab_background(background: Rgba, border: Rgba) -> impl IntoElement {
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let radius = px(8.);
+            let top = bounds.top() + px(0.5);
+            let bottom = bounds.bottom() - px(0.5);
+            let left = bounds.left() + radius;
+            let right = bounds.right() - radius;
+            // Cubic approximation of a quarter circle, with tangent joins.
+            let control = radius * 0.5522848;
+            let outline = |path: &mut gpui::PathBuilder| {
+                path.move_to(point(bounds.left(), bottom));
+                path.cubic_bezier_to(
+                    point(left, bottom - radius),
+                    point(bounds.left() + control, bottom),
+                    point(left, bottom - radius + control),
+                );
+                path.line_to(point(left, top + radius));
+                path.cubic_bezier_to(
+                    point(left + radius, top),
+                    point(left, top + radius - control),
+                    point(left + radius - control, top),
+                );
+                path.line_to(point(right - radius, top));
+                path.cubic_bezier_to(
+                    point(right, top + radius),
+                    point(right - radius + control, top),
+                    point(right, top + radius - control),
+                );
+                path.line_to(point(right, bottom - radius));
+                path.cubic_bezier_to(
+                    point(bounds.right(), bottom),
+                    point(right, bottom - radius + control),
+                    point(bounds.right() - control, bottom),
+                );
+            };
+            let mut fill = gpui::PathBuilder::fill();
+            outline(&mut fill);
+            fill.line_to(point(bounds.right(), bounds.bottom()));
+            fill.line_to(point(bounds.left(), bounds.bottom()));
+            fill.close();
+            if let Ok(path) = fill.build() {
+                window.paint_path(path, background);
+            }
+            let mut stroke = gpui::PathBuilder::stroke(px(1.));
+            outline(&mut stroke);
+            if let Ok(path) = stroke.build() {
+                window.paint_path(path, border);
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum NameMode {
     New,
@@ -1196,13 +1254,20 @@ impl Workspace {
 
     // On macOS the panel headers share the native title-bar row. Reuse TitleBar
     // so empty header space retains window dragging and system double-click behavior.
-    pub(super) fn workspace_header(&self, content: impl IntoElement, leading: bool) -> AnyElement {
+    pub(super) fn workspace_header(
+        &self,
+        content: impl IntoElement,
+        leading: bool,
+        merged_tab: bool,
+    ) -> AnyElement {
         if cfg!(target_os = "macos") {
             TitleBar::new()
                 .h(crate::TITLE_BAR_HEIGHT)
                 .pl(px(if leading { 80. } else { 0. }))
                 .bg(self.side())
                 .border_color(self.border())
+                // The tab strip paints its own divider, interrupted by the active tab.
+                .when(merged_tab, |bar| bar.border_b_0())
                 .child(
                     div()
                         .flex_1()
@@ -1269,8 +1334,15 @@ impl Workspace {
             .h(px(40.))
             .items_center()
             .bg(self.side())
-            .border_b_1()
-            .border_color(self.border())
+            .relative()
+            .child(
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .w_full()
+                    .h(px(1.))
+                    .bg(self.border()),
+            )
             .when(!self.ui.prefs.left_open, |bar| {
                 bar.child(self.sidebar_toggle(false, false, cx))
             })
@@ -1364,9 +1436,8 @@ impl Workspace {
                             .w(px(200.))
                             .min_w(px(100.))
                             .max_w(px(320.))
-                            .px_2()
+                            .px_4()
                             .gap_1()
-                            .rounded_t(px(9.))
                             .text_color(if selected {
                                 self.fg()
                             } else {
@@ -1388,10 +1459,7 @@ impl Workspace {
                                 )
                             })
                             .when(selected, |s| {
-                                s.bg(self.bg())
-                                    .border_1()
-                                    .border_b_0()
-                                    .border_color(self.border())
+                                s.child(active_tab_background(self.bg(), self.border()))
                             })
                             .child(
                                 div()
@@ -1542,7 +1610,7 @@ impl Workspace {
             .when(!self.ui.prefs.right_open, |bar| {
                 bar.child(self.sidebar_toggle(true, false, cx))
             });
-        self.workspace_header(header, !self.ui.prefs.left_open)
+        self.workspace_header(header, !self.ui.prefs.left_open, true)
     }
     fn editor_group(
         &self,
