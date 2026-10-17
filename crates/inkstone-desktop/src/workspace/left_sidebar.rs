@@ -135,7 +135,7 @@ impl Workspace {
             )
             .child(div().flex_1().min_w_0())
             .child(self.sidebar_toggle(false, true, cx));
-        self.workspace_header(header, true)
+        self.workspace_header(header, true, false)
     }
     pub(super) fn reveal_current_file(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(path) = self
