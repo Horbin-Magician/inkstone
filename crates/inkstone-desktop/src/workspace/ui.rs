@@ -789,7 +789,7 @@ impl Workspace {
     pub(super) fn apply_editor_preferences(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.apply_font_preferences(cx);
         self.sync_font_selects(window, cx);
-        let text_font = self.resolved_font(&self.ui.prefs.text_font, "Microsoft YaHei UI");
+        let text_font = self.resolved_text_font(&self.ui.prefs.text_font);
         let p = self.ui.prefs.clone();
         self.ui
             .font_size_slider

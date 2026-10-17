@@ -91,6 +91,31 @@ impl Workspace {
             .map_or_else(|| fallback.to_string(), Clone::clone)
             .into()
     }
+    /// Resolves the prose text family to an installed family.
+    ///
+    /// A family that is not installed must never reach the text system: its
+    /// last-resort fallbacks are built at the default weight, so bold runs lose
+    /// their weight and only keep their accent colour. Prefer the CJK-friendly
+    /// default where it exists, then the platform system UI family.
+    pub(super) fn resolved_text_font(&self, requested: &str) -> SharedString {
+        if let Some(font) = self
+            .ui
+            .available_fonts
+            .iter()
+            .find(|font| font.eq_ignore_ascii_case(requested))
+        {
+            return font.clone().into();
+        }
+        if let Some(font) = self
+            .ui
+            .available_fonts
+            .iter()
+            .find(|font| font.eq_ignore_ascii_case("Microsoft YaHei UI"))
+        {
+            return font.clone().into();
+        }
+        self.ui.default_fonts.0.clone()
+    }
     pub(super) fn apply_font_preferences(&self, cx: &mut App) {
         let interface = self.resolved_font(&self.ui.prefs.interface_font, &self.ui.default_fonts.0);
         let mono = self.resolved_font(&self.ui.prefs.monospace_font, &self.ui.default_fonts.1);

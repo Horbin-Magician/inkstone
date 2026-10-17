@@ -454,7 +454,7 @@ impl Workspace {
         let path = tab_path.clone();
         let original_navigation = original.navigation.clone();
         let paths = self.cached_link_paths(&path);
-        let text_font = self.resolved_font(&prefs.text_font, "Microsoft YaHei UI");
+        let text_font = self.resolved_text_font(&prefs.text_font);
         let mut navigation = self
             .views
             .split
