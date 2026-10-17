@@ -582,11 +582,7 @@ impl Workspace {
             .gap_2()
             .p_4()
             .text_center()
-            .child(
-                icon(symbol)
-                    .size(px(26.))
-                    .text_color(crate::theme::palette(self.ui.prefs.light).accent),
-            )
+            .child(icon(symbol).text_color(crate::theme::palette(self.ui.prefs.light).accent))
             .child(
                 div()
                     .text_size(px(MIN_UI_FONT_SIZE))
@@ -602,6 +598,8 @@ impl Workspace {
             .into_any_element()
     }
 }
+
+pub(super) const ICON_SIZE: f32 = 24.;
 
 pub(super) fn icon(name: &str) -> Icon {
     if matches!(
@@ -622,9 +620,8 @@ pub(super) fn icon(name: &str) -> Icon {
             }
             _ => "",
         };
-        return Icon::default()
-            .data(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{fill}<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M{divider} 3v18"/></svg>"#).as_bytes())
-            .size(px(19.));
+        return Icon::default().size(px(ICON_SIZE))
+            .data(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{fill}<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M{divider} 3v18"/></svg>"#).as_bytes());
     }
     let shape = match name {
         "trash" => Some("M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"),
@@ -669,11 +666,11 @@ pub(super) fn icon(name: &str) -> Icon {
         _ => None,
     };
     if let Some(shape) = shape {
-        return Icon::default().data(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{shape}"/></svg>"#).as_bytes()).size(px(19.));
+        return Icon::default().size(px(ICON_SIZE)).data(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{shape}"/></svg>"#).as_bytes());
     }
     Icon::default()
+        .size(px(ICON_SIZE))
         .path(format!("icons/{name}.svg"))
-        .size(px(19.))
 }
 pub(super) fn tool(id: &'static str, name: &str, tip: impl Into<SharedString>) -> Button {
     let tip = tip.into();
@@ -1437,7 +1434,7 @@ impl Workspace {
                                     ))
                                     .ghost()
                                     .compact()
-                                    .icon(icon(if pinned { "pin" } else { "x" }).size(px(16.)))
+                                    .icon(icon(if pinned { "pin" } else { "x" }))
                                     .when(!selected && !pinned, |button| {
                                         button
                                             .opacity(0.)
@@ -1445,8 +1442,8 @@ impl Workspace {
                                                 style.opacity(1.)
                                             })
                                     })
-                                    .w(px(22.))
-                                    .h(px(22.))
+                                    .w(px(28.))
+                                    .h(px(28.))
                                     .on_click(cx.listener(move |this, _, w, cx| {
                                         cx.stop_propagation();
                                         this.close_tab_at(i, w, cx);
@@ -1694,7 +1691,7 @@ impl Workspace {
                                                             )
                                                     },
                                                 )
-                                                .icon(icon(symbol).size(px(18.)))
+                                                .icon(icon(symbol))
                                                 .on_click(move |_, window, cx| {
                                                     let _ = weak.update(cx, |this, cx| {
                                                         if secondary {
@@ -2067,9 +2064,9 @@ impl Render for Workspace {
                                 Button::new("status-backlinks")
                                     .ghost()
                                     .compact()
-                                    .w(px(24.))
-                                    .h(px(22.))
-                                    .icon(icon("links").size(px(17.)).text_color(
+                                    .w(px(28.))
+                                    .h(px(28.))
+                                    .icon(icon("links").text_color(
                                         crate::theme::palette(self.ui.prefs.light).muted,
                                     ))
                                     .accessibility_label(backlink_tip.clone())
@@ -2131,7 +2128,6 @@ impl Render for Workspace {
                             let spinning = self.ui.cloud_sync.is_busy();
                             let detail = self.status_corner_detail();
                             let mark = icon("refresh-cw")
-                                .size(px(17.))
                                 .text_color(crate::theme::palette(self.ui.prefs.light).muted);
                             let mark: AnyElement = if spinning {
                                 mark.with_animation(
@@ -2153,8 +2149,8 @@ impl Render for Workspace {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .w(px(24.))
-                                .h(px(22.))
+                                .w(px(28.))
+                                .h(px(28.))
                                 .cursor_pointer()
                                 .child(mark)
                                 .tooltip(move |window, cx| {
@@ -2177,8 +2173,8 @@ impl Render for Workspace {
                         })
                         .child(
                             tool("status-settings", "settings", "设置")
-                                .w(px(24.))
-                                .h(px(22.))
+                                .w(px(28.))
+                                .h(px(28.))
                                 .on_click(
                                     cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
                                 ),
@@ -2196,8 +2192,8 @@ impl Render for Workspace {
                         .px_2()
                         .child(
                             tool("welcome-settings", "settings", "设置")
-                                .w(px(24.))
-                                .h(px(22.))
+                                .w(px(28.))
+                                .h(px(28.))
                                 .on_click(
                                     cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
                                 ),
