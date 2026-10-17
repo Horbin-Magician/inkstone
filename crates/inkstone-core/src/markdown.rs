@@ -463,6 +463,55 @@ mod tests {
             assert!(item.active(&(item.content.start..item.content.start)));
         }
     }
+
+    fn styled<'a>(source: &'a str, kind: Kind) -> Vec<&'a str> {
+        spans(source)
+            .into_iter()
+            .filter(|span| span.kind == kind)
+            .map(|span| &source[span.content.clone()])
+            .collect()
+    }
+
+    #[test]
+    fn cjk_punctuation_does_not_block_adjacent_emphasis() {
+        for (source, kind, content) in [
+            ("**叶变换对，**", Kind::Strong, "叶变换对，"),
+            ("**叶变换对，**这种情况下", Kind::Strong, "叶变换对，"),
+            ("前文**叶变换对，**这种", Kind::Strong, "叶变换对，"),
+            ("**叶变换对。**这是下一句", Kind::Strong, "叶变换对。"),
+            ("这是**“叶变换对”**的说明", Kind::Strong, "“叶变换对”"),
+            ("*叶变换对，*这种", Kind::Emphasis, "叶变换对，"),
+            ("**「重要」**的", Kind::Strong, "「重要」"),
+            ("~~删除，~~后续", Kind::Strike, "删除，"),
+            ("**hello,**这", Kind::Strong, "hello,"),
+            ("***叶变换对，***这种", Kind::Strong, "叶变换对，"),
+        ] {
+            assert_eq!(styled(source, kind), vec![content], "{source:?}");
+        }
+        let nested = "**叶变换对，**这种情况下";
+        let strong = spans(nested)
+            .into_iter()
+            .find(|span| span.kind == Kind::Strong)
+            .unwrap();
+        assert_eq!(
+            strong
+                .markers
+                .iter()
+                .map(|marker| &nested[marker.clone()])
+                .collect::<Vec<_>>(),
+            ["**", "**"]
+        );
+        assert_eq!(styled("这是**粗体**文字", Kind::Strong), vec!["粗体"]);
+        assert_eq!(styled("**hello,** world", Kind::Strong), vec!["hello,"]);
+        assert!(styled("**hello,**world", Kind::Strong).is_empty());
+        assert!(styled("`**叶变换对，**这种`", Kind::Strong).is_empty());
+        assert!(styled("__叶变换对，__这种", Kind::Strong).is_empty());
+        // `***...***` is emphasis around strong, so the emphasis range keeps the inner markers.
+        assert_eq!(
+            styled("***叶变换对，***这种", Kind::Emphasis),
+            vec!["**叶变换对，**"]
+        );
+    }
     #[test]
     fn list_markers_follow_syntax_and_preserve_nested_source_offsets() {
         let source = "* 中文\n  - nested\n\n+ other\n\n> * quoted\n\n1. ordered\n\n***\n\n\\* escaped\n\n```md\n* code\n```\n\n    * indented item";

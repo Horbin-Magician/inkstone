@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/inkstone-core", "crates/inkstone-desktop"]
 default-members = ["crates/inkstone-core", "crates/inkstone-desktop"]
-exclude = ["vendor/gpui-base", "vendor/gpui-component"]
+exclude = ["vendor/gpui-base", "vendor/gpui-component", "vendor/markdown"]
 
 [workspace.package]
 version = "0.3.0"
@@ -58,3 +58,4 @@ debug = 1
 [patch.crates-io]
 gpui-base = { path = "vendor/gpui-base" }
 gpui-component = { path = "vendor/gpui-component" }
+markdown = { path = "vendor/markdown" }
