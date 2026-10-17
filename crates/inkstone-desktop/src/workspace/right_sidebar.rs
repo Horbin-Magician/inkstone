@@ -246,23 +246,20 @@ impl Workspace {
                                                 .gap_1()
                                                 .pl(px((h.level - 1) as f32 * 17.))
                                                 .cursor_pointer()
-                                                .child(div().w(px(18.)).flex_shrink_0().when(
+                                                .child(div().w(px(28.)).flex_shrink_0().when(
                                                     has_children,
                                                     |s| {
                                                         s.child(
                                                             Button::new(("outline-fold", offset))
                                                                 .ghost()
                                                                 .compact()
-                                                                .w(px(18.))
+                                                                .w(px(28.))
                                                                 .h(px(24.))
-                                                                .icon(
-                                                                    icon(if folded {
-                                                                        "chevron-right"
-                                                                    } else {
-                                                                        "chevron-down"
-                                                                    })
-                                                                    .size(px(16.)),
-                                                                )
+                                                                .icon(icon(if folded {
+                                                                    "chevron-right"
+                                                                } else {
+                                                                    "chevron-down"
+                                                                }))
                                                                 .accessibility_label(format!(
                                                                     "展开或折叠 {}",
                                                                     h.title
@@ -456,7 +453,7 @@ impl Workspace {
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgba(0x88888818)))
                                 .child(
-                                    icon(symbol).size(px(18.)).text_color(
+                                    icon(symbol).text_color(
                                         crate::theme::palette(self.ui.prefs.light).muted,
                                     ),
                                 )
@@ -492,7 +489,7 @@ impl Workspace {
                                         .text_color(
                                             crate::theme::palette(self.ui.prefs.light).muted,
                                         )
-                                        .child(icon("plus").size(px(16.)))
+                                        .child(icon("plus"))
                                         .child("添加笔记属性"),
                                 )
                                 .on_click(

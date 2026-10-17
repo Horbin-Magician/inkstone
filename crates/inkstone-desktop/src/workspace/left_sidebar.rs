@@ -254,9 +254,8 @@ impl Workspace {
                             } else {
                                 "chevron-right"
                             })
-                            .size(px(18.))
                         } else {
-                            Icon::default().size(px(18.))
+                            Icon::default().size(px(ui::ICON_SIZE))
                         })
                         .child(
                             div()
@@ -509,7 +508,7 @@ impl Workspace {
                             div().p_3().flex().gap_1().items_center().child(
                                 div().flex_1().min_w_0().child(
                                     Input::new(&self.search)
-                                        .prefix(icon("search").size(px(16.)))
+                                        .prefix(icon("search"))
                                         .cleanable(true)
                                         .suffix(
                                             Button::new("search-case-sensitive")
