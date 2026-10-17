@@ -2127,8 +2127,7 @@ impl Render for Workspace {
                         .child({
                             let spinning = self.ui.cloud_sync.is_busy();
                             let detail = self.status_corner_detail();
-                            let mark = icon("refresh-cw")
-                                .text_color(crate::theme::palette(self.ui.prefs.light).muted);
+                            let mark = icon("refresh-cw").text_color(self.fg());
                             let mark: AnyElement = if spinning {
                                 mark.with_animation(
                                     "status-sync-spin",
