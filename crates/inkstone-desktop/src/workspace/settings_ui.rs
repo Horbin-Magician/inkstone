@@ -282,7 +282,7 @@ impl Workspace {
                                 .items_center()
                                 .gap_2()
                                 .text_size(px(MIN_UI_FONT_SIZE))
-                                .child(ui::icon(symbol).size(px(16.)))
+                                .child(ui::icon(symbol).size(px(18.)))
                                 .child(title),
                         )
                         .on_click(cx.listener(move |this, _, w, cx| {
@@ -446,7 +446,7 @@ impl Workspace {
                     } else {
                         "编辑视图"
                     })
-                    .child(icon("chevrons-up-down").size(px(14.))),
+                    .child(icon("chevrons-up-down").size(px(16.))),
             )
             .dropdown_menu(move |mut menu, _, _| {
                 for (value, label) in [(false, "编辑视图"), (true, "阅读视图")] {
@@ -473,7 +473,7 @@ impl Workspace {
                     .items_center()
                     .gap_2()
                     .child(if live { "实时预览" } else { "源码模式" })
-                    .child(icon("chevrons-up-down").size(px(14.))),
+                    .child(icon("chevrons-up-down").size(px(16.))),
             )
             .dropdown_menu(move |mut menu, _, _| {
                 for (value, label) in [(true, "实时预览"), (false, "源码模式")] {
