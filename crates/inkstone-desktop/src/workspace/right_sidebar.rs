@@ -261,7 +261,7 @@ impl Workspace {
                                                                     } else {
                                                                         "chevron-down"
                                                                     })
-                                                                    .size(px(14.)),
+                                                                    .size(px(16.)),
                                                                 )
                                                                 .accessibility_label(format!(
                                                                     "展开或折叠 {}",
@@ -456,7 +456,7 @@ impl Workspace {
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgba(0x88888818)))
                                 .child(
-                                    icon(symbol).size(px(16.)).text_color(
+                                    icon(symbol).size(px(18.)).text_color(
                                         crate::theme::palette(self.ui.prefs.light).muted,
                                     ),
                                 )
@@ -492,7 +492,7 @@ impl Workspace {
                                         .text_color(
                                             crate::theme::palette(self.ui.prefs.light).muted,
                                         )
-                                        .child(icon("plus").size(px(14.)))
+                                        .child(icon("plus").size(px(16.)))
                                         .child("添加笔记属性"),
                                 )
                                 .on_click(

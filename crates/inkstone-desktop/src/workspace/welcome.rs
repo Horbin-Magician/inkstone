@@ -110,7 +110,7 @@ impl Workspace {
                 .child(div().flex().items_center().gap_3().mb_3()
                     .child(div().size(px(42.)).rounded(px(12.)).bg(colors.selected)
                         .flex().items_center().justify_center()
-                        .child(ui::icon("square-pen").size(px(22.)).text_color(colors.accent)))
+                        .child(ui::icon("square-pen").size(px(24.)).text_color(colors.accent)))
                     .child(div().text_size(px(26.)).font_weight(FontWeight::SEMIBOLD).child(crate::product::name())))
                 .child(div().text_size(px(18.)).font_weight(FontWeight::MEDIUM).child("你的笔记，从这里开始"))
                 .child(div().text_size(px(MIN_UI_FONT_SIZE)).line_height(relative(1.7)).text_color(colors.muted)
@@ -184,7 +184,7 @@ impl Workspace {
                                         .items_center()
                                         .gap_3()
                                         .child(
-                                            ui::icon(symbol).size(px(17.)).text_color(colors.muted),
+                                            ui::icon(symbol).size(px(19.)).text_color(colors.muted),
                                         )
                                         .child(div().flex_1().child(label))
                                         .child(
