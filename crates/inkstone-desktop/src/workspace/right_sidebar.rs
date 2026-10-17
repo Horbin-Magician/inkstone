@@ -167,6 +167,8 @@ impl Workspace {
                         s.flex().flex_col().overflow_hidden()
                     })
                     .p_3()
+                    // Center the 28px outline tools on the adjacent 40px view header.
+                    .when(self.ui.right_mode == 0, |s| s.pt(px(6.)))
                     .when(self.ui.right_mode == 0, |s| {
                         s.child(
                             div()
