@@ -6255,3 +6255,60 @@ fn tree_folder_name_toggles_and_file_second_click_edits(cx: &mut TestAppContext)
     assert!(!root.join("folder/note.md").exists());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[gpui::test]
+fn application_icon_dimensions_survive_component_size_overrides(cx: &mut TestAppContext) {
+    use gpui::AvailableSpace;
+    use gpui_component::{Icon, IconName, Sizable, Size};
+
+    struct Probe;
+    impl Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            gpui::canvas(
+                |_, window, cx| {
+                    // Buttons apply their own size; popup menus apply XSmall. Cover asset,
+                    // inline SVG and filled panel icons through the actual layout engine.
+                    for name in [
+                        "search",
+                        "settings",
+                        "folder-open",
+                        "plus",
+                        "chevron-down",
+                        "panel-left",
+                        "panel-left-filled",
+                        "panel-right-filled",
+                        "x",
+                        "code",
+                        "links",
+                        "refresh-cw",
+                        "square-pen",
+                    ] {
+                        for component_size in [Size::XSmall, Size::Small, Size::Medium, Size::Large]
+                        {
+                            let mut element =
+                                ui::icon(name).with_size(component_size).into_any_element();
+                            let actual =
+                                element.layout_as_root(AvailableSpace::min_size(), window, cx);
+                            assert_eq!(
+                                actual,
+                                size(px(19.), px(19.)),
+                                "{name}: {component_size:?}"
+                            );
+                        }
+                    }
+                    // Unspecified icon dimensions must still honor the component default.
+                    let mut element = Icon::new(IconName::Search).xsmall().into_any_element();
+                    let actual = element.layout_as_root(AvailableSpace::min_size(), window, cx);
+                    let expected = gpui::rems(0.75).to_pixels(window.rem_size());
+                    assert_eq!(actual, size(expected, expected));
+                },
+                |_, _, _, _| {},
+            )
+            .size_full()
+        }
+    }
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|_, _| Probe);
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+}
