@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "547e7d830ba9d5bdf7f8da6ca3eb30f2c2d33074",
+  "snapshot_revision": "479e1d22c5d9fe160456439c18dbe17999b00b19",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1402,15 +1402,23 @@
       "path": "vendor/gpui-component/src/input/group/button_element.rs",
       "checks": "Complete read: inherited disable accumulation, immediate-child type-erasure unwrapping, single-use render ownership and layout/prepaint/paint forwarding.",
       "result": "No newly confirmed defect in this read. Existing group regression suite was not rerun in this batch; source review is not native runtime acceptance."
+    },
+    {
+      "path": "vendor/gpui-base/src/avatar.rs",
+      "checks": "Complete read: image-slot precedence, fallback without an image, styling/interactivity forwarding and render tests. Image-load failure fallback is not implemented by this slot-selection primitive.",
+      "result": "No newly confirmed defect in this read. Existing tests included in batch 261 four-configuration full vendor regression. Native visual/focus acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/combobox.rs",
+      "checks": "Complete read: key bindings, controlled open/disabled state, Select delegation, trigger/content focus, confirm and dismiss ordering tests.",
+      "result": "No newly confirmed defect in this read. Existing tests included in batch 261 four-configuration full vendor regression. Native visual/focus acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
     "vendor/gpui-base/src/alert_dialog.rs",
-    "vendor/gpui-base/src/avatar.rs",
     "vendor/gpui-base/src/calendar.rs",
     "vendor/gpui-base/src/checkbox.rs",
     "vendor/gpui-base/src/color_picker.rs",
-    "vendor/gpui-base/src/combobox.rs",
     "vendor/gpui-base/src/date_picker.rs",
     "vendor/gpui-base/src/dialog.rs",
     "vendor/gpui-base/src/dock/active.rs",
