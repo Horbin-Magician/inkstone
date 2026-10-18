@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "489f63e47bd3e3f490de818d46c669961ebdb9d1",
+  "snapshot_revision": "56f47d7dc1a963c3e906c41ebbf27e147f5b3f75",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -732,6 +732,26 @@
       "path": "crates/inkstone-core/src/tables.rs",
       "checks": "Full production and test read: AST cell ranges, grid limits before expansion, escaped pipes, alignment, row/column edits, CRLF preservation and Tab navigation through ragged rows.",
       "result": "No new actionable finding; unchanged from batch 197 core full regression (407 passed, 4 ignored). Native visual table editor acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/backup/origin.rs",
+      "checks": "Full read: source identity grouping from canonical location, creation time and filesystem identity; unreliable creation time leaves source unclassified. Read parent tests for same names, replaced roots and legacy manifests.",
+      "result": "No new actionable finding. Production unchanged from batch 197 core full regression (407 passed, 4 ignored). Source review does not establish Windows or external-media runtime acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/backup/capacity.rs",
+      "checks": "Full read: metadata-only summaries, immediate child inventory, links/unreadable records, interrupted cleanup exclusion, checked aggregate sizes and deterministic ordering; read metadata validator dependencies.",
+      "result": "No new actionable finding. Production unchanged from batch 197 core full regression (407 passed, 4 ignored). Source review does not establish Windows or external-media runtime acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/backup/interrupted.rs",
+      "checks": "Full production and test read: selected-record confinement, shared lock, hash/length status, stale-preview rejection, verified-file-only staging, revalidation and non-overwriting publication.",
+      "result": "No new actionable finding. Production unchanged from batch 197 core full regression (407 passed, 4 ignored). Source review does not establish Windows or external-media runtime acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/backup/retention.rs",
+      "checks": "Full production and test read: per-source cutoff ties, minimum retained count, in-use/protected/unknown sources, incomplete-inventory refusal and checked candidate byte sums; read cleanup-preflight parent tests.",
+      "result": "No new actionable finding. Production unchanged from batch 197 core full regression (407 passed, 4 ignored). Source review does not establish Windows or external-media runtime acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -746,11 +766,7 @@
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/backup.rs",
-    "crates/inkstone-core/src/vault/backup/capacity.rs",
     "crates/inkstone-core/src/vault/backup/cleanup.rs",
-    "crates/inkstone-core/src/vault/backup/interrupted.rs",
-    "crates/inkstone-core/src/vault/backup/origin.rs",
-    "crates/inkstone-core/src/vault/backup/retention.rs",
     "crates/inkstone-core/src/vault/export.rs",
     "crates/inkstone-core/src/vault/history.rs",
     "crates/inkstone-core/src/vault/history/catalog.rs",
