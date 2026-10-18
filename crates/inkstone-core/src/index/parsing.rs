@@ -421,22 +421,22 @@ pub fn anchor_range_decoded(
             .find(|b| b.id == id)
             .map(|b| b.range.clone());
     }
-    fn normalized(value: &str) -> String {
+    fn normalized(value: &str) -> impl Iterator<Item = char> + '_ {
         value
             .chars()
             .filter(|c| c.is_alphanumeric())
             .flat_map(char::to_lowercase)
-            .collect()
     }
     let i = parsed
         .headings
         .iter()
         .position(|h| h.title == fragment)
         .or_else(|| {
+            let fragment: String = normalized(fragment).collect();
             parsed
                 .headings
                 .iter()
-                .position(|h| normalized(&h.title) == normalized(fragment))
+                .position(|h| normalized(&h.title).eq(fragment.chars()))
         })?;
     let heading = &parsed.headings[i];
     let end = parsed.headings[i + 1..]
