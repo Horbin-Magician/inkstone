@@ -26,23 +26,30 @@ pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
             cx.propagate();
             return;
         }
-        let _ = update_handle.update(cx, |_, window, cx| {
-            let _ = update_workspace.update(cx, |workspace, cx| workspace.show_updates(window, cx));
+        let workspace = update_workspace.clone();
+        cx.defer(move |cx| {
+            let _ = update_handle.update(cx, |_, window, cx| {
+                let _ = workspace.update(cx, |workspace, cx| workspace.show_updates(window, cx));
+            });
         });
     });
     let workspace = workspace.downgrade();
     let handle = window.window_handle();
     cx.on_action(move |_: &Quit, cx| {
-        // Use the same save/conflict checks as closing the main window.
-        if handle
-            .update(cx, |_, window, cx| {
-                let _ =
-                    workspace.update(cx, |workspace, cx| workspace.request_app_quit(window, cx));
-            })
-            .is_err()
-        {
-            crate::background_sync::window_closed(cx);
-        }
+        // Global actions run while the dispatching window is borrowed. Defer
+        // window updates until dispatch ends, retaining every save/conflict guard.
+        let workspace = workspace.clone();
+        cx.defer(move |cx| {
+            if handle
+                .update(cx, |_, window, cx| {
+                    let _ = workspace
+                        .update(cx, |workspace, cx| workspace.request_app_quit(window, cx));
+                })
+                .is_err()
+            {
+                crate::background_sync::window_closed(cx);
+            }
+        });
         // Each file window owns its save/conflict guard. Let every live window
         // handle Quit before the last-window callback ends the application.
         cx.propagate();
@@ -55,21 +62,27 @@ pub fn init(workspace: &Entity<Workspace>, window: &Window, cx: &mut App) {
             cx.propagate();
             return;
         }
-        let _ = handle.update(cx, |_, window, _| window.minimize_window());
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, _| window.minimize_window());
+        });
     });
     cx.on_action(move |_: &Zoom, cx| {
         if cx.active_window() != Some(handle) {
             cx.propagate();
             return;
         }
-        let _ = handle.update(cx, |_, window, _| window.zoom_window());
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, _| window.zoom_window());
+        });
     });
     cx.on_action(move |_: &Fullscreen, cx| {
         if cx.active_window() != Some(handle) {
             cx.propagate();
             return;
         }
-        let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
+        });
     });
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
@@ -226,6 +239,36 @@ fn install_menus(cx: &App) {
 mod tests {
     use super::*;
     use gpui::{Action, TestAppContext};
+
+    #[gpui::test]
+    fn native_quit_closes_every_window_after_action_dispatch(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let first = cx.add_window(Workspace::new);
+        let second = cx.add_window(Workspace::new);
+        for handle in [first, second] {
+            let workspace = handle.update(cx, |_, _, cx| cx.entity()).unwrap();
+            cx.update(|cx| {
+                gpui::AnyWindowHandle::from(handle)
+                    .update(cx, |_, window, cx| init(&workspace, window, cx))
+                    .unwrap();
+            });
+        }
+        cx.run_until_parked();
+        first
+            .update(cx, |_, window, cx| {
+                window.dispatch_action(Box::new(Quit), cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(
+            first.update(cx, |_, _, _| ()).is_err(),
+            "the dispatching window did not close"
+        );
+        assert!(
+            second.update(cx, |_, _, _| ()).is_err(),
+            "another window did not close"
+        );
+    }
 
     #[gpui::test]
     fn menu_bindings_follow_overrides_clear_and_reset_without_accumulating(
