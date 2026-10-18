@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "8a95ec36fd655ab7b1248101f943e390431f8744",
+  "snapshot_revision": "c898ab5615072dd6ae8f6dbe3ed751140778d69b",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -182,6 +182,26 @@
       "path": "crates/inkstone-desktop/src/workspace/cloud_sync/schedule.rs",
       "checks": "Complete source/test read: manual priority, quiet/retry timers, busy protection, follow-up work, cancellation and timer handle disposal",
       "result": "No newly confirmed defect. Unchanged since consolidated regression at db68f45; macOS results do not validate Windows/Linux-specific code paths."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/cloud_sync/run.rs",
+      "checks": "Complete source/test read: Arc run identity, bounded latest-progress slot, cancellation idempotence and suppression of cancelled progress",
+      "result": "No newly confirmed defect. Sources unchanged since consolidated desktop regression (440 passed, 5 ignored); native lifecycle and display performance not newly exercised."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/cloud_sync/capacity.rs",
+      "checks": "Complete source/test read: generation/form fingerprint, request identity, stale-result rejection, independent busy state, no persistence on read-only actions and unsaved note preservation",
+      "result": "No newly confirmed defect. Sources unchanged since consolidated desktop regression (440 passed, 5 ignored); native lifecycle and display performance not newly exercised."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/remote_check.rs",
+      "checks": "Complete source/test read: monotonic cadence, interval rearming, activation cooldown, queued-work coalescing and disabled-state reset",
+      "result": "No newly confirmed defect. Sources unchanged since consolidated desktop regression (440 passed, 5 ignored); native lifecycle and display performance not newly exercised."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/background_sync.rs",
+      "checks": "Complete source/test read: application-owned task collection, last-window check, completion/error active-count release and multi-window close behavior",
+      "result": "No newly confirmed defect. Sources unchanged since consolidated desktop regression (440 passed, 5 ignored); native lifecycle and display performance not newly exercised."
     }
   ],
   "pending_reconciliation": [
@@ -262,7 +282,6 @@
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/app_icon.rs",
     "crates/inkstone-desktop/src/app_menu.rs",
-    "crates/inkstone-desktop/src/background_sync.rs",
     "crates/inkstone-desktop/src/editor.rs",
     "crates/inkstone-desktop/src/editor/code_blocks.rs",
     "crates/inkstone-desktop/src/editor/counts.rs",
@@ -300,10 +319,8 @@
     "crates/inkstone-desktop/src/workspace/bookmarks.rs",
     "crates/inkstone-desktop/src/workspace/bulk_edit.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
-    "crates/inkstone-desktop/src/workspace/cloud_sync/capacity.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync/cleanup.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync/cleanup/tests.rs",
-    "crates/inkstone-desktop/src/workspace/cloud_sync/run.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/conflicts.rs",
     "crates/inkstone-desktop/src/workspace/document.rs",
@@ -329,7 +346,6 @@
     "crates/inkstone-desktop/src/workspace/recent_vault.rs",
     "crates/inkstone-desktop/src/workspace/recovery.rs",
     "crates/inkstone-desktop/src/workspace/recovery_metadata.rs",
-    "crates/inkstone-desktop/src/workspace/remote_check.rs",
     "crates/inkstone-desktop/src/workspace/right_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/save_coordinator.rs",
     "crates/inkstone-desktop/src/workspace/save_state.rs",
