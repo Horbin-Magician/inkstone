@@ -914,6 +914,17 @@ fn folder_move_updates_incoming_outgoing_and_embedded_assets_once() {
     std::fs::remove_dir_all(root).unwrap();
 }
 #[test]
+fn normalized_anchors_preserve_unicode_expansion_and_exact_match_priority() {
+    let source = "# İ STANBUL\nfirst\n\n# İstanbul\nsecond\n\n# End\n";
+    let parsed = parse(source);
+    let exact = anchor_range_decoded(source, &parsed, "İstanbul").unwrap();
+    assert!(source[exact].contains("second"));
+    let normalized = anchor_range_decoded(source, &parsed, "İ-stanbul").unwrap();
+    assert!(source[normalized.clone()].contains("first"));
+    assert!(!source[normalized].contains("second"));
+    assert!(anchor_range_decoded(source, &parsed, "missing").is_none());
+}
+#[test]
 fn tasks_and_block_anchors_are_source_based_and_exclude_code() {
     let source = "# 章节 A\r\n\r\n段落😀 ^para-1\r\n\r\n- [ ] 任务一 ^todo-1\r\n- [X] 任务二\r\n\r\n```md\n- [ ] 假任务 ^fake\n```\n\n^code-1\n\n# 下一节\n";
     let parsed = parse(source);
