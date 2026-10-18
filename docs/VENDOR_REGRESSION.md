@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 Dock 初始尺寸：构造器与 set_size 统一限制 PANEL_MIN_SIZE，避免新建或恢复布局直接写入过小尺寸。
+
 2026-10-19 Component Checkbox 焦点：保留调用方 track_focus 句柄，渲染和焦点环共用该句柄，避免内部 keyed 焦点覆盖显式绑定。
 
 2026-10-19 Checkbox 禁用语义：原生节点补齐 disabled，保留三态和既有事件冒泡策略；测试检查真实角色及绘制后的禁用属性。

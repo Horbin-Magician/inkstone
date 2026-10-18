@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "2fd37190accb65d5b63cbc9e60643e46254cc983",
+  "snapshot_revision": "367779f3b016d1283594cf6e9950701c3e74f16d",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1437,24 +1437,44 @@
       "path": "vendor/gpui-component/src/checkbox.rs",
       "checks": "Complete read: controlled bool callback aliases, Base state/role/label forwarding, indicator animation and layout, disabled styles, content rendering, pointer focus policy and focus ring ownership. Preserve explicit track_focus handle instead of overwriting it with keyed state.",
       "result": "Real Tab-focus regression failed before fix. Default/test-support checkbox suites each pass 6 tests, including observed native disabled flag after drawing; workspace all-targets Clippy passes. Native layout/IME/screen-reader acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/active.rs",
+      "checks": "Complete read: Active notification edges, removal/seed semantics, deferred sync scheduling and ordering tests.",
+      "result": "No newly confirmed defect in this read. Base dock module default suite passes 151 tests; native runtime acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/layout/node.rs",
+      "checks": "Complete read: Stable identifiers, private node mutation, borrowed projections and depth-first traversal.",
+      "result": "No newly confirmed defect in this read. Base dock module default suite passes 151 tests; native runtime acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/layout/mod.rs",
+      "checks": "Complete read: Public layout exports and crate-private normalization boundary.",
+      "result": "No newly confirmed defect in this read. Base dock module default suite passes 151 tests; native runtime acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/registry.rs",
+      "checks": "Complete read: Builder registration, idempotent initialization, borrowed reconstruction context and releasing global lookup borrow before invoking builder.",
+      "result": "No newly confirmed defect in this read. Base dock module default suite passes 151 tests; native runtime acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/dock_placement.rs",
+      "checks": "Complete read: Pointer-to-size arithmetic, opposite dock limits, runtime open/resize state and minimum-size consistency. Fixed constructor bypass of minimum floor used by set_size.",
+      "result": "Batch 267: Base dock module default suite passes 151 tests after initial-size floor fix; workspace all-targets Clippy passes. Old constructor failed added negative/zero/sub-minimum size assertions. Native dock drag/restore acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
     "vendor/gpui-base/src/calendar.rs",
     "vendor/gpui-base/src/color_picker.rs",
-    "vendor/gpui-base/src/dock/active.rs",
     "vendor/gpui-base/src/dock/dock_area.rs",
-    "vendor/gpui-base/src/dock/dock_placement.rs",
     "vendor/gpui-base/src/dock/drag.rs",
     "vendor/gpui-base/src/dock/layout/builder.rs",
     "vendor/gpui-base/src/dock/layout/edit.rs",
-    "vendor/gpui-base/src/dock/layout/mod.rs",
-    "vendor/gpui-base/src/dock/layout/node.rs",
     "vendor/gpui-base/src/dock/layout/normalize.rs",
     "vendor/gpui-base/src/dock/layout/tree.rs",
     "vendor/gpui-base/src/dock/mod.rs",
     "vendor/gpui-base/src/dock/panel.rs",
-    "vendor/gpui-base/src/dock/registry.rs",
     "vendor/gpui-base/src/dock/state.rs",
     "vendor/gpui-base/src/dock/state_convert.rs",
     "vendor/gpui-base/src/dock/tab_group.rs",
