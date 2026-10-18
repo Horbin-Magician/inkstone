@@ -147,9 +147,10 @@ where
 
         if cx.reduce_motion() {
             let settled = state.read(cx);
-            if settled.step != last_step || settled.from != last.target {
+            if !settled.settled || settled.step != last_step || settled.from != last.target {
                 state.update(cx, |state, _| {
                     *state = SequenceState::start(last_step, last.target.clone(), &self.steps, now);
+                    state.settled = true;
                 });
             }
             return SequenceSample {
@@ -217,6 +218,8 @@ struct SequenceState<T> {
     target: T,
     transition: Transition,
     started_at: Instant,
+    // Reduced motion finishes this step permanently until it is retargeted.
+    settled: bool,
 }
 
 impl<T: Interpolate> SequenceState<T> {
@@ -227,10 +230,14 @@ impl<T: Interpolate> SequenceState<T> {
             target: steps[step].target.clone(),
             transition: steps[step].transition.clone(),
             started_at,
+            settled: false,
         }
     }
 
     fn progress(&self, now: Instant) -> (f32, MotionStatus) {
+        if self.settled {
+            return (1.0, MotionStatus::Finished);
+        }
         self.transition.progress(
             now.saturating_duration_since(self.started_at),
             self.transition.duration,
