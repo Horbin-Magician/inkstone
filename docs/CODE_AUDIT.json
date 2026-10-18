@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "a7bdeb7fe50f72c21b9d8e51599169dc055944cc",
+  "snapshot_revision": "0d13898042a931a44b964281be11519a80814015",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -152,6 +152,11 @@
       "path": "crates/inkstone-core/src/vault/sync/recovery/residue.rs",
       "checks": "Complete source and test read: descriptor-only retention, local storage and operation locks, before/after move identity checks, no replacement/rollback, reappearing body protection and restart recovery",
       "result": "No new confirmed defect. Unix recovery tests passed; Windows-specific guard test is not validated on this host."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync.rs",
+      "checks": "Complete read: path/manifest validation, bounded concurrent scans and transfers, three-way merge, baseline records and watcher classification, cancellation commit boundary, cross-recovery operation locks, upload/download staging, conditional publication, recoverable local replacement/deletion and baseline commit ordering",
+      "result": "Optimized descendant lookup with BTreeMap range in 0d13898; 39 sync tests passed, 2 existing tests ignored; workspace Clippy/format passed. Does not claim crash-atomic transaction across remote/local state or exhaustive external writer race safety."
     }
   ],
   "pending_reconciliation": [
@@ -225,7 +230,6 @@
     "crates/inkstone-core/src/vault/history/links/intent.rs",
     "crates/inkstone-core/src/vault/history/metadata.rs",
     "crates/inkstone-core/src/vault/history/records.rs",
-    "crates/inkstone-core/src/vault/sync.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
