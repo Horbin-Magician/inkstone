@@ -31,20 +31,19 @@ pub struct Applied {
     pub written: Vec<Edit>,
     pub errors: Vec<String>,
 }
-fn rename_tag(value: &str, old: &str, new: &str, descendants: bool) -> Option<String> {
+fn rename_tag(value: &str, old_lower: &str, new: &str, descendants: bool) -> Option<String> {
     let trimmed = value.trim();
     let tag = trimmed.strip_prefix('#').unwrap_or(trimmed);
     let lower = tag.to_lowercase();
-    let old = old.to_lowercase();
-    let replacement = if lower == old {
+    let replacement = if lower == old_lower {
         new.to_owned()
     } else if descendants
         && lower
-            .strip_prefix(&old)
+            .strip_prefix(old_lower)
             .is_some_and(|suffix| suffix.starts_with('/'))
     {
         // Find component boundary in the original UTF-8 spelling (case folding changes byte sizes).
-        let n = old.split('/').count();
+        let n = old_lower.split('/').count();
         let suffix = tag.splitn(n + 1, '/').nth(n).unwrap_or_default();
         format!("{new}/{suffix}")
     } else {
@@ -59,6 +58,7 @@ fn rename_tag(value: &str, old: &str, new: &str, descendants: bool) -> Option<St
 fn tag_edit<'a>(
     note: &'a crate::index::IndexedNote,
     spec: &Spec,
+    old_lower: &str,
 ) -> Result<(Cow<'a, str>, usize), String> {
     let source = note.text.as_str();
     let old = spec.find.trim().trim_start_matches('#');
@@ -76,7 +76,7 @@ fn tag_edit<'a>(
     let mut edits = vec![];
     let mut count = 0;
     for (range, tag) in &note.parsed.inline_tags {
-        if let Some(new) = rename_tag(tag, old, new, spec.descendants)
+        if let Some(new) = rename_tag(tag, old_lower, new, spec.descendants)
             && new != *tag
         {
             edits.push((range.clone(), new));
@@ -107,7 +107,7 @@ fn tag_edit<'a>(
             let mut changed = 0;
             let mut replace = |v: &mut serde_json::Value| {
                 if let Some(s) = v.as_str()
-                    && let Some(new) = rename_tag(s, old, new, spec.descendants)
+                    && let Some(new) = rename_tag(s, old_lower, new, spec.descendants)
                     && new != s
                 {
                     *v = serde_json::Value::String(new);
@@ -180,14 +180,14 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
     {
         return Err("范围应为库内相对文件夹路径。".into());
     }
-    let pattern = if spec.regex {
-        spec.find.clone()
-    } else {
-        regex::escape(&spec.find)
-    };
     let regex = if spec.tags {
         None
     } else {
+        let pattern = if spec.regex {
+            spec.find.clone()
+        } else {
+            regex::escape(&spec.find)
+        };
         Some(
             regex::RegexBuilder::new(&pattern)
                 .case_insensitive(!spec.case_sensitive)
@@ -195,13 +195,16 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
                 .map_err(|e| e.to_string())?,
         )
     };
+    let tag_query = spec
+        .tags
+        .then(|| spec.find.trim().trim_start_matches('#').to_lowercase());
     let mut result = Plan::default();
     for (path, note) in &index.notes {
         if !folder.is_empty() && !path.starts_with(folder_path) {
             continue;
         }
-        let transformed = if spec.tags {
-            tag_edit(note, spec)
+        let transformed = if let Some(old_lower) = &tag_query {
+            tag_edit(note, spec, old_lower)
         } else {
             let regex = regex.as_ref().unwrap();
             let count = regex
@@ -291,11 +294,27 @@ mod tests {
             ("İ/主题/😀", "İ", true, Some("项目/主题/😀")),
         ] {
             assert_eq!(
-                rename_tag(value, old, "项目", descendants).as_deref(),
+                rename_tag(value, &old.to_lowercase(), "项目", descendants).as_deref(),
                 expected,
                 "{value}"
             );
         }
+    }
+    #[test]
+    fn tag_plan_normalizes_one_query_for_inline_and_property_tags() {
+        let mut index = Index::default();
+        index.update("a.md".into(), "#İ/主题\n".into());
+        index.update("b.md".into(), "---\ntags: ['İ/主题']\n---\n".into());
+        let mut s = spec();
+        s.tags = true;
+        s.find = " #İ ".into();
+        s.replacement = "项目".into();
+        let result = plan(&index, &s).unwrap();
+        assert!(result.warnings.is_empty());
+        assert_eq!(result.edits.len(), 2);
+        assert_eq!(result.edits[0].after, "#项目/主题\n");
+        assert_eq!(result.edits[1].after, "---\ntags: [\"项目/主题\"]\n---\n");
+        assert!(result.edits.iter().all(|edit| edit.count == 1));
     }
     #[test]
     fn dense_replacements_count_every_match_and_reject_late_empty_matches() {
