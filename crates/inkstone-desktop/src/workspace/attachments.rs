@@ -39,6 +39,7 @@ impl Workspace {
     fn attachment_drafts(&self, cx: &App) -> BTreeMap<PathBuf, String> {
         self.tabs
             .iter()
+            .filter(|t| !t.path.as_os_str().is_empty())
             .map(|t| (t.path.clone(), t.save.editor.read(cx).value().to_string()))
             .collect()
     }
@@ -275,7 +276,11 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         handle
-            .update(cx, |w, window, cx| w.open_attachment_manager(window, cx))
+            .update(cx, |w, window, cx| {
+                w.new_blank(window, cx);
+                assert!(w.tabs.iter().any(|tab| tab.path.as_os_str().is_empty()));
+                w.open_attachment_manager(window, cx);
+            })
             .unwrap();
         cx.run_until_parked();
         let image = handle
