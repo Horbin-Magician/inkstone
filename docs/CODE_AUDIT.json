@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "82bba26da188df8c1520b025ee684d8e1ee040f3",
+  "snapshot_revision": "8170d9f275bcf9a6e0f4a5bf50014c826c82067a",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1202,6 +1202,26 @@
       "path": "crates/inkstone-desktop/src/workspace/tests.rs",
       "checks": "Full-file review of workspace regressions: shared-document ownership and saving, IME and undo, session restore and vault changes, file operations and stale completion guards, links/search/properties, settings keyboard navigation and viewport geometry",
       "result": "115 baseline cases passed. Removed an obsolete attachment-path assertion; assert committed input and released pending work instead. Slider focus detection now requires an existing target. Both changed cases passed separately. Native runtime, performance and cross-platform acceptance remain outstanding."
+    },
+    {
+      "path": "vendor/gpui-base/src/auto_scroll.rs",
+      "checks": "Timer cancellation, drag lifetime, viewport edge direction and speed ramps",
+      "result": "Fixed overlapping edge zones below 32px and disabled scrolling for zero height; both new regressions failed before the fix. Seven auto-scroll and caller regressions passed."
+    },
+    {
+      "path": "vendor/gpui-base/src/geometry.rs",
+      "checks": "Placement and side axes, optional length conversion and serializable edge construction",
+      "result": "No new actionable finding; simple value helpers reviewed in full."
+    },
+    {
+      "path": "vendor/gpui-base/src/history.rs",
+      "checks": "Back/forward ordering, branch truncation, root retention and maximum entry changes",
+      "result": "All 10 navigation history cases passed; no new actionable finding."
+    },
+    {
+      "path": "vendor/gpui-base/src/undo_history.rs",
+      "checks": "Transaction ordering, grouping boundaries, ignoring mode, caps and redo retention",
+      "result": "All 14 undo history cases passed; no new actionable finding."
     }
   ],
   "pending_reconciliation": [
@@ -1211,7 +1231,6 @@
     "vendor/gpui-base/src/actions.rs",
     "vendor/gpui-base/src/alert_dialog.rs",
     "vendor/gpui-base/src/animation.rs",
-    "vendor/gpui-base/src/auto_scroll.rs",
     "vendor/gpui-base/src/avatar.rs",
     "vendor/gpui-base/src/button.rs",
     "vendor/gpui-base/src/calendar.rs",
@@ -1241,9 +1260,7 @@
     "vendor/gpui-base/src/dock/test_support.rs",
     "vendor/gpui-base/src/element_ext.rs",
     "vendor/gpui-base/src/focus_trap.rs",
-    "vendor/gpui-base/src/geometry.rs",
     "vendor/gpui-base/src/global_state.rs",
-    "vendor/gpui-base/src/history.rs",
     "vendor/gpui-base/src/hover_card.rs",
     "vendor/gpui-base/src/input/base/blink_cursor.rs",
     "vendor/gpui-base/src/input/base/cursor.rs",
@@ -1385,7 +1402,6 @@
     "vendor/gpui-base/src/tooltip.rs",
     "vendor/gpui-base/src/touch_selection.rs",
     "vendor/gpui-base/src/tree.rs",
-    "vendor/gpui-base/src/undo_history.rs",
     "vendor/gpui-base/src/virtual_list.rs",
     "vendor/gpui-base/tests/element_ext.rs",
     "vendor/gpui-component/locales/ui.yml",
