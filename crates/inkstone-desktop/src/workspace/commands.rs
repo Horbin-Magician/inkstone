@@ -536,6 +536,7 @@ impl Workspace {
                 }
             }
             74 => {
+                self.ui.focus_mode = false;
                 self.ui.prefs.left_open = true;
                 self.ui.left_mode = 0;
                 self.reveal_current_file(cx);

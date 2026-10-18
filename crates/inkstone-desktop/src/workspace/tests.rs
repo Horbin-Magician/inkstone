@@ -4308,7 +4308,9 @@ fn automatic_file_reveal_expands_parents_and_can_be_disabled(cx: &mut TestAppCon
             );
             w.ui.prefs.left_open = false;
             w.ui.left_mode = 1;
+            w.ui.focus_mode = true;
             w.execute_command(74, window, cx);
+            assert!(!w.ui.focus_mode);
             assert!(w.ui.prefs.left_open);
             assert_eq!(w.ui.left_mode, 0);
             assert_eq!(
