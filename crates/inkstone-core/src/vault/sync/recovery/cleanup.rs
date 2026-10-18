@@ -103,9 +103,17 @@ fn verify_inventory(vault: &Vault, expected: &[Entry], cancellation: &Cancellati
         fresh.unreadable == 0 && fresh.unindexed_files == 0 && fresh.unmeasured_files == 0,
         "同步备份清单不完整，已保留剩余备份"
     );
+    let expected_by_path: BTreeMap<_, _> = expected
+        .iter()
+        .map(|entry| (&entry.metadata, entry))
+        .collect();
     ensure!(
         fresh.entries.len() == expected.len()
-            && fresh.entries.iter().all(|entry| expected.contains(entry)),
+            && expected_by_path.len() == expected.len()
+            && fresh
+                .entries
+                .iter()
+                .all(|entry| expected_by_path.get(&entry.metadata) == Some(&entry)),
         "同步备份或保护状态已变化，请重新预览"
     );
     // Verify retained records too: a corrupt newest copy cannot justify deletion.
@@ -267,6 +275,28 @@ mod tests {
         let preview = retention::preview(&inventory(&vault).unwrap(), 1, &BTreeSet::new()).unwrap();
         (root, vault, preview)
     }
+    #[test]
+    fn inventory_verification_matches_full_records_independently_of_order() -> Result<()> {
+        let (root, vault, _) = fixture();
+        let mut expected = inventory(&vault)?.entries;
+        expected.reverse();
+        let cancellation = Cancellation::default();
+        verify_inventory(&vault, &expected, &cancellation)?;
+        let mut changed = expected.clone();
+        changed[0].protected = true;
+        assert!(verify_inventory(&vault, &changed, &cancellation).is_err());
+        changed = expected.clone();
+        changed[0] = changed[1].clone();
+        assert!(verify_inventory(&vault, &changed, &cancellation).is_err());
+        changed = expected.clone();
+        changed.pop();
+        assert!(verify_inventory(&vault, &changed, &cancellation).is_err());
+        assert_eq!(inventory(&vault)?.entries.len(), 2);
+        assert_eq!(fs::read(vault.root.join("note.md"))?, b"current");
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
     #[test]
     fn execution_removes_only_reviewed_candidates_and_releases_lock() {
         let (root, vault, preview) = fixture();
