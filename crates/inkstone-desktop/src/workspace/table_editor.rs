@@ -179,7 +179,7 @@ impl Workspace {
                         }))
                 })))
                 .children(review.cells.iter().map(|row| div().flex().flex_shrink_0().gap_2().children(row.iter().map(|cell| Input::new(cell).w(px(180.)).flex_shrink_0())))))
-            .child(label("table-grid-message", review.message.clone()))
+            .when(!review.message.is_empty(), |s| s.child(label("table-grid-message", review.message.clone())))
             .child(Button::new("apply-table-grid").primary().label("应用表格修改")
                 .on_click(cx.listener(|this, _, w, cx| this.apply_table_grid(w, cx))))
             .into_any_element()
