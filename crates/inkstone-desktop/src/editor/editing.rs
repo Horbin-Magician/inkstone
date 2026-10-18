@@ -203,13 +203,11 @@ impl EditorPane {
         if matches!(
             key,
             inkstone_core::markdown_edit::Key::Indent | inkstone_core::markdown_edit::Key::Outdent
-        ) && !state.has_multiple_selections()
-            && let Some(navigation) = inkstone_core::tables::navigate(
-                &state.value(),
-                state.selected_range(),
-                matches!(key, inkstone_core::markdown_edit::Key::Outdent),
-            )
-        {
+        ) && let Some(navigation) = inkstone_core::tables::navigate(
+            &state.value(),
+            state.selected_range(),
+            matches!(key, inkstone_core::markdown_edit::Key::Outdent),
+        ) {
             self.editor.update(cx, |s, cx| match navigation {
                 inkstone_core::tables::Navigation::Select(range) => s.set_selected_range(range, cx),
                 inkstone_core::tables::Navigation::Edit(edit) => {
