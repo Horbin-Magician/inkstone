@@ -21,11 +21,11 @@
 //!   D-Bus, so the reading lands a moment after `init` returns, and Base keeps
 //!   following the portal's change signal for the life of the application.
 //!
-//! An application owns the flag once it sets it. Base writes the
-//! flag only while it still holds what Base last wrote (or GPUI's initial
-//! `false`), so an application that calls [`App::set_reduce_motion`] after
-//! `init` is never overridden by a later reading, and one that wants to follow
-//! the system again calls [`apply_system_reduce_motion`].
+//! Base writes the flag only while it still holds what Base last wrote (or
+//! GPUI's initial `false`). If the application changes it to a different
+//! value, later readings leave that value alone, including explicit calls to
+//! [`apply_system_reduce_motion`]. Setting the same value that Base last wrote
+//! cannot be distinguished from leaving the system preference in control.
 //!
 //! Under GPUI's test scheduler the platform is never consulted, whichever
 //! crate's tests are running: a probe that answers from another thread would
