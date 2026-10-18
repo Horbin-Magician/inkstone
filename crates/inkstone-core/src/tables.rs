@@ -290,7 +290,9 @@ pub fn edit(text: &str, selection: Range<usize>, operation: Operation) -> Option
             escaped.push(ch);
             slashes = if ch == '\\' { slashes + 1 } else { 0 };
         }
-        let body = escaped.replace("\r\n", "<br>").replace('\n', "<br>");
+        let body = escaped
+            .replace("\r\n", "<br>")
+            .replace(['\r', '\n'], "<br>");
         let replacement =
             format!("{prefix}|  |  |{newline}| --- | --- |{newline}| {body} |  |{suffix}");
         let at = selection.start + prefix.len() + 2;
@@ -386,6 +388,16 @@ pub fn navigate(text: &str, selection: Range<usize>, backwards: bool) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inserting_selected_lines_keeps_them_in_one_cell() {
+        for newline in ["\n", "\r\n", "\r"] {
+            let text = format!("中文{newline}a|b{newline}末尾");
+            let inserted = edit(&text, 0..text.len(), Operation::Insert).unwrap();
+            let grid = Grid::at(&inserted.replacement, inserted.selection.start).unwrap();
+            assert_eq!(grid.rows.len(), 2, "{newline:?}");
+            assert_eq!(grid.rows[1][0], "中文<br>a\\|b<br>末尾", "{newline:?}");
+        }
+    }
     #[test]
     fn visual_grid_preserves_markdown_crlf_and_escapes_pipes() {
         let text = "before\r\n\r\n| 姓名 | 说明 |\r\n| --- | :---: |\r\n| 中文 | **bold** a\\|b |\r\n\r\nafter";
