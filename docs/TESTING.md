@@ -985,6 +985,17 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   `target/audit-20261018/link-audit-borrow-{tests,clippy}.log`。
   未将分配清理等同于已测得的大库扫描加速。
 
+第八十七批 Markdown 短路径的前导空白修复：
+
+- `627f696` 修复跨目录短链接查找时把解码后文件名前导空格裁掉的问题。新增回归
+  同时建立 `elsewhere/ note.md` 和 `elsewhere/note.md`；修改前 `%20note.md#Target`
+  错误命中后者，修改后命中带空格的文件并保留锚点。
+- 将首尾空白裁剪移至 Wiki 入口，Markdown 字面路径不再裁剪；同一回归继续验证
+  Wiki 的 ` note ` 仍指向 `note.md`。核心全量 383 项通过、3 项既有手动入口忽略，
+  工作区全目标 Clippy、格式及差异检查通过。
+  日志为 `target/audit-20261018/markdown-leading-space-{red,tests,clippy}.log`。
+  尚未执行此特殊文件名的原生点击验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
