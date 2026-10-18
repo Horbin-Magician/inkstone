@@ -178,13 +178,14 @@ impl Workspace {
     }
     pub(super) fn sync_index_ui(&mut self, cx: &mut Context<Self>) {
         self.prepare_link_paths();
-        let tab_paths: Vec<_> = self.tabs.iter().map(|tab| tab.path.clone()).collect();
-        for path in tab_paths {
+        let tab_panes: Vec<_> = self
+            .tabs
+            .iter()
+            .map(|tab| (tab.path.clone(), tab.pane.clone()))
+            .collect();
+        for (path, pane) in tab_panes {
             let paths = self.cached_link_paths(&path);
-            let Some(tab) = self.tabs.iter().find(|tab| tab.path == path) else {
-                continue;
-            };
-            tab.pane.update(cx, |pane, _| {
+            pane.update(cx, |pane, _| {
                 pane.set_paths(paths);
                 if let Some(vault) = &self.vault {
                     pane.image_dir = vault
@@ -379,6 +380,58 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     use std::path::Path;
+
+    #[gpui::test]
+    fn index_refresh_updates_completions_in_every_duplicate_view(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                Arc::make_mut(&mut w.index).update("old-target.md".into(), String::new());
+                for _ in 0..2 {
+                    w.add_tab("source.md".into(), Some("[[".into()), false, window, cx);
+                }
+                w.index = Arc::new(Index::default());
+                Arc::make_mut(&mut w.index).update("new-target.md".into(), String::new());
+                w.sync_index_ui(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        for view in 0..2 {
+            handle
+                .update(cx, |w, window, cx| {
+                    w.activate_tab(view, window, cx);
+                    w.tabs[view]
+                        .pane
+                        .read(cx)
+                        .editor
+                        .clone()
+                        .update(cx, |editor, cx| {
+                            editor.focus(window, cx);
+                            editor.set_selected_range(2..2, cx);
+                            editor.request_completions(window, cx);
+                        });
+                })
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, _, cx| {
+                    let editor = w.tabs[view].pane.read(cx).editor.read(cx);
+                    let items = &editor.completion_menu_state().items;
+                    assert!(
+                        items.iter().any(|item| item.label == "new-target"),
+                        "view {view} did not receive new completion targets: {items:?}"
+                    );
+                    assert!(!items.iter().any(|item| item.label == "old-target"));
+                })
+                .unwrap();
+        }
+        handle
+            .update(cx, |_, window, _| window.remove_window())
+            .unwrap();
+        cx.run_until_parked();
+    }
 
     #[test]
     fn prepared_relocation_installs_worker_result_and_preserves_newer_updates() {
