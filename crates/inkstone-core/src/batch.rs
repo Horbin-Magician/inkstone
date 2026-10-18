@@ -196,6 +196,9 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
                     (!found.is_empty()).then_some(count + 1)
                 });
             if let Some(count) = count {
+                if count == 0 {
+                    continue;
+                }
                 let after = if spec.regex {
                     regex.replace_all(&note.text, spec.replacement.as_str())
                 } else {
