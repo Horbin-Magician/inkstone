@@ -1053,6 +1053,7 @@ fn wiki_reference_relocation_preserves_special_filenames_and_labels() {
             "[[target]]",
             "[[target#heading]]",
             "[[target#heading|literal.label]]",
+            "[[target#heading|*formatted*]]",
             "[[target#with%20space]]",
             "\\![[target#heading]]",
             "| Link |\n| --- |\n| [[target#heading]] |",
@@ -1081,8 +1082,29 @@ fn wiki_reference_relocation_preserves_special_filenames_and_labels() {
                 "{filename}: {after}"
             );
             if text.contains("literal.label") {
-                assert!(after.starts_with("[literal\\.label]"), "{after}");
+                assert!(after.starts_with("[literal.label]"), "{after}");
+            }
+            if text.contains("*formatted*") {
+                assert!(after.starts_with("[*formatted*]"), "{after}");
             }
         }
+    }
+}
+
+#[test]
+fn wiki_aliases_cross_inline_formatting_without_crossing_code_or_blocks() {
+    let source = "[[target|*强调*]] [[target|**粗体**]] [[target|~~删除~~]]\n\n`[[code|*literal*]]`\n\n[[broken\n\nend]]\n\n[[target|before `code` after]]\n\n$[[math]]$\n\n\\[[escaped|*text*]]";
+    let parsed = parse(source);
+    assert_eq!(parsed.links.len(), 3);
+    let spans = crate::markdown::spans(source);
+    let wiki: Vec<_> = spans
+        .iter()
+        .filter(|span| span.kind == crate::markdown::Kind::WikiLink)
+        .collect();
+    assert_eq!(wiki.len(), 3);
+    for (link, span) in parsed.links.iter().zip(wiki) {
+        assert_eq!(link.target, "target");
+        assert_eq!(link.range, span.source);
+        assert_eq!(&source[span.content.clone()], link.label);
     }
 }
