@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "c689f31a8ebbfc1933f16be23cda2e07e98aaa09",
+  "snapshot_revision": "10a869bbf639b0d7a540b2043150b6705ac99e75",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -677,6 +677,21 @@
       "path": "crates/inkstone-core/src/markdown_edit.rs",
       "checks": "Completed full production and test read across batches 192–193: soft breaks, footnote/link insertion, block/inline format selection mapping, continuation prefixes, literal regions and list keystrokes.",
       "result": "Fixed edge-space loss in inline code formatting and padded-content toggling. Regression checks actual parsed code value plus original text/selection restoration; final markdown_edit 21 passed, workspace Clippy and format checks passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/markdown.rs",
+      "checks": "Full production and test read: AST-derived styles, quote/list depths, heading anchors, source byte ranges, task formatting, escaped/literal exclusions and highlight matching.",
+      "result": "No new actionable finding in this read; source unchanged from the 405-pass core regression in batch 193. Native projection and rendering acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-core/src/graphics.rs",
+      "checks": "Full production and test read: bounded input/dimensions, panic handling, layout measurement versus SVG rendering, cache locking/LRU, themes and diagram labels.",
+      "result": "Fixed duplicate cache entries on concurrent same-key layout completions, preserving canonical Arc and unrelated cache entries; deterministic regression failed before fix, graphics 4 passed, workspace Clippy and format checks passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/note_embeds.rs",
+      "checks": "Full production and test read: percent-decoded local Markdown targets, scheme exclusion, reference definition precedence and source ranges.",
+      "result": "No new actionable finding; unchanged from batch 193 core regression. Related references/images and raw note bytes remain handled by their existing modules."
     }
   ],
   "pending_reconciliation": [
@@ -689,11 +704,8 @@
     "crates/inkstone-core/examples/markdown_benchmark.rs",
     "crates/inkstone-core/examples/projection_benchmark.rs",
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
-    "crates/inkstone-core/src/graphics.rs",
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/lib.rs",
-    "crates/inkstone-core/src/markdown.rs",
-    "crates/inkstone-core/src/note_embeds.rs",
     "crates/inkstone-core/src/preview.rs",
     "crates/inkstone-core/src/syntax.rs",
     "crates/inkstone-core/src/syntax/incremental.rs",
