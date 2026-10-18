@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "6b66a33896ea3b1cdf72697869738293328868fb",
+  "snapshot_revision": "1bb6fd45a443e75d0cdeb9673d034e42df5f1e82",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -82,6 +82,16 @@
       "path": "crates/inkstone-core/src/vault/sync/webdav/test_support.rs",
       "checks": "loopback fixture isolation, request deadlines, Content-Length/body capture, lost-response simulation and exact response sequences",
       "result": "Read completely; no new actionable finding. Used by transient ETag and upload completion regressions."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/webdav/capacity.rs",
+      "checks": "Read-only request sequence, stable manifest comparison, bounded XML, URL containment, duplicate/unknown resource handling, unique digest accounting and integer overflow",
+      "result": "Reused shared HTTP fixture in 1bb6fd4, removing 60 net lines while preserving request/result assertions; WebDAV suite 38 passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/webdav/maintenance.rs",
+      "checks": "Exclusive recursive finite lease validation, token secrecy and condition syntax, permanent invalidation after uncertain refresh, manifest generation/readback, bounded unlock and Drop cleanup",
+      "result": "No new actionable finding in complete source read; mutations rely on server-evaluated conditions, not client elapsed time. Real maintenance interoperability remains unverified."
     }
   ],
   "pending_reconciliation": [
@@ -162,11 +172,9 @@
     "crates/inkstone-core/src/vault/sync/recovery/residue.rs",
     "crates/inkstone-core/src/vault/sync/recovery/retention.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
-    "crates/inkstone-core/src/vault/sync/webdav/capacity.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
-    "crates/inkstone-core/src/vault/sync/webdav/maintenance.rs",
     "crates/inkstone-core/src/vault/sync/webdav/maintenance/tests.rs",
     "crates/inkstone-core/src/vault/trash_metadata.rs",
     "crates/inkstone-core/src/wiki_links.rs",
