@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "3b507c8c1e04c5204be7265da4f9c50bdd9b5e30",
+  "snapshot_revision": "489f63e47bd3e3f490de818d46c669961ebdb9d1",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -722,6 +722,16 @@
       "path": "crates/inkstone-core/src/syntax.rs",
       "checks": "Full production and test read: parse options, math normalization, inline footnote scanning, shared snapshots, plain-paragraph fast path, HTML attribute extraction and differential tests. Re-reviewed optimized inline-footnote scanner: excluded ranges, escape handling, paragraph barriers, suffix closing-bracket matching and nested recovery.",
       "result": "CR-only column fix retained. Removed quadratic rescanning of unmatched inline footnotes using shared bracket tokens/suffix matches; 5000 deterministic generated inputs compared to the old scanner with/without AST. Core 407 passed, 4 ignored; workspace Clippy/format passed. Same-host debug three scans of 4000 unmatched openers: 6.20 s before, 10.3 ms after; isolated scanner timing, not native UI latency."
+    },
+    {
+      "path": "crates/inkstone-core/src/preview.rs",
+      "checks": "Full production and test read: source candidates, outer-fragment ownership, graphics/code indexing, shared preparation, footnote footer projection and cancellation; HTML promotion lexer.",
+      "result": "Fixed custom HTML tags being promoted by known-tag examples inside quoted attributes/comments. Red regression reproduced, final preview 12 passed; workspace Clippy/format passed. No new native UI verification."
+    },
+    {
+      "path": "crates/inkstone-core/src/tables.rs",
+      "checks": "Full production and test read: AST cell ranges, grid limits before expansion, escaped pipes, alignment, row/column edits, CRLF preservation and Tab navigation through ragged rows.",
+      "result": "No new actionable finding; unchanged from batch 197 core full regression (407 passed, 4 ignored). Native visual table editor acceptance remains separate."
     }
   ],
   "pending_reconciliation": [
@@ -734,8 +744,6 @@
     "crates/inkstone-core/examples/projection_benchmark.rs",
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
     "crates/inkstone-core/src/index/tests.rs",
-    "crates/inkstone-core/src/preview.rs",
-    "crates/inkstone-core/src/tables.rs",
     "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/backup.rs",
     "crates/inkstone-core/src/vault/backup/capacity.rs",
