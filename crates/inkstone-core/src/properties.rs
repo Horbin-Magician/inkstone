@@ -50,7 +50,7 @@ impl Kind {
         let trimmed = input.trim();
         match self {
             Self::Text => serde_json::to_string(input).map_err(|e| e.to_string()),
-            Self::List => Ok(parse(&set("", "aliases", input)?)[0].value.clone()),
+            Self::List => encode_list(input),
             _ if trimmed.is_empty() => Ok("null".into()),
             Self::Number => match serde_json::from_str::<Value>(trimmed) {
                 Ok(value @ Value::Number(_)) => Ok(value.to_string()),
@@ -81,6 +81,26 @@ impl Kind {
                 .map_err(|_| "复杂属性请使用有效 JSON 或在源码中编辑。".into()),
         }
     }
+}
+
+fn encode_list(input: &str) -> Result<String, String> {
+    let input = input.trim();
+    let yaml = if input.starts_with('[') || input.starts_with("- ") {
+        input.to_owned()
+    } else {
+        format!("[{input}]")
+    };
+    let parsed: serde_json::Value = serde_saphyr::from_str(&yaml)
+        .map_err(|_| "列表格式无效；包含逗号、冒号等字符的项目请用引号包围。".to_string())?;
+    let items = parsed.as_array().ok_or("请使用文本列表。")?;
+    let values = items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .ok_or("标签和别名必须是文本；数字等内容请用引号包围。")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    serde_json::to_string(&values).map_err(|e| e.to_string())
 }
 
 /// Read reserved metadata through YAML, preserving commas, quoting and escapes in list items.
@@ -199,23 +219,7 @@ pub fn set(source: &str, key: &str, value: &str) -> Result<String, String> {
         return Err("属性名只能包含文字、数字、下划线或连字符".into());
     }
     let value = if matches!(key, "tags" | "aliases") {
-        let input = value.trim();
-        let yaml = if input.starts_with('[') || input.starts_with("- ") {
-            input.to_owned()
-        } else {
-            format!("[{input}]")
-        };
-        let parsed: serde_json::Value = serde_saphyr::from_str(&yaml)
-            .map_err(|_| "列表格式无效；包含逗号、冒号等字符的项目请用引号包围。".to_string())?;
-        let items = parsed.as_array().ok_or("请使用文本列表。")?;
-        let values = items
-            .iter()
-            .map(|item| {
-                item.as_str()
-                    .ok_or("标签和别名必须是文本；数字等内容请用引号包围。")
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        serde_json::to_string(&values).map_err(|e| e.to_string())?
+        encode_list(value)?
     } else {
         match serde_json::from_str::<serde_json::Value>(value) {
             Ok(parsed) => parsed.to_string(),
@@ -315,6 +319,27 @@ pub fn remove(source: &str, key: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn list_encoding_preserves_items_and_rejects_non_text_values() {
+        for (input, expected) in [
+            ("", "[]"),
+            ("one, two", "[\"one\",\"two\"]"),
+            ("- 'Smith, John'\n- 中文", "[\"Smith, John\",\"中文\"]"),
+            (
+                "['true', '42', '名称: 冒号']",
+                "[\"true\",\"42\",\"名称: 冒号\"]",
+            ),
+        ] {
+            assert_eq!(Kind::List.encode(input).unwrap(), expected);
+            assert_eq!(
+                parse(&set("", "aliases", input).unwrap())[0].value,
+                expected
+            );
+        }
+        for input in ["[broken", "[true]", "[42]", "[{nested: value}]"] {
+            assert!(Kind::List.encode(input).is_err(), "{input}");
+        }
+    }
     #[test]
     fn scalar_list_values_remain_single_items_in_the_editor() {
         assert_eq!(
