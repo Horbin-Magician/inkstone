@@ -674,6 +674,18 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   工作区 all-targets Clippy、格式及差异检查通过。日志前缀 `reserved-paths-` 位于
   `target/audit-20261018/`；未执行真实 WebDAV 或 Windows 原生验收。
 
+第五十七批当前路径修复的完整回归与部分原生抽查：
+
+- 在 `2b5fc0b` 构建 release 成功，并执行工作区全量回归：核心 378 项、桌面
+  425 项、集成 8 项通过，8 项既有手动测试忽略。日志为 `current-paths-release.log`
+  和 `current-paths-workspace-tests.log`，位于 `target/audit-20261018/`。
+- 隔离 bundle 与笔记库位于 `target/audit-20261018/native-current-paths/`，实际窗口
+  确认阅读布局、字面反斜杠文件名标签及通过编码路径引用的 SVG 正常显示，截图为
+  `reading.png`。20 个生成 Markdown/SVG 文件与 `fixture-before.json` 的哈希一致。
+- 阅读链接点击未观察到跳转，尚未区分输入投递和应用行为；随后系统锁屏阻止了
+  后续操作，已请求用户解锁。链接跳转、快速搜索和正常退出不能计为原生验收通过。
+  隔离实例保留待继续，状态记于 `verification.json`；本批不修改用户笔记。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
