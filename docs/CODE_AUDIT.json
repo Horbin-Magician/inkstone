@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "00425af7f84999a6afbd70cd4f277effcd50a841",
+  "snapshot_revision": "542d21486184ff190ce4ed26cf9a1f1ab1fa358c",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -642,6 +642,16 @@
       "path": "crates/inkstone-core/src/search.rs",
       "checks": "Completed full source/test read across batches 189-190: ASCII and Unicode case-insensitive match paths, original UTF-8 offset mapping, flat quoted/regex/field parser, regex size limit, Boolean branch filtering, title and line highlights, snippet boundaries and earliest-line limit.",
       "result": "No new confirmed defect. Source unchanged since batch 183 core regression (402 passed, 3 ignored). No native search latency or exhaustive Unicode conformance claim."
+    },
+    {
+      "path": "crates/inkstone-core/src/batch.rs",
+      "checks": "Full production and test read: replacement planning, zero-width regex rejection, hierarchical Unicode tag renaming, YAML anchors and preflight baseline validation.",
+      "result": "No new actionable finding; apply reports per-file failures rather than promising transactional rollback."
+    },
+    {
+      "path": "crates/inkstone-core/src/line_edit.rs",
+      "checks": "Full production and test read: UTF-8 boundaries, line grouping, positional newline styles, move/copy selection mapping; LF/CRLF and disjoint/merged regression tests.",
+      "result": "Fixed copied-up selections spanning trailing newlines to end at the upper block separator. Core 404 passed, 3 ignored; workspace all-targets Clippy and format checks passed."
     }
   ],
   "pending_reconciliation": [
@@ -654,12 +664,10 @@
     "crates/inkstone-core/examples/markdown_benchmark.rs",
     "crates/inkstone-core/examples/projection_benchmark.rs",
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
-    "crates/inkstone-core/src/batch.rs",
     "crates/inkstone-core/src/graphics.rs",
     "crates/inkstone-core/src/index/parsing.rs",
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/lib.rs",
-    "crates/inkstone-core/src/line_edit.rs",
     "crates/inkstone-core/src/markdown.rs",
     "crates/inkstone-core/src/markdown_edit.rs",
     "crates/inkstone-core/src/markdown_edit/indentation.rs",
