@@ -251,10 +251,6 @@ impl Workspace {
             let (index, folders) = Index::load_cached(&vault, &cache_path)?;
             inkstone_core::startup_trace::mark("index_ready");
             let files = index.note_paths();
-            let _ = std::fs::write(
-                app_dir().join("recent.txt"),
-                vault.root.to_string_lossy().as_bytes(),
-            );
             inkstone_core::startup_trace::mark("folders_ready");
             let (prefs, preference_warning) =
                 inkstone_core::preferences::Preferences::load_with_warning(
@@ -458,6 +454,7 @@ impl Workspace {
                         // after replacing the previous vault's tabs, including when
                         // the new vault is empty and no tab activation runs a search.
                         this.run_search(cx);
+                        recent_vault::remember(this.vault.as_ref().unwrap().root.clone(), cx);
                         inkstone_core::startup_trace::mark("ui_loaded");
                         this.load_startup_recoveries(cx);
                         if inkstone_core::startup_trace::enabled() {

@@ -44,6 +44,7 @@ mod hotkeys;
 mod link_health;
 mod link_updates;
 mod navigation;
+mod recent_vault;
 mod recovery;
 mod recovery_metadata;
 mod remote_check;
