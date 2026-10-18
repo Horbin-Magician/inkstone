@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "5f6697e9b51bf9238220c53aace69b6397e2d2d1",
+  "snapshot_revision": "5f1481a6ab8e1e561454dc403b698a0506403ee8",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -352,6 +352,21 @@
       "path": "crates/inkstone-core/src/rendering.rs",
       "checks": "full source and tests: source mappings and fragment rebasing, footnote namespace/closure, reference expansion and escaping, embed cycle/depth/byte bounds, task baselines, canonical asset confinement and ambiguous basename rejection",
       "result": "No new actionable finding. Rendering source unchanged since batch 163 full core regression; native display and case-sensitive volume acceptance remain separate."
+    },
+    {
+      "path": "crates/inkstone-core/src/link_audit.rs",
+      "checks": "actual resolver reuse, local-only reference checks, exact source offsets, anchors, ambiguity and unreadable notes",
+      "result": "No new actionable finding in this full read; source review does not establish native UI acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/link_health.rs",
+      "checks": "open draft snapshots and composition handling, background refresh, generation/request guards, modal lifecycle and source navigation",
+      "result": "No new actionable finding in this full read; source review does not establish native UI acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/src/tags.rs",
+      "checks": "case-normalized hierarchy and counts, display spelling selection, filtering and ancestor retention, sorting, folds and keyboard navigation",
+      "result": "No new actionable finding in this full read; source review does not establish native UI acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -372,7 +387,6 @@
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/lib.rs",
     "crates/inkstone-core/src/line_edit.rs",
-    "crates/inkstone-core/src/link_audit.rs",
     "crates/inkstone-core/src/markdown.rs",
     "crates/inkstone-core/src/markdown_edit.rs",
     "crates/inkstone-core/src/markdown_edit/indentation.rs",
@@ -391,7 +405,6 @@
     "crates/inkstone-core/src/syntax.rs",
     "crates/inkstone-core/src/syntax/incremental.rs",
     "crates/inkstone-core/src/tables.rs",
-    "crates/inkstone-core/src/tags.rs",
     "crates/inkstone-core/src/text_changes.rs",
     "crates/inkstone-core/src/updates.rs",
     "crates/inkstone-core/src/vault.rs",
@@ -470,7 +483,6 @@
     "crates/inkstone-desktop/src/workspace/history_catalog.rs",
     "crates/inkstone-desktop/src/workspace/hotkeys.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
-    "crates/inkstone-desktop/src/workspace/link_health.rs",
     "crates/inkstone-desktop/src/workspace/link_updates.rs",
     "crates/inkstone-desktop/src/workspace/links.rs",
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
