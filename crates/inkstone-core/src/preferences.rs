@@ -243,15 +243,15 @@ impl Preferences {
         Self::load_with_warning(path).0
     }
     pub fn load_with_warning(path: &Path) -> (Self, Option<String>) {
-        let valid_json = |path: &Path| -> Option<serde_json::Value> {
+        let read_valid = |path: &Path| -> Option<(Self, bool)> {
             let json: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-            serde_json::from_value::<Self>(json.clone()).ok()?;
-            Some(json)
+            let legacy_theme = json.get("theme").is_none() && json.get("light").is_some();
+            Some((serde_json::from_value(json).ok()?, legacy_theme))
         };
-        let main = valid_json(path);
+        let main = read_valid(path);
         let backup = if main.is_none() {
-            valid_json(&path.with_extension("backup"))
+            read_valid(&path.with_extension("backup"))
         } else {
             None
         };
@@ -262,15 +262,8 @@ impl Preferences {
         } else {
             None
         };
-        let saved = main.or(backup);
-        let mut value: Self = saved
-            .as_ref()
-            .and_then(|json| serde_json::from_value(json.clone()).ok())
-            .unwrap_or_default();
-        if saved
-            .as_ref()
-            .is_some_and(|json| json.get("theme").is_none() && json.get("light").is_some())
-        {
+        let (mut value, legacy_theme) = main.or(backup).unwrap_or_default();
+        if legacy_theme {
             value.theme = if value.light {
                 ThemeMode::Light
             } else {
