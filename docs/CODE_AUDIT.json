@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "da48d242d795fe6589879b8b5473e7a6ee88bc75",
+  "snapshot_revision": "769a136a3f1efdcc3620c90eb2ed54e32e0b9305",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -982,6 +982,11 @@
       "path": "crates/inkstone-desktop/src/workspace/backups.rs",
       "checks": "Complete read: manual/scheduled backup waiting and throttling, picker generation, inspection and restore flow, no-clobber destinations, write ticket release, success timestamps and settings UI.",
       "result": "Fixed silent errors in directory/source/destination pickers with shared completion handling (da48d24). Cancellation preserves messages, stale results preserve current picker state. Backup tests 4 passed; workspace all-targets Clippy and formatting passed. Native picker faults and Windows execution remain unverified."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
+      "checks": "Complete read: interrupted-record inspection, generation/epoch/request identity, destination confinement, verified-copy recovery, write ticket lifecycle, accessible verdicts and keyboard pagination tests.",
+      "result": "Fixed silent destination picker failures with preview-scoped completion handling (769a136). Four partial-recovery tests passed, including dirty-note preservation and keyboard pagination; workspace all-targets Clippy and formatting passed. Native picker failure and Windows remain unverified."
     }
   ],
   "pending_reconciliation": [
@@ -992,7 +997,6 @@
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
-    "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
