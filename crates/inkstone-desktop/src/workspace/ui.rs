@@ -1231,6 +1231,10 @@ impl Workspace {
         self.ui.property_error.clear();
         self.ui.property_baseline = None;
         self.ui.property_original = None;
+        self.close_review_panels(window, cx);
+    }
+
+    pub(super) fn close_review_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.ui.trash_open = false;
         self.ui.history = None;
         self.ui.history_catalog = Default::default();

@@ -221,6 +221,7 @@ impl Workspace {
             cx.notify();
             return;
         }
+        self.close_review_panels(window, cx);
         self.cancel_queued_sync();
         inkstone_core::startup_trace::mark("load_requested");
         self.startup_pending = false;
@@ -337,15 +338,8 @@ impl Workspace {
                             s.set_value(this.ui.prefs.tags.query.clone(), window, cx)
                         });
                         this.ui.link_update = None;
-                        this.ui.history = None;
-                        this.ui.history_catalog = Default::default();
-                        this.ui.conflict_review = None;
+                        this.close_review_panels(window, cx);
                         this.ui.backup = Default::default();
-                        this.ui.attachment_manager = None;
-                        this.ui.link_health = None;
-                        this.ui.bulk_edit = None;
-                        this.ui.table_editor = None;
-                        this.ui.trash_open = false;
                         this.settings_save.reset();
                         this.ui.discard_workspace_on_close = false;
                         this.ui.prefs.light =
