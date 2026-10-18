@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，264 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，267 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -2940,6 +2940,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 测试在既有实现通过，无需改变注册结构。GPUI AnyView 的元素 ID 包含视图 EntityId，全局元素路径可区分两个独立根视图；不把局部字符串相同推断为全局键冲突。提交 `c5feb7a` 保留此多窗口行为回归。
 - 最初在根实体 update 回调内直接 draw 导致夹具重入错误，改为 refresh 后运行调度器；之后专项通过，`target/audit-20261019/focus-trap-windows-red.log` 最终内容为通过，文件名不代表已复现生产缺陷。focus_trap 过滤 3 项通过，日志 `focus-trap-windows-tests.log`；vendor 格式与 diff 检查通过。本批无生产逻辑改动，未重复上一批工作区 Clippy。
 - 确定性窗口/焦点树测试不替代原生 Tab/Shift-Tab、读屏或系统窗口切换验收。
+
+第二百四十八批审核与验证：
+
+- 完整核对 Base hover_card.rs、popup.rs、tooltip.rs；台账增至 267 已核对、460 待核对。检查延迟任务取消、回调生命周期、触发器/内容区悬停交接、触摸关闭、首帧锚点测量、遮挡与延迟绘制优先级、提示宽限期和移动端抑制。
+- 提交 `980c9b0` 删除 HoverCard 安排任务时的重复 epoch 递增及 next_epoch 辅助函数，直接使用 cancel_tasks 更新后的值。此处为冗余清理，不声称已复现用户可见缺陷或测得性能提升。
+- 重新准备独立 vendor 源码后，hover_card::tests、popup::tests、tooltip::tests 各 3 项通过；日志 `target/audit-20261019/{hover-card,popup,tooltip}-review-tests.log`。工作区 all-targets Clippy（-D warnings）、格式和 diff 检查通过，日志 `hover-card-review-clippy.log`；既有 block 0.1.6 future-incompatibility 提示保留。
+- collapsible.rs 已完整阅读，多次 content 调用配合 reveal 是否会复用元素状态仍待核对，暂不移入已审核清单。此次没有系统鼠标离开窗口、原生触摸或读屏验收证据。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
