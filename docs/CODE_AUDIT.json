@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "2b5038bde0bfb90d907cb20d018686a89d73421a",
+  "snapshot_revision": "9a111d61c70f9def5348e2332e42cce72e8e7fbd",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -767,6 +767,21 @@
       "path": "crates/inkstone-core/src/vault/export.rs",
       "checks": "Full production and test read, including re-read of truncated middle: URL resolution/encoding, queued cycle handling, draft snapshots, staged output, graphics tokens, HTML policy, attachments and output collision handling.",
       "result": "Fixed Markdown exports omitting original HTML image/link destinations from portable asset copying, linked-note scheduling and URL rewriting. Unchanged remote attributes preserve original entities. Export tests 13 passed; workspace Clippy/format passed. No native export dialog acceptance this batch."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/history/metadata.rs",
+      "checks": "Full read: legacy record ownership fields and discarded body-string deserialization; compared record-module schema/UTF-8/escape/trailing-input regressions.",
+      "result": "No new actionable finding. Source unchanged from batch 197 core full regression (407 passed, 4 ignored). Cache metadata is disposable and does not itself authorize restoration; Windows/native UI acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/history/index.rs",
+      "checks": "Full production and test read: disposable per-note cache key/checksum, directory timestamp, journal type/size/mtime validation, exclusive temporary writes and linked-directory fallback.",
+      "result": "No new actionable finding. Source unchanged from batch 197 core full regression (407 passed, 4 ignored). Cache metadata is disposable and does not itself authorize restoration; Windows/native UI acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/history/records.rs",
+      "checks": "Full production and test read: journal identity across publication, cache seeding/reuse, cold legacy imports, corrupt-cache rebuild, cross-vault scope, orphan pruning and best-effort cache retirement without journal deletion.",
+      "result": "No new actionable finding. Source unchanged from batch 197 core full regression (407 passed, 4 ignored). Cache metadata is disposable and does not itself authorize restoration; Windows/native UI acceptance remains separate."
     }
   ],
   "pending_reconciliation": [
@@ -782,12 +797,9 @@
     "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/history.rs",
     "crates/inkstone-core/src/vault/history/catalog.rs",
-    "crates/inkstone-core/src/vault/history/index.rs",
     "crates/inkstone-core/src/vault/history/links.rs",
     "crates/inkstone-core/src/vault/history/links/checkpoint.rs",
     "crates/inkstone-core/src/vault/history/links/intent.rs",
-    "crates/inkstone-core/src/vault/history/metadata.rs",
-    "crates/inkstone-core/src/vault/history/records.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
