@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 对话框 Escape 开关：关闭 Escape 时使用保留 Enter 确认的按键上下文，显式取消动作保持有效；与上层 keyboard 仅控制 Escape 的文档一致。
+
 2026-10-19 对话框触发器去重：AlertDialogTrigger 委托 DialogTrigger 的指针打开行为，保留 handle 与 on_open 接口，实际点击回归同时覆盖两种触发器。
 
 2026-10-19 DatePicker 禁用语义：真实 ComboBox 节点报告 disabled，保留展开状态；动作回归明确禁用时禁止确认，但仍允许取消已展开的选择器。

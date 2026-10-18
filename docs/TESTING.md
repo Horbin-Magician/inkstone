@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，284 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，285 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -3052,6 +3052,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 默认/观察配置的 dialog::tests 过滤范围各 8 项通过（包含 alert_dialog 测试），覆盖触发、关闭否决、遮罩与弹层几何。日志 `target/audit-20261019/alert-trigger-shared-{tests,observed-tests,clippy}.log`。工作区 all-targets Clippy（-D warnings）、格式、vendor 文件直接 rustfmt 及 diff 检查通过，保留 block 0.1.6 提示。
 - 同时完整阅读 dialog.rs，但 close_on_escape(false) 移除整个 Dialog 按键上下文、可能连带禁用 Enter 确认，尚需实际按键回归验证，因此普通 Dialog 仍保留待核对。原生可访问名称和平台交互也未由本批专项测试证明。
 - 台账更新为 284 已核对、444 待核对，总范围 728；没有重跑四配置全量或最终平台验收。
+
+第二百六十四批审核与验证：
+
+- 核对上层 Dialog/AlertDialog keyboard 文档，均声明只控制 Escape 关闭。实际按键回归确认 Base close_on_escape(false) 同时禁用 Enter：旧实现按 Enter 后仍保持打开。提交 `e2e5f43` 增加仅含确认键的上下文，并将内部 keyboard 字段改名为 close_on_escape，保持显式 Cancel 动作可用。
+- 新回归检查 Escape 不关闭、Enter 确认一次、重新打开后显式 Cancel 正常关闭。Base 默认/观察配置的 dialog::tests 范围各 9 项、Component 对话框范围 8 项通过；日志 `target/audit-20261019/dialog-escape-{red,tests,observed-tests,component-tests,clippy}.log`。Component 观察配置未在本批执行。
+- 工作区 all-targets Clippy（-D warnings）、格式、vendor 文件直接 rustfmt 及 diff 检查通过，保留既有 block 0.1.6 提示。对话框源码完整核对完成，台账更新为 285 已核对、443 待核对，总范围 728。
+- 专项测试不替代原生焦点、读屏、多弹层平台验收；本批没有重跑四配置全量或最终工作区回归。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
