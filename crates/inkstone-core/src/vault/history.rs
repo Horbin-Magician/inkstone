@@ -7,10 +7,6 @@ pub(super) mod records;
 
 pub use catalog::HistoryNote;
 
-pub(super) fn cache_journal(vault: &Vault, path: &Path, recovery: &Recovery) {
-    records::seed(vault, path, recovery);
-}
-
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Retention {
