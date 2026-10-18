@@ -2,9 +2,7 @@
 use crate::{
     index::{self, Index, Resolution},
     rendering::{self, Reference},
-    syntax::Snapshot,
 };
-use markdown_parser::mdast::Node;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -19,41 +17,23 @@ pub struct Issue {
 pub fn scan(root: &Path, index: &Index) -> Vec<Issue> {
     let mut issues = vec![];
     for (from, note) in &index.notes {
-        let mut references: Vec<_> = note
+        let references = note
             .parsed
             .links
             .iter()
-            .map(|l| (l.range.start, l.target.clone(), true))
-            .collect();
-        fn walk(node: &Node, refs: &mut Vec<(usize, String, bool)>) {
-            let target = match node {
-                Node::Link(n) => Some(&n.url),
-                Node::Image(n) => Some(&n.url),
-                Node::Definition(n) => Some(&n.url),
-                _ => None,
-            };
-            if let Some(target) = target {
-                refs.push((
-                    node.position().map_or(0, |p| p.start.offset),
-                    target.clone(),
-                    false,
-                ));
-            }
-            if let Some(children) = node.children() {
-                for n in children {
-                    walk(n, refs);
-                }
-            }
-        }
-        let snapshot = Snapshot::new(&note.text);
-        if let Some(ast) = &snapshot.ast {
-            walk(ast, &mut references);
-            references.extend(
-                crate::syntax::html_destinations(ast, &snapshot.structural)
-                    .into_iter()
-                    .map(|(r, t)| (r.start, t, false)),
+            .map(|link| (link.range.start, link.target.clone(), true))
+            .chain(
+                note.parsed
+                    .markdown_references
+                    .iter()
+                    .map(|(offset, url)| (*offset, url.clone(), false)),
+            )
+            .chain(
+                note.parsed
+                    .html_destinations
+                    .iter()
+                    .map(|(range, url)| (range.start, url.clone(), false)),
             );
-        }
         let mut seen = BTreeSet::new();
         for (offset, target, wiki) in references {
             if rendering::is_external_link(&target)
@@ -124,6 +104,26 @@ pub fn scan(root: &Path, index: &Index) -> Vec<Issue> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn decoded_references_keep_exact_source_offsets() {
+        let source = "中文😀 [一](missing\\(one\\).md) ![二](missing&amp;two.png)\n\n[r]: missing-ref.md\n\n<a href=\"missing-html.md\">label</a>\n\n[重复](missing\\(one\\).md)\n\n`[code](ignored.md)`\n%% [comment](ignored.md) %%\n[remote](https://example.com)";
+        let mut index = Index::default();
+        index.update("source.md".into(), source.into());
+        let issues = scan(Path::new("/nonexistent"), &index);
+        let actual: Vec<_> = issues
+            .iter()
+            .map(|issue| (issue.offset, issue.target.as_str()))
+            .collect();
+        let expected = [
+            ("[一]", "missing(one).md"),
+            ("![二]", "missing&two.png"),
+            ("[r]:", "missing-ref.md"),
+            ("missing-html.md", "missing-html.md"),
+            ("[重复]", "missing(one).md"),
+        ]
+        .map(|(prefix, target)| (source.find(prefix).unwrap(), target));
+        assert_eq!(actual, expected);
+    }
     #[test]
     fn finds_missing_ambiguous_and_bad_anchors_but_skips_external_and_code() {
         let mut index = Index::default();
