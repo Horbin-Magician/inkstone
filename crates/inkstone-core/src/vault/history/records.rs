@@ -176,7 +176,7 @@ fn scope_with(
 }
 
 /// Best effort: journal durability and saving never depend on this cache.
-pub(super) fn seed(vault: &Vault, path: &Path, recovery: &Recovery) {
+pub(in crate::vault) fn seed(vault: &Vault, path: &Path, relative: &Path) {
     let Ok(meta) = fs::symlink_metadata(path) else {
         return;
     };
@@ -193,8 +193,8 @@ pub(super) fn seed(vault: &Vault, path: &Path, recovery: &Recovery) {
         meta.len(),
         modified,
         Scope {
-            root: recovery.root.clone(),
-            relative: recovery.relative.clone(),
+            root: vault.root.clone(),
+            relative: relative.to_owned(),
         },
     );
 }
@@ -259,7 +259,7 @@ mod tests {
             draft: "saved".into(),
         };
         fs::write(&published, serde_json::to_vec(&record).unwrap()).unwrap();
-        seed(&one, &published, &record);
+        seed(&one, &published, &record.relative);
         let published_cache = cache_path(&one, &published.with_extension("")).unwrap();
         one.cleanup_history().unwrap();
         assert!(!orphan_cache.exists());

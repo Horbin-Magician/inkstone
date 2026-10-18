@@ -118,13 +118,7 @@ impl DraftSession {
     /// A failed write leaves the previous recovery available; callers must retry.
     /// This never reads or writes the authoritative Markdown file.
     pub fn persist(&mut self, baseline: Option<&str>, text: &str) -> Result<(), VaultError> {
-        let record = Recovery {
-            root: self.vault.root.clone(),
-            relative: self.relative.clone(),
-            baseline: baseline.map(str::to_owned),
-            draft: text.to_owned(),
-        };
-        let bytes = serde_json::to_vec(&record).map_err(io::Error::other)?;
+        let bytes = recovery_bytes(&self.vault.root, &self.relative, baseline, text)?;
         let pending = self
             .vault
             .recovery_dir
@@ -202,6 +196,37 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn journal_and_draft_encoding_preserve_the_recovery_format() {
+        let f = Fixture::new();
+        let relative = Path::new("中文目录/引号\"与😀.md");
+        let text = "正文\r\n\t\0\"\\é😀".repeat(10_000);
+        let mut session = DraftSession::new(f.1.clone(), relative.into()).unwrap();
+        for baseline in [None, Some(""), Some("旧正文\n\"\\😀")] {
+            let expected = Recovery {
+                root: f.1.root.clone(),
+                relative: relative.into(),
+                baseline: baseline.map(str::to_owned),
+                draft: text.clone(),
+            };
+            let legacy_bytes = serde_json::to_vec(&expected).unwrap();
+            let journal = f.1.journal(relative, baseline, &text).unwrap();
+            session.persist(baseline, &text).unwrap();
+            for path in [&journal, session.current.as_ref().unwrap()] {
+                let bytes = fs::read(path).unwrap();
+                assert_eq!(bytes, legacy_bytes);
+                assert_eq!(
+                    serde_json::from_slice::<Recovery>(&bytes).unwrap(),
+                    expected
+                );
+            }
+        }
+        assert_eq!(
+            fs::read_to_string(f.1.root.join("note.md")).unwrap(),
+            "original"
+        );
     }
 
     #[test]

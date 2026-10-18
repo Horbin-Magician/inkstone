@@ -89,6 +89,29 @@ pub struct Recovery {
     pub baseline: Option<String>,
     pub draft: String,
 }
+
+/// Preserve the recovery format without copying editor snapshots before encoding.
+fn recovery_bytes(
+    root: &Path,
+    relative: &Path,
+    baseline: Option<&str>,
+    draft: &str,
+) -> io::Result<Vec<u8>> {
+    #[derive(Serialize)]
+    struct Record<'a> {
+        root: &'a Path,
+        relative: &'a Path,
+        baseline: Option<&'a str>,
+        draft: &'a str,
+    }
+    serde_json::to_vec(&Record {
+        root,
+        relative,
+        baseline,
+        draft,
+    })
+    .map_err(io::Error::other)
+}
 #[derive(Debug)]
 pub struct SaveReceipt {
     pub text: String,
@@ -736,15 +759,9 @@ impl Vault {
     ) -> Result<PathBuf, VaultError> {
         Self::validate_relative(relative)?;
         let path = self.recovery_dir.join(format!("{}.json", unique_id()));
-        let record = Recovery {
-            root: self.root.clone(),
-            relative: relative.into(),
-            baseline: baseline.map(str::to_owned),
-            draft: draft.into(),
-        };
-        let bytes = serde_json::to_vec(&record).map_err(io::Error::other)?;
+        let bytes = recovery_bytes(&self.root, relative, baseline, draft)?;
         write_new_synced(&path, &bytes)?;
-        history::cache_journal(self, &path, &record);
+        history::records::seed(self, &path, relative);
         Ok(path)
     }
     pub fn save(
