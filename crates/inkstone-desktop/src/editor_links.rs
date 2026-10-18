@@ -1,4 +1,6 @@
 //! Public editor extension interfaces only; no component patches.
+#[cfg(test)]
+mod benchmark;
 pub(crate) mod slash;
 use gpui::{App, SharedString, Task, WeakEntity, Window};
 use gpui_component::input::{CompletionProvider, DefinitionProvider, EditorState, Rope, RopeExt};
