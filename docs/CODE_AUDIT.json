@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "d1b7b381f1309b04674247a0764b7f389be2cc8d",
+  "snapshot_revision": "da3aefdebe1adee4edb54a4567da718724102e07",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -800,8 +800,8 @@
     },
     {
       "path": "crates/inkstone-core/src/vault/history/links.rs",
-      "checks": "Full production and test read: authoritative ownership loading, journal identity/path validation, rename lock, folder ownership migration, staged checkpoint publication, proof restoration and no-overwrite rollback.",
-      "result": "Fixed rejection of dotted legacy journal identities after rename. Regression failed before fix, then verified ownership after reopen, original journal bytes and old-path exclusion. History module 27 passed; workspace all-targets Clippy/format passed."
+      "checks": "Full production and test read: authoritative ownership loading, journal identity/path validation, rename lock, folder ownership migration, staged checkpoint publication, proof restoration and no-overwrite rollback. Batch 206: rechecked load/owner interface; visibility extended only to crate::vault for retention reuse.",
+      "result": "Fixed rejection of dotted legacy journal identities after rename. Regression failed before fix, then verified ownership after reopen, original journal bytes and old-path exclusion. History module 27 passed; workspace all-targets Clippy/format passed. Retention now consumes the same ownership mapping; core 411 passed, 4 ignored and all-targets Clippy passed."
     },
     {
       "path": "crates/inkstone-core/src/vault/history.rs",
@@ -847,11 +847,15 @@
       "path": "crates/inkstone-core/examples/sync_scan_benchmark.rs",
       "checks": "Complete read: fresh recovery directory, scan phase timing, cancellation before remote access and mandatory cancelled outcome.",
       "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault.rs",
+      "checks": "Complete read: validated file/folder operations, trash and attachment confinement, durable journal and atomic replacement, platform identity guards, scan filtering, retention and recovery tests. Reproduced old-path reuse after rename deleting all renamed-note history.",
+      "result": "Fixed retention to group latest/protected records by current journal ownership (da3aefd). Regression failed before fix; full core suite 411 passed, 4 ignored; workspace all-targets Clippy passed. Native and Windows acceptance remain open."
     }
   ],
   "pending_reconciliation": [
     "crates/inkstone-core/src/index/tests.rs",
-    "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
