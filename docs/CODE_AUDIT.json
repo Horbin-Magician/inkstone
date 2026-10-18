@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "766c3b7307228921ae9923a042b7137687a9cfe6",
+  "snapshot_revision": "d913a3cbef45d23073bd4cd62ee562b084c11feb",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -562,6 +562,16 @@
       "path": "crates/inkstone-desktop/src/editor/frame_benchmark.rs",
       "checks": "Full read of all four manual benchmarks: fixture hash, warmup/sample counts and quantile indices, timing boundaries, property-cache reference and long-paragraph undo/source checks.",
       "result": "No new confirmed defect. Benchmarks remain explicitly ignored/manual and measure headless CPU work, not native latency. Their timings were not rerun or used as native acceptance evidence in this batch."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/attachments.rs",
+      "checks": "Full production/test read: inventory and draft overlay, distinct Wiki/Markdown destination resolution, deduplicated references, regular-file metadata checks, unreadable-note cleanup rejection, rescan and recoverable no-replace trash move; collision/restore tests.",
+      "result": "No new confirmed defect. Reused batch 183 workspace regression (855 passed, 8 ignored), with source equality verified. Inventory covers resolved direct note references; external applications and attachment-internal references are outside its declared scope. Native panel acceptance remains incomplete."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/attachments.rs",
+      "checks": "Full production/test read: filters and virtual list, draft snapshot flush, scan generation/request guards, prompt and write-operation guards, pending IME/footnote rejection, cleanup completion ownership and stale panel message protection; manager integration test.",
+      "result": "No new confirmed defect. Reused batch 183 workspace regression (855 passed, 8 ignored), with source equality verified. Inventory covers resolved direct note references; external applications and attachment-internal references are outside its declared scope. Native panel acceptance remains incomplete."
     }
   ],
   "pending_reconciliation": [
@@ -600,7 +610,6 @@
     "crates/inkstone-core/src/tables.rs",
     "crates/inkstone-core/src/updates.rs",
     "crates/inkstone-core/src/vault.rs",
-    "crates/inkstone-core/src/vault/attachments.rs",
     "crates/inkstone-core/src/vault/backup.rs",
     "crates/inkstone-core/src/vault/backup/capacity.rs",
     "crates/inkstone-core/src/vault/backup/cleanup.rs",
@@ -630,7 +639,6 @@
     "crates/inkstone-desktop/src/test_support.rs",
     "crates/inkstone-desktop/src/workspace.rs",
     "crates/inkstone-desktop/src/workspace/appearance.rs",
-    "crates/inkstone-desktop/src/workspace/attachments.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
     "crates/inkstone-desktop/src/workspace/backups.rs",
