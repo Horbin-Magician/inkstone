@@ -442,9 +442,20 @@ pub fn create(
         } else {
             markdown
         };
-        let out = stage.0.join(note_path(&path, format));
-        fs::create_dir_all(out.parent().unwrap())?;
-        write_new_synced(&out, content.as_bytes())?;
+        let relative_output = note_path(&path, format);
+        let out = stage.0.join(&relative_output);
+        fs::create_dir_all(out.parent().unwrap())
+            .and_then(|()| write_new_synced(&out, content.as_bytes()))
+            .map_err(|error| {
+                io::Error::new(
+                    error.kind(),
+                    format!(
+                        "无法导出笔记“{}”到“{}”：{error}",
+                        path.display(),
+                        relative_output.display()
+                    ),
+                )
+            })?;
     }
     for path in &builder.assets {
         let out = stage.0.join("assets").join(path);
@@ -585,6 +596,55 @@ mod tests {
             fs::read(vault.root.join("excluded.bin")).unwrap(),
             b"excluded"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn html_path_collisions_report_the_note_and_leave_no_partial_output() {
+        let root = std::env::temp_dir().join(format!("inkstone-export-collision-{}", unique_id()));
+        fs::create_dir_all(root.join("vault/a.html")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let first = "[child](a.html/b.md)";
+        let second = "[parent](../a.md)";
+        fs::write(vault.root.join("a.md"), first).unwrap();
+        fs::write(vault.root.join("a.html/b.md"), second).unwrap();
+        let children = || -> BTreeSet<PathBuf> {
+            fs::read_dir(&root)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .collect()
+        };
+        let before = children();
+        for (entry, failed_note, failed_output) in [
+            ("a.md", "a.html/b.md", "notes/a.html/b.html"),
+            ("a.html/b.md", "a.md", "notes/a.html"),
+        ] {
+            let destination = root.join("export");
+            let error = create(
+                &vault,
+                Path::new(entry),
+                BTreeMap::new(),
+                &destination,
+                Format::Html,
+            )
+            .unwrap_err();
+            let message = error.to_string();
+            assert!(
+                message.contains(&failed_note.replace('/', std::path::MAIN_SEPARATOR_STR)),
+                "{message}"
+            );
+            assert!(
+                message.contains(&failed_output.replace('/', std::path::MAIN_SEPARATOR_STR)),
+                "{message}"
+            );
+            assert!(!destination.exists());
+            assert_eq!(children(), before);
+            assert_eq!(fs::read_to_string(vault.root.join("a.md")).unwrap(), first);
+            assert_eq!(
+                fs::read_to_string(vault.root.join("a.html/b.md")).unwrap(),
+                second
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
