@@ -1,21 +1,11 @@
 use super::*;
+use crate::workspace::accessible_text::label as conflict_text;
 use gpui_component::{
     Disableable,
     button::{Button, ButtonVariants},
     input::{Textarea, TextareaState},
 };
 use std::rc::Rc;
-
-fn conflict_text(id: &'static str, value: impl Into<String>) -> gpui::Stateful<gpui::Div> {
-    let value = value.into();
-    div()
-        .id(id)
-        .role(Role::Label)
-        .aria_label(value.clone())
-        .min_w_0()
-        .whitespace_normal()
-        .child(value)
-}
 
 pub(super) struct Review {
     document: Rc<document::DocumentState>,
@@ -269,24 +259,6 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
-
-    #[test]
-    fn conflict_details_expose_full_labels_without_adding_focus_targets() {
-        use gpui::{Element, accesskit};
-        for text in [
-            format!("{}/笔记👩‍💻.md", "长目录/".repeat(30)),
-            "比较后本地内容已变化，请重新比较。".to_owned(),
-            "正在读取磁盘版本……".to_owned(),
-        ] {
-            let element = conflict_text("conflict-detail", text.clone());
-            assert_eq!(element.a11y_role(), Some(Role::Label));
-            let mut node = accesskit::Node::new(Role::Label);
-            element.write_a11y_info(&mut node);
-            assert_eq!(node.label(), Some(text.as_str()));
-            assert!(!node.supports_action(accesskit::Action::Focus));
-            assert!(!node.supports_action(accesskit::Action::Click));
-        }
-    }
 
     #[gpui::test]
     fn conflict_review_rejects_stale_disk_and_preserves_edits_during_resolution(

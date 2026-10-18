@@ -259,7 +259,7 @@ impl Workspace {
                 ))
             })
             .when(!state.message.is_empty(), |s| {
-                s.child(missing::text("sync-recovery-status", state.message.clone()))
+                s.child(super::accessible_text::label("sync-recovery-status", state.message.clone()))
             })
             .when(state.cleaning, |panel| panel.child(FocusReveal::new(
                 "sync-cleanup-stop-focus", &self.ui.recovery_scroll,

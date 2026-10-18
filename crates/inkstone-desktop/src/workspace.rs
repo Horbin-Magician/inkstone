@@ -1,3 +1,4 @@
+mod accessible_text;
 mod activity_trace;
 mod file_drop;
 mod file_sync;

@@ -3,20 +3,8 @@
 use super::super::focus_reveal::FocusReveal;
 use super::capacity::Key;
 use super::*;
+use crate::workspace::accessible_text::label as cleanup_text;
 use std::sync::Arc;
-
-// Painted strings alone are absent from the native accessibility tree.
-// Keep warnings and results readable without adding keyboard tab stops.
-fn cleanup_text(id: &'static str, text: impl Into<String>) -> gpui::Stateful<gpui::Div> {
-    let text = text.into();
-    div()
-        .id(id)
-        .role(gpui::Role::Label)
-        .aria_label(text.clone())
-        .min_w_0()
-        .whitespace_normal()
-        .child(text)
-}
 
 #[derive(Default)]
 pub(super) struct State {

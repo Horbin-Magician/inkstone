@@ -1,6 +1,6 @@
 //! Explicit descriptor preservation; no automatic archive or note save.
-use super::missing::text;
 use super::*;
+use crate::workspace::accessible_text::label as text;
 
 impl Workspace {
     pub(super) fn can_retain_sync_residue(&self) -> bool {
