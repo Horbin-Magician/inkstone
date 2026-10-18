@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "4fc1cb949131bc416dd804e95a7f1f97f31ea095",
+  "snapshot_revision": "2c7a19ab224ebd0d6fa046b26e7224562ea6a30c",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -502,6 +502,21 @@
       "path": "crates/inkstone-desktop/src/editor/projection.rs",
       "checks": "Full read including ownership/replacement test: pane-owned atomic cancellation token, release on owner drop and acquire checks by the worker.",
       "result": "No new actionable finding in this read. Current editor:: filtered test run passed 136 tests with 4 existing ignored tests; native IME, latency and platform acceptance remain open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/reading.rs",
+      "checks": "Full read: callout state forwarding, pending scroll restoration, explicit jump precedence, source versus preview focus and navigation.",
+      "result": "No new actionable finding; native interaction acceptance remains open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/view.rs",
+      "checks": "Full read: appearance versioning, source-matched pending navigation/restoration, text styles, task/link/image event routing, undo ownership, paste events, gutter/scrollbar and live overlay composition. Inspected existing navigation, task and callout regressions.",
+      "result": "No new confirmed defect in this read; stale task baseline protection inspected in editing.rs. Native visual and accessibility acceptance remains open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/editing.rs",
+      "checks": "Full read: folding, pairing configuration, line transforms, Markdown key focus/composition/menu guards, multi-selection edits, table navigation, task baseline/selection/scroll preservation.",
+      "result": "Removed redundant multiple-selection guard after the multi-selection branch already returns (2c7a19a). editor:: filtered suite: 136 passed, 4 ignored; workspace Clippy and format passed."
     }
   ],
   "pending_reconciliation": [
@@ -565,7 +580,6 @@
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/editor.rs",
     "crates/inkstone-desktop/src/editor/code_blocks.rs",
-    "crates/inkstone-desktop/src/editor/editing.rs",
     "crates/inkstone-desktop/src/editor/font_zoom.rs",
     "crates/inkstone-desktop/src/editor/footnotes.rs",
     "crates/inkstone-desktop/src/editor/frame_benchmark.rs",
@@ -573,9 +587,7 @@
     "crates/inkstone-desktop/src/editor/live_quotes.rs",
     "crates/inkstone-desktop/src/editor/live_rules.rs",
     "crates/inkstone-desktop/src/editor/live_tasks.rs",
-    "crates/inkstone-desktop/src/editor/reading.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
-    "crates/inkstone-desktop/src/editor/view.rs",
     "crates/inkstone-desktop/src/editor_links.rs",
     "crates/inkstone-desktop/src/editor_links/benchmark.rs",
     "crates/inkstone-desktop/src/editor_links/slash.rs",
