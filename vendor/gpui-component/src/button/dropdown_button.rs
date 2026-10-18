@@ -152,6 +152,7 @@ impl RenderOnce for DropdownButton {
             "a DropdownButton needs a `button`, a `dropdown_menu`, or both"
         );
 
+        let split = self.button.is_some() && self.menu.is_some();
         let variant = self.effective_variant();
         let size = self.effective_size();
         let selected = self.selected || self.button.as_ref().is_some_and(Selectable::is_selected);
@@ -171,13 +172,15 @@ impl RenderOnce for DropdownButton {
                 let disabled = self.disabled || button.is_disabled();
                 this.child(
                     button
-                        .border_corners(Corners {
-                            top_left: true,
-                            top_right: false,
-                            bottom_left: true,
-                            bottom_right: false,
+                        .when(split, |this| {
+                            this.border_corners(Corners {
+                                top_left: true,
+                                top_right: false,
+                                bottom_left: true,
+                                bottom_right: false,
+                            })
+                            .border_edges(Edges::all(true))
                         })
-                        .border_edges(Edges::all(true))
                         .selected(selected)
                         .disabled(disabled)
                         .when(self.outline, |this| this.outline())
@@ -193,17 +196,19 @@ impl RenderOnce for DropdownButton {
                 this.child(
                     Button::new("popup")
                         .dropdown_caret(true)
-                        .border_corners(Corners {
-                            top_left: false,
-                            top_right: true,
-                            bottom_left: false,
-                            bottom_right: true,
-                        })
-                        .border_edges(Edges {
-                            left: false,
-                            top: true,
-                            right: true,
-                            bottom: true,
+                        .when(split, |this| {
+                            this.border_corners(Corners {
+                                top_left: false,
+                                top_right: true,
+                                bottom_left: false,
+                                bottom_right: true,
+                            })
+                            .border_edges(Edges {
+                                left: false,
+                                top: true,
+                                right: true,
+                                bottom: true,
+                            })
                         })
                         .selected(selected)
                         .disabled(self.disabled)
