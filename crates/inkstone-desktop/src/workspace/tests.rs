@@ -597,9 +597,52 @@ fn quick_font_wheel_updates_views_and_respects_modal(cx: &mut TestAppContext) {
         })
         .unwrap();
     visual.update(|w, cx| w.draw(cx).clear(cx));
+    let before = handle
+        .update(&mut visual, |w, _, cx| {
+            w.views
+                .split
+                .as_ref()
+                .unwrap()
+                .pane
+                .read(cx)
+                .reading_position(cx)
+        })
+        .unwrap();
     visual.simulate_event(wheel(-80.));
     handle
-        .update(&mut visual, |w, _, _| assert_eq!(w.ui.prefs.font_size, 10.))
+        .update(&mut visual, |w, window, cx| {
+            assert_eq!(w.ui.prefs.font_size, 10.);
+            assert_eq!(
+                w.views
+                    .split
+                    .as_ref()
+                    .unwrap()
+                    .pane
+                    .read(cx)
+                    .reading_position(cx),
+                before,
+                "font zoom must not also scroll the reading view at the size limit"
+            );
+            w.ui.prefs.quick_font_size = false;
+            w.apply_editor_preferences(window, cx);
+        })
+        .unwrap();
+    visual.update(|w, cx| w.draw(cx).clear(cx));
+    visual.simulate_event(wheel(-80.));
+    handle
+        .update(&mut visual, |w, _, cx| {
+            assert_ne!(
+                w.views
+                    .split
+                    .as_ref()
+                    .unwrap()
+                    .pane
+                    .read(cx)
+                    .reading_position(cx),
+                before,
+                "disabled font zoom must leave normal scrolling available"
+            );
+        })
         .unwrap();
 }
 

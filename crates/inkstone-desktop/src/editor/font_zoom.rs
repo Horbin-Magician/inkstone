@@ -45,6 +45,7 @@ pub(super) fn capture(pane: WeakEntity<EditorPane>) -> impl IntoElement {
                         f32::from(event.delta.pixel_delta(px(20.)).y),
                         Instant::now(),
                     ) {
+                        cx.stop_propagation();
                         cx.emit(EditorEvent::FontSizeDelta(delta));
                     }
                 });
