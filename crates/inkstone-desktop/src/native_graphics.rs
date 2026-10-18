@@ -384,18 +384,20 @@ impl MarkdownPlugin for Plugin {
         let width = measured.width * scale;
         let height = measured.height * scale;
         let offset = node.source_range().map_or(0, |r| r.start);
-        if let Some(Ok(prepared)) = self
-            .service
-            .cached(
-                formula.kind,
-                &formula.value,
-                self.light,
-                self.font,
-                self.dpi,
-            )
-            .as_ref()
-            .map(|r| r.as_ref())
-        {
+        let cached = self.service.cached(
+            formula.kind,
+            &formula.value,
+            self.light,
+            self.font,
+            self.dpi,
+        );
+        if let Some(Err(error)) = cached.as_deref() {
+            return view
+                .debug_selector(|| "native-graphic-raster-error".into())
+                .child(div().child(node.as_markdown().to_string()))
+                .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(error.clone()));
+        }
+        if let Some(Ok(prepared)) = cached.as_deref() {
             view = view.child(if prepared.kind == Kind::Mermaid {
                 div()
                     .id(("native-graphic-image", offset))
@@ -457,18 +459,22 @@ impl MarkdownPlugin for Plugin {
         };
         self.ensure_raster(formula, window, cx);
         let scale = f32::from(context.font_size()) / self.font;
-        if let Some(Ok(prepared)) = self
-            .service
-            .cached(
-                formula.kind,
-                &formula.value,
-                self.light,
-                self.font,
-                self.dpi,
-            )
-            .as_ref()
-            .map(|r| r.as_ref())
-        {
+        let cached = self.service.cached(
+            formula.kind,
+            &formula.value,
+            self.light,
+            self.font,
+            self.dpi,
+        );
+        if let Some(Err(error)) = cached.as_deref() {
+            return Some(InlineElement::new(
+                div()
+                    .debug_selector(|| "native-graphic-raster-error".into())
+                    .child(node.as_markdown().to_string())
+                    .child(div().text_size(px(MIN_UI_FONT_SIZE)).child(error.clone())),
+            ));
+        }
+        if let Some(Ok(prepared)) = cached.as_deref() {
             return Some(
                 InlineElement::new(
                     img(prepared.image.clone())
@@ -556,6 +562,46 @@ pub(crate) fn extensions(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn cached_raster_failures_show_a_visible_fallback_for_blocks_and_inline_math(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        for (kind, source) in [(Kind::BlockMath, "$$x$$"), (Kind::InlineMath, "$x$")] {
+            let handle = cx.add_window(|window, cx| {
+                let mut pane = crate::editor::EditorPane::new(source, window, cx);
+                pane.reading = true;
+                let service = Service::get(cx);
+                // Simulate a raster failure after successful formula measurement.
+                let key =
+                    Service::key(kind, "x", pane.light, pane.font_size, window.scale_factor());
+                service.cache.lock().unwrap().entries.insert(
+                    key,
+                    Entry {
+                        result: Arc::new(Err("fixture raster failure".into())),
+                        bytes: 0,
+                        used: 0,
+                    },
+                );
+                pane
+            });
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            for _ in 0..10 {
+                visual.run_until_parked();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            let bounds = visual
+                .debug_bounds("native-graphic-raster-error")
+                .expect("raster errors must not leave a blank placeholder");
+            assert!(bounds.size.width > px(0.) && bounds.size.height > px(0.));
+            handle
+                .update(&mut visual, |pane, _, cx| {
+                    assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+                })
+                .unwrap();
+        }
+    }
+
     #[gpui::test]
     fn same_line_double_dollars_render_as_centered_blocks(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
