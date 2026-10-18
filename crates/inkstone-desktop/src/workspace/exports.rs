@@ -70,15 +70,21 @@ impl Workspace {
             return;
         }
         self.flush_document_views(window, cx);
-        let drafts = self.file_drafts(cx);
+        let drafts = self.file_draft_snapshots(cx);
         self.ui.exporting = true;
         let write_ticket = self.file_writes.begin();
         self.notifications
             .publish("正在导出当前编辑快照、关联笔记与附件……".into());
         let generation = self.generation;
-        let task = cx
-            .background_executor()
-            .spawn(async move { export::create(&vault, &path, drafts, &destination, format) });
+        let task = cx.background_executor().spawn(async move {
+            export::create(
+                &vault,
+                &path,
+                document::owned_drafts(drafts),
+                &destination,
+                format,
+            )
+        });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {

@@ -67,7 +67,7 @@ impl Workspace {
             return;
         };
         self.flush_document_views(window, cx);
-        let drafts = self.file_drafts(cx);
+        let drafts = self.file_draft_snapshots(cx);
         let Some(manager) = &mut self.ui.attachment_manager else {
             return;
         };
@@ -77,7 +77,7 @@ impl Workspace {
         let generation = self.generation;
         let task = cx
             .background_executor()
-            .spawn(async move { attachments::scan(&vault, &drafts) });
+            .spawn(async move { attachments::scan(&vault, &document::owned_drafts(drafts)) });
         cx.spawn(async move |this, cx| {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
@@ -164,16 +164,16 @@ impl Workspace {
             return;
         };
         self.flush_document_views(window, cx);
-        let drafts = self.file_drafts(cx);
+        let drafts = self.file_draft_snapshots(cx);
         let write_ticket = self.file_writes.begin();
         if let Some(m) = &mut self.ui.attachment_manager {
             m.loading = true;
         }
         let generation = self.generation;
         let request = self.ui.recovery_refresh;
-        let task = cx
-            .background_executor()
-            .spawn(async move { attachments::trash_unused(&vault, &entry, &drafts) });
+        let task = cx.background_executor().spawn(async move {
+            attachments::trash_unused(&vault, &entry, &document::owned_drafts(drafts))
+        });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {

@@ -49,16 +49,29 @@ impl DocumentState {
 
 use super::*;
 
+/// Copy shared snapshots into the core APIs' owned input on a worker thread.
+pub(super) fn owned_drafts(
+    snapshots: std::collections::BTreeMap<PathBuf, SharedString>,
+) -> std::collections::BTreeMap<PathBuf, String> {
+    snapshots
+        .into_iter()
+        .map(|(path, text)| (path, text.to_string()))
+        .collect()
+}
+
 impl Workspace {
     /// Snapshot named documents once per owner. Callers flush views and apply
     /// their operation-specific pending-input checks before collecting.
-    pub(super) fn file_drafts(&self, cx: &App) -> std::collections::BTreeMap<PathBuf, String> {
+    pub(super) fn file_draft_snapshots(
+        &self,
+        cx: &App,
+    ) -> std::collections::BTreeMap<PathBuf, SharedString> {
         let mut seen = std::collections::HashSet::new();
         self.tabs
             .iter()
             .filter(|tab| !tab.path.as_os_str().is_empty())
             .filter(|tab| seen.insert(tab.save.editor.entity_id()))
-            .map(|tab| (tab.path.clone(), tab.save.text_snapshot(cx).to_string()))
+            .map(|tab| (tab.path.clone(), tab.save.text_snapshot(cx)))
             .collect()
     }
 
