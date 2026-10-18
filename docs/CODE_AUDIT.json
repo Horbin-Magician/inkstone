@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "3e9006c07850468314fede72757817147a7d6103",
+  "snapshot_revision": "c5feb7a57b7c845e61aa1d93ea8f4bee118257f2",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1317,6 +1317,11 @@
       "path": "vendor/gpui-base/src/actions.rs",
       "checks": "Full read: action namespace and Confirm secondary payload; removed tautological test that only constructed and read literal bool fields (3e9006c). Production action declarations unchanged.",
       "result": "Read completed; changes and verification limits recorded in TESTING.md. Native and cross-platform gates remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/focus_trap.rs",
+      "checks": "Full read: weak registration lifecycle, wrapper delegation, active focus lookup, nested containment and independent-window registration. Nested order regression fixed in 187fbac; two-window redraw-order regression passed without a production change in c5feb7a. Three focus-trap filtered tests passed.",
+      "result": "Nested lookup fixed; independent-window coverage retained. Native keyboard and accessibility acceptance remain pending."
     }
   ],
   "pending_reconciliation": [
@@ -1349,7 +1354,6 @@
     "vendor/gpui-base/src/dock/tab_group.rs",
     "vendor/gpui-base/src/dock/test_support.rs",
     "vendor/gpui-base/src/element_ext.rs",
-    "vendor/gpui-base/src/focus_trap.rs",
     "vendor/gpui-base/src/hover_card.rs",
     "vendor/gpui-base/src/input/base/blink_cursor.rs",
     "vendor/gpui-base/src/input/base/cursor.rs",
