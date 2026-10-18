@@ -1,3 +1,4 @@
+mod destinations;
 mod links;
 mod parsing;
 mod search;

@@ -45,7 +45,7 @@ pub struct ParsedNote {
     pub aliases: Vec<String>,
     pub standard_links: Vec<(String, usize)>,
     pub destinations: Vec<(Range<usize>, String)>,
-    /// All decoded AST destinations, including escaped URLs without an editable source range.
+    /// All decoded AST destinations, including those without an editable source range.
     #[serde(default)]
     pub destination_urls: Vec<String>,
     #[serde(default)]
@@ -163,13 +163,13 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
             && !url.is_empty()
         {
             let raw = &source[position.start.offset..position.end.offset];
-            if let Some(start) = raw.rfind("](").or_else(|| raw.find("]:"))
-                && let Some(offset) = raw[start + 2..].find(url.as_str())
+            if let Some(range) =
+                super::destinations::source_range(raw, matches!(node, Node::Definition(_)))
             {
-                let offset = position.start.offset + start + 2 + offset;
-                result
-                    .destinations
-                    .push((offset..offset + url.len(), url.clone()));
+                result.destinations.push((
+                    position.start.offset + range.start..position.start.offset + range.end,
+                    url.clone(),
+                ));
             }
         }
         if let Node::Link(link) = node
