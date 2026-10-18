@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "1431e2d8d40992ac77845f0aa79b9c43a24a1c2a",
+  "snapshot_revision": "908b5e5d05db6088370d6eda2124c2322dcee33b",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -582,6 +582,11 @@
       "path": "crates/inkstone-desktop/src/workspace/file_drop.rs",
       "checks": "Full production/test read: canonical Markdown path routing, current-vault versus standalone window behavior, pending startup handling, generation guards, exclusive import ticket release, partial import results and refresh; actual drop routing and save-conflict tests.",
       "result": "No new confirmed defect. Reused source-identical batch 183 workspace regression (855 passed, 8 ignored). Native file-drop and platform acceptance remain incomplete."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/file_sync.rs",
+      "checks": "Full production/test read: queued refresh flags, worker disk/index reconciliation, generation and operation guards, document baseline handling, duplicate/split completion updates, relocation/bookmarks/tree construction and failure recovery.",
+      "result": "Fixed lost reconciliation intent on scan failure in 908b5e5: next requested refresh performs a full rescan. Regression reproduced stale A after unrelated B refresh, then passed; 5 file-sync tests, workspace Clippy and format passed. This does not add an immediate automatic retry."
     }
   ],
   "pending_reconciliation": [
@@ -659,7 +664,6 @@
     "crates/inkstone-desktop/src/workspace/exports.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
     "crates/inkstone-desktop/src/workspace/file_settings.rs",
-    "crates/inkstone-desktop/src/workspace/file_sync.rs",
     "crates/inkstone-desktop/src/workspace/history_catalog.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/link_updates.rs",
