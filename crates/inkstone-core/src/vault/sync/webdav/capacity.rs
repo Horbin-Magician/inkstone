@@ -312,90 +312,30 @@ mod tests {
     }
     #[test]
     fn capacity_http_is_read_only_and_rejects_manifest_changes() {
-        use std::net::TcpListener;
+        use super::super::test_support::{manifest_reply, reply, server};
         for changed in [false, true] {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.set_nonblocking(true).unwrap();
-            let address = listener.local_addr().unwrap();
-            let server = std::thread::spawn(move || {
-                let manifest = serde_json::to_string(&manifest()).unwrap();
-                let xml = listing(&response(&"a".repeat(64), "123", "200 OK"));
-                for (index, (method, path)) in [
-                    ("GET", "/inkstone-v1/manifest.json"),
-                    ("GET", "/inkstone/manifest.json"),
-                    ("PROPFIND", "/inkstone/objects/"),
-                    ("GET", "/inkstone-v1/manifest.json"),
-                    ("GET", "/inkstone/manifest.json"),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-                    let (mut stream, _) = loop {
-                        match listener.accept() {
-                            Ok(connection) => break connection,
-                            Err(error)
-                                if error.kind() == io::ErrorKind::WouldBlock
-                                    && std::time::Instant::now() < deadline =>
-                            {
-                                std::thread::sleep(Duration::from_millis(1))
-                            }
-                            Err(error) => panic!("missing request {index}: {error}"),
-                        }
-                    };
-                    // Accepted sockets can inherit the listener's nonblocking mode on macOS.
-                    // Poll only accept; request reads use the bounded blocking timeout below.
-                    stream.set_nonblocking(false).unwrap();
-                    stream
-                        .set_read_timeout(Some(Duration::from_secs(5)))
-                        .unwrap();
-                    let mut header = Vec::new();
-                    while !header.ends_with(b"\r\n\r\n") {
-                        let mut byte = [0];
-                        stream.read_exact(&mut byte).unwrap();
-                        header.push(byte[0]);
-                    }
-                    let text = String::from_utf8(header).unwrap();
-                    let length = text
-                        .lines()
-                        .find_map(|line| {
-                            let (name, value) = line.split_once(':')?;
-                            name.eq_ignore_ascii_case("content-length")
-                                .then(|| value.trim().parse::<usize>().unwrap())
-                        })
-                        .unwrap_or(0);
-                    let mut body = vec![0; length];
-                    stream.read_exact(&mut body).unwrap();
-                    assert!(
-                        text.starts_with(&format!("{method} {path} HTTP/1.1\r\n")),
-                        "{text}"
-                    );
-                    let (status, body) = if path.contains("-v1") {
-                        ("404 Not Found", "")
-                    } else if method == "PROPFIND" {
-                        assert!(text.to_lowercase().contains("depth: 1\r\n"));
-                        ("207 Multi-Status", xml.as_str())
-                    } else {
-                        ("200 OK", manifest.as_str())
-                    };
-                    let etag = if changed && index == 4 {
-                        "changed"
-                    } else {
-                        "stable"
-                    };
-                    write!(stream, "HTTP/1.1 {status}\r\nETag: \"{etag}\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
-                }
-            });
-            let remote = WebDav::new(
-                &Settings {
-                    url: format!("http://{address}/"),
-                    ..Default::default()
-                },
-                "",
-            )
-            .unwrap();
+            let xml = listing(&response(&"a".repeat(64), "123", "200 OK"));
+            let (remote, task) = server(vec![
+                reply(404),
+                manifest_reply(&manifest(), "stable"),
+                (207, String::new(), xml),
+                reply(404),
+                manifest_reply(&manifest(), if changed { "changed" } else { "stable" }),
+            ]);
             let result = remote.capacity();
-            server.join().unwrap();
+            let requests = task.join().unwrap();
+            let expected = [
+                ("GET", "/dav/inkstone-v1/manifest.json"),
+                ("GET", "/dav/inkstone/manifest.json"),
+                ("PROPFIND", "/dav/inkstone/objects/"),
+                ("GET", "/dav/inkstone-v1/manifest.json"),
+                ("GET", "/dav/inkstone/manifest.json"),
+            ];
+            assert_eq!(requests.len(), expected.len());
+            for (request, (method, path)) in requests.iter().zip(expected) {
+                assert!(request.starts_with(&format!("{method} {path} HTTP/1.1\r\n")));
+            }
+            assert!(requests[2].contains("depth: 1\r\n"));
             if changed {
                 assert!(result.unwrap_err().to_string().contains("清单发生变化"));
             } else {
