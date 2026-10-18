@@ -176,6 +176,7 @@ pub fn attachment_link(
         .add(b'[')
         .add(b']');
     let label = name
+        .replace(['\r', '\n'], " ")
         .replace('\\', "\\\\")
         .replace('[', "\\[")
         .replace(']', "\\]");
@@ -207,7 +208,7 @@ pub fn attachment_destination(
         }
         _ => format!("/{}", to.to_string_lossy().replace('\\', "/")),
     };
-    let markdown = markdown || target.contains(['#', '|', '[', ']']);
+    let markdown = markdown || target.contains(['#', '|', '[', ']', '\r', '\n']);
     if !markdown && target.starts_with('/') && target[1..].contains('/') {
         target.remove(0);
     }
@@ -216,6 +217,44 @@ pub fn attachment_destination(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn attachment_links_preserve_newline_filenames() {
+        for name in [
+            "line\nbreak.png",
+            "paragraph\n\nbreak.png",
+            "carriage\rreturn.png",
+        ] {
+            let target = PathBuf::from(format!("assets/{name}"));
+            let files = vec![target.clone()];
+            for format in [
+                LinkFormat::Shortest,
+                LinkFormat::Relative,
+                LinkFormat::Absolute,
+            ] {
+                for markdown in [false, true] {
+                    for embed in [false, true] {
+                        let text = attachment_link(
+                            Path::new("source.md"),
+                            &target,
+                            &files,
+                            format,
+                            markdown,
+                            embed,
+                        );
+                        let parsed = crate::index::parse(&text);
+                        assert_eq!(parsed.destinations.len(), 1, "{text:?}");
+                        let decoded =
+                            percent_encoding::percent_decode_str(&parsed.destinations[0].1)
+                                .decode_utf8()
+                                .unwrap();
+                        assert!(decoded.ends_with(name), "{text:?}");
+                        assert!(!text.contains(['\r', '\n']), "{text:?}");
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn note_link_formats_resolve_duplicates_and_nested_paths() {
         use crate::index::{Index, Resolution};

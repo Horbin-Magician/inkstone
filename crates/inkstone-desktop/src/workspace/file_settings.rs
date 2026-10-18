@@ -431,7 +431,13 @@ mod tests {
                 .update(cx, |w, window, cx| {
                     w.ui.prefs.link_format = format;
                     w.ui.prefs.use_markdown_links = false;
-                    for name in ["hash#part", "bracket[name]", "pipe|name", "line\nbreak"] {
+                    for name in [
+                        "hash#part",
+                        "bracket[name]",
+                        "pipe|name",
+                        "line\nbreak",
+                        "paragraph\n\nbreak",
+                    ] {
                         Arc::make_mut(&mut w.index)
                             .update(format!("targets/{name}.md").into(), "# Heading".into());
                     }
@@ -455,7 +461,7 @@ mod tests {
             let lsp_types::CompletionResponse::Array(items) = task.await.unwrap() else {
                 panic!("expected completion array");
             };
-            assert_eq!(items.len(), 4);
+            assert_eq!(items.len(), 5);
             handle
                 .update(cx, |w, _, _| {
                     for item in items {

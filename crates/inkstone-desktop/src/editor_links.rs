@@ -338,6 +338,7 @@ impl CompletionProvider for WikiCompletions {
                                             path.label.rsplit('/').next().unwrap_or(&path.label)
                                         }
                                     })
+                                    .replace(['\r', '\n'], " ")
                                     .replace('\\', "\\\\")
                                     .replace('[', "\\[")
                                     .replace(']', "\\]");
