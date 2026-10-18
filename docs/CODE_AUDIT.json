@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "e01f486a820085e27305ea1b2e127946ad8127ba",
+  "snapshot_revision": "7d6e6f4fc68035741dbbd044722bf244ca1eb065",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -222,6 +222,41 @@
       "path": "crates/inkstone-desktop/src/workspace/accessible_text.rs",
       "checks": "Complete source/test read: full native label text, wrapping and absence of unintended focus/click actions",
       "result": "No newly confirmed defect; unchanged since consolidated desktop regression. Source/test review does not substitute for native accessibility or interaction acceptance."
+    },
+    {
+      "path": "tools/performance/process_log.py",
+      "checks": "Complete read: preserve stdout/stderr before nonzero exit propagation",
+      "result": "Shared binary identity check added/reused in 7d6e6f4; 18 performance-tool tests passed. Full benchmark runners were not rerun; endpoint hashes do not prove a binary was never swapped and restored mid-run."
+    },
+    {
+      "path": "tools/performance/sample_process.py",
+      "checks": "Complete read: explicit PID and start identity, zombie rejection, bounded settle/sample duration, cumulative CPU delta, monotonic timing and RSS/latency caveats",
+      "result": "Shared binary identity check added/reused in 7d6e6f4; 18 performance-tool tests passed. Full benchmark runners were not rerun; endpoint hashes do not prove a binary was never swapped and restored mid-run."
+    },
+    {
+      "path": "tools/performance/backend.py",
+      "checks": "Complete read: release marker, fixed corpus and round count, metric validation, source/binary fingerprints, per-round logs and medians",
+      "result": "Shared binary identity check added/reused in 7d6e6f4; 18 performance-tool tests passed. Full benchmark runners were not rerun; endpoint hashes do not prove a binary was never swapped and restored mid-run."
+    },
+    {
+      "path": "tools/performance/file_hash.py",
+      "checks": "Complete read: streamed SHA-256 and shared end-of-run artifact identity verification",
+      "result": "Shared binary identity check added/reused in 7d6e6f4; 18 performance-tool tests passed. Full benchmark runners were not rerun; endpoint hashes do not prove a binary was never swapped and restored mid-run."
+    },
+    {
+      "path": "tools/performance/history_read.py",
+      "checks": "Complete read: generated fixture only, rotated comparison order, result/content checks, RSS units and end-of-run binary fingerprint",
+      "result": "Shared binary identity check added/reused in 7d6e6f4; 18 performance-tool tests passed. Full benchmark runners were not rerun; endpoint hashes do not prove a binary was never swapped and restored mid-run."
+    },
+    {
+      "path": "tools/performance/sync_scan.py",
+      "checks": "Complete read: generated small/large fixtures, counts/bytes/cancellation validation, post-run content integrity and binary fingerprint",
+      "result": "Shared binary identity check added/reused in 7d6e6f4; 18 performance-tool tests passed. Full benchmark runners were not rerun; endpoint hashes do not prove a binary was never swapped and restored mid-run."
+    },
+    {
+      "path": "tools/performance/test_file_hash.py",
+      "checks": "Complete read: unchanged input accepted, same-length changed input and missing artifact rejected",
+      "result": "Shared binary identity check added/reused in 7d6e6f4; 18 performance-tool tests passed. Full benchmark runners were not rerun; endpoint hashes do not prove a binary was never swapped and restored mid-run."
     }
   ],
   "pending_reconciliation": [
@@ -386,14 +421,8 @@
     "crates/inkstone-desktop/tests/display_objects.rs",
     "crates/inkstone-desktop/tests/grapheme_cursor.rs",
     "crates/inkstone-desktop/tests/grapheme_wrap.rs",
-    "tools/performance/backend.py",
     "tools/performance/corpus.py",
-    "tools/performance/file_hash.py",
-    "tools/performance/history_read.py",
     "tools/performance/prepare_macos.py",
-    "tools/performance/process_log.py",
-    "tools/performance/sample_process.py",
-    "tools/performance/sync_scan.py",
     "tools/performance/test_backend.py",
     "tools/performance/test_prepare_macos.py",
     "tools/performance/test_process_log.py",
