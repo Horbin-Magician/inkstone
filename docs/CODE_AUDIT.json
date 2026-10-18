@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "6d03011f1026b99131039c0e7f7034fe857e2007",
+  "snapshot_revision": "efa4c6e4b140667791a953849a817be81d4a100c",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1122,6 +1122,41 @@
       "path": "vendor/gpui-base/src/text/selection.rs",
       "checks": "Removed duplicated character classification and word scanning; retained inline end-of-text behavior; selection regression tests passed",
       "result": "Shared word-boundary cleanup in 6d03011; existing end-selection behavior preserved."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/base/change.rs",
+      "checks": "Change payload ownership; removed cloning shift helper after confirming its sole caller",
+      "result": "Undo adjacency optimization in efa4c6e; 66 vendor undo tests passed."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/base/layout.rs",
+      "checks": "Visible-row binary search requires sorted producer; center/right offsets clamp at zero",
+      "result": "No new actionable finding in this read; native runtime acceptance remains separate."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/base/occurrences.rs",
+      "checks": "Sparse decomposition mappings and UTF-8 source offsets; inspected selection-boundary callers and Unicode occurrence regression",
+      "result": "No new actionable finding in this read; native runtime acceptance remains separate."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/base/undo_manager.rs",
+      "checks": "Read complete transaction state machine and tests; removed temporary shifts and cloned changes from adjacency checks",
+      "result": "Undo adjacency optimization in efa4c6e; 66 vendor undo tests passed."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/editor/auto_close.rs",
+      "checks": "Pair insertion, consumption and range-edit affinity; history snapshots inspected in undo manager",
+      "result": "No new actionable finding in this read; native runtime acceptance remains separate."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/editor/concealment.rs",
+      "checks": "Line-anchor validation, finite widths, whole-grapheme ranges, merging and revision invalidation",
+      "result": "No new actionable finding in this read; native runtime acceptance remains separate."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/editor/line_typography.rs",
+      "checks": "Finite bounded scales, UTF-8 single-line anchors, sorting/deduplication, rebase and display-map invalidation",
+      "result": "No new actionable finding in this read; native runtime acceptance remains separate."
     }
   ],
   "pending_reconciliation": [
@@ -1175,26 +1210,20 @@
     "vendor/gpui-base/src/history.rs",
     "vendor/gpui-base/src/hover_card.rs",
     "vendor/gpui-base/src/input/base/blink_cursor.rs",
-    "vendor/gpui-base/src/input/base/change.rs",
     "vendor/gpui-base/src/input/base/cursor.rs",
     "vendor/gpui-base/src/input/base/element.rs",
     "vendor/gpui-base/src/input/base/inline_tokens.rs",
     "vendor/gpui-base/src/input/base/kind.rs",
-    "vendor/gpui-base/src/input/base/layout.rs",
     "vendor/gpui-base/src/input/base/mask_pattern.rs",
     "vendor/gpui-base/src/input/base/mod.rs",
     "vendor/gpui-base/src/input/base/mode.rs",
     "vendor/gpui-base/src/input/base/movement.rs",
     "vendor/gpui-base/src/input/base/native.rs",
-    "vendor/gpui-base/src/input/base/occurrences.rs",
     "vendor/gpui-base/src/input/base/rope_ext.rs",
     "vendor/gpui-base/src/input/base/selection.rs",
     "vendor/gpui-base/src/input/base/state.rs",
     "vendor/gpui-base/src/input/base/token_presentation.rs",
     "vendor/gpui-base/src/input/base/touch.rs",
-    "vendor/gpui-base/src/input/base/undo_manager.rs",
-    "vendor/gpui-base/src/input/editor/auto_close.rs",
-    "vendor/gpui-base/src/input/editor/concealment.rs",
     "vendor/gpui-base/src/input/editor/decorations.rs",
     "vendor/gpui-base/src/input/editor/diagnostics.rs",
     "vendor/gpui-base/src/input/editor/display_map/display_map.rs",
@@ -1209,7 +1238,6 @@
     "vendor/gpui-base/src/input/editor/indent.rs",
     "vendor/gpui-base/src/input/editor/language.rs",
     "vendor/gpui-base/src/input/editor/language_config.rs",
-    "vendor/gpui-base/src/input/editor/line_typography.rs",
     "vendor/gpui-base/src/input/editor/lsp/code_actions.rs",
     "vendor/gpui-base/src/input/editor/lsp/completions.rs",
     "vendor/gpui-base/src/input/editor/lsp/definitions.rs",

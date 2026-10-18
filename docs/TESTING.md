@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，224 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，231 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -2814,6 +2814,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 完整核对 Base 的 async_util、event、index_path、observe、measure、text_boundary 和 text/selection 七个文件；台账增至 224 已核对、503 待核对。前五个工具模块未发现本批需要修改的问题，原生/WASM 行为仍受平台验收范围限制。
 - `6d03011`：行内文本选择复用共享单词边界计算，删除重复字符分类、扫描和从文本起点寻找 UTF-8 边界的实现，净减少 72 行。保留行内文本在末尾选择最后一个词、共享基础函数在末尾返回 None 的既有差异，以及每侧最多 128 个字符的扫描限制。原字符分类测试移到共享模块；新增空文本、中文/重音字节中间、末尾/超界和长词边界检查。
 - 独立 vendor word_range 过滤 4 项通过，selection 过滤 97 项通过，text_boundary 过滤 2 项通过（过滤集合有重叠，不作相加总数）；工作区 all-targets Clippy（`-D warnings`）、工作区和改动 vendor 文件格式、diff 检查通过。日志：`target/audit-20261019/shared-word-range-tests.log`、`shared-selection-tests.log`、`shared-boundary-tests.log`、`shared-word-range-clippy.log`。未宣称原生双击操作或帧率已验收；既有 block 0.1.6 future-incompatibility 提示仍存在。
+
+第二百二十九批审核与验证：
+
+- 完整核对 Base 输入的 change、layout、occurrences、undo_manager、auto_close、concealment、line_typography 七个文件；台账增至 231 已核对、496 待核对。额外核对匹配起点的选区边界来源，以及布局可见行列表的有序生产逻辑；只读调用片段的文件没有计入已审。
+- `efa4c6e`：撤销合并的相邻判断直接借用改动记录，一次反向遍历累计低位编辑造成的偏移，删除临时偏移数组与 Change::shifted 对正文和 token 数据的复制。保留输入、退格、向前删除及原子编辑的合并条件；未测量原生输入延迟，不声称整体提速。
+- 独立 vendor 的 undo 过滤 66 项通过，包含多光标插入/退格、不同长度行、长 Unicode 连续输入、事务边界及撤销/重做恢复；工作区 all-targets Clippy（`-D warnings`）、工作区及改动 vendor 文件格式检查通过。日志 `target/audit-20261019/undo-borrow-tests.log`、`undo-borrow-clippy.log`。
+- 应用 occurrence 过滤 7 项通过（在撤销优化前启动，验证未改动的匹配模块）；conceal 过滤 5 项在撤销优化后通过，覆盖字素、隐藏整行及换行布局。日志 `input-occurrence-tests.log`、`input-conceal-tests.log`。初始误用桌面包不存在的 --lib 目标已纠正；以上均为实际运行的最终结果。原生界面、Windows 与最终冻结版本验收仍待完成。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
