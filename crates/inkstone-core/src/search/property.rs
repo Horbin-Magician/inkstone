@@ -1,10 +1,12 @@
 use super::{Pattern, Query, ScopedPattern};
 use serde_json::Value;
-use std::{cell::RefCell, path::Path};
+use std::{cell::RefCell, path::Path, sync::Arc};
 mod value;
 use value::Expected;
 static HIGHLIGHT: std::sync::LazyLock<Pattern> =
     std::sync::LazyLock::new(|| Pattern::Regex(regex::Regex::new("[^\\r\\n]+").unwrap()));
+
+type CachedKeys = Option<(String, Arc<Vec<String>>)>;
 
 enum Key {
     Exact(String),
@@ -13,7 +15,7 @@ enum Key {
 pub(super) struct Property {
     key: Key,
     expected: Option<Expected>,
-    cache: RefCell<Option<(String, Option<Value>)>>,
+    cache: RefCell<CachedKeys>,
 }
 impl Property {
     pub(super) fn parse(input: &str, case_sensitive: bool) -> Result<Self, String> {
@@ -81,10 +83,13 @@ impl Property {
         })
     }
     pub(super) fn matches(&self, source: &str) -> bool {
-        !self.matching_keys(source).is_empty()
+        self.matching_keys(source)
+            .is_some_and(|keys| !keys.is_empty())
     }
     pub(super) fn patterns(&self, source: &str) -> Vec<ScopedPattern<'_>> {
-        let keys = self.matching_keys(source);
+        let Some(keys) = self.matching_keys(source) else {
+            return vec![];
+        };
         if keys.is_empty() {
             return vec![];
         }
@@ -109,46 +114,45 @@ impl Property {
             })
             .collect()
     }
-    fn matching_keys(&self, source: &str) -> Vec<String> {
-        let Some(block) = crate::properties::block(source) else {
-            return vec![];
-        };
+    fn matching_keys(&self, source: &str) -> Option<Arc<Vec<String>>> {
+        let block = crate::properties::block(source)?;
         let header = &source[..block.end];
-        if self
-            .cache
-            .borrow()
-            .as_ref()
-            .is_none_or(|(cached, _)| cached != header)
+        if let Some((cached, keys)) = self.cache.borrow().as_ref()
+            && cached == header
         {
-            let first = header.find('\n').unwrap() + 1;
-            let last = header.trim_end_matches(['\r', '\n']).rfind('\n').unwrap() + 1;
-            let parsed = serde_saphyr::from_str::<Value>(&header[first..last]).ok();
-            *self.cache.borrow_mut() = Some((header.into(), parsed));
+            return Some(keys.clone());
         }
-        let cache = self.cache.borrow();
-        let Some((_, Some(Value::Object(values)))) = cache.as_ref() else {
-            return vec![];
+        let first = header.find('\n').unwrap() + 1;
+        let last = header.trim_end_matches(['\r', '\n']).rfind('\n').unwrap() + 1;
+        let keys = if let Ok(Value::Object(values)) =
+            serde_saphyr::from_str::<Value>(&header[first..last])
+        {
+            values
+                .into_iter()
+                .filter(|(name, value)| {
+                    let key_matches = match &self.key {
+                        Key::Exact(key) => key.to_lowercase() == name.to_lowercase(),
+                        Key::Query(query) => query.matches(Path::new(""), name, &[]),
+                    };
+                    if !key_matches {
+                        return false;
+                    }
+                    let Some(expected) = &self.expected else {
+                        return true;
+                    };
+                    match value {
+                        Value::Array(items) => items.iter().any(|value| expected.matches(value)),
+                        _ => expected.matches(value),
+                    }
+                })
+                .map(|(name, _)| name)
+                .collect()
+        } else {
+            vec![]
         };
-        values
-            .iter()
-            .filter(|(name, value)| {
-                let key_matches = match &self.key {
-                    Key::Exact(key) => key.to_lowercase() == name.to_lowercase(),
-                    Key::Query(query) => query.matches(Path::new(""), name, &[]),
-                };
-                if !key_matches {
-                    return false;
-                }
-                let Some(expected) = &self.expected else {
-                    return true;
-                };
-                match value {
-                    Value::Array(items) => items.iter().any(|value| expected.matches(value)),
-                    _ => expected.matches(value),
-                }
-            })
-            .map(|(name, _)| name.clone())
-            .collect()
+        let keys = Arc::new(keys);
+        *self.cache.borrow_mut() = Some((header.into(), keys.clone()));
+        Some(keys)
     }
 }
 fn value_text(value: &Value) -> String {
@@ -167,5 +171,40 @@ fn value_text(value: &Value) -> String {
             .collect::<Vec<_>>()
             .join(","),
         _ => value.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_matches_refresh_with_frontmatter_and_preserve_highlights() {
+        let property = Property::parse("[tags: work]", false).unwrap();
+        let source = "---\ntags: [work, personal]\n---\nbody";
+        let keys = property.matching_keys(source).unwrap();
+        assert_eq!(keys.as_ref(), &["tags"]);
+        assert!(Arc::ptr_eq(
+            &keys,
+            &property
+                .matching_keys(&source.replace("body", "changed"))
+                .unwrap()
+        ));
+        let patterns = property.patterns(source);
+        assert_eq!(patterns.len(), 1);
+        assert_eq!(
+            source[patterns[0].range.clone()].trim(),
+            "tags: [work, personal]"
+        );
+        for changed in [
+            "---\ntags: [personal]\n---\nbody",
+            "---\ntags: [\n---\nbody",
+            "---\nother: work\n---\nbody",
+            "body",
+        ] {
+            assert!(!property.matches(changed), "{changed}");
+            assert!(property.patterns(changed).is_empty());
+            assert!(property.matches(source));
+        }
     }
 }
