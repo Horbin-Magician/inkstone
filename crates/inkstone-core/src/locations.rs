@@ -154,14 +154,17 @@ pub fn attachment_link(
     embed: bool,
 ) -> String {
     let name = to.file_name().unwrap_or_default().to_string_lossy();
-    let unique = files
-        .iter()
-        .filter(|p| {
-            p.file_name()
-                .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&name))
-        })
-        .count()
-        == 1;
+    let unique = format == LinkFormat::Shortest
+        && from.parent() != to.parent()
+        && files
+            .iter()
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&name))
+            })
+            .take(2)
+            .count()
+            == 1;
     let (target, markdown) = attachment_destination(from, to, format, markdown, unique);
     let prefix = if embed { "!" } else { "" };
     if !markdown {
