@@ -377,10 +377,10 @@ pub fn create(
 ) -> io::Result<Report> {
     let (stage, destination) = backup::staging(destination, &vault.root)?;
     let mut index = Index::build(vault).map_err(io::Error::other)?;
-    for (path, text) in drafts {
-        Vault::validate_relative(&path).map_err(io::Error::other)?;
-        index.update(path, text);
+    for path in drafts.keys() {
+        Vault::validate_relative(path).map_err(io::Error::other)?;
     }
+    index.update_many(drafts);
     if !index.notes.contains_key(entry) {
         return Err(io::Error::other("无法读取要导出的笔记"));
     }
@@ -652,11 +652,17 @@ mod tests {
         fs::write(vault.root.join("附件/中 文.png"), [0, 1, 2, 255]).unwrap();
         fs::write(vault.root.join("目录/a.md"), "disk").unwrap();
         fs::write(vault.root.join("b.md"), "# 标题\n[[目录/a]]\n").unwrap();
-        let draft = "---\ntags: [test]\n---\n# 草稿 😀\r\n[[b#标题|别名]] ![[附件/中 文.png]]\r\n`[[not-a-link]]`\n";
+        let draft = "---\ntags: [test]\n---\n# 草稿 😀\r\n[[draft-target#标题|别名]] ![[附件/中 文.png]]\r\n`[[not-a-link]]`\n";
         let report = create(
             &vault,
             Path::new("目录/a.md"),
-            BTreeMap::from([("目录/a.md".into(), draft.into())]),
+            BTreeMap::from([
+                ("目录/a.md".into(), draft.into()),
+                (
+                    "b.md".into(),
+                    "---\naliases: [draft-target]\n---\n# 标题\n[[目录/a]]\n".into(),
+                ),
+            ]),
             &root.join("md"),
             Format::Markdown,
         )
@@ -680,7 +686,13 @@ mod tests {
         let report = create(
             &vault,
             Path::new("目录/a.md"),
-            BTreeMap::from([("目录/a.md".into(), draft.into())]),
+            BTreeMap::from([
+                ("目录/a.md".into(), draft.into()),
+                (
+                    "b.md".into(),
+                    "---\naliases: [draft-target]\n---\n# 标题\n[[目录/a]]\n".into(),
+                ),
+            ]),
             &root.join("html"),
             Format::Html,
         )
