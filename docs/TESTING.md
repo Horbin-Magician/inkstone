@@ -1362,6 +1362,16 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 批量编辑 3 项回归、全目标 Clippy、格式及差异检查通过。日志
   `target/audit-20261018/bulk-worker-copies-{tests,clippy}.log`。
 
+第一百二十批 HTML 导出标题匹配器复用：
+
+- `b68916c` 将 HTML 标题匹配正则改为进程内延迟初始化共享，每篇关联笔记不再
+  重复编译相同表达式；标题编号计数仍在每篇文档内从零开始。
+- 核心导出 8 项、桌面导出 1 项、全目标 Clippy、格式及差异检查通过，日志
+  `target/audit-20261018/export-heading-cache-{core,desktop,clippy}.log`。
+  本批未测量导出耗时收益。检查了导出 generation 回调保护、暂存输出与
+  move_no_replace 发布路径，既有草稿导出及输出目录冲突回归通过；不将这些
+  结果扩大为全部导出故障类型或原生文件选择器验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
