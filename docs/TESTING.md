@@ -267,6 +267,18 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   忽略。release 构建成功；日志 `native-current-workspace-tests.log` 与
   `native-current-build.log` 位于 `target/audit-20261018/`。
 
+第十九批恢复日志序列化：
+
+- 保存日志和后台草稿统一借用已有路径、基线与正文进行 JSON 序列化，删除编码前的
+  整份正文复制。历史元数据初始化只接收实际需要的相对路径，删除仅转发参数的包装函数。
+  仍保留 JSON 字节缓冲，以及原有独占创建、同步、草稿发布和失败重试顺序。
+- 新增兼容回归对两个实际写入入口逐字节比较旧格式，覆盖无基线、空基线、中文路径、
+  emoji、引号、反斜杠、CRLF、控制字符和长正文；并使用原有 Recovery 类型读回验证。
+  核心全量 363 项通过、3 项既有手动测试忽略，包含历史缓存、损坏记录、草稿保留与
+  失败重试。工作区 all-targets Clippy、格式和差异检查通过。
+- 日志 `recovery-borrow-core-tests.log`、`recovery-borrow-clippy.log` 位于
+  `target/audit-20261018/`。本批未重跑桌面全量或原生 UI，也未量化保存耗时及峰值内存。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
