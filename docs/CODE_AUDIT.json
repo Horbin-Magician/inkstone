@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "d3111b96637355322c2e054d5c9940f4c21da469",
+  "snapshot_revision": "02adda8fcdd64e6fe42b62f3c7702da948b33ea7",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -892,6 +892,36 @@
       "path": "crates/inkstone-desktop/src/workspace/recovery_metadata.rs",
       "checks": "Complete read: source-specific byte semantics, local time display and distinction between unknown and zero values.",
       "result": "No new actionable finding in this read. Existing workspace regression at d1b7b38 is supporting evidence; no new native/platform acceptance claimed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/exports.rs",
+      "checks": "Complete read: picker cancellation and generation guards, snapshot export and composition blocking, write ticket release and failure reporting; tests preserve unsaved drafts and existing outputs.",
+      "result": "No new actionable finding in this read; existing workspace regression is supporting evidence, not new native UI/platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/conflicts.rs",
+      "checks": "Complete read: reviewed baseline/disk/local snapshots, request generation, exclusive resolution, preservation of newer input and retry/error states; stale disk and concurrent-edit regression.",
+      "result": "No new actionable finding in this read; existing workspace regression is supporting evidence, not new native UI/platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/appearance.rs",
+      "checks": "Complete read: installed/missing font resolution, selection synchronization, bounded size adjustments, theme propagation and settings controls.",
+      "result": "No new actionable finding in this read; existing workspace regression is supporting evidence, not new native UI/platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/updates.rs",
+      "checks": "Complete read: operation state transitions, cancellation after final byte, package ownership transfer, busy guards and progress UI; no network or installer invoked.",
+      "result": "No new actionable finding in this read; existing workspace regression is supporting evidence, not new native UI/platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/webdav_secret.rs",
+      "checks": "Complete read: scoped account derivation, serialized credential persistence, private Unix file permissions and replacement failure behavior.",
+      "result": "Removed destructive Windows delete-before-retry fallback and preserved original I/O errors (02adda8). Credential tests 2 passed on macOS; workspace all-targets Clippy and formatting passed. Windows execution remains unverified."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/table_editor.rs",
+      "checks": "Complete read: bounded row/column resizing, retained input entities, composition and source snapshot checks, single undoable edit and accessible descriptions.",
+      "result": "No new actionable finding in this read; existing workspace regression is supporting evidence, not new native UI/platform acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -904,7 +934,6 @@
     "crates/inkstone-desktop/src/editor_links.rs",
     "crates/inkstone-desktop/src/editor_links/benchmark.rs",
     "crates/inkstone-desktop/src/editor_links/slash.rs",
-    "crates/inkstone-desktop/src/workspace/appearance.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
     "crates/inkstone-desktop/src/workspace/backups.rs",
@@ -912,8 +941,6 @@
     "crates/inkstone-desktop/src/workspace/bulk_edit.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
-    "crates/inkstone-desktop/src/workspace/conflicts.rs",
-    "crates/inkstone-desktop/src/workspace/exports.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
     "crates/inkstone-desktop/src/workspace/history_catalog.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
@@ -926,13 +953,10 @@
     "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
     "crates/inkstone-desktop/src/workspace/sync_recovery/missing.rs",
     "crates/inkstone-desktop/src/workspace/sync_recovery/residue.rs",
-    "crates/inkstone-desktop/src/workspace/table_editor.rs",
     "crates/inkstone-desktop/src/workspace/tabs.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
-    "crates/inkstone-desktop/src/workspace/updates.rs",
     "crates/inkstone-desktop/src/workspace/views.rs",
-    "crates/inkstone-desktop/src/workspace/webdav_secret.rs",
     "crates/inkstone-desktop/src/workspace/welcome.rs",
     "crates/inkstone-desktop/tests/display_objects.rs",
     "crates/inkstone-desktop/tests/grapheme_cursor.rs",
