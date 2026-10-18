@@ -1,3 +1,4 @@
+use super::accessible_text::label;
 use super::*;
 use gpui_component::{
     Disableable,
@@ -75,11 +76,11 @@ impl Workspace {
             return div().into_any_element();
         };
         div().flex().flex_col().gap_2().min_h_0()
-            .child("检查本地笔记、附件、标题与块引用，包含打开正文快照；不访问外部网址。点击问题可定位到来源笔记中的链接，修改后请重新检查。")
-            .child(format!("{} 个待检查问题",r.issues.len()))
-            .when(r.loading,|s|s.child("正在检查……"))
-            .when(!r.message.is_empty(),|s|s.child(r.message.clone()))
-            .when(!r.loading&&r.message.is_empty()&&r.issues.is_empty(),|s|s.child("本次扫描未发现失效的直接引用。"))
+            .child(label("link-health-description", "检查本地笔记、附件、标题与块引用，包含打开正文快照；不访问外部网址。点击问题可定位到来源笔记中的链接，修改后请重新检查。"))
+            .child(label("link-health-count", format!("{} 个待检查问题",r.issues.len())))
+            .when(r.loading,|s|s.child(label("link-health-loading", "正在检查……")))
+            .when(!r.message.is_empty(),|s|s.child(label("link-health-message", r.message.clone())))
+            .when(!r.loading&&r.message.is_empty()&&r.issues.is_empty(),|s|s.child(label("link-health-empty", "本次扫描未发现失效的直接引用。")))
             .child(Button::new("link-health-refresh").label("重新检查").disabled(r.loading).on_click(cx.listener(|this,_,w,cx|this.open_link_health(w,cx))))
             .child(uniform_list("link-health-list",r.issues.len(),cx.processor(|this,range:std::ops::Range<usize>,_,cx|{
                 let Some(r)=&this.ui.link_health else{return vec![];};range.filter_map(|i|{let issue=r.issues.get(i)?;let issue=issue.clone();let path=issue.from.clone();Some(Button::new(("link-issue",i)).ghost().label(format!("{} · {} → {}",issue.reason,path.display(),issue.target)).on_click(cx.listener(move|this,_,w,cx|{this.open_link_issue(&issue,w,cx);})).into_any_element())}).collect()
