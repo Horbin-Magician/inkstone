@@ -176,7 +176,13 @@ impl Workspace {
                             this.run_search(cx);
                         }
                     }
-                    Err(error) => this.notifications.publish(error.to_string()),
+                    Err(error) => {
+                        // This pass consumed its paths before starting the worker.
+                        // Reconcile them from disk on the next request, even when
+                        // that request only reports an unrelated file change.
+                        this.rescan = true;
+                        this.notifications.publish(error.to_string());
+                    }
                 }
                 cx.notify();
             });
@@ -386,6 +392,56 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     use std::path::Path;
+
+    #[gpui::test]
+    fn failed_refresh_keeps_full_reconciliation_for_the_next_request(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-refresh-retry-{}", std::process::id()));
+        let vault = root.join("vault");
+        let unavailable = root.join("unavailable");
+        std::fs::create_dir_all(&vault).unwrap();
+        std::fs::write(vault.join("a.md"), "old a").unwrap();
+        std::fs::write(vault.join("b.md"), "old b").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(vault.clone(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.watcher = None;
+                w.watch_events = None;
+                std::fs::write(vault.join("a.md"), "new a").unwrap();
+                std::fs::rename(&vault, &unavailable).unwrap();
+                w.rescan = true;
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.refreshing);
+                assert_eq!(w.index.notes[Path::new("a.md")].text, "old a");
+                std::fs::rename(&unavailable, &vault).unwrap();
+                std::fs::write(vault.join("b.md"), "new b").unwrap();
+                // Only B produces the next event: the failed pass must not lose A.
+                w.changed_paths.insert("b.md".into());
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, _| {
+                assert_eq!(w.index.notes[Path::new("a.md")].text, "new a");
+                assert_eq!(w.index.notes[Path::new("b.md")].text, "new b");
+                assert!(!w.rescan);
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn overlapping_refresh_requests_keep_changes_for_the_next_pass(cx: &mut TestAppContext) {
