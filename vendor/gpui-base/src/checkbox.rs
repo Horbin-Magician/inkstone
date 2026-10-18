@@ -369,7 +369,8 @@ impl RenderOnce for Checkbox {
         let style = self.resolved_style();
         let on_change = self.on_change;
 
-        self.base
+        let base = self
+            .base
             .test_support()
             .when_some(self.role.resolve(|| Role::CheckBox), |this, role| {
                 this.role(role)
@@ -394,7 +395,8 @@ impl RenderOnce for Checkbox {
                 },
             )
             .children(self.children)
-            .refine_style(&style)
+            .refine_style(&style);
+        crate::accessibility::with_disabled(base, disabled)
     }
 }
 
@@ -555,6 +557,15 @@ mod tests {
         cx.simulate_keystrokes("enter space");
         assert!(changes.borrow().is_empty());
         assert_eq!(parent_clicks.get(), 1);
+        #[cfg(feature = "test-support")]
+        cx.update(|window, _| {
+            let nodes = crate::test_support::snapshots(window);
+            let checkbox = nodes
+                .iter()
+                .find(|node| node.path().last() == Some(&ElementId::from("checkbox")))
+                .unwrap();
+            assert_eq!(checkbox.disabled(), Some(true));
+        });
     }
 
     #[test]
@@ -653,11 +664,10 @@ mod tests {
                 canvas(
                     move |_, window, cx| {
                         let mut info = |checkbox: Checkbox| {
-                            let mut node = accesskit::Node::new(Role::CheckBox);
-                            checkbox
-                                .render(window, cx)
-                                .into_element()
-                                .write_a11y_info(&mut node);
+                            let element = checkbox.render(window, cx).into_element();
+                            assert_eq!(element.a11y_role(), Some(Role::CheckBox));
+                            let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+                            element.write_a11y_info(&mut node);
                             node
                         };
                         *captured.lock().unwrap() = Some([
@@ -699,6 +709,8 @@ mod tests {
         assert_eq!(unchecked.toggled(), Some(Toggled::False));
         assert_eq!(checked.toggled(), Some(Toggled::True));
         assert_eq!(mixed.toggled(), Some(Toggled::Mixed));
+        assert!(!unchecked.is_disabled());
+        assert!(disabled.is_disabled());
         assert!(unchecked.supports_action(accesskit::Action::Click));
         assert!(!disabled.supports_action(accesskit::Action::Click));
     }
