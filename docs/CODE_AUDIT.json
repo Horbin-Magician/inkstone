@@ -1300,7 +1300,7 @@
     },
     {
       "path": "vendor/gpui-base/benches/motion.rs",
-      "checks": "Full read: system allocator forwarding, warmed batches, allocation counter, black_box inputs, percentile calculation and scalar budget. Release benchmark launched; result pending at this audit entry.",
+      "checks": "Full read: system allocator forwarding, warmed batches, allocation counter, black_box inputs, percentile calculation and scalar budget. macOS arm64 release run passed: scalar 1,000-sample median 40.131us under 100us budget; all measured steady loops allocated zero times. See batch 246.",
       "result": "Read completed; changes and verification limits recorded in TESTING.md. Native and cross-platform gates remain pending."
     },
     {

@@ -2928,6 +2928,12 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 提交 `3e9006c` 删除 actions.rs 的冗余测试：构造 Confirm.secondary=true/false 后直接读取字段，并未测试动作分发、派生行为或序列化。生产声明未修改；本次删除通过格式和 diff 检查，不将删除测试称为新增行为验证。
 - 动画微基准已从独立 vendor 工作区启动 release 构建，日志 `target/audit-20261019/motion-review-bench.log`；本条记录时仍在编译，尚无性能结果，后续需追踪完成状态。滚动 benchmark 只完成源码核对，本批未执行；两者均不能替代原生输入到显示耗时验收。
 
+第二百四十六批审核与验证：
+
+- 完整阅读 Base focus_trap.rs 并检查 Root 的调用点，发现嵌套容器选取依赖 HashMap 遍历顺序。新增实际焦点树用例强制两种 value 遍历顺序，旧实现选择外层 FocusId(1v1)，应为内层 FocusId(2v1)。最初夹具缺少 blur(cx) 参数导致编译失败，修正夹具后才得到上述行为失败。
+- 提交 `187fbac` 按焦点包含关系选择最内层活动容器。新增用例同时检查外层聚焦和失焦；focus_trap 过滤 2 项通过（含 Sheet 调用方）。使用既有独立 vendor 副本同步当前 focus_trap.rs 执行，日志 `target/audit-20261019/focus-trap-nested-{red,tests,clippy}.log`。工作区 all-targets Clippy（-D warnings）、格式和 diff 检查通过。多窗口注册键隔离仍需验证，因此该文件暂留待核对列表，计数维持 263/464。
+- 上批动画微基准完成，macOS arm64 release，31 批/每批 200 次。每 1,000 次操作中位数：计时+缓动 40.131µs，2/8/32 帧采样 28.905/45.600/65.702µs，弹簧 14.626µs，交错延迟 1.215µs；标量低于既有 100µs 门槛，全部 steady loop 分配为 0。日志 `target/audit-20261019/motion-review-bench.log`。此次同时有编译任务，数值不作为前后性能提升比较；微基准不覆盖原生事件到显示耗时。既有 block 0.1.6 future-incompatibility 提示保留。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
