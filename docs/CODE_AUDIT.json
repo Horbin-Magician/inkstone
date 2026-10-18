@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "2765675ac0fb003f4d1f852cc0b2b9231bba84d2",
+  "snapshot_revision": "c7a0fd39a4ec784e6eb1e57c85983fe2d2ac76b1",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1387,6 +1387,11 @@
       "path": "vendor/gpui-base/src/toggle_group.rs",
       "checks": "Complete read: unstyled container, child/style/interactivity forwarding, toolbar role and axis orientation.",
       "result": "No newly confirmed defect in this read. Component group regressions exercise the container; native toolbar semantics remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/toggle.rs",
+      "checks": "Complete read: controlled pressed state, focus binding and Tab configuration, semantic styles, pointer/keyboard activation, child geometry and native accessibility. Reused disabled property adapter and replaced prefilled-role test with actual element role inspection.",
+      "result": "Native disabled assertion failed before fix. Base default/observed suites each pass 7 tests; Component toggle suites each pass 10 tests; workspace all-targets Clippy passes. Observed disabled flag is checked after drawing. Native screen-reader acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
@@ -1537,7 +1542,6 @@
     "vendor/gpui-base/src/theme_tokens.rs",
     "vendor/gpui-base/src/time_field.rs",
     "vendor/gpui-base/src/toast.rs",
-    "vendor/gpui-base/src/toggle.rs",
     "vendor/gpui-base/src/toolbar.rs",
     "vendor/gpui-base/src/touch_selection.rs",
     "vendor/gpui-base/src/tree.rs",

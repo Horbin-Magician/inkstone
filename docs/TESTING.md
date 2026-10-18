@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，277 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，278 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -3017,6 +3017,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 默认/观察配置各 10 项通过，覆盖指针、Enter/Space 各一次报告、渲染状态作为输入、无组回调保留子回调、键盘操作后点击组空白区域无额外回调，以及组/子控件禁用与有无组回调的组合。日志 `target/audit-20261019/toggle-group-activation-{red,tests,observed-tests,clippy}.log`；两个配置的测试有重叠。
 - 工作区 all-targets Clippy（-D warnings）、工作区格式、vendor 文件直接 rustfmt 及 diff 检查通过，保留 block 0.1.6 future-incompatibility 提示。本批未重跑四配置全量和原生平台验收。
 - 台账更新为 277 已核对、451 待核对，总范围 728。Base toggle.rs 仅开始阅读，尚未完成核对；不将 Component 激活测试扩展为 Base 原生无障碍验收结论。
+
+第二百五十九批审核与验证：
+
+- 完整核对 Base toggle.rs。禁用控件虽已拦截激活，实际无障碍节点却未报告 disabled；新增断言在旧实现失败。提交 `c7a0fd3` 复用透明禁用属性适配器；角色断言改为读取真实元素 a11y_role，观察配置检查绘制后的 disabled 属性。
+- Base 默认/观察配置各 7 项、Component Toggle/ToggleGroup 默认/观察配置各 10 项通过，检查指针和键盘行为、禁用、角色/标签/pressed/Click action、居中布局和组回调。日志 `target/audit-20261019/toggle-disabled-a11y-{red,tests,observed-tests,component-tests,component-observed-tests,clippy}.log`。配置间有重叠，不累加为独立测试数。
+- 工作区 all-targets Clippy（-D warnings）、格式、vendor 文件直接 rustfmt 及 diff 检查通过；保留 block 0.1.6 future-incompatibility 提示。无障碍属性测试不替代实际读屏验收，本批未运行四配置全量或最终平台验收。
+- 台账更新为 278 已核对、450 待核对，总范围 728。继续阅读 dropdown_button.rs 到 260 行，尚未完整核对，仍保留待核对。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
