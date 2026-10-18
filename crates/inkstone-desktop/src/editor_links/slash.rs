@@ -22,7 +22,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
 /// check is also used when requesting fresh results after committed input.
 pub(crate) fn query(source: &str, offset: usize) -> Option<(usize, &str)> {
     let before = source.get(..offset)?;
-    let start = before.rfind('\n').map_or(0, |at| at + 1);
+    let start = before.rfind(['\r', '\n']).map_or(0, |at| at + 1);
     let typed = before[start..].strip_prefix('/')?;
     (!typed.contains(['/', '\\', '\r', '\n', '[', ']'])).then_some((start, typed))
 }
@@ -65,6 +65,29 @@ pub(super) fn completions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slash_commands_recognize_all_markdown_line_endings() {
+        for newline in ["\n", "\r\n", "\r"] {
+            let prefix = format!("中文😀{newline}{newline}");
+            let source = format!("{prefix}/h2保留");
+            let offset = prefix.len() + 3;
+            assert_eq!(query(&source, offset), Some((prefix.len(), "h2")));
+            let rope = Rope::from(source.clone());
+            let items = completions(&source, &rope, offset).unwrap();
+            assert_eq!(items.len(), 1);
+            let Some(lsp_types::CompletionTextEdit::Edit(edit)) = &items[0].text_edit else {
+                panic!("edit expected");
+            };
+            let mut result = source.clone();
+            result.replace_range(
+                rope.position_to_offset(&edit.range.start)
+                    ..rope.position_to_offset(&edit.range.end),
+                &edit.new_text,
+            );
+            assert_eq!(result, format!("{prefix}## 保留"));
+        }
+    }
 
     #[test]
     fn slash_context_excludes_paths_and_literal_blocks() {
