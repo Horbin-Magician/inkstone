@@ -187,8 +187,8 @@ impl Download {
         Ok(())
     }
 
-    /// Keep packages until the installer/OS has finished consuming them. The UI
-    /// retains this object after handing off; this accessor is for revealing it.
+    /// Directory to reveal while this object owns the downloaded package.
+    /// Successful installer handoff consumes this object and preserves the directory.
     pub fn directory(&self) -> &Path {
         self.directory.path()
     }
