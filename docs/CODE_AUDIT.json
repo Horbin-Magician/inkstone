@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "02adda8fcdd64e6fe42b62f3c7702da948b33ea7",
+  "snapshot_revision": "5c22e698e88c6f1764858263cdc14f1eb54f3a0e",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -922,6 +922,31 @@
       "path": "crates/inkstone-desktop/src/workspace/table_editor.rs",
       "checks": "Complete read: bounded row/column resizing, retained input entities, composition and source snapshot checks, single undoable edit and accessible descriptions.",
       "result": "No new actionable finding in this read; existing workspace regression is supporting evidence, not new native UI/platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/bookmarks.rs",
+      "checks": "Complete read: candidate cache identity/revision/path, duplicate heading occurrence, live draft anchor navigation, persisted bookmark toggles and relocation tests.",
+      "result": "No new actionable finding in this read. Existing workspace regression is supporting evidence; no new native/platform acceptance claimed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor_links/slash.rs",
+      "checks": "Complete read: line-start recognition, literal-block exclusion, command filtering and Unicode edit ranges; reproduced CR-only line endings failing query recognition.",
+      "result": "Fixed CR line recognition (5c22e69); red regression failed before fix, editor link tests 11 passed and 1 manual benchmark ignored. Workspace all-targets Clippy and formatting passed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor_links/benchmark.rs",
+      "checks": "Complete read: generated completion fixtures, item counts and output signatures, warmup/percentile calculations and backend-only timing scope.",
+      "result": "No new actionable finding in this read. Existing workspace regression is supporting evidence; no new native/platform acceptance claimed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/sync_recovery/missing.rs",
+      "checks": "Complete read: empty inventory guard, pagination bounds, focus reveal, metadata labels and explicit retention request.",
+      "result": "No new actionable finding in this read. Existing workspace regression is supporting evidence; no new native/platform acceptance claimed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/sync_recovery/residue.rs",
+      "checks": "Complete read: generation/request checks, exclusive write ticket lifetime, inventory freshness, explicit retention and no-save invariants; stale callback and reappearing payload tests.",
+      "result": "No new actionable finding in this read. Existing workspace regression is supporting evidence; no new native/platform acceptance claimed."
     }
   ],
   "pending_reconciliation": [
@@ -932,12 +957,9 @@
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/editor_links.rs",
-    "crates/inkstone-desktop/src/editor_links/benchmark.rs",
-    "crates/inkstone-desktop/src/editor_links/slash.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
     "crates/inkstone-desktop/src/workspace/backups.rs",
-    "crates/inkstone-desktop/src/workspace/bookmarks.rs",
     "crates/inkstone-desktop/src/workspace/bulk_edit.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
@@ -951,8 +973,6 @@
     "crates/inkstone-desktop/src/workspace/session.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
-    "crates/inkstone-desktop/src/workspace/sync_recovery/missing.rs",
-    "crates/inkstone-desktop/src/workspace/sync_recovery/residue.rs",
     "crates/inkstone-desktop/src/workspace/tabs.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
