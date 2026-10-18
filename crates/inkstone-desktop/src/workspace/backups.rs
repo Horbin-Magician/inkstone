@@ -53,6 +53,26 @@ impl Workspace {
         self.ui.backup.message = message;
         cx.notify();
     }
+    fn finish_backup_picker(
+        &mut self,
+        generation: u64,
+        result: Result<Option<PathBuf>, String>,
+        cx: &mut Context<Self>,
+    ) -> Option<PathBuf> {
+        if self.generation != generation {
+            return None;
+        }
+        self.ui.backup.picker_open = false;
+        cx.notify();
+        match result {
+            Ok(path) => path,
+            Err(error) => {
+                self.backup_message(format!("无法选择备份或恢复目录：{error}"), cx);
+                None
+            }
+        }
+    }
+
     pub(super) fn request_backup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.loading
             || self.vault.is_none()
@@ -90,36 +110,30 @@ impl Workspace {
             prompt: Some("选择笔记库之外的备份存放文件夹".into()),
         });
         cx.spawn_in(window, async move |this, cx| {
-            let result = dialog.await;
-            let _ = this.update(cx, |this, _| {
-                if this.generation == generation {
-                    this.ui.backup.picker_open = false;
+            let result = dialog
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()))
+                .map(|paths| paths.and_then(|paths| paths.into_iter().next()));
+            let _ = this.update_in(cx, |this, window, cx| {
+                let Some(path) = this.finish_backup_picker(generation, result, cx) else {
+                    return;
+                };
+                let Some(vault) = &this.vault else { return };
+                match std::fs::canonicalize(path) {
+                    Ok(path) if !path.starts_with(&vault.root) => {
+                        this.ui.prefs.backup.directory = Some(path);
+                        this.ui.prefs.backup.last_success = 0;
+                        this.refresh_backup_capacity(cx);
+                        this.persist_workspace(cx);
+                        if start {
+                            this.request_backup(window, cx);
+                        }
+                        cx.notify();
+                    }
+                    _ => this.backup_message("备份位置必须是笔记库之外的可访问文件夹。".into(), cx),
                 }
             });
-            if let Ok(Ok(Some(paths))) = result
-                && let Some(path) = paths.first()
-            {
-                let _ = this.update_in(cx, |this, window, cx| {
-                    if this.generation != generation {
-                        return;
-                    }
-                    let Some(vault) = &this.vault else { return };
-                    match std::fs::canonicalize(path) {
-                        Ok(path) if !path.starts_with(&vault.root) => {
-                            this.ui.prefs.backup.directory = Some(path);
-                            this.ui.prefs.backup.last_success = 0;
-                            this.refresh_backup_capacity(cx);
-                            this.persist_workspace(cx);
-                            if start {
-                                this.request_backup(window, cx);
-                            }
-                            cx.notify();
-                        }
-                        _ => this
-                            .backup_message("备份位置必须是笔记库之外的可访问文件夹。".into(), cx),
-                    }
-                });
-            }
         })
         .detach();
     }
@@ -233,12 +247,12 @@ impl Workspace {
             prompt: Some("选择包含 manifest.json 的墨砚备份文件夹".into()),
         });
         cx.spawn_in(window, async move |this, cx| {
-            let result = dialog.await;
-            let _ = this.update(cx, |this, _| {
-                if this.generation == generation { this.ui.backup.picker_open = false; }
-            });
-            let Ok(Ok(Some(paths))) = result else { return };
-            let Some(source) = paths.first().cloned() else { return };
+            let result = dialog.await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()))
+                .map(|paths| paths.and_then(|paths| paths.into_iter().next()));
+            let source = this.update(cx, |this, cx| this.finish_backup_picker(generation, result, cx)).ok().flatten();
+            let Some(source) = source else { return };
             let valid = this.update(cx, |this, cx| {
                 if this.generation != generation || this.ui.backup.busy { return false; }
                 this.ui.backup.busy = true;
@@ -272,13 +286,14 @@ impl Workspace {
                 (this.generation == generation).then(|| cx.prompt_for_new_path(source.parent().unwrap_or(&source), Some("恢复的笔记库")))
             }).ok().flatten();
             let Some(dialog) = dialog else { return };
-            let result = dialog.await;
+            let result = dialog.await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
             let _ = this.update(cx, |this, cx| {
-                if this.generation == generation { this.ui.backup.picker_open = false; cx.notify(); }
+                if let Some(destination) = this.finish_backup_picker(generation, result, cx) {
+                    this.restore_backup(source, destination, manifest, generation, cx);
+                }
             });
-            if let Ok(Ok(Some(destination))) = result {
-                let _ = this.update(cx, |this, cx| this.restore_backup(source, destination, manifest, generation, cx));
-            }
         }).detach();
     }
     fn restore_backup(
@@ -397,6 +412,49 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn picker_failures_release_current_request_without_touching_new_context(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                let generation = w.generation;
+                w.ui.backup.picker_open = true;
+                assert!(
+                    w.finish_backup_picker(generation, Err("picker unavailable".into()), cx)
+                        .is_none()
+                );
+                assert!(!w.ui.backup.picker_open);
+                assert!(w.ui.backup.message.contains("picker unavailable"));
+                assert_eq!(w.notifications.text(), w.ui.backup.message);
+                w.backup_message("keep".into(), cx);
+                w.ui.backup.picker_open = true;
+                assert!(w.finish_backup_picker(generation, Ok(None), cx).is_none());
+                assert!(!w.ui.backup.picker_open);
+                assert_eq!(w.ui.backup.message, "keep");
+                let path = PathBuf::from("selected");
+                w.ui.backup.picker_open = true;
+                assert_eq!(
+                    w.finish_backup_picker(generation, Ok(Some(path.clone())), cx),
+                    Some(path.clone())
+                );
+                assert!(!w.ui.backup.picker_open);
+                w.generation += 1;
+                w.ui.backup.picker_open = true;
+                for result in [Err("old error".into()), Ok(None), Ok(Some(path))] {
+                    assert!(w.finish_backup_picker(generation, result, cx).is_none());
+                    assert!(w.ui.backup.picker_open);
+                    assert_eq!(w.ui.backup.message, "keep");
+                }
+                assert_eq!(w.file_writes.pending(), 0);
+                assert!(!w.ui.backup.busy);
+            })
+            .unwrap();
+    }
 
     #[gpui::test]
     fn failed_switch_releases_backup_directory_picker(cx: &mut TestAppContext) {
