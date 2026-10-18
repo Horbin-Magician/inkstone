@@ -435,6 +435,82 @@ pub fn create(
 mod tests {
     use super::*;
     #[test]
+    fn relocated_wiki_assets_keep_rendering_and_portable_resources() {
+        let root =
+            std::env::temp_dir().join(format!("inkstone-export-renamed-assets-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        for (i, (extension, new_extension, alias)) in [
+            ("png", "png", "160x80"),
+            ("png", "png", "图示"),
+            ("pdf", "pdf", "说明"),
+            ("png", "pdf", "改为附件"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let old = PathBuf::from(format!("old{i}.{extension}"));
+            let new = PathBuf::from(format!("new#[{i}].{new_extension}"));
+            fs::write(vault.root.join(&old), b"asset fixture").unwrap();
+            fs::write(
+                vault.root.join("root.md"),
+                format!("![[{}|{alias}]]", old.display()),
+            )
+            .unwrap();
+            let index = Index::build(&vault).unwrap();
+            let edits = index.relocation_edits(&old, &new, false, Some(&vault.root));
+            let after = &edits
+                .iter()
+                .find(|(path, _, _)| path == Path::new("root.md"))
+                .unwrap()
+                .2;
+            fs::rename(vault.root.join(&old), vault.root.join(&new)).unwrap();
+            fs::write(vault.root.join("root.md"), after).unwrap();
+            let index = Index::build(&vault).unwrap();
+            let reading = rendering::reading_document(&index, Path::new("root.md"), after);
+            assert_eq!(
+                rendering::asset_path(
+                    &vault.root,
+                    &reading.references[0],
+                    std::slice::from_ref(&new)
+                ),
+                Some(vault.root.join(&new))
+            );
+            if alias == "160x80" {
+                assert!(
+                    reading.markdown.contains("width=\"160\" height=\"80\""),
+                    "{}",
+                    reading.markdown
+                );
+            } else if new_extension == "pdf" {
+                assert!(reading.markdown.contains(&format!("附件：{alias}")));
+                assert!(!after.contains("![["));
+            }
+            for (format, directory) in [(Format::Markdown, "md"), (Format::Html, "html")] {
+                let output = root.join(format!("{directory}-{i}"));
+                let report = create(
+                    &vault,
+                    Path::new("root.md"),
+                    BTreeMap::new(),
+                    &output,
+                    format,
+                )
+                .unwrap();
+                assert_eq!(report.attachments, 1);
+                assert_eq!(
+                    fs::read(output.join("assets").join(&new)).unwrap(),
+                    b"asset fixture"
+                );
+                let text = fs::read_to_string(report.entry).unwrap();
+                assert!(text.contains("assets/new%23%5B"), "{text}");
+                if format == Format::Markdown && alias == "160x80" {
+                    assert!(text.contains("\\|160x80"));
+                }
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn markdown_note_embeds_export_as_portable_links() {
         let root = std::env::temp_dir().join(format!("inkstone-export-embeds-{}", unique_id()));
         fs::create_dir_all(root.join("vault")).unwrap();
