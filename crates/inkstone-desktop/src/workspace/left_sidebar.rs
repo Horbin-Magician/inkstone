@@ -689,23 +689,29 @@ impl Workspace {
             self.apply_jump(w, cx);
         }
     }
-    pub(super) fn visible_search_hits(&self, modal: bool, cx: &Context<Self>) -> Vec<SearchHit> {
+    pub(super) fn visible_search_hits(
+        &self,
+        modal: bool,
+        cx: &Context<Self>,
+    ) -> std::borrow::Cow<'_, [SearchHit]> {
         if modal && self.search.read(cx).value().is_empty() {
-            self.files
-                .iter()
-                .take(100)
-                .map(|p| SearchHit {
-                    path: p.clone(),
-                    display_name: None,
-                    offset: 0,
-                    line: 1,
-                    excerpt: String::new(),
-                    highlights: vec![],
-                    title_highlights: vec![],
-                })
-                .collect()
+            std::borrow::Cow::Owned(
+                self.files
+                    .iter()
+                    .take(100)
+                    .map(|p| SearchHit {
+                        path: p.clone(),
+                        display_name: None,
+                        offset: 0,
+                        line: 1,
+                        excerpt: String::new(),
+                        highlights: vec![],
+                        title_highlights: vec![],
+                    })
+                    .collect(),
+            )
         } else {
-            self.search_results.clone()
+            std::borrow::Cow::Borrowed(&self.search_results)
         }
     }
     pub(super) fn search_list(&self, modal: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -732,8 +738,8 @@ impl Workspace {
                     "试试其他关键词，或创建一篇新笔记。",
                 ))
             })
-            .children(hits.into_iter().enumerate().map(|(i, hit)| {
-                let path = hit.path;
+            .children(hits.iter().enumerate().map(|(i, hit)| {
+                let path = hit.path.clone();
                 let offset = hit.offset;
                 div()
                     .id(("result", i))
@@ -746,7 +752,7 @@ impl Workspace {
                     .cursor_pointer()
                     .hover(|s| s.bg(crate::theme::palette(self.ui.prefs.light).selected))
                     .child(div().text_size(px(14.)).truncate().child(
-                        hit.display_name.unwrap_or_else(|| {
+                        hit.display_name.clone().unwrap_or_else(|| {
                             if modal {
                                 return path
                                     .with_extension("")
@@ -818,14 +824,14 @@ impl Workspace {
             .into_any_element()
     }
     fn grouped_search_results(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut groups: Vec<(PathBuf, Vec<SearchHit>)> = vec![];
+        let mut groups: Vec<(PathBuf, Vec<&SearchHit>)> = vec![];
         let mut positions = std::collections::HashMap::new();
         for hit in &self.search_results {
-            let position = *positions.entry(hit.path.clone()).or_insert_with(|| {
+            let position = *positions.entry(&hit.path).or_insert_with(|| {
                 groups.push((hit.path.clone(), vec![]));
                 groups.len() - 1
             });
-            groups[position].1.push(hit.clone());
+            groups[position].1.push(hit);
         }
         div()
             .id("grouped-search-results")
@@ -939,6 +945,7 @@ impl Workspace {
                     .children(hits.into_iter().filter(|_| !collapsed).enumerate().map(
                         |(j, hit)| {
                             let path = path.clone();
+                            let offset = hit.offset;
                             div()
                                 .id(("search-line", j))
                                 .px_3()
@@ -992,7 +999,7 @@ impl Workspace {
                                         ),
                                 )
                                 .on_click(cx.listener(move |this, _, w, cx| {
-                                    this.pending_jump = Some((path.clone(), hit.offset));
+                                    this.pending_jump = Some((path.clone(), offset));
                                     this.open_note(path.clone(), w, cx);
                                     this.apply_jump(w, cx);
                                 }))
