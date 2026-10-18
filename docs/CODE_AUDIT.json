@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "73aa428e508d6b7ce40cf0cf7c8cd803efbff4b0",
+  "snapshot_revision": "60acfe42290f724f462f858189ee8fe143792d93",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -297,6 +297,21 @@
       "path": "tools/vendor-regression/Cargo.toml",
       "checks": "Complete read: separate workspace membership and local patches for vendor regression copies",
       "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/src/performance.rs",
+      "checks": "opt-in initialization, exclusive output creation, atomic record budget, serialized writes, failed-sink retirement and content-free schema",
+      "result": "No new actionable finding in this read. Diagnostic spans and activity counters do not establish native input latency or frame budgets."
+    },
+    {
+      "path": "crates/inkstone-core/src/startup_trace.rs",
+      "checks": "cached opt-in initialization, monotonic elapsed milestones and current call-site payloads",
+      "result": "No new actionable finding in this read. Diagnostic spans and activity counters do not establish native input latency or frame budgets."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/activity_trace.rs",
+      "checks": "exclusive trace creation, finite sample budget, write-error retirement, schema and existing-file preservation tests",
+      "result": "No new actionable finding in this read. Diagnostic spans and activity counters do not establish native input latency or frame budgets."
     }
   ],
   "pending_reconciliation": [
@@ -331,7 +346,6 @@
     "crates/inkstone-core/src/markdown_edit/multi_enter.rs",
     "crates/inkstone-core/src/markdown_edit/renumber.rs",
     "crates/inkstone-core/src/note_embeds.rs",
-    "crates/inkstone-core/src/performance.rs",
     "crates/inkstone-core/src/preferences.rs",
     "crates/inkstone-core/src/preview.rs",
     "crates/inkstone-core/src/properties.rs",
@@ -342,7 +356,6 @@
     "crates/inkstone-core/src/search/property/value.rs",
     "crates/inkstone-core/src/search/regions.rs",
     "crates/inkstone-core/src/search/sections.rs",
-    "crates/inkstone-core/src/startup_trace.rs",
     "crates/inkstone-core/src/syntax.rs",
     "crates/inkstone-core/src/syntax/incremental.rs",
     "crates/inkstone-core/src/tables.rs",
@@ -404,7 +417,6 @@
     "crates/inkstone-desktop/src/test_support.rs",
     "crates/inkstone-desktop/src/theme.rs",
     "crates/inkstone-desktop/src/workspace.rs",
-    "crates/inkstone-desktop/src/workspace/activity_trace.rs",
     "crates/inkstone-desktop/src/workspace/appearance.rs",
     "crates/inkstone-desktop/src/workspace/attachments.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
