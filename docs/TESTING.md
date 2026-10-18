@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，270 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，271 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -2975,6 +2975,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 提交 `c344e6f` 添加透明原生禁用适配器并接入 AccordionTrigger，转发原有 ID、布局、命中/交互、角色及合成无障碍子节点，只补充真实节点禁用标记。test-support 的 map_inner 保留焦点绑定并使观察位于适配器外层，避免观察值与平台节点不一致；不增加额外布局或无障碍节点。
 - Base 默认 accordion 3 项通过，test-support 4 项通过（有重叠），包含启用/禁用节点标记与 Click action、实际绘制后的角色/禁用状态及焦点绑定。日志 `target/audit-20261019/disabled-a11y-{red,default-tests,observed-tests,clippy}.log`。工作区 all-targets Clippy（-D warnings）、工作区/vendor 格式和 diff 检查通过；最后增加的焦点断言另经 observed 测试通过。保留既有 block 0.1.6 future-incompatibility 提示。
 - 此次解决的是手风琴触发器的原生属性缺口，其他禁用控件仍需逐项核对接入；未将 AccessKit 节点测试当成实际读屏验收。上一批全量回归早于此改动，最终全量和原生/跨平台验收仍待完成。
+
+第二百五十三批审核与验证：
+
+- 完整核对 Base button.rs，台账增至 271 已核对、457 待核对（总范围 728）。检查语义样式优先级、焦点/Tab 策略、角色标签、指针及 Enter/Space 激活、禁用父事件阻断与居中几何。
+- 原测试只记录禁用节点缺失标记；改为要求原生 disabled=true 后在旧实现失败。提交 `e261d87` 复用原生禁用适配器，并让角色测试读取实际 a11y_role；观察构建同时验证绘制后的 disabled 属性。启用节点仍不带禁用标记，禁用节点不暴露 Click action。
+- Base 默认与 test-support 按钮测试各 8 项通过；Component button::button::tests 18 项通过，含加载/禁用阻断、原有底层回调与样式行为。日志 `target/audit-20261019/button-disabled-{red,default-tests,observed-tests,component-tests,clippy}.log`。工作区 all-targets Clippy（-D warnings）、格式及 diff 检查通过；Base 两种配置有重叠不累加，既有 block 0.1.6 future-incompatibility 提示保留。
+- Component 加载态使用独立事件拦截，没有映射成 Base disabled；其无障碍语义尚待核对。此前进度说明中关于加载态映射的推断已更正，不能将本批禁用标记修复扩展为加载态修复。Component button 文件仅阅读相关调用点，未标为全文件已审；实际读屏验收仍待完成。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、

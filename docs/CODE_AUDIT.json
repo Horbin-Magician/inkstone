@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "c344e6f27ded5bd146f84520da9a4bb5e7691b95",
+  "snapshot_revision": "e261d871f81e23bd2639ff887ce5b690e922d608",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1352,12 +1352,16 @@
       "path": "vendor/gpui-base/src/accessibility.rs",
       "checks": "New transparent native disabled adapter: forwards element identity, source location, layout, prepaint, paint, interactivity, roles and synthetic children. Observation remains outside the adapter; its focus binding is preserved. Default and test-support accordion regressions passed.",
       "result": "Added in c344e6f; other disabled control integrations remain to be audited."
+    },
+    {
+      "path": "vendor/gpui-base/src/button.rs",
+      "checks": "Full read: controlled selected/disabled styling, role/label overrides, keyed/provided focus, tab policy, pointer and keyboard activation, parent blocking and geometry. Native disabled regression failed before adapter integration; default and observed button suites each passed 8 tests; Component button caller suite passed 18.",
+      "result": "Native disabled marker fixed in e261d87; component loading semantics and native screen-reader acceptance remain pending."
     }
   ],
   "pending_reconciliation": [
     "vendor/gpui-base/src/alert_dialog.rs",
     "vendor/gpui-base/src/avatar.rs",
-    "vendor/gpui-base/src/button.rs",
     "vendor/gpui-base/src/calendar.rs",
     "vendor/gpui-base/src/checkbox.rs",
     "vendor/gpui-base/src/color_picker.rs",
