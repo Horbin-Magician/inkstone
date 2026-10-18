@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "2abf3612bce29c317b2f4e739f1414c4c960472f",
+  "snapshot_revision": "ebc11ab7d3f0e547f6ab8e6d733f722828027963",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1162,6 +1162,11 @@
       "path": "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
       "checks": "Complete read of sync state, settings UI, queue/run lifecycle, generation/task guards, success-history reads and all local HTTP/GPUI tests. Followed vault-load caller ordering.",
       "result": "2abf361 fixes history reads capturing the previous vault. Regression reproduced on old code with the actual app test recovery directory; 18 cloud-sync and 6 session tests passed, workspace all-targets Clippy and formatting passed. Native and real remote TLS/auth remain unverified."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/settings_ui.rs",
+      "checks": "Complete read of shared settings layout, accessible labels, category navigation, search filtering, dropdowns and editor switches; checked file-settings preparation side effects.",
+      "result": "ebc11ab shares category-switch behavior between navigation and search results; 21 settings-filter tests, workspace all-targets Clippy and formatting passed. Native acceptance remains separate."
     }
   ],
   "pending_reconciliation": [
@@ -1170,7 +1175,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
-    "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
     "vendor/gpui-base/benches/motion.rs",
