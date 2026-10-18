@@ -77,14 +77,23 @@ impl Workspace {
         if self.fulltext && !self.ui.quick_open {
             self.ui.prefs.search_query = self.search.read(cx).value().to_string();
         }
-        self.fulltext = fulltext;
         let value = if fulltext {
             self.ui.prefs.search_query.clone()
         } else {
             String::new()
         };
+        self.focus_search_query(fulltext, value, window, cx);
+    }
+    pub(super) fn focus_search_query(
+        &mut self,
+        fulltext: bool,
+        query: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.fulltext = fulltext;
         self.search
-            .update(cx, |s, cx| s.set_value(value, window, cx));
+            .update(cx, |s, cx| s.set_value(query, window, cx));
         if fulltext {
             self.ui.focus_mode = false;
             self.ui.left_mode = 1;
