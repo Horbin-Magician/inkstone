@@ -96,7 +96,18 @@ impl PaneTree {
     }
 
     pub fn find_node(&self, id: NodeId) -> Option<&PaneNode> {
-        self.path_of_node(id).map(|path| self.node_at(&path))
+        fn find(node: &PaneNode, id: NodeId) -> Option<&PaneNode> {
+            if node.id() == id {
+                return Some(node);
+            }
+            match node.kind_ref() {
+                NodeKind::Split { children, .. } => {
+                    children.iter().find_map(|child| find(child, id))
+                }
+                NodeKind::Tabs { .. } => None,
+            }
+        }
+        find(&self.root, id)
     }
 
     /// The tab node holding `panel`.
@@ -170,23 +181,7 @@ use gpui::{Axis, Pixels};
 #[cfg(test)]
 impl PaneTree {
     pub(crate) fn push_tabs_for_test(&mut self, parent: NodeId, panels: Vec<PanelId>) -> NodeId {
-        let id = self.allocate_node_id();
-        let path = self.path_of_node(parent).expect("parent must exist");
-        let NodeKind::Split {
-            children, sizes, ..
-        } = self.node_at_mut(&path).kind_mut()
-        else {
-            panic!("parent must be a split");
-        };
-        children.push(PaneNode::new(
-            id,
-            NodeKind::Tabs {
-                panels,
-                active_ix: 0,
-            },
-        ));
-        sizes.push(None);
-        id
+        self.push_sized_tabs_for_test(parent, panels, None)
     }
 
     /// Like [`Self::push_tabs_for_test`], but with a concrete slot size
