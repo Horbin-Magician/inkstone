@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "78a765a13f0b6e2db356579f6f15ada69f54f056",
+  "snapshot_revision": "766c3b7307228921ae9923a042b7137687a9cfe6",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -552,6 +552,16 @@
       "path": "crates/inkstone-desktop/src/editor/footnotes.rs",
       "checks": "Full source/test read: popup lifecycle and pending state, IME writeback/close guards, source baseline conflict preservation, body/selection rebasing, CRLF and continuation indentation, bounded viewport layout, close/focus/undo behavior and definition resolution.",
       "result": "No new actionable finding. Batch 180 editor:: tests (136 passed, 4 ignored) cover these modules; confirmed source unchanged since 2c7a19a. Native input-method, accessibility and layout acceptance remain open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor.rs",
+      "checks": "Full read: state/task/subscription ownership, reference-context invalidation, geometry notification and deferred reveal, composition/selection completion gating, link/footnote navigation callbacks, initial defaults.",
+      "result": "No new actionable finding. Current workspace tests passed: core 402, desktop 445, integration 8; 8 existing ignored tests."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/frame_benchmark.rs",
+      "checks": "Full read of all four manual benchmarks: fixture hash, warmup/sample counts and quantile indices, timing boundaries, property-cache reference and long-paragraph undo/source checks.",
+      "result": "No new confirmed defect. Benchmarks remain explicitly ignored/manual and measure headless CPU work, not native latency. Their timings were not rerun or used as native acceptance evidence in this batch."
     }
   ],
   "pending_reconciliation": [
@@ -613,8 +623,6 @@
     "crates/inkstone-core/src/wiki_links.rs",
     "crates/inkstone-core/src/yaml_source.rs",
     "crates/inkstone-desktop/Cargo.toml",
-    "crates/inkstone-desktop/src/editor.rs",
-    "crates/inkstone-desktop/src/editor/frame_benchmark.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/editor_links.rs",
     "crates/inkstone-desktop/src/editor_links/benchmark.rs",
