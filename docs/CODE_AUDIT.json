@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "60acfe42290f724f462f858189ee8fe143792d93",
+  "snapshot_revision": "7c570ca9db13c54baa2f127e52984b15707e083a",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -312,6 +312,31 @@
       "path": "crates/inkstone-desktop/src/workspace/activity_trace.rs",
       "checks": "exclusive trace creation, finite sample budget, write-error retirement, schema and existing-file preservation tests",
       "result": "No new actionable finding in this read. Diagnostic spans and activity counters do not establish native input latency or frame budgets."
+    },
+    {
+      "path": "crates/inkstone-core/src/index/cache.rs",
+      "checks": "cache version/root isolation, content digest rather than timestamps, disposable corrupt-cache fallback, save timing and existing tests",
+      "result": "No new actionable finding; enabled diagnostics and native startup latency remain separate."
+    },
+    {
+      "path": "crates/inkstone-core/src/index.rs",
+      "checks": "disk refresh, shared note snapshots, batch updates, path lookup insertion/removal and backlink rebuilds",
+      "result": "Fixed case-colliding path loss in 7c570ca; core regression passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/index/search.rs",
+      "checks": "filename ranking and deterministic limits, aliases, cancellation, full-text ordering and bounded result construction",
+      "result": "Fixed filename omission for case-colliding paths in 7c570ca; core regression passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/index/links.rs",
+      "checks": "Wiki/Markdown path resolution, escaping and relocation replacements, exact path preference, ambiguity and backlinks",
+      "result": "Fixed case-colliding path resolution and backlinks in 7c570ca; core regression passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/index/destinations.rs",
+      "checks": "validated Markdown destination ranges, escapes, nested delimiters, code spans and angle brackets",
+      "result": "No new actionable finding in this read; existing relocation tests pass."
     }
   ],
   "pending_reconciliation": [
@@ -329,12 +354,7 @@
     "crates/inkstone-core/src/comments.rs",
     "crates/inkstone-core/src/file_order.rs",
     "crates/inkstone-core/src/graphics.rs",
-    "crates/inkstone-core/src/index.rs",
-    "crates/inkstone-core/src/index/cache.rs",
-    "crates/inkstone-core/src/index/destinations.rs",
-    "crates/inkstone-core/src/index/links.rs",
     "crates/inkstone-core/src/index/parsing.rs",
-    "crates/inkstone-core/src/index/search.rs",
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/lib.rs",
     "crates/inkstone-core/src/line_edit.rs",
