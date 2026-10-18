@@ -1005,43 +1005,39 @@ pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Opti
     if reference.wiki || decoded.starts_with('/') {
         candidates.push(PathBuf::from(decoded.trim_start_matches('/')));
     }
-    if !decoded.contains(['/', '\\']) {
-        let matches: Vec<_> = files
-            .iter()
-            .filter(|p| {
-                p.file_name()
-                    .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(&decoded))
-            })
-            .collect();
-        if matches.len() == 1 {
-            candidates.push(matches[0].clone());
-        }
-    }
-    for candidate in candidates {
+    let resolve = |candidate: &Path| {
         let mut clean = PathBuf::new();
-        let mut valid = true;
         for c in candidate.components() {
             match c {
                 Component::Normal(s) => clean.push(s),
                 Component::CurDir => (),
                 Component::ParentDir => {
                     if !clean.pop() {
-                        valid = false;
-                        break;
+                        return None;
                     }
                 }
-                _ => {
-                    valid = false;
-                    break;
-                }
+                _ => return None,
             }
         }
-        if valid
-            && let Ok(path) = std::fs::canonicalize(root.join(clean))
-            && path.starts_with(root)
-            && path.is_file()
-        {
+        std::fs::canonicalize(root.join(clean))
+            .ok()
+            .filter(|path| path.starts_with(root) && path.is_file())
+    };
+    for candidate in candidates {
+        if let Some(path) = resolve(&candidate) {
             return Some(path);
+        }
+    }
+    // Only consult the whole catalog after direct paths fail. A second match
+    // is enough to reject an ambiguous basename; no candidate list is needed.
+    if !decoded.contains(['/', '\\']) {
+        let mut matches = files.iter().filter(|p| {
+            p.file_name()
+                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(&decoded))
+        });
+        let candidate = matches.next()?;
+        if matches.next().is_none() {
+            return resolve(candidate);
         }
     }
     None
@@ -1254,6 +1250,29 @@ mod tests {
         assert!(index.notes.is_empty());
         assert_eq!(index.files.len(), files.len());
         let from = Path::new("a/note.md");
+        for (origin, target, wiki, expected) in [
+            ("a/note.md", "same.png", true, Some("a/same.png")),
+            ("a/note.md", "same.png", false, Some("a/same.png")),
+            ("other/note.md", "same.png", true, Some("same.png")),
+            ("other/note.md", "same.png", false, None),
+            (
+                "other/note.md",
+                "unique.png",
+                false,
+                Some("media/unique.png"),
+            ),
+        ] {
+            let reference = Reference {
+                from: origin.into(),
+                target: target.into(),
+                wiki,
+            };
+            assert_eq!(
+                asset_path(&vault.root, &reference, &index.files),
+                expected.map(|path| std::fs::canonicalize(root.join(path)).unwrap()),
+                "{reference:?}"
+            );
+        }
         for format in [
             LinkFormat::Shortest,
             LinkFormat::Relative,
