@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "7327fa9bb2d827f30b7f5fdde58c18d02662a289",
+  "snapshot_revision": "01cb33d96ee9e2cd1dca0864df376624d7e10d18",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1067,6 +1067,26 @@
       "path": "crates/inkstone-desktop/src/workspace/modal_ui.rs",
       "checks": "Complete read: modal detection/focus trap, keyboard picker dispatch, responsive main modal sizing, recovery controls, property type/list/date controls and keyboard reveal regression.",
       "result": "Removed duplicate command filtering/allocation within one render (7327fa9), sharing the result for empty-state and rows. Nine command-related tests and workspace all-targets Clippy passed; formatter differences corrected and format/diff checks passed. Recovery focus test also passed in batch223. Native popup sizing/focus/accessibility acceptance and latency measurements remain outstanding."
+    },
+    {
+      "path": "vendor/gpui-base/Cargo.toml",
+      "checks": "Complete manifest read: explicit targets, test/bench support, GPUI versions, optional decimal feature and platform-specific dependencies.",
+      "result": "No new actionable finding. All declared local targets exist; locked offline macOS metadata resolves intended local patches and enabled features. Source matches bfbde2e completed workspace regression. Unfiltered offline metadata cannot resolve uncached accesskit_atspi_common 0.19.1; optional vendor test/bench targets and other platforms are not proven by workspace tests."
+    },
+    {
+      "path": "vendor/gpui-component/Cargo.toml",
+      "checks": "Complete manifest read: explicit compatibility tests, tree-sitter feature wiring, local base dependency, native platform dependencies and build script.",
+      "result": "No new actionable finding. All declared local targets exist; locked offline macOS metadata resolves intended local patches and enabled features. Source matches bfbde2e completed workspace regression. Unfiltered offline metadata cannot resolve uncached accesskit_atspi_common 0.19.1; optional vendor test/bench targets and other platforms are not proven by workspace tests."
+    },
+    {
+      "path": "vendor/markdown/Cargo.toml",
+      "checks": "Complete manifest read: library entry, no-default-feature behavior, serde/log features, package inclusion and development dependencies.",
+      "result": "No new actionable finding. All declared local targets exist; locked offline macOS metadata resolves intended local patches and enabled features. Source matches bfbde2e completed workspace regression. Unfiltered offline metadata cannot resolve uncached accesskit_atspi_common 0.19.1; optional vendor test/bench targets and other platforms are not proven by workspace tests."
+    },
+    {
+      "path": "vendor/gpui-component/build.rs",
+      "checks": "Complete read: icon directory metadata dependency, generated compile-time environment and Cargo rebuild triggers.",
+      "result": "No new actionable finding. All declared local targets exist; locked offline macOS metadata resolves intended local patches and enabled features. Source matches bfbde2e completed workspace regression. Unfiltered offline metadata cannot resolve uncached accesskit_atspi_common 0.19.1; optional vendor test/bench targets and other platforms are not proven by workspace tests."
     }
   ],
   "pending_reconciliation": [
@@ -1079,7 +1099,6 @@
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
-    "vendor/gpui-base/Cargo.toml",
     "vendor/gpui-base/benches/motion.rs",
     "vendor/gpui-base/benches/text_view_scroll.rs",
     "vendor/gpui-base/src/accordion.rs",
@@ -1277,8 +1296,6 @@
     "vendor/gpui-base/src/undo_history.rs",
     "vendor/gpui-base/src/virtual_list.rs",
     "vendor/gpui-base/tests/element_ext.rs",
-    "vendor/gpui-component/Cargo.toml",
-    "vendor/gpui-component/build.rs",
     "vendor/gpui-component/locales/ui.yml",
     "vendor/gpui-component/src/accordion.rs",
     "vendor/gpui-component/src/alert.rs",
@@ -1502,7 +1519,6 @@
     "vendor/gpui-component/tests/legacy_language_config_compat.rs",
     "vendor/gpui-component/tests/table_dump_range.rs",
     "vendor/gpui-component/tests/theme_compat.rs",
-    "vendor/markdown/Cargo.toml",
     "vendor/markdown/src/configuration.rs",
     "vendor/markdown/src/construct/attention.rs",
     "vendor/markdown/src/construct/autolink.rs",
