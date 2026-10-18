@@ -284,16 +284,18 @@ impl Preferences {
         (value, warning)
     }
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)?;
+        // Own this attempt's temporary file; another save may still be in flight.
+        let mut pending = tempfile::Builder::new()
+            .prefix(".inkstone-settings-")
+            .tempfile_in(parent)?;
+        std::io::Write::write_all(&mut pending, &serde_json::to_vec_pretty(self)?)?;
+        pending.as_file().sync_all()?;
         // A retained backup keeps the previous session available if replacement fails.
-        let pending = path.with_extension("pending");
-        std::fs::write(&pending, serde_json::to_vec_pretty(self)?)?;
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&pending)?
-            .sync_all()?;
         if path.exists() {
             let bytes = std::fs::read(path)?;
             if serde_json::from_slice::<Self>(&bytes).is_ok() {
@@ -318,11 +320,9 @@ impl Preferences {
                 file.sync_all()?;
             }
         }
-        std::fs::rename(pending, path)?;
+        pending.persist(path).map_err(|error| error.error)?;
         #[cfg(unix)]
-        if let Some(parent) = path.parent() {
-            std::fs::File::open(parent)?.sync_all()?;
-        }
+        std::fs::File::open(parent)?.sync_all()?;
         Ok(())
     }
 }
@@ -387,6 +387,37 @@ impl Navigation {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn saving_owns_its_temporary_file_and_cleans_up_failed_replacements() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("workspace.json");
+        let pending = path.with_extension("pending");
+        std::fs::write(&pending, b"another writer's temporary contents").unwrap();
+        let prefs = Preferences {
+            font_size: 23.,
+            ..Default::default()
+        };
+        prefs.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path).font_size, 23.);
+        assert_eq!(
+            std::fs::read(&pending).unwrap(),
+            b"another writer's temporary contents"
+        );
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(prefs.save(&path).is_err());
+        let mut names: Vec<_> = std::fs::read_dir(root.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["workspace.json", "workspace.pending"]);
+        assert_eq!(
+            std::fs::read(&pending).unwrap(),
+            b"another writer's temporary contents"
+        );
+    }
+
     #[test]
     fn corrupt_config_recovers_backup_and_preserves_damaged_bytes() {
         let root =
