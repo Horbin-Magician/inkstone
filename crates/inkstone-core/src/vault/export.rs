@@ -500,6 +500,46 @@ mod tests {
     }
 
     #[test]
+    fn formatted_wiki_aliases_keep_inline_styles_and_portable_targets() {
+        let root = std::env::temp_dir().join(format!("inkstone-export-alias-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let source = "[[target|**粗体** 与 *斜体* 与 ~~删除~~]]\n";
+        fs::write(vault.root.join("source.md"), source).unwrap();
+        fs::write(vault.root.join("target.md"), "# Target").unwrap();
+        for format in [Format::Markdown, Format::Html] {
+            let report = create(
+                &vault,
+                Path::new("source.md"),
+                BTreeMap::new(),
+                &root.join(format.extension()),
+                format,
+            )
+            .unwrap();
+            assert_eq!(report.notes, 2);
+            let output = fs::read_to_string(report.entry).unwrap();
+            match format {
+                Format::Markdown => assert!(
+                    output.contains("[**粗体** 与 *斜体* 与 ~~删除~~](target%2Emd)"),
+                    "{output}"
+                ),
+                Format::Html => {
+                    assert!(output.contains("href=\"target%2Ehtml\""), "{output}");
+                    for markup in ["<strong>粗体</strong>", "<em>斜体</em>", "<del>删除</del>"]
+                    {
+                        assert!(output.contains(markup), "{output}");
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            fs::read_to_string(vault.root.join("source.md")).unwrap(),
+            source
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn repeated_and_self_references_schedule_each_note_once() {
         let mut index = Index::default();
         index.update("a.md".into(), "# A".into());
