@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "06e01d45bdadebd05d0fb73e1ca8a723b2a22777",
+  "snapshot_revision": "7650f4d73761a9f29dc45f096f71de73c5550507",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1027,6 +1027,11 @@
       "path": "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
       "checks": "Complete read: inventory request generation and directory checks, retention confirmation identity, cleanup and interrupted-retention write tickets, pagination, focus reveal and state/layout tests.",
       "result": "Fixed interrupted-retention entry and button allowing writes while a backup picker is open (06e01d4). Added regression to real isolated backup fixture, failed before fix and passed after. Eight capacity/partial tests and workspace all-targets Clippy passed, including keyboard pagination at 16/24 rem. Native UI, Windows and performance acceptance remain separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/commands.rs",
+      "checks": "Complete read: stable command IDs, filtering, editor transforms, tab/view commands, file actions and menu tests. Traced reveal command to sidebar visibility and tree selection.",
+      "result": "Fixed explicit file reveal leaving sidebar hidden in focus mode (7650f4d). Existing nested-file reveal regression failed before fix and passed after, preserving disabled automatic reveal preference. Three reveal/command tests, workspace all-targets Clippy, formatting and diff checks passed. Native UI validation remains outstanding."
     }
   ],
   "pending_reconciliation": [
@@ -1036,7 +1041,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
-    "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
     "crates/inkstone-desktop/src/workspace/navigation.rs",
