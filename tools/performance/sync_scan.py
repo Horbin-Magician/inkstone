@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 
-from file_hash import sha256
+from file_hash import sha256, verify_unchanged
 from process_log import run_logged
 
 
@@ -73,6 +73,7 @@ def main():
     for fixture in manifest["fixtures"]:
         for entry in fixture["files"]:
             assert sha256(root / fixture["name"] / entry["path"]) == entry["sha256"]
+    verify_unchanged(binary, manifest["binary_sha256"])
     medians = {fixture["name"]: {
         key: statistics.median(result[key] for result in results if result["fixture"] == fixture["name"])
         for key in ["enumeration_ms", "file_processing_ms", "manifest_validation_ms", "scan_ms", "peak_rss_bytes"]

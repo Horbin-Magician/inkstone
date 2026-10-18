@@ -14,7 +14,7 @@ import statistics
 import subprocess
 import tempfile
 
-from file_hash import sha256 as digest
+from file_hash import sha256 as digest, verify_unchanged
 from process_log import run_logged
 
 
@@ -101,8 +101,7 @@ def main():
                 'process_peak_rss_bytes': int(re.search(r'(\d+)\s+maximum resident set size', completed.stderr)[1]),
             })
             (root / 'runs.json').write_text(json.dumps(runs, indent=2))
-    if digest(binary) != metadata['binary_sha256']:
-        raise ValueError('binary changed during measurement')
+    verify_unchanged(binary, metadata['binary_sha256'])
     summary = summarize(runs)
     (root / 'results.json').write_text(json.dumps({'schema_version': 1, 'runs': runs, 'medians': summary}, indent=2))
     print(root)

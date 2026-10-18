@@ -12,7 +12,7 @@ import statistics
 import subprocess
 import tempfile
 
-from file_hash import sha256
+from file_hash import sha256, verify_unchanged
 from process_log import run_logged
 
 
@@ -62,6 +62,7 @@ def main():
             rss = int(re.search(r"(\d+)\s+maximum resident set size", result.stderr)[1])
             runs.append({"mode": mode, "iteration": iteration, "elapsed_ms": elapsed, "max_rss_bytes": rss})
     assert sha256(fixture) == metadata["fixture_sha256"]
+    verify_unchanged(binary, metadata["binary_sha256"])
     summary = {
         mode: {
             "elapsed_ms_median": statistics.median(r["elapsed_ms"] for r in runs if r["mode"] == mode),
