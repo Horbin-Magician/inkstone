@@ -239,6 +239,16 @@ impl Builder<'_> {
         for (range, target) in &parsed.destinations {
             edits.push((range.clone(), self.destination(path, target, false)));
         }
+        if self.format == Format::Markdown {
+            for (range, target) in &parsed.html_destinations {
+                let url = self.destination(path, target, false);
+                // Keep untouched URLs in their original attribute spelling, including
+                // entities that protect unquoted values from whitespace splitting.
+                if url != *target {
+                    edits.push((range.clone(), html_escape(&url).replace('\'', "&#39;")));
+                }
+            }
+        }
         edits.sort_by_key(|(r, _)| r.start);
         let mut out = String::new();
         let mut cursor = 0;
@@ -682,6 +692,57 @@ mod tests {
             "completed notes must not be scheduled again"
         );
     }
+    #[test]
+    fn markdown_export_copies_and_rewrites_html_references() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("vault/附件")).unwrap();
+        let vault = Vault::open(root.path().join("vault"), root.path().join("recovery")).unwrap();
+        let source = r#"<img src="附件/a%20b.png" title="keep"><a href="child.md">child</a><a href='https://example.test/?q=&#39;&amp;v=&quot;'>remote</a><a href=https://example.test/a&#32;b>unquoted</a>"#;
+        fs::write(vault.root.join("root.md"), source).unwrap();
+        fs::write(vault.root.join("child.md"), "# Child").unwrap();
+        fs::write(vault.root.join("附件/a b.png"), b"image").unwrap();
+        for format in [Format::Markdown, Format::Html] {
+            let output = root.path().join(format.extension());
+            let report = create(
+                &vault,
+                Path::new("root.md"),
+                BTreeMap::new(),
+                &output,
+                format,
+            )
+            .unwrap();
+            let content = fs::read_to_string(report.entry).unwrap();
+            if format == Format::Markdown {
+                assert_eq!((report.notes, report.attachments), (2, 1));
+                assert!(
+                    content.contains(r#"src="../assets/%E9%99%84%E4%BB%B6/a%20b%2Epng""#),
+                    "{content}"
+                );
+                assert!(content.contains(r#"href="child%2Emd""#), "{content}");
+                assert!(content.contains(r#"title="keep""#));
+                assert!(
+                    content.contains("href=https://example.test/a&#32;b>"),
+                    "{content}"
+                );
+                assert!(
+                    content.contains("href='https://example.test/?q=&#39;&amp;v=&quot;'"),
+                    "{content}"
+                );
+                assert_eq!(
+                    fs::read(output.join("assets/附件/a b.png")).unwrap(),
+                    b"image"
+                );
+            } else {
+                assert_eq!((report.notes, report.attachments), (1, 0));
+                assert!(!content.contains("<img src="));
+            }
+        }
+        assert_eq!(
+            fs::read_to_string(vault.root.join("root.md")).unwrap(),
+            source
+        );
+    }
+
     #[test]
     fn attachment_fragments_are_encoded_once_in_portable_exports() {
         let root = std::env::temp_dir().join(format!("inkstone-export-fragments-{}", unique_id()));
