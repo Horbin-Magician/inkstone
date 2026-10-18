@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "7d6e6f4fc68035741dbbd044722bf244ca1eb065",
+  "snapshot_revision": "73aa428e508d6b7ce40cf0cf7c8cd803efbff4b0",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -257,6 +257,46 @@
       "path": "tools/performance/test_file_hash.py",
       "checks": "Complete read: unchanged input accepted, same-length changed input and missing artifact rejected",
       "result": "Shared binary identity check added/reused in 7d6e6f4; 18 performance-tool tests passed. Full benchmark runners were not rerun; endpoint hashes do not prove a binary was never swapped and restored mid-run."
+    },
+    {
+      "path": "tools/performance/test_backend.py",
+      "checks": "Complete read: expected corpus sizes, distinct rounds, metric consistency, median correctness, duplicate/nonfinite/negative timing rejection",
+      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+    },
+    {
+      "path": "tools/performance/test_process_log.py",
+      "checks": "Complete read: real subprocess success/failure, combined/separate UTF-8 output preservation and exit propagation",
+      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+    },
+    {
+      "path": "tools/performance/test_sample_process.py",
+      "checks": "Complete read: live PID measurement, separate settling, exited/zombie/short-lived rejection and scoped process cleanup",
+      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+    },
+    {
+      "path": "tools/performance/corpus.py",
+      "checks": "Complete read: deterministic multilingual sources, fixed scenarios, hashes/lengths and exclusive output creation",
+      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+    },
+    {
+      "path": "tools/performance/prepare_macos.py",
+      "checks": "Complete read: fixed corpus comparison, executable and mode checks, exclusive output directory, isolated data/recent preferences, unique bundle identity, opt-in traces and signing",
+      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+    },
+    {
+      "path": "tools/performance/test_prepare_macos.py",
+      "checks": "Complete read: real signing without launch, all scenarios/modes, corpus bytes, isolated relaunch paths and refusal of existing/dangling destinations",
+      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+    },
+    {
+      "path": "tools/vendor-regression/run.py",
+      "checks": "Complete read: repository-local staging, fresh patched dependency copies, separate lockfile/fixtures, locked serial vendor test execution and error propagation",
+      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+    },
+    {
+      "path": "tools/vendor-regression/Cargo.toml",
+      "checks": "Complete read: separate workspace membership and local patches for vendor regression copies",
+      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -421,14 +461,6 @@
     "crates/inkstone-desktop/tests/display_objects.rs",
     "crates/inkstone-desktop/tests/grapheme_cursor.rs",
     "crates/inkstone-desktop/tests/grapheme_wrap.rs",
-    "tools/performance/corpus.py",
-    "tools/performance/prepare_macos.py",
-    "tools/performance/test_backend.py",
-    "tools/performance/test_prepare_macos.py",
-    "tools/performance/test_process_log.py",
-    "tools/performance/test_sample_process.py",
-    "tools/vendor-regression/Cargo.toml",
-    "tools/vendor-regression/run.py",
     "vendor/gpui-base/Cargo.toml",
     "vendor/gpui-base/benches/motion.rs",
     "vendor/gpui-base/benches/text_view_scroll.rs",
