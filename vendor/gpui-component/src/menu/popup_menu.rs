@@ -904,6 +904,13 @@ impl PopupMenu {
     }
 
     fn confirm_click(&mut self, event: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !self
+            .selected_index
+            .and_then(|index| self.menu_items.get(index))
+            .is_some_and(PopupMenuItem::is_clickable)
+        {
+            return;
+        }
         match self.selected_index {
             Some(index) => {
                 let item = self.menu_items.get(index);
@@ -1556,6 +1563,49 @@ impl Render for PopupMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn enter_does_not_activate_disabled_items(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(cx));
+        for custom in [false, true] {
+            let calls = Rc::new(std::cell::Cell::new(0));
+            let recorded = calls.clone();
+            let (menu, cx) = cx.add_window_view(|_, cx| {
+                let mut item = if custom {
+                    PopupMenuItem::element(|_, _| div().child("Disabled"))
+                } else {
+                    PopupMenuItem::new("Disabled")
+                }
+                .disabled(true);
+                match &mut item {
+                    PopupMenuItem::Item { handler, .. }
+                    | PopupMenuItem::ElementItem { handler, .. } => {
+                        *handler = Some(Rc::new(move |_, _, _| recorded.set(recorded.get() + 1)));
+                    }
+                    _ => unreachable!(),
+                }
+                let mut menu = PopupMenu::new(cx);
+                menu.menu_items.push(item);
+                menu
+            });
+            cx.update(|window, cx| menu.read(cx).focus_handle(cx).focus(window, cx));
+            cx.simulate_keystrokes("down enter");
+            cx.run_until_parked();
+            assert_eq!(
+                calls.get(),
+                0,
+                "disabled item must not run (custom={custom})"
+            );
+            // A retained selection must also be checked if the item becomes disabled.
+            cx.update(|window, cx| {
+                menu.update(cx, |menu, cx| {
+                    menu.selected_index = Some(0);
+                    menu.confirm(&Confirm { secondary: false }, window, cx);
+                })
+            });
+            assert_eq!(calls.get(), 0);
+        }
+    }
 
     #[gpui::test]
     fn popup_menu_item_a11y_label_uses_visible_label(cx: &mut gpui::TestAppContext) {
