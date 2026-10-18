@@ -36,7 +36,7 @@ def digest(path):
 
 def inventory(stage, version, target, manifest="resources.json"):
     files = {p.relative_to(stage).as_posix(): digest(p)
-             for p in sorted(stage.rglob("*")) if p.is_file() and p.name != manifest}
+             for p in sorted(stage.rglob("*")) if p.is_file() and p != stage / manifest}
     (stage / manifest).write_text(json.dumps({
         "version": version, "target": target, "files": files,
     }, indent=2) + "\n", encoding="utf-8")
@@ -45,7 +45,7 @@ def inventory(stage, version, target, manifest="resources.json"):
 def verify(stage, manifest="resources.json"):
     data = json.loads((stage / manifest).read_text(encoding="utf-8"))
     actual = {p.relative_to(stage).as_posix(): digest(p)
-              for p in stage.rglob("*") if p.is_file() and p.name != manifest}
+              for p in stage.rglob("*") if p.is_file() and p != stage / manifest}
     if actual != data["files"]:
         raise ValueError("Package inventory mismatch")
 

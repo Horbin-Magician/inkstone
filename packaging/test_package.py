@@ -66,6 +66,19 @@ class InventoryTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 verify_release(output, "0.1.0")
 
+    def test_nested_files_named_like_the_manifest_are_verified(self):
+        for manifest in ("resources.json", ".resources.json"):
+            with self.subTest(manifest=manifest), tempfile.TemporaryDirectory() as directory:
+                stage = Path(directory)
+                resource = stage / "app" / manifest
+                resource.parent.mkdir()
+                resource.write_bytes(b"application resource")
+                inventory(stage, "0.1.0", "test-target", manifest=manifest)
+                verify(stage, manifest=manifest)
+                resource.write_bytes(b"modified resource")
+                with self.assertRaises(ValueError):
+                    verify(stage, manifest=manifest)
+
     def test_integrity_and_unexpected_files(self):
         with tempfile.TemporaryDirectory() as directory:
             stage = Path(directory)
