@@ -39,7 +39,7 @@ impl PreparedRelocation {
 
 impl Workspace {
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.file_writes.operation_active() {
+        if self.loading || self.file_writes.operation_active() {
             return;
         }
         let Some(vault) = self.vault.clone() else {
@@ -380,6 +380,81 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     use std::path::Path;
+
+    #[gpui::test]
+    fn vault_switch_releases_old_refresh_and_defers_new_refreshes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-refresh-switch-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("old")).unwrap();
+        std::fs::create_dir_all(root.join("new")).unwrap();
+        std::fs::write(root.join("old/old.md"), "original").unwrap();
+        std::fs::write(root.join("new/new.md"), "new vault").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("old"), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.watcher = None;
+                w.watch_events = None;
+                std::fs::write(root.join("old/old.md"), "external update").unwrap();
+                w.changed_paths.insert("old.md".into());
+                w.refresh(window, cx);
+                assert!(w.refreshing);
+                w.load_vault(root.join("missing"), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.loading);
+                assert!(
+                    !w.refreshing,
+                    "stale completion must not leave refresh busy"
+                );
+                assert!(w.refresh_requested, "invalidated refresh must be retried");
+                assert!(w.rescan);
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.index.notes[Path::new("old.md")].text, "external update");
+                assert_eq!(
+                    w.tabs[0].save.persistence.baseline().as_deref(),
+                    Some("external update")
+                );
+                w.load_vault(root.join("new"), window, cx);
+                assert!(w.loading);
+                w.refresh_requested = true;
+                w.changed_paths.insert("old.md".into());
+                w.refresh(window, cx);
+                assert!(!w.refreshing, "must not refresh old vault during loading");
+                assert!(w.refresh_requested);
+                assert!(w.changed_paths.contains(Path::new("old.md")));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, _| {
+                assert!(!w.loading);
+                assert!(!w.refreshing);
+                assert_eq!(w.files, [PathBuf::from("new.md")]);
+                assert!(!w.index.notes.contains_key(Path::new("old.md")));
+                assert_eq!(w.index.notes[Path::new("new.md")].text, "new vault");
+                w.watcher = None;
+                w.watch_events = None;
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn index_refresh_updates_completions_in_every_duplicate_view(cx: &mut TestAppContext) {
