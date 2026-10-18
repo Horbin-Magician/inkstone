@@ -11,10 +11,11 @@ impl Workspace {
         let start = std::env::home_dir().unwrap_or_else(|| PathBuf::from("."));
         let dialog = cx.prompt_for_new_path(&start, Some("我的笔记库"));
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(root))) = dialog.await else {
-                return;
-            };
-            let write_ticket = this
+            let result = dialog
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let selection = this
                 .update(cx, |this, cx| {
                     if this.generation != generation
                         || this.vault.is_some()
@@ -23,13 +24,14 @@ impl Workspace {
                     {
                         return None;
                     }
+                    let root = this.accept_vault_selection(generation, result, cx)?;
                     let ticket = this.file_writes.begin();
                     cx.notify();
-                    Some(ticket)
+                    Some((ticket, root))
                 })
                 .ok()
                 .flatten();
-            let Some(write_ticket) = write_ticket else {
+            let Some((write_ticket, root)) = selection else {
                 return;
             };
             let directory = root.clone();

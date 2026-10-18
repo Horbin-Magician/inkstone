@@ -187,6 +187,7 @@ impl Workspace {
             cx.notify();
             return;
         }
+        let generation = self.generation;
         let dialog = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -194,15 +195,39 @@ impl Workspace {
             prompt: Some("打开 Markdown 笔记库".into()),
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = dialog.await
-                && let Some(root) = paths.first()
-            {
-                let root = root.clone();
-                let _ = this.update_in(cx, |this, window, cx| this.load_vault(root, window, cx));
-            }
+            let result = dialog
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()))
+                .map(|paths| paths.and_then(|paths| paths.into_iter().next()));
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(root) = this.accept_vault_selection(generation, result, cx) {
+                    this.load_vault(root, window, cx);
+                }
+            });
         })
         .detach();
     }
+    pub(super) fn accept_vault_selection(
+        &mut self,
+        generation: u64,
+        result: Result<Option<PathBuf>, String>,
+        cx: &mut Context<Self>,
+    ) -> Option<PathBuf> {
+        if self.generation != generation {
+            return None;
+        }
+        match result {
+            Ok(path) => path,
+            Err(error) => {
+                self.notifications
+                    .publish(format!("无法选择笔记库目录：{error}"));
+                cx.notify();
+                None
+            }
+        }
+    }
+
     pub(super) fn load_vault(
         &mut self,
         root: PathBuf,
@@ -544,6 +569,44 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn vault_picker_reports_errors_but_ignores_cancelled_and_stale_results(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                let generation = w.generation;
+                assert!(
+                    w.accept_vault_selection(generation, Err("选择器不可用".into()), cx)
+                        .is_none()
+                );
+                assert_eq!(w.notifications.text(), "无法选择笔记库目录：选择器不可用");
+                w.notifications.publish("keep current message".into());
+                assert!(w.accept_vault_selection(generation, Ok(None), cx).is_none());
+                let selected = PathBuf::from("selected vault");
+                assert_eq!(
+                    w.accept_vault_selection(generation, Ok(Some(selected.clone())), cx),
+                    Some(selected.clone())
+                );
+                w.generation += 1;
+                assert!(
+                    w.accept_vault_selection(generation, Err("old failure".into()), cx)
+                        .is_none()
+                );
+                assert!(
+                    w.accept_vault_selection(generation, Ok(Some(selected)), cx)
+                        .is_none()
+                );
+                assert_eq!(w.notifications.text(), "keep current message");
+                assert!(w.vault.is_none());
+                assert_eq!(w.file_writes.pending(), 0);
+            })
+            .unwrap();
+    }
 
     #[gpui::test]
     fn vault_switch_discards_pending_link_jump_from_previous_vault(cx: &mut TestAppContext) {
