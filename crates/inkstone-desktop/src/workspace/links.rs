@@ -3,6 +3,23 @@
 use super::*;
 
 impl Workspace {
+    fn link_anchor_offset(
+        &mut self,
+        path: &std::path::Path,
+        fragment: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<usize> {
+        self.flush_document_views(window, cx);
+        let range = if let Some(tab) = self.tabs.iter().find(|tab| tab.path == path) {
+            let text = tab.save.text_snapshot(cx);
+            inkstone_core::index::anchor_range(&text, &inkstone_core::index::parse(&text), fragment)
+        } else {
+            self.index.anchor_range(path, fragment)
+        };
+        range.map(|range| range.start)
+    }
+
     pub(super) fn apply_jump(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((path, offset)) = self.pending_jump.clone() else {
             return;
@@ -67,10 +84,10 @@ impl Workspace {
         let (resolution, heading) = self.index.resolve_markdown(&from, href);
         match resolution {
             Resolution::Found(path) => {
-                if let Some(range) =
-                    heading.and_then(|heading| self.index.anchor_range(&path, &heading))
+                if let Some(offset) =
+                    heading.and_then(|heading| self.link_anchor_offset(&path, &heading, window, cx))
                 {
-                    self.pending_jump = Some((path.clone(), range.start));
+                    self.pending_jump = Some((path.clone(), offset));
                 }
                 self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
@@ -96,9 +113,9 @@ impl Workspace {
         match self.index.resolve(&from, &target) {
             Resolution::Found(path) => {
                 if let Some((_, heading)) = target.split_once('#')
-                    && let Some(range) = self.index.anchor_range(&path, heading)
+                    && let Some(offset) = self.link_anchor_offset(&path, heading, window, cx)
                 {
-                    self.pending_jump = Some((path.clone(), range.start));
+                    self.pending_jump = Some((path.clone(), offset));
                 }
                 self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
@@ -130,5 +147,51 @@ impl Workspace {
                 .publish("双链路径无效或超出笔记库。".into()),
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn link_anchors_use_pending_duplicate_and_split_edits(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let source = "# Target\n\nText ^block\n";
+                Arc::make_mut(&mut w.index).update("a.md".into(), source.into());
+                w.add_tab("a.md".into(), Some(source.into()), false, window, cx);
+                w.add_tab("a.md".into(), None, false, window, cx);
+                for markdown in [false, true] {
+                    if markdown {
+                        w.split_active(true, window, cx);
+                    }
+                    let draft = format!(
+                        "新增内容 {}\n\n{source}",
+                        if markdown { "分屏" } else { "第二视图" }
+                    );
+                    let pane = w.current_pane().unwrap();
+                    pane.read(cx)
+                        .editor
+                        .clone()
+                        .update(cx, |s, cx| s.replace_all(draft.clone(), window, cx));
+                    if markdown {
+                        w.follow_markdown_link("a.md".into(), "#%5Eblock", false, window, cx);
+                    } else {
+                        w.follow_link("a.md".into(), "a#Target".into(), false, window, cx);
+                    }
+                    assert_eq!(w.current_pane().unwrap().entity_id(), pane.entity_id());
+                    assert_eq!(
+                        pane.read(cx).editor.read(cx).selected_range().start,
+                        draft
+                            .find(if markdown { "Text" } else { "# Target" })
+                            .unwrap()
+                    );
+                }
+            })
+            .unwrap();
     }
 }
