@@ -213,6 +213,7 @@ impl Workspace {
                     ),
             )
             .when(self.command_open, |s| {
+                let commands = self.filtered_commands(cx);
                 s.child(self.picker_search(true, cx)).child(
                     div()
                         .id("commands-list")
@@ -220,7 +221,7 @@ impl Workspace {
                         .overflow_y_scroll()
                         .min_h_0()
                         .p_3()
-                        .when(self.filtered_commands(cx).is_empty(), |list| {
+                        .when(commands.is_empty(), |list| {
                             list.child(self.empty_state(
                                 "command",
                                 "未找到命令",
@@ -228,41 +229,36 @@ impl Workspace {
                             ))
                         })
                         .max_h(px(384.).min((available_height - px(80.)).max(px(40.))))
-                        .children(self.filtered_commands(cx).into_iter().enumerate().map(
-                            |(i, (id, label, _))| {
-                                Button::new(("command", id))
-                                    .ghost()
-                                    .w_full()
-                                    .accessibility_label(format!(
-                                        "{label} {}",
-                                        self.hotkey_label(id)
-                                    ))
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .h(px(38.))
-                                    .px_3()
-                                    .gap_3()
-                                    .rounded(px(4.))
-                                    .cursor_pointer()
-                                    .when(self.ui.selected == i, |s| {
-                                        s.bg(crate::theme::palette(self.ui.prefs.light).selected)
-                                    })
-                                    .child(div().flex_1().min_w_0().truncate().child(label))
-                                    .child(
-                                        div()
-                                            .text_color(
-                                                crate::theme::palette(self.ui.prefs.light).muted,
-                                            )
-                                            .text_size(px(MIN_UI_FONT_SIZE))
-                                            .flex_shrink_0()
-                                            .child(self.hotkey_label(id)),
-                                    )
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.execute_command(id, w, cx)
-                                    }))
-                            },
-                        )),
+                        .children(commands.into_iter().enumerate().map(|(i, (id, label, _))| {
+                            Button::new(("command", id))
+                                .ghost()
+                                .w_full()
+                                .accessibility_label(format!("{label} {}", self.hotkey_label(id)))
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .h(px(38.))
+                                .px_3()
+                                .gap_3()
+                                .rounded(px(4.))
+                                .cursor_pointer()
+                                .when(self.ui.selected == i, |s| {
+                                    s.bg(crate::theme::palette(self.ui.prefs.light).selected)
+                                })
+                                .child(div().flex_1().min_w_0().truncate().child(label))
+                                .child(
+                                    div()
+                                        .text_color(
+                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        )
+                                        .text_size(px(MIN_UI_FONT_SIZE))
+                                        .flex_shrink_0()
+                                        .child(self.hotkey_label(id)),
+                                )
+                                .on_click(cx.listener(move |this, _, w, cx| {
+                                    this.execute_command(id, w, cx)
+                                }))
+                        })),
                 )
             })
             .when(self.ui.quick_open, |s| {
