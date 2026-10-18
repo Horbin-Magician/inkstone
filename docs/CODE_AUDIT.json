@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "68dc4b840c04c561d007eb8d145e76053c25477d",
+  "snapshot_revision": "2b5038bde0bfb90d907cb20d018686a89d73421a",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -762,6 +762,11 @@
       "path": "crates/inkstone-core/src/vault/backup/cleanup.rs",
       "checks": "Full read: locked preflight validates retained backups as well as candidates, identity snapshots, local-storage gate, revalidation before execution, quarantine rollback, partial failure reporting and protected interrupted-record retention.",
       "result": "No new actionable finding. Execution code unchanged from batch 197 core full regression (407 passed, 4 ignored); existing tests cover corruption, stale plans, directory replacement, late writes and process exit. Cleanup requires cooperating local writers, not arbitrary external-write coordination."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/export.rs",
+      "checks": "Full production and test read, including re-read of truncated middle: URL resolution/encoding, queued cycle handling, draft snapshots, staged output, graphics tokens, HTML policy, attachments and output collision handling.",
+      "result": "Fixed Markdown exports omitting original HTML image/link destinations from portable asset copying, linked-note scheduling and URL rewriting. Unchanged remote attributes preserve original entities. Export tests 13 passed; workspace Clippy/format passed. No native export dialog acceptance this batch."
     }
   ],
   "pending_reconciliation": [
@@ -775,7 +780,6 @@
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/vault.rs",
-    "crates/inkstone-core/src/vault/export.rs",
     "crates/inkstone-core/src/vault/history.rs",
     "crates/inkstone-core/src/vault/history/catalog.rs",
     "crates/inkstone-core/src/vault/history/index.rs",
