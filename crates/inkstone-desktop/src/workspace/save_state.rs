@@ -14,7 +14,7 @@ pub(super) struct SaveState {
     saving: Cell<bool>,
     conflict: Cell<bool>,
     error: RefCell<Option<String>>,
-    recovery_text: RefCell<String>,
+    recovery_text: RefCell<Option<String>>,
 }
 impl SaveState {
     pub fn new(baseline: Option<String>, dirty: bool) -> Self {
@@ -24,7 +24,7 @@ impl SaveState {
             saving: Cell::new(false),
             conflict: Cell::new(false),
             error: RefCell::new(None),
-            recovery_text: RefCell::new(String::new()),
+            recovery_text: RefCell::new(None),
         }
     }
     pub fn baseline(&self) -> Ref<'_, Option<String>> {
@@ -43,14 +43,14 @@ impl SaveState {
         self.conflict.get()
     }
     pub fn begin_journal(&self, text: &str) -> bool {
-        if text == self.recovery_text.borrow().as_str() {
+        if self.recovery_text.borrow().as_deref() == Some(text) {
             return false;
         }
-        self.recovery_text.replace(text.to_string());
+        self.recovery_text.replace(Some(text.to_string()));
         true
     }
     pub fn journal_failed(&self) {
-        self.recovery_text.borrow_mut().clear();
+        self.recovery_text.replace(None);
     }
     pub fn edited(&self, current: &str) {
         self.dirty
@@ -177,6 +177,22 @@ impl SaveState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn empty_recovery_snapshots_are_written_and_retried_after_failure() {
+        let state = SaveState::new(Some("original".into()), true);
+        state.preserve_external_change();
+        assert!(
+            state.begin_journal(""),
+            "deleting all text still needs recovery"
+        );
+        assert!(!state.begin_journal(""));
+        state.journal_failed();
+        assert!(state.begin_journal(""), "failed empty snapshots must retry");
+        assert!(!state.begin_journal(""));
+        assert!(state.begin_journal("new text"));
+        assert!(state.begin_journal(""));
+    }
+
     #[test]
     fn edits_during_save_stay_dirty_and_retry_never_bypasses_conflict() {
         let state = SaveState::new(Some("disk".into()), false);
