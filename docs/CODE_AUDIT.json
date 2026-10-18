@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "980c9b0e9ac8f60cb2ce2b9a48f04dec33cd86ce",
+  "snapshot_revision": "00b74079c6b245c263686b46f363bd5c14b7c552",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1337,6 +1337,11 @@
       "path": "vendor/gpui-base/src/tooltip.rs",
       "checks": "Full read: per-window delayed display, grace switch/hide, task cancellation, renderer epochs, mobile suppression, accessible role and placement wrapper; 3 tests passed.",
       "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/collapsible.rs",
+      "checks": "Full read: controlled mounting, child order, reveal progress and measured state identity. Real layout regression with 20px and 60px contents at 50% reproduced first content taking 30px instead of 10px; both component tests passed after per-child reveal ID fix.",
+      "result": "Fixed shared measurement state in 00b7407; native animation acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
@@ -1346,7 +1351,6 @@
     "vendor/gpui-base/src/button.rs",
     "vendor/gpui-base/src/calendar.rs",
     "vendor/gpui-base/src/checkbox.rs",
-    "vendor/gpui-base/src/collapsible.rs",
     "vendor/gpui-base/src/color_picker.rs",
     "vendor/gpui-base/src/combobox.rs",
     "vendor/gpui-base/src/date_picker.rs",
