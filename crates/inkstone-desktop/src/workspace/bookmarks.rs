@@ -84,6 +84,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.flush_document_views(window, cx);
         let offset = if let Some(tab) = self.tabs.iter().find(|t| t.path == entry.path) {
             entry.offset(&inkstone_core::index::parse(
                 &tab.save.editor.read(cx).value(),
@@ -402,9 +403,12 @@ mod tests {
                 );
                 assert_eq!(prefs.anchor_bookmarks, vec![heading.clone(), block.clone()]);
                 let draft = "Inserted\n\n# Same\n\n# Same\n\nText ^target\n";
-                w.tabs[0]
-                    .save
+                w.add_tab("a.md".into(), None, false, window, cx);
+                w.current_pane()
+                    .unwrap()
+                    .read(cx)
                     .editor
+                    .clone()
                     .update(cx, |s, cx| s.replace_all(draft, window, cx));
                 w.open_anchor_bookmark(&heading, window, cx);
                 assert_eq!(
@@ -417,6 +421,14 @@ mod tests {
                         .start,
                     draft.rfind("# Same").unwrap()
                 );
+                w.split_active(true, window, cx);
+                let draft = format!("Split edit\n\n{draft}");
+                w.current_pane()
+                    .unwrap()
+                    .read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| s.replace_all(draft.clone(), window, cx));
                 w.open_anchor_bookmark(&block, window, cx);
                 assert_eq!(
                     w.current_pane()
