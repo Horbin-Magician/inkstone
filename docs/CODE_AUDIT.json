@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "824d6a4121a5075699185c2b5629eb6a66ac23aa",
+  "snapshot_revision": "db68f4521a9a4a641ee4ad87d699b0a70e30c846",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -97,6 +97,11 @@
       "path": "crates/inkstone-core/src/vault/sync/webdav/cleanup.rs",
       "checks": "Complete source read: preview identity and exact snapshots, referenced object protection, all-body verification, generation fencing, server lock conditions, cancellation and partial deletion accounting",
       "result": "Real Apache cleanup verified after maintenance compatibility fix: one orphan removed, retained content intact, competing upload blocked, release permits writes. No new cleanup implementation defect found."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/webdav/maintenance/tests.rs",
+      "checks": "Complete read: exact acquisition/refresh/release headers, invalid leases and tokens, no hidden retries, fenced publication/readback, generation overflow, ETag parsing/retry limits, absent and duplicate lockroot",
+      "result": "No new actionable finding; assertions cover request sequences and results rather than only successful returns. Real-server evidence remains separately recorded."
     }
   ],
   "pending_reconciliation": [
@@ -179,7 +184,6 @@
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
-    "crates/inkstone-core/src/vault/sync/webdav/maintenance/tests.rs",
     "crates/inkstone-core/src/vault/trash_metadata.rs",
     "crates/inkstone-core/src/wiki_links.rs",
     "crates/inkstone-core/src/word_count.rs",
