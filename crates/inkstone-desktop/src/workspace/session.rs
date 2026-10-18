@@ -538,6 +538,60 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn restored_tabs_search_only_after_the_batch_is_ready(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-restore-search-batch-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let paths: Vec<PathBuf> = (0..16).map(|i| format!("note-{i}.md").into()).collect();
+        for path in &paths {
+            std::fs::write(root.join(path), "batch-search-token").unwrap();
+        }
+        inkstone_core::preferences::Preferences {
+            left_panel: 1,
+            search_query: "batch-search-token".into(),
+            open_paths: paths.clone(),
+            active_tab_index: Some(5),
+            ..Default::default()
+        }
+        .save(&root.join(".inkstone-workspace.json"))
+        .unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        let revision = handle
+            .update(cx, |w, window, cx| {
+                let revision = w.search_revision;
+                w.load_vault(root.clone(), window, cx);
+                revision
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, _| {
+                assert!(!w.loading);
+                assert_eq!(w.tabs.len(), paths.len());
+                assert_eq!(w.active, Some(5));
+                assert_eq!(w.search_results.len(), paths.len());
+                assert!(!w.ui.search_loading);
+                assert!(
+                    w.search_revision - revision <= 4,
+                    "restoring tabs spawned {} search revisions",
+                    w.search_revision - revision
+                );
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn switching_to_empty_vault_does_not_search_previous_documents(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let root = std::env::temp_dir().join(format!(
