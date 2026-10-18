@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "66843bdfaf9cd591d7ce7d3c84922dcacebb8c77",
+  "snapshot_revision": "3b507c8c1e04c5204be7265da4f9c50bdd9b5e30",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -720,8 +720,8 @@
     },
     {
       "path": "crates/inkstone-core/src/syntax.rs",
-      "checks": "Full production and test read: parse options, math normalization, inline footnote scanning, shared snapshots, plain-paragraph fast path, HTML attribute extraction and differential tests.",
-      "result": "Fixed CR-only line column calculation in plain-paragraph incremental parsing. Existing differential test extended to CR reproduces wrong columns before fix; syntax 13 passed, workspace Clippy/format passed. Adversarial inline-footnote scan complexity not measured in this batch."
+      "checks": "Full production and test read: parse options, math normalization, inline footnote scanning, shared snapshots, plain-paragraph fast path, HTML attribute extraction and differential tests. Re-reviewed optimized inline-footnote scanner: excluded ranges, escape handling, paragraph barriers, suffix closing-bracket matching and nested recovery.",
+      "result": "CR-only column fix retained. Removed quadratic rescanning of unmatched inline footnotes using shared bracket tokens/suffix matches; 5000 deterministic generated inputs compared to the old scanner with/without AST. Core 407 passed, 4 ignored; workspace Clippy/format passed. Same-host debug three scans of 4000 unmatched openers: 6.20 s before, 10.3 ms after; isolated scanner timing, not native UI latency."
     }
   ],
   "pending_reconciliation": [
