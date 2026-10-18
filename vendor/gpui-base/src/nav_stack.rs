@@ -790,9 +790,13 @@ mod tests {
         });
         stack.update(cx, |stack, cx| {
             stack.push(root, NavMotion::Immediate, cx);
+        });
+        // Establish the outgoing page's visible presence before navigating.
+        // A page replaced before its first frame has no visible exit to run.
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        stack.update(cx, |stack, cx| {
             stack.push(second, NavMotion::Animated, cx);
         });
-
         cx.update(|window, cx| window.draw(cx).clear(cx));
         assert!(stack.read_with(cx, |stack, _| stack.transit.is_some()));
 
