@@ -4535,7 +4535,7 @@ fn completion_link_preferences_keep_full_labels_and_resolve(cx: &mut TestAppCont
             assert!(!entries.iter().any(|e| e.label.ends_with("private.bin")));
             Arc::make_mut(&mut w.index).update(
                 "other/unique.md".into(),
-                "---\naliases: [项目别名, 项目别名, a|b]\n---\n".into(),
+                "---\naliases: [项目别名, 项目别名, a|b, '<name>']\n---\n".into(),
             );
             let entries = w.link_paths_for(from);
             assert_eq!(
@@ -4556,6 +4556,12 @@ fn completion_link_preferences_keep_full_labels_and_resolve(cx: &mut TestAppCont
                 .unwrap();
             assert!(unsafe_alias.markdown);
             assert_eq!(unsafe_alias.target, "unique.md");
+            let angle_alias = entries
+                .iter()
+                .find(|e| e.alias.as_deref() == Some("<name>"))
+                .unwrap();
+            assert!(angle_alias.markdown);
+            assert_eq!(angle_alias.target, "unique.md");
         })
         .unwrap();
 }
