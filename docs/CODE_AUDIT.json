@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "8b4177c991e4bccb5e7c9f76ec0920437d55839f",
+  "snapshot_revision": "2286d10e5f430f0d37184962c93d179f0536af21",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -487,6 +487,11 @@
       "path": "crates/inkstone-desktop/src/native_graphics.rs",
       "checks": "full source/tests: measurement and raster keys, shared assets, inflight permits, raster serialization and budget, eviction, block/inline layout and cached failure display",
       "result": "Fixed blank placeholders for cached raster errors in 8b4177c. Five graphics tests pass; cache budget is not total process memory or native frame acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/live_objects.rs",
+      "checks": "Full production and test read: object reuse, syntax/dependency rebasing, selection/IME reveal, viewport raster scheduling, completion attachment, overlay layout, task/link/image/footnote routing; theme and task-retention regressions.",
+      "result": "Fixed stale theme raster reuse in 7b356e1 and unbounded completed task retention in 2286d10. All 18 live-object tests and workspace all-targets Clippy pass. Native performance and accessibility acceptance remain open."
     }
   ],
   "pending_reconciliation": [
@@ -555,7 +560,6 @@
     "crates/inkstone-desktop/src/editor/footnotes.rs",
     "crates/inkstone-desktop/src/editor/frame_benchmark.rs",
     "crates/inkstone-desktop/src/editor/live_lists.rs",
-    "crates/inkstone-desktop/src/editor/live_objects.rs",
     "crates/inkstone-desktop/src/editor/live_quotes.rs",
     "crates/inkstone-desktop/src/editor/live_rules.rs",
     "crates/inkstone-desktop/src/editor/live_tasks.rs",
