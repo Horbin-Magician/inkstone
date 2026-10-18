@@ -660,6 +660,14 @@ fn watcher_classification_reconciles_directories_and_rejects_bad_state() {
     assert!(!changed_since_sync(&f.a, "watch", &paths).unwrap());
     fs::rename(f.a.root.join("folder"), f.a.root.join("renamed")).unwrap();
     assert!(changed_since_sync(&f.a, "watch", &paths).unwrap());
+    // Nearby sorted keys are not descendants. An unrelated missing-path event
+    // must not turn into a full scan that discovers the renamed folder.
+    for name in ["fold", "folder2", "zzzz"] {
+        assert!(
+            !changed_since_sync(&f.a, "watch", &BTreeSet::from([PathBuf::from(name)])).unwrap(),
+            "{name}"
+        );
+    }
     assert!(changed_since_sync(&f.a, "watch", &BTreeSet::from([PathBuf::new()])).unwrap());
     assert!(
         !changed_since_sync(&f.a, "watch", &BTreeSet::from([PathBuf::from(".hidden")])).unwrap()
