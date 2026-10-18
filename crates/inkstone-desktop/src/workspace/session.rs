@@ -231,6 +231,11 @@ impl Workspace {
         self.cancel_tree_name(cx);
         self.ui.tree_active = None;
         self.generation += 1;
+        // Pending navigation belongs to the old vault, even if the new one has
+        // the same relative paths or the load eventually fails.
+        self.pending_jump = None;
+        self.pending_navigation = None;
+        self.ui.pending_command = None;
         if self.refreshing {
             // Its completion now belongs to the old generation. Retry against the
             // retained vault if this load fails; success resets the refresh queue.
@@ -350,7 +355,6 @@ impl Workspace {
                         ui::apply_theme(this.ui.prefs.light, cx);
                         this.apply_font_preferences(cx);
                         this.sync_font_selects(window, cx);
-                        this.pending_navigation = None;
                         this.ui.closed.clear();
                         this.ui.close_pending.clear();
                         this.ui.window_close_requested = false;
@@ -540,6 +544,71 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn vault_switch_discards_pending_link_jump_from_previous_vault(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-switch-jump-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("old")).unwrap();
+        std::fs::create_dir(root.join("new")).unwrap();
+        std::fs::write(root.join("old/source.md"), "source").unwrap();
+        std::fs::write(root.join("old/target.md"), "prefix\n\n# Target\n").unwrap();
+        std::fs::write(
+            root.join("new/target.md"),
+            "different document in the new vault",
+        )
+        .unwrap();
+        let vault = Vault::open(root.join("old"), root.join("recovery")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.vault = Some(vault);
+                w.add_tab("source.md".into(), Some("source".into()), false, window, cx);
+                w.follow_link(
+                    "source.md".into(),
+                    "target#Target".into(),
+                    false,
+                    window,
+                    cx,
+                );
+                assert!(w.pending_jump.is_some());
+                w.load_vault(root.join("new"), window, cx);
+                assert!(w.pending_jump.is_none());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(
+                    w.vault.as_ref().unwrap().root,
+                    std::fs::canonicalize(root.join("new")).unwrap()
+                );
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("target.md"));
+                assert_eq!(
+                    w.current_pane()
+                        .unwrap()
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .selected_range()
+                        .start,
+                    0
+                );
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn failed_vault_load_restarts_the_cancelled_search(cx: &mut TestAppContext) {
