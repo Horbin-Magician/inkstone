@@ -123,15 +123,23 @@ fn tag_edit<'a>(
             }
             if changed > 0 {
                 if let Some(array) = value.as_array_mut() {
+                    let target = new.to_lowercase();
                     let mut seen = std::collections::BTreeSet::new();
                     array.retain(|v| {
                         let Some(s) = v.as_str() else {
                             return true;
                         };
-                        if rename_tag(s, new, new, spec.descendants).is_none() {
+                        let trimmed = s.trim();
+                        let lower = trimmed.strip_prefix('#').unwrap_or(trimmed).to_lowercase();
+                        let matches = lower == target
+                            || (spec.descendants
+                                && lower
+                                    .strip_prefix(&target)
+                                    .is_some_and(|suffix| suffix.starts_with('/')));
+                        if !matches {
                             return true;
                         }
-                        seen.insert(s.trim().trim_start_matches('#').to_lowercase())
+                        seen.insert(lower)
                     });
                 }
                 edits.push((
@@ -360,6 +368,34 @@ mod tests {
         let p = plan(&index, &s).unwrap();
         assert!(p.edits.is_empty());
         assert!(!p.warnings.is_empty());
+    }
+    #[test]
+    fn tag_merge_keeps_unrelated_duplicates_and_matches_unicode_descendants() {
+        let mut index = Index::default();
+        index.update(
+            "a.md".into(),
+            "---\ntags: [old, old/Sub, ' #İ ', İ/sub, İx, İx, '##İ']\n---\n".into(),
+        );
+        let mut s = spec();
+        s.tags = true;
+        s.replacement = "İ".into();
+        let result = plan(&index, &s).unwrap();
+        assert!(result.warnings.is_empty());
+        assert_eq!(result.edits[0].count, 2);
+        assert!(
+            result.edits[0]
+                .after
+                .contains("[\"İ\",\"İ/Sub\",\"İx\",\"İx\",\"##İ\"]")
+        );
+
+        s.descendants = false;
+        let result = plan(&index, &s).unwrap();
+        assert_eq!(result.edits[0].count, 1);
+        assert!(
+            result.edits[0]
+                .after
+                .contains("[\"İ\",\"old/Sub\",\"İ/sub\",\"İx\",\"İx\",\"##İ\"]")
+        );
     }
     #[test]
     fn apply_checks_all_baselines_before_writing_and_keeps_history() {
