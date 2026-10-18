@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "efa4c6e4b140667791a953849a817be81d4a100c",
+  "snapshot_revision": "2abf3612bce29c317b2f4e739f1414c4c960472f",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -976,7 +976,7 @@
     {
       "path": "crates/inkstone-desktop/src/workspace/session.rs",
       "checks": "Complete read: startup lookup, vault picker/load, watcher/index preparation, restored tab/view mapping, settings/cache maintenance and stale recovery result handling.",
-      "result": "Old-vault navigation fixed in f3c0030. Picker errors and stale success/error callbacks handled by shared generation guard (c45eea9). Session tests 6 passed, welcome tests 9 passed; workspace all-targets Clippy and formatting passed. No native/platform acceptance claimed."
+      "result": "Old-vault navigation fixed in f3c0030. Picker errors and stale success/error callbacks handled by shared generation guard (c45eea9). Session tests 6 passed, welcome tests 9 passed; workspace all-targets Clippy and formatting passed. No native/platform acceptance claimed. Follow-up 2abf361 moves sync-state initialization after assigning the new vault, verified by initial open and A/B/A switching."
     },
     {
       "path": "crates/inkstone-desktop/src/workspace/backups.rs",
@@ -1157,6 +1157,11 @@
       "path": "vendor/gpui-base/src/input/editor/line_typography.rs",
       "checks": "Finite bounded scales, UTF-8 single-line anchors, sorting/deduplication, rebase and display-map invalidation",
       "result": "No new actionable finding in this read; native runtime acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
+      "checks": "Complete read of sync state, settings UI, queue/run lifecycle, generation/task guards, success-history reads and all local HTTP/GPUI tests. Followed vault-load caller ordering.",
+      "result": "2abf361 fixes history reads capturing the previous vault. Regression reproduced on old code with the actual app test recovery directory; 18 cloud-sync and 6 session tests passed, workspace all-targets Clippy and formatting passed. Native and real remote TLS/auth remain unverified."
     }
   ],
   "pending_reconciliation": [
@@ -1165,7 +1170,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
-    "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
