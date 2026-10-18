@@ -385,13 +385,14 @@ mod tests {
                 let captured = self.captured.clone();
                 canvas(
                     move |_, window, cx| {
-                        let mut node = accesskit::Node::new(Role::Button);
-                        AccordionTrigger::new("trigger")
+                        let element = AccordionTrigger::new("trigger")
                             .open(true)
                             .on_change(move |open, _, _, _| requested.borrow_mut().push(open))
                             .render(window, cx)
-                            .into_element()
-                            .write_a11y_info(&mut node);
+                            .into_element();
+                        assert_eq!(element.a11y_role(), Some(Role::Button));
+                        let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+                        element.write_a11y_info(&mut node);
                         *captured.borrow_mut() = Some(node);
                     },
                     |_, _, _, _| {},
@@ -462,46 +463,33 @@ mod tests {
         assert!(requested.borrow().is_empty());
     }
 
+    #[cfg(feature = "test-support")]
     #[gpui::test]
     fn header_and_panel_project_structural_roles(cx: &mut gpui::TestAppContext) {
-        let captured = Rc::new(RefCell::new(Vec::new()));
-
-        struct Probe(Rc<RefCell<Vec<accesskit::Node>>>);
-
+        struct Probe;
         impl Render for Probe {
             fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-                let captured = self.0.clone();
-                canvas(
-                    move |_, window, cx| {
-                        let mut header_node = accesskit::Node::new(Role::Heading);
+                div()
+                    .child(
                         AccordionHeader::new(AccordionTrigger::new("trigger"))
                             .id("header")
-                            .level(2)
-                            .render(window, cx)
-                            .into_element()
-                            .write_a11y_info(&mut header_node);
-
-                        let mut panel_node = accesskit::Node::new(Role::Region);
-                        AccordionPanel::new()
-                            .id("panel")
-                            .open(true)
-                            .render(window, cx)
-                            .into_element()
-                            .write_a11y_info(&mut panel_node);
-                        *captured.borrow_mut() = vec![header_node, panel_node];
-                    },
-                    |_, _, _, _| {},
-                )
+                            .level(2),
+                    )
+                    .child(AccordionPanel::new().id("panel").open(true))
             }
         }
-
-        let (_, view) = cx.add_window_view({
-            let captured = captured.clone();
-            move |_, _| Probe(captured)
+        let (_, view) = cx.add_window_view(|_, _| Probe);
+        view.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let snapshots = crate::test_support::snapshots(window);
+            for (id, role) in [("header", Role::Heading), ("panel", Role::Region)] {
+                let matching: Vec<_> = snapshots
+                    .iter()
+                    .filter(|node| node.path().last() == Some(&ElementId::from(id)))
+                    .collect();
+                assert_eq!(matching.len(), 1);
+                assert_eq!(matching[0].role(), Some(role));
+            }
         });
-        view.update(|window, cx| window.draw(cx).clear(cx));
-        let nodes = captured.borrow();
-        assert_eq!(nodes[0].role(), Role::Heading);
-        assert_eq!(nodes[1].role(), Role::Region);
     }
 }
