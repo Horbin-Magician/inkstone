@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "769a136a3f1efdcc3620c90eb2ed54e32e0b9305",
+  "snapshot_revision": "bb4858751d2b4aa6fd09a0125c45f333eefc18a8",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -987,6 +987,11 @@
       "path": "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
       "checks": "Complete read: interrupted-record inspection, generation/epoch/request identity, destination confinement, verified-copy recovery, write ticket lifecycle, accessible verdicts and keyboard pagination tests.",
       "result": "Fixed silent destination picker failures with preview-scoped completion handling (769a136). Four partial-recovery tests passed, including dirty-note preservation and keyboard pagination; workspace all-targets Clippy and formatting passed. Native picker failure and Windows remain unverified."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/extras.rs",
+      "checks": "Complete read: duplication, reference routing and task toggles, folder relocation, property editing, attachment selection/import, view identity and asynchronous write tickets.",
+      "result": "Bound attachment picker to generation, tab and pane identity and surfaced picker errors (bb48587). Real dialog regression fails on old implementation by inserting into the wrong note; fixed attachment tests 5 passed. Workspace all-targets Clippy, formatting and diff checks passed. Native picker and Windows validation remain outstanding."
     }
   ],
   "pending_reconciliation": [
@@ -999,7 +1004,6 @@
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
-    "crates/inkstone-desktop/src/workspace/extras.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
     "crates/inkstone-desktop/src/workspace/navigation.rs",
