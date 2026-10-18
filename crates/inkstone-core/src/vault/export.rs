@@ -166,11 +166,12 @@ impl Builder<'_> {
             encoded(target)
         }
     }
-    fn markdown(&mut self, path: &Path, source: &str) -> String {
-        let parsed = index::parse(source);
+    fn markdown(&mut self, path: &Path, note: &index::IndexedNote) -> String {
+        let source = &note.text;
+        let parsed = &note.parsed;
         let mut edits = vec![];
-        for link in parsed.links {
-            let mut range = link.range;
+        for link in &parsed.links {
+            let mut range = link.range.clone();
             let embed = range.start > 0
                 && source.as_bytes()[range.start - 1] == b'!'
                 && source[..range.start - 1]
@@ -209,7 +210,7 @@ impl Builder<'_> {
                 ),
             ));
         }
-        for embed in parsed.markdown_embeds {
+        for embed in &parsed.markdown_embeds {
             let url = self.destination(path, &embed.target, false);
             self.warnings.insert(format!(
                 "{}：嵌入已转换为关联文件链接：{}",
@@ -217,12 +218,12 @@ impl Builder<'_> {
                 embed.target
             ));
             edits.push((
-                embed.range,
+                embed.range.clone(),
                 format!("[{}]({url})", escape_label(&embed.label)),
             ));
         }
-        for (range, target) in parsed.destinations {
-            edits.push((range, self.destination(path, &target, false)));
+        for (range, target) in &parsed.destinations {
+            edits.push((range.clone(), self.destination(path, target, false)));
         }
         edits.sort_by_key(|(r, _)| r.start);
         let mut out = String::new();
@@ -396,7 +397,7 @@ pub fn create(
             continue;
         }
         let note = &index.notes[&path];
-        let markdown = builder.markdown(&path, &note.text);
+        let markdown = builder.markdown(&path, note);
         let content = if format == Format::Html {
             html(
                 &path.file_stem().unwrap_or_default().to_string_lossy(),
