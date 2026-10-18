@@ -195,7 +195,12 @@ pub fn attachment_link(
 
 /// Whether a literal target path needs Markdown encoding instead of Wiki syntax.
 pub fn requires_markdown_link(target: &str) -> bool {
-    target.contains(['#', '|', '[', ']', '<', '>', '\r', '\n'])
+    target.contains('#') || requires_markdown_text(target)
+}
+
+/// Wiki labels and fragments must not introduce markup or split the link.
+pub fn requires_markdown_text(text: &str) -> bool {
+    text.contains(['|', '[', ']', '<', '>', '\r', '\n'])
 }
 
 /// Return the unescaped destination and effective syntax for an attachment.

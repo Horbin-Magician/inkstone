@@ -81,7 +81,9 @@ impl Workspace {
                     }
                     let mut suggestion = entry.clone();
                     suggestion.alias = Some(alias.clone());
-                    if !suggestion.markdown && alias.contains(['|', '[', ']', '\n', '\r']) {
+                    if !suggestion.markdown
+                        && inkstone_core::locations::requires_markdown_text(alias)
+                    {
                         suggestion.markdown = true;
                         if suggestion.target.contains('/')
                             && !suggestion.target.starts_with('.')

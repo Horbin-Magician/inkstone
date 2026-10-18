@@ -228,7 +228,9 @@ impl CompletionProvider for WikiCompletions {
                                 let mut result = path.clone();
                                 result.label = label.clone();
                                 result.fragment = Some(anchor.clone());
-                                if !result.markdown && anchor.contains(['|', '[', ']']) {
+                                if !result.markdown
+                                    && inkstone_core::locations::requires_markdown_text(anchor)
+                                {
                                     result.markdown = true;
                                     if !result.target.is_empty() {
                                         if result.target.contains('/')
@@ -502,6 +504,11 @@ mod provider_tests {
             ("[[note.MD#章]]", false, "[[note#章节 1]]"),
             ("[[note.Md#章]]", true, "note.md#章节 1"),
             ("[[note.md.md#章]]", false, ""),
+            (
+                "[[note#literal]]",
+                false,
+                "[literal \\<tag\\>](note.md#literal%20%3Ctag%3E)",
+            ),
             ("![[note#^bl]]", false, "![[note#^block]]"),
             ("[[note#章]]", true, "note.md#章节 1"),
             ("# 当前/标题\n\n[[#当前]]", true, "#当前/标题"),
@@ -516,7 +523,7 @@ mod provider_tests {
                     label: "folder/note".into(),
                     target: if markdown { "note.md" } else { "note" }.into(),
                     markdown,
-                    anchors: completion_anchors("# 章节 1\n\nText ^block\n"),
+                    anchors: completion_anchors("# 章节 1\n\nText ^block\n\n# literal \\<tag\\>\n"),
                     ..Default::default()
                 }]))),
                 None,
