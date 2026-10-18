@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "200693fea7e57355e9bc14dd7f6a814e73096430",
+  "snapshot_revision": "5a33f7d51c17735506f3330b5857913b4ba376bf",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1287,6 +1287,11 @@
       "path": "vendor/gpui-base/src/motion/reveal.rs",
       "checks": "Full read: measured child layout, cached height, clipping during prepaint/paint and frame requests on measurement changes. No dedicated native reveal acceptance in this batch.",
       "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/motion/presence.rs",
+      "checks": "Full read: keyed presence state, initial absence, enter/exit reversal, reduced-motion and zero-duration settling, unmount phase and animation frame requests. Two new regression tests failed before the fix; all 52 motion-filtered tests passed afterward.",
+      "result": "Fixed settled state being reported as Entering/Exiting in 5a33f7d; native and platform acceptance remain pending."
     }
   ],
   "pending_reconciliation": [
@@ -1371,7 +1376,6 @@
     "vendor/gpui-base/src/link.rs",
     "vendor/gpui-base/src/macos_accessibility.rs",
     "vendor/gpui-base/src/motion.rs",
-    "vendor/gpui-base/src/motion/presence.rs",
     "vendor/gpui-base/src/nav_stack.rs",
     "vendor/gpui-base/src/number_input.rs",
     "vendor/gpui-base/src/otp_input.rs",
