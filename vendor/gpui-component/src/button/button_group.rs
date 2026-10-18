@@ -59,7 +59,7 @@ impl ButtonGroup {
 
     /// Adds a button as a child to the ButtonGroup.
     pub fn child(mut self, child: Button) -> Self {
-        self.children.push(child.disabled(self.disabled));
+        self.children.push(child);
         self
     }
 
@@ -178,7 +178,8 @@ impl RenderOnce for ButtonGroup {
                         // The group as a whole is a toggle control, so every
                         // child advertises its pressed state.
                         let selected = child.selected;
-                        let child = child.toggled(selected);
+                        let disabled = self.disabled || child.is_disabled();
+                        let child = child.toggled(selected).disabled(disabled);
                         let child = if children_len == 1 {
                             child
                         } else if child_index == 0 {
@@ -378,13 +379,17 @@ mod tests {
     }
 
     #[gpui::test]
-    fn legacy_disabled_state_depends_on_builder_order(cx: &mut TestAppContext) {
+    fn disabled_state_is_independent_of_builder_order_and_insertion_method(
+        cx: &mut TestAppContext,
+    ) {
         struct DisabledOrderHarness(Rc<Cell<usize>>);
 
         impl Render for DisabledOrderHarness {
             fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
                 let first = self.0.clone();
                 let second = self.0.clone();
+                let third = self.0.clone();
+                let fourth = self.0.clone();
                 crate::v_flex()
                     .child(
                         ButtonGroup::new("disabled-before-child")
@@ -406,6 +411,22 @@ mod tests {
                             )
                             .disabled(true),
                     )
+                    .child(
+                        ButtonGroup::new("disabled-bulk")
+                            .size(px(120.))
+                            .disabled(true)
+                            .children([Button::new("third")
+                                .label("Third")
+                                .on_click(move |_, _, _| third.set(third.get() + 1))]),
+                    )
+                    .child(
+                        ButtonGroup::new("disabled-child").size(px(120.)).child(
+                            Button::new("fourth")
+                                .label("Fourth")
+                                .disabled(true)
+                                .on_click(move |_, _, _| fourth.set(fourth.get() + 1)),
+                        ),
+                    )
             }
         }
 
@@ -418,8 +439,12 @@ mod tests {
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.simulate_click(point(px(10.), px(60.)), Modifiers::default());
         assert_eq!(clicks.get(), 0);
-        cx.simulate_click(point(px(10.), px(180.)), Modifiers::default());
-        assert_eq!(clicks.get(), 1);
+        for y in [180., 300., 420.] {
+            cx.simulate_click(point(px(10.), px(y)), Modifiers::default());
+            assert_eq!(clicks.get(), 0);
+        }
+        cx.update(|window, cx| window.focus_next(cx));
+        cx.update(|window, cx| assert!(window.focused(cx).is_none()));
     }
 
     #[gpui::test]
