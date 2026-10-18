@@ -36,6 +36,7 @@ objc2-foundation.workspace = true
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 ropey.workspace = true
+# Integration tests compile the vendor grapheme helpers directly via #[path].
 unicode-segmentation.workspace = true
 
 [build-dependencies]
