@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "5f1481a6ab8e1e561454dc403b698a0506403ee8",
+  "snapshot_revision": "fd0e6cb2d3147796c627137d66dbb7b9118a29fe",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -367,6 +367,16 @@
       "path": "crates/inkstone-core/src/tags.rs",
       "checks": "case-normalized hierarchy and counts, display spelling selection, filtering and ancestor retention, sorting, folds and keyboard navigation",
       "result": "No new actionable finding in this full read; source review does not establish native UI acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/notifications.rs",
+      "checks": "replacement/append ownership, conditional clearing of stale search errors and append call sites",
+      "result": "No new actionable finding in this full read; three search job tests and existing notification validation test pass on current source."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/search.rs",
+      "checks": "debounce cancellation, generation/revision guards, pending result opening, draft snapshot isolation, composition guards, query validation and pagination",
+      "result": "No new actionable finding in this full read; three search job tests and existing notification validation test pass on current source."
     }
   ],
   "pending_reconciliation": [
@@ -489,7 +499,6 @@
     "crates/inkstone-desktop/src/workspace/navigation.rs",
     "crates/inkstone-desktop/src/workspace/note_files.rs",
     "crates/inkstone-desktop/src/workspace/note_open.rs",
-    "crates/inkstone-desktop/src/workspace/notifications.rs",
     "crates/inkstone-desktop/src/workspace/recent_vault.rs",
     "crates/inkstone-desktop/src/workspace/recovery.rs",
     "crates/inkstone-desktop/src/workspace/recovery_metadata.rs",
@@ -497,7 +506,6 @@
     "crates/inkstone-desktop/src/workspace/save_coordinator.rs",
     "crates/inkstone-desktop/src/workspace/save_state.rs",
     "crates/inkstone-desktop/src/workspace/saving.rs",
-    "crates/inkstone-desktop/src/workspace/search.rs",
     "crates/inkstone-desktop/src/workspace/search_tools.rs",
     "crates/inkstone-desktop/src/workspace/session.rs",
     "crates/inkstone-desktop/src/workspace/settings_save.rs",
