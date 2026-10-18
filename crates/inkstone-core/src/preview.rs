@@ -175,6 +175,13 @@ fn presented_html(value: &str) -> bool {
     let mut rest = value;
     while let Some(start) = rest.find('<') {
         rest = &rest[start + 1..];
+        if let Some(comment) = rest.strip_prefix("!--") {
+            let Some(end) = comment.find("-->") else {
+                return false;
+            };
+            rest = &comment[end + 3..];
+            continue;
+        }
         let rest_trimmed = rest.trim_start_matches(['/', '!', ' ', '\t', '\n', '\r']);
         let end = rest_trimmed
             .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
@@ -188,11 +195,26 @@ fn presented_html(value: &str) -> bool {
         {
             return true;
         }
-        rest = if end < rest_trimmed.len() {
-            &rest_trimmed[end..]
-        } else {
-            ""
+        // A '<' inside an attribute value is literal, not a nested tag.
+        let attributes = &rest_trimmed[end..];
+        let mut quote = None;
+        let mut close = None;
+        for (offset, ch) in attributes.char_indices() {
+            if quote == Some(ch) {
+                quote = None;
+            } else if quote.is_none() {
+                if matches!(ch, '\'' | '"') {
+                    quote = Some(ch);
+                } else if ch == '>' {
+                    close = Some(offset);
+                    break;
+                }
+            }
+        }
+        let Some(close) = close else {
+            return false;
         };
+        rest = &attributes[close + 1..];
     }
     false
 }
@@ -925,6 +947,20 @@ mod tests {
             out.windows(2)
                 .all(|pair| pair[0].source.end <= pair[1].source.start)
         );
+    }
+
+    #[test]
+    fn html_examples_in_attributes_and_comments_do_not_create_widgets() {
+        for source in [
+            r#"<user-context example="<b>literal</b>">"#,
+            "<user-context example='<br>'>",
+            "<user-context><!-- <b>example</b> --></user-context>",
+        ] {
+            assert!(!presented_html(source), "{source}");
+            assert!(candidates(&Snapshot::new(source)).is_empty(), "{source}");
+        }
+        assert!(presented_html(r#"<user-context example="<b>"><br>"#));
+        assert!(presented_html("<user-context><!-- example --><b>real</b>"));
     }
 
     #[test]
