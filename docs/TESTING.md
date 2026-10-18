@@ -610,6 +610,17 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   `target/audit-20261018/`。本批是标签显示修正，未宣称所有链接编码问题已解决，
   也未新增原生截图或 Windows 验收。
 
+第五十一批导出 HTML 的本地 URL：
+
+- 删除按斜杠拆分、逐段编码及平台字符串拼接的手工 `file:` URL 构造，改用
+  `url::Url::from_file_path`。旧代码会改写 Unix 文件名中的字面反斜杠，且 Windows
+  UNC 没有按主机与共享路径处理。直接依赖锁文件已有的 `url 2.5.8`，没有升级包。
+- 本地临时程序验证普通路径、空格、中文、`#`、`%`、字面反斜杠和换行的 URL 往返
+  还原，且不产生 query/fragment；相对路径被拒绝。结果在 `export-url-roundtrip.log`。
+  桌面导出定向回归、离线构建检查、工作区 all-targets Clippy、格式及差异检查通过，
+  其他日志前缀为 `export-url-`，均位于 `target/audit-20261018/`。
+  未新增浏览器打开或 Windows UNC 原生验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
