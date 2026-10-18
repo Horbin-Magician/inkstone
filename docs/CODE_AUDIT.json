@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "d9768f9a1118c3520e2ba9684b63f9f134951f2d",
+  "snapshot_revision": "e10c245642dbccf6aa0640124cd5f46d60a70218",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -387,6 +387,16 @@
       "path": "crates/inkstone-desktop/src/workspace/settings_save.rs",
       "checks": "coalescing, ticket ownership, reset/generation guards, explicit retry after failure and recursive latest-state persistence",
       "result": "No new actionable finding in this read; existing state tests inspected; native close/retry acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/hotkeys.rs",
+      "checks": "default/custom precedence, key parsing, reserved bindings, conflict/reset checks, modal and editor-focus routing, recording and focus restoration, all in-file tests",
+      "result": "No new actionable finding in this full read; native IME/platform acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/shortcuts.rs",
+      "checks": "platform translation of defaults only, tab cycling exceptions and macOS replacement shortcut",
+      "result": "No new actionable finding in this full read; native IME/platform acceptance remains separate."
     }
   ],
   "pending_reconciliation": [
@@ -477,7 +487,6 @@
     "crates/inkstone-desktop/src/main.rs",
     "crates/inkstone-desktop/src/native_graphics.rs",
     "crates/inkstone-desktop/src/product.rs",
-    "crates/inkstone-desktop/src/shortcuts.rs",
     "crates/inkstone-desktop/src/test_support.rs",
     "crates/inkstone-desktop/src/theme.rs",
     "crates/inkstone-desktop/src/workspace.rs",
@@ -500,7 +509,6 @@
     "crates/inkstone-desktop/src/workspace/file_sync.rs",
     "crates/inkstone-desktop/src/workspace/focus_reveal.rs",
     "crates/inkstone-desktop/src/workspace/history_catalog.rs",
-    "crates/inkstone-desktop/src/workspace/hotkeys.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/link_updates.rs",
     "crates/inkstone-desktop/src/workspace/links.rs",
