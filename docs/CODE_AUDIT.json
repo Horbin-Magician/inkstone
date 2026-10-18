@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "26aeb2b57067c63af23e2964ff4e69bc04113a6b",
+  "snapshot_revision": "6ebee1749fb9bd1aa9a89364f7d0e4e4333f471f",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1362,6 +1362,16 @@
       "path": "vendor/gpui-component/src/button/button.rs",
       "checks": "Complete read: builder and Base delegation, loading/disabled event blocking, focus and accessible naming, content layout, semantic and gradient state styles, and regression tests. Batch 255 removes two ineffective opacity(1.5) calls; GPUI clamps the factor to 1.",
       "result": "Default and test-support button suites each passed 18 tests after cleanup. Four full vendor configurations passed before this behavior-preserving cleanup. Native visual and screen-reader acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-component/src/button/mod.rs",
+      "checks": "Complete read: module visibility and button family re-exports.",
+      "result": "No newly confirmed runtime defect in this read. Previous four-configuration vendor regression covered existing tests; native animation acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-component/src/button/button_icon.rs",
+      "checks": "Complete read: icon/spinner/progress conversions, loading replacement, size propagation and custom SVG slot tests. Corrected stale variant predicate documentation.",
+      "result": "No newly confirmed runtime defect in this read. Previous four-configuration vendor regression covered existing tests; native animation acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
@@ -1529,9 +1539,7 @@
     "vendor/gpui-component/src/breadcrumb.rs",
     "vendor/gpui-component/src/bubble.rs",
     "vendor/gpui-component/src/button/button_group.rs",
-    "vendor/gpui-component/src/button/button_icon.rs",
     "vendor/gpui-component/src/button/dropdown_button.rs",
-    "vendor/gpui-component/src/button/mod.rs",
     "vendor/gpui-component/src/button/toggle.rs",
     "vendor/gpui-component/src/carousel/carousel.rs",
     "vendor/gpui-component/src/carousel/mod.rs",

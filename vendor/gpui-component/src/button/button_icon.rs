@@ -80,13 +80,13 @@ impl From<ProgressCircle> for ButtonIconVariant {
 }
 
 impl ButtonIconVariant {
-    /// Returns true if the ButtonIconKind is an Icon.
+    /// Returns true if this variant is a Spinner.
     #[inline]
     pub(crate) fn is_spinner(&self) -> bool {
         matches!(self, Self::Spinner(_))
     }
 
-    /// Returns true if the ButtonIconKind is a Progress or ProgressCircle.
+    /// Returns true if this variant is a ProgressCircle.
     #[inline]
     pub(crate) fn is_progress(&self) -> bool {
         matches!(self, Self::Progress(_))
