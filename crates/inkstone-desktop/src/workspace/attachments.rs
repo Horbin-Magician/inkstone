@@ -28,7 +28,8 @@ impl Manager {
                 self.kind.is_none_or(|k| e.kind == k)
                     && (!self.large || e.bytes >= 1024 * 1024)
                     && (!self.unused || e.references.is_empty())
-                    && e.path.to_string_lossy().to_lowercase().contains(&query)
+                    && (query.is_empty()
+                        || e.path.to_string_lossy().to_lowercase().contains(&query))
             })
             .map(|(i, _)| i)
             .collect()
@@ -219,8 +220,8 @@ impl Workspace {
             .child(format!("显示 {} / {} 个附件 · 按大小排序 · 引用包含打开笔记的编辑快照",filtered.len(),m.inventory.entries.len()))
             .when(m.loading,|s|s.child("正在扫描或处理……"))
             .when(!m.message.is_empty(),|s|s.child(m.message.clone()))
-            .child(uniform_list("attachment-list",filtered.len(),cx.processor(|this,range:std::ops::Range<usize>,_,cx| {
-                let Some(m)=&this.ui.attachment_manager else{return vec![];};let filtered=m.filtered(cx);
+            .child(uniform_list("attachment-list",filtered.len(),cx.processor(move |this,range:std::ops::Range<usize>,_,cx| {
+                let Some(m)=&this.ui.attachment_manager else{return vec![];};
                 range.filter_map(|i|{let entry=m.inventory.entries.get(*filtered.get(i)?)?;let path=entry.path.clone();Some(Button::new(("attachment",i)).ghost().when(m.selected.as_ref()==Some(&path),|b|b.primary()).label(format!("{} · {:.1} KiB · {} 篇引用 · {}",entry.kind.label(),entry.bytes as f64/1024.,entry.references.len(),path.display())).on_click(cx.listener(move|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.selected=Some(path.clone());}cx.notify();})).into_any_element())}).collect()
             })).h(px(200.)).w_full())
             .when_some(selected,|s,e| {
@@ -280,6 +281,15 @@ mod tests {
         let image = handle
             .update(cx, |w, window, cx| {
                 let m = w.ui.attachment_manager.as_mut().unwrap();
+                assert_eq!(m.filtered(cx).len(), 2);
+                m.query
+                    .update(cx, |query, cx| query.set_value("IMAGE", window, cx));
+                assert_eq!(m.filtered(cx).len(), 1);
+                m.query
+                    .update(cx, |query, cx| query.set_value("missing", window, cx));
+                assert!(m.filtered(cx).is_empty());
+                m.query
+                    .update(cx, |query, cx| query.set_value("", window, cx));
                 assert_eq!(m.filtered(cx).len(), 2);
                 m.large = true;
                 assert_eq!(m.filtered(cx).len(), 1);
