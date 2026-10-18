@@ -166,8 +166,12 @@ impl Index {
             return Ok(Some(vec![]));
         }
         fn excerpt(text: &str, at: usize) -> String {
-            let skip = text[..at].chars().count().saturating_sub(40);
-            text.chars().skip(skip).take(120).collect()
+            let start = text[..at]
+                .char_indices()
+                .rev()
+                .nth(39)
+                .map_or(0, |(i, _)| i);
+            text[start..].chars().take(120).collect()
         }
         let query = crate::search::Query::parse_with_case(query, case_sensitive)?;
         let mut hits = vec![];

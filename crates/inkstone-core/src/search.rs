@@ -485,12 +485,11 @@ impl Query {
         let snippet = |line: usize, at: usize| {
             let start = starts[line];
             let end = starts.get(line + 1).copied().unwrap_or(text.len());
-            let skip = text[start..at].chars().count().saturating_sub(40);
-            let left = start
-                + text[start..end]
-                    .char_indices()
-                    .nth(skip)
-                    .map_or(end - start, |(i, _)| i);
+            let left = text[start..at]
+                .char_indices()
+                .rev()
+                .nth(39)
+                .map_or(start, |(i, _)| start + i);
             let right = left
                 + text[left..end]
                     .char_indices()
