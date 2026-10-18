@@ -49,8 +49,10 @@ impl Ownership {
             return Err(invalid());
         }
         for (journal, relative) in &links.owners {
+            // Identity strips only the final publication suffix. Legacy journal
+            // basenames may themselves contain dots (for example old.v1.saved).
             if journal.parent() != Some(vault.recovery_dir.as_path())
-                || journal.extension().is_some()
+                || journal.file_name().is_none()
             {
                 return Err(invalid());
             }
@@ -205,6 +207,36 @@ fn rename_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dotted_legacy_journal_names_keep_ownership_after_rename_and_reopen() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("vault")).unwrap();
+        let vault = Vault::open(root.path().join("vault"), root.path().join("recovery")).unwrap();
+        let old = Path::new("old.md");
+        let new = Path::new("new.md");
+        vault.save(old, None, "current").unwrap();
+        let journal = vault.recovery_dir.join("旧记录.v1.saved");
+        let legacy = Recovery {
+            root: vault.root.clone(),
+            relative: old.into(),
+            baseline: None,
+            draft: "legacy".into(),
+        };
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        fs::write(&journal, &bytes).unwrap();
+        assert_eq!(vault.read_history(old, &journal).unwrap().draft, "legacy");
+        vault.rename_note(old, new, "current").unwrap();
+        let reopened = Vault::open(&vault.root, &vault.recovery_dir).unwrap();
+        assert_eq!(
+            reopened.read_history(new, &journal).unwrap().draft,
+            "legacy"
+        );
+        assert!(reopened.history(old).unwrap().is_empty());
+        assert!(reopened.read_history(old, &journal).is_err());
+        assert_eq!(fs::read(journal).unwrap(), bytes);
+        assert_eq!(reopened.read(new).unwrap().as_deref(), Some("current"));
+    }
+
     #[test]
     fn renames_transfer_exact_journals_across_restart_and_path_reuse() {
         let root = std::env::temp_dir().join(format!("inkstone-history-links-{}", unique_id()));
