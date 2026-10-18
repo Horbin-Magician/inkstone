@@ -9,43 +9,60 @@ use gpui::{
 pub(crate) fn with_disabled<E>(
     element: crate::ObservedElement<E>,
     disabled: bool,
-) -> crate::ObservedElement<DisabledElement<E>>
+) -> crate::ObservedElement<AccessibilityElement<E>>
+where
+    E: Element<PrepaintState = Option<Hitbox>> + InteractiveElement,
+{
+    with_control_state(element, disabled, false)
+}
+
+pub(crate) fn with_control_state<E>(
+    element: crate::ObservedElement<E>,
+    disabled: bool,
+    busy: bool,
+) -> crate::ObservedElement<AccessibilityElement<E>>
 where
     E: Element<PrepaintState = Option<Hitbox>> + InteractiveElement,
 {
     #[cfg(feature = "test-support")]
     {
-        element.map_inner(|inner| DisabledElement { inner, disabled })
+        element.map_inner(|inner| AccessibilityElement {
+            inner,
+            disabled,
+            busy,
+        })
     }
     #[cfg(not(feature = "test-support"))]
     {
-        DisabledElement {
+        AccessibilityElement {
             inner: element,
             disabled,
+            busy,
         }
     }
 }
 
 /// No extra layout, hitbox, identity, focus binding or accessibility node.
-pub(crate) struct DisabledElement<E> {
+pub(crate) struct AccessibilityElement<E> {
     inner: E,
     disabled: bool,
+    busy: bool,
 }
 
-impl<E: Element> IntoElement for DisabledElement<E> {
+impl<E: Element> IntoElement for AccessibilityElement<E> {
     type Element = Self;
     fn into_element(self) -> Self {
         self
     }
 }
 
-impl<E: Element + InteractiveElement> InteractiveElement for DisabledElement<E> {
+impl<E: Element + InteractiveElement> InteractiveElement for AccessibilityElement<E> {
     fn interactivity(&mut self) -> &mut Interactivity {
         self.inner.interactivity()
     }
 }
 
-impl<E: Element> Element for DisabledElement<E> {
+impl<E: Element> Element for AccessibilityElement<E> {
     type RequestLayoutState = E::RequestLayoutState;
     type PrepaintState = E::PrepaintState;
 
@@ -96,6 +113,10 @@ impl<E: Element> Element for DisabledElement<E> {
         self.inner.write_a11y_info(node);
         if self.disabled {
             node.set_disabled();
+        }
+        if self.busy {
+            node.set_busy();
+            node.remove_action(gpui::accesskit::Action::Click);
         }
     }
     fn a11y_synthetic_children(

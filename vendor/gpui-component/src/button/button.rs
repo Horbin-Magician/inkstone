@@ -634,7 +634,6 @@ impl RenderOnce for Button {
             .flex_shrink_0()
             .items_center()
             .justify_center()
-            .cursor_default()
             .when(
                 interactive && (self.variant.is_link() || self.variant.is_text()),
                 |this| this.cursor_pointer(),
@@ -771,6 +770,7 @@ impl RenderOnce for Button {
         }))
         .selected(selected)
         .disabled(disabled)
+        .busy(loading)
         // Base layers semantic states over the builder chain, so the caller's
         // own style is replayed inside each state to keep it the closest layer.
         .styles(|styles| {
@@ -826,17 +826,7 @@ impl RenderOnce for Button {
             })
         })
         .when_some(self.on_click, |this, on_click| {
-            this.on_click(move |event, window, cx| {
-                if loading {
-                    cx.stop_propagation();
-                    return;
-                }
-
-                on_click(event, window, cx);
-            })
-        })
-        .when(loading, |this| {
-            this.on_click(|_, _, cx| cx.stop_propagation())
+            this.on_click(move |event, window, cx| on_click(event, window, cx))
         })
         .when_some(self.on_hover.filter(|_| hoverable), |this, on_hover| {
             this.on_hover(move |hovered, window, cx| {
@@ -1522,6 +1512,15 @@ mod tests {
         assert_eq!(button_clicks.get(), 0);
         assert_eq!(parent_clicks.get(), 0);
         cx.update(|window, cx| assert!(window.focused(cx).is_some()));
+        #[cfg(feature = "test-support")]
+        cx.update(|window, _| {
+            let nodes = gpui_base::test_support::snapshots(window);
+            let button = nodes
+                .iter()
+                .find(|node| node.path().last() == Some(&ElementId::from("loading-legacy")))
+                .unwrap();
+            assert_eq!(button.disabled(), Some(true));
+        });
     }
 
     #[gpui::test]
