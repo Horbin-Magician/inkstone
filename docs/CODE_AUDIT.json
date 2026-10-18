@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "c898ab5615072dd6ae8f6dbe3ed751140778d69b",
+  "snapshot_revision": "e01f486a820085e27305ea1b2e127946ad8127ba",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -202,6 +202,26 @@
       "path": "crates/inkstone-desktop/src/background_sync.rs",
       "checks": "Complete source/test read: application-owned task collection, last-window check, completion/error active-count release and multi-window close behavior",
       "result": "No newly confirmed defect. Sources unchanged since consolidated desktop regression (440 passed, 5 ignored); native lifecycle and display performance not newly exercised."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/cloud_sync/cleanup.rs",
+      "checks": "Complete source read: preview/confirmation admission, form fingerprint invalidation, retained running cancellation, old-result rejection, task ticket release and preserved manual local saves",
+      "result": "No newly confirmed defect; unchanged since consolidated desktop regression. Source/test review does not substitute for native accessibility or interaction acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/cloud_sync/cleanup/tests.rs",
+      "checks": "Complete test read: exact HTTP routes, pre-confirmation nonexecution, duplicate activation rejection, stale completion, cancellation lifetime and unsaved/manual-save outcomes",
+      "result": "No newly confirmed defect; unchanged since consolidated desktop regression. Source/test review does not substitute for native accessibility or interaction acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/file_writes.rs",
+      "checks": "Complete source/test read: owner identity, monotonic ticket IDs, exclusive admission, out-of-order/duplicate/foreign completion and independent operation protection",
+      "result": "No newly confirmed defect; unchanged since consolidated desktop regression. Source/test review does not substitute for native accessibility or interaction acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/accessible_text.rs",
+      "checks": "Complete source/test read: full native label text, wrapping and absence of unintended focus/click actions",
+      "result": "No newly confirmed defect; unchanged since consolidated desktop regression. Source/test review does not substitute for native accessibility or interaction acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -309,7 +329,6 @@
     "crates/inkstone-desktop/src/test_support.rs",
     "crates/inkstone-desktop/src/theme.rs",
     "crates/inkstone-desktop/src/workspace.rs",
-    "crates/inkstone-desktop/src/workspace/accessible_text.rs",
     "crates/inkstone-desktop/src/workspace/activity_trace.rs",
     "crates/inkstone-desktop/src/workspace/appearance.rs",
     "crates/inkstone-desktop/src/workspace/attachments.rs",
@@ -319,8 +338,6 @@
     "crates/inkstone-desktop/src/workspace/bookmarks.rs",
     "crates/inkstone-desktop/src/workspace/bulk_edit.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
-    "crates/inkstone-desktop/src/workspace/cloud_sync/cleanup.rs",
-    "crates/inkstone-desktop/src/workspace/cloud_sync/cleanup/tests.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/conflicts.rs",
     "crates/inkstone-desktop/src/workspace/document.rs",
@@ -330,7 +347,6 @@
     "crates/inkstone-desktop/src/workspace/file_drop.rs",
     "crates/inkstone-desktop/src/workspace/file_settings.rs",
     "crates/inkstone-desktop/src/workspace/file_sync.rs",
-    "crates/inkstone-desktop/src/workspace/file_writes.rs",
     "crates/inkstone-desktop/src/workspace/focus_reveal.rs",
     "crates/inkstone-desktop/src/workspace/history_catalog.rs",
     "crates/inkstone-desktop/src/workspace/hotkeys.rs",
