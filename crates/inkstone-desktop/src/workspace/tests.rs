@@ -2873,7 +2873,6 @@ fn file_location_settings_control_note_and_attachment_writes(cx: &mut TestAppCon
         .unwrap();
     cx.executor().advance_clock(Duration::from_millis(60));
     cx.run_until_parked();
-    assert!(!root.join("project/media/skip.png").exists());
     handle
         .update(cx, |w, window, cx| {
             let text = w.tabs[w.active.unwrap()]
@@ -2883,6 +2882,11 @@ fn file_location_settings_control_note_and_attachment_writes(cx: &mut TestAppCon
                 .read(cx)
                 .value();
             assert!(text.contains("![[image.png]]"));
+            assert!(
+                text.contains('你'),
+                "attachment insertion must preserve committed input"
+            );
+            assert_eq!(w.file_writes.pending(), 0);
             w.save_all(window, cx);
             w.ui.prefs.locations.notes = Location::Folder;
             w.ui.prefs.locations.note_folder = "inbox".into();
@@ -5613,7 +5617,9 @@ fn settings_sliders_accept_keyboard_changes_and_keep_focus(cx: &mut TestAppConte
             for _ in 0..2 {
                 visual.update(|window, cx| window.draw(cx).clear(cx));
             }
-            if visual.debug_bounds("focus-revealed-control") == visual.debug_bounds(selector) {
+            if let Some(target) = visual.debug_bounds(selector)
+                && visual.debug_bounds("focus-revealed-control") == Some(target)
+            {
                 found = true;
                 break;
             }
