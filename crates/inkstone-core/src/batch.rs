@@ -185,16 +185,20 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
             tag_edit(&note.text, spec)
         } else {
             let regex = regex.as_ref().unwrap();
-            let matches: Vec<_> = regex.find_iter(&note.text).collect();
-            if matches.iter().any(|m| m.is_empty()) {
-                Err("不支持零宽匹配，请使用匹配具体字符的表达式。".into())
-            } else {
+            let count = regex
+                .find_iter(&note.text)
+                .try_fold(0usize, |count, found| {
+                    (!found.is_empty()).then_some(count + 1)
+                });
+            if let Some(count) = count {
                 let after = if spec.regex {
                     regex.replace_all(&note.text, spec.replacement.as_str())
                 } else {
                     regex.replace_all(&note.text, regex::NoExpand(&spec.replacement))
                 };
-                Ok((after.into_owned(), matches.len()))
+                Ok((after.into_owned(), count))
+            } else {
+                Err("不支持零宽匹配，请使用匹配具体字符的表达式。".into())
             }
         };
         match transformed {
@@ -252,6 +256,23 @@ mod tests {
             descendants: true,
             folder: String::new(),
         }
+    }
+    #[test]
+    fn dense_replacements_count_every_match_and_reject_late_empty_matches() {
+        let mut index = Index::default();
+        index.update("dense.md".into(), "old ".repeat(10_000));
+        let mut s = spec();
+        let result = plan(&index, &s).unwrap();
+        assert_eq!(result.edits.len(), 1);
+        assert_eq!(result.edits[0].count, 10_000);
+        assert_eq!(result.edits[0].after, "新😀$1 ".repeat(10_000));
+        index.update("dense.md".into(), "old tail".into());
+        s.regex = true;
+        s.find = "old|$".into();
+        let result = plan(&index, &s).unwrap();
+        assert!(result.edits.is_empty());
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].contains("零宽"));
     }
     #[test]
     fn literal_regex_scope_and_tag_renaming_preserve_source_boundaries() {
