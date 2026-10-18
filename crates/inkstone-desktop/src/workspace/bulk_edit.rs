@@ -16,7 +16,7 @@ pub(super) struct Review {
     regex: bool,
     case_sensitive: bool,
     descendants: bool,
-    plan: Option<Plan>,
+    plan: Option<Arc<Plan>>,
     selected: BTreeSet<usize>,
     loading: bool,
     message: String,
@@ -171,7 +171,7 @@ impl Workspace {
                                 .join("；")
                         );
                         r.selected = (0..plan.edits.len()).collect();
-                        r.plan = Some(plan);
+                        r.plan = Some(Arc::new(plan));
                         this.select_bulk_preview(0, w, cx);
                     }
                     Err(error) => r.message = error,
@@ -186,13 +186,14 @@ impl Workspace {
         let Some(r) = &self.ui.bulk_edit else {
             return;
         };
-        let Some(edit) = r.plan.as_ref().and_then(|p| p.edits.get(index)).cloned() else {
+        let Some(plan) = r.plan.as_ref().filter(|p| index < p.edits.len()).cloned() else {
             return;
         };
         self.ui.bulk_preview_revision = self.ui.bulk_preview_revision.wrapping_add(1);
         let revision = self.ui.bulk_preview_revision;
         let request = self.ui.recovery_refresh;
         let task = cx.background_executor().spawn(async move {
+            let edit = &plan.edits[index];
             let diff = similar::TextDiff::configure()
                 .timeout(Duration::from_millis(100))
                 .diff_lines(&edit.before, &edit.after);
