@@ -32,6 +32,7 @@ pub struct Checkbox {
     tooltip: ComponentTooltip,
     role: RoleOverride,
     focus_ring_enabled: bool,
+    provided_focus_handle: Option<gpui::FocusHandle>,
 }
 
 impl Checkbox {
@@ -54,6 +55,7 @@ impl Checkbox {
             tooltip: ComponentTooltip::default(),
             role: RoleOverride::default(),
             focus_ring_enabled: true,
+            provided_focus_handle: None,
         }
     }
 
@@ -120,6 +122,11 @@ impl Checkbox {
 impl InteractiveElement for Checkbox {
     fn interactivity(&mut self) -> &mut gpui::Interactivity {
         self.base.interactivity()
+    }
+
+    fn track_focus(mut self, focus_handle: &gpui::FocusHandle) -> Self {
+        self.provided_focus_handle = Some(focus_handle.clone());
+        self
     }
 }
 impl StatefulInteractiveElement for Checkbox {}
@@ -229,10 +236,12 @@ impl RenderOnce for Checkbox {
             .accessibility_label
             .or_else(|| self.label.as_ref().map(|label| label.get_text(cx)));
         let on_click = self.on_click.clone();
-        let focus_handle = window
-            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
-            .read(cx)
-            .clone();
+        let focus_handle = self.provided_focus_handle.unwrap_or_else(|| {
+            window
+                .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+                .read(cx)
+                .clone()
+        });
         let is_focused = focus_handle.is_focused(window);
 
         let unchecked_border = cx.theme().input;
@@ -470,6 +479,15 @@ mod tests {
 
         assert_eq!(clicks.get(), 0);
         assert_eq!(parent_clicks.get(), 1);
+        #[cfg(feature = "test-support")]
+        cx.update(|window, _| {
+            let nodes = gpui_base::test_support::snapshots(window);
+            let checkbox = nodes
+                .iter()
+                .find(|node| node.path().last() == Some(&ElementId::from("checkbox")))
+                .unwrap();
+            assert_eq!(checkbox.disabled(), Some(true));
+        });
         cx.update(|window, cx| assert!(window.focused(cx).is_none()));
     }
 
@@ -498,5 +516,24 @@ mod tests {
             .expect("custom content must prepaint through the Base child seam");
         assert!(bounds.size.width > px(0.));
         assert!(bounds.size.height > px(0.));
+    }
+
+    #[gpui::test]
+    fn caller_focus_handle_is_used_for_tab_focus(cx: &mut TestAppContext) {
+        struct FocusHarness(gpui::FocusHandle);
+        impl Render for FocusHarness {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                Checkbox::new("provided-focus")
+                    .track_focus(&self.0)
+                    .label("Remember me")
+            }
+        }
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, cx| FocusHarness(cx.focus_handle()));
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.focus_next(cx);
+            assert!(view.read(cx).0.is_focused(window));
+        });
     }
 }
