@@ -103,6 +103,12 @@ class InventoryTests(unittest.TestCase):
                     lines.append(f"{digest(path)}  {path.name}\n")
                 (output / (stem + ".sha256")).write_text("".join(lines))
             verify_release(output, "0.1.0")
+            extra = output / "obsolete-package.zip"
+            extra.write_bytes(b"left over from an earlier draft upload")
+            with self.assertRaisesRegex(ValueError, "Unexpected release attachments"):
+                verify_release(output, "0.1.0")
+            extra.unlink()
+            verify_release(output, "0.1.0")
             path.write_bytes(b"corrupt")
             with self.assertRaises(ValueError):
                 verify_release(output, "0.1.0")

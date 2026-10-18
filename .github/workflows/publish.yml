@@ -54,4 +54,7 @@ jobs:
             gh release create "$RELEASE_TAG" --draft --verify-tag --title "墨砚 $RELEASE_TAG" --notes-file "docs/releases/${RELEASE_TAG#v}.md"
           fi
           gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          # Re-read the actual draft: --clobber does not remove older extra assets.
+          gh release download "$RELEASE_TAG" --dir release-uploaded
+          python3 packaging/verify_release.py release-uploaded "${RELEASE_TAG#v}"
           gh release edit "$RELEASE_TAG" --draft=false --latest
