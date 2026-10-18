@@ -451,41 +451,40 @@ fn is_adjacent_batch(intent: EditIntent, previous: &[Change], current: &[Change]
         return false;
     }
 
-    let mut shifts = vec![0isize; previous.len()];
     let mut shift = 0isize;
-    for (index, change) in previous.iter().enumerate().rev() {
-        shifts[index] = shift;
-        shift += change.new_text.len() as isize - change.old_text.len() as isize;
-    }
-
     previous
         .iter()
         .zip(current)
-        .zip(shifts)
-        .all(|((previous, current), shift)| is_adjacent(intent, &previous.shifted(shift), current))
+        .rev()
+        .all(|(previous, current)| {
+            let adjacent = is_adjacent(intent, previous, current, shift);
+            shift += previous.new_text.len() as isize - previous.old_text.len() as isize;
+            adjacent
+        })
 }
 
-fn is_adjacent(intent: EditIntent, previous: &Change, current: &Change) -> bool {
+fn is_adjacent(intent: EditIntent, previous: &Change, current: &Change, shift: isize) -> bool {
+    let shifted = |offset: usize| offset.saturating_add_signed(shift);
     if previous.token_delta.is_some() || current.token_delta.is_some() {
         return false;
     }
     match intent {
         EditIntent::Typing => {
-            previous.old_range.is_empty()
+            shifted(previous.old_range.start) == shifted(previous.old_range.end)
                 && current.old_range.is_empty()
                 && !previous.new_text.contains(['\n', '\r'])
                 && !current.new_text.contains(['\n', '\r'])
-                && previous.new_range.end == current.old_range.start
+                && shifted(previous.new_range.end) == current.old_range.start
         }
         EditIntent::Backspace => {
             previous.new_text.is_empty()
                 && current.new_text.is_empty()
-                && current.old_range.end == previous.old_range.start
+                && current.old_range.end == shifted(previous.old_range.start)
         }
         EditIntent::DeleteForward => {
             previous.new_text.is_empty()
                 && current.new_text.is_empty()
-                && current.old_range.start == previous.old_range.start
+                && current.old_range.start == shifted(previous.old_range.start)
         }
         EditIntent::Atomic => false,
     }
