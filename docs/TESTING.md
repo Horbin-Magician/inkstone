@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，267 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，268 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -2947,6 +2947,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 提交 `980c9b0` 删除 HoverCard 安排任务时的重复 epoch 递增及 next_epoch 辅助函数，直接使用 cancel_tasks 更新后的值。此处为冗余清理，不声称已复现用户可见缺陷或测得性能提升。
 - 重新准备独立 vendor 源码后，hover_card::tests、popup::tests、tooltip::tests 各 3 项通过；日志 `target/audit-20261019/{hover-card,popup,tooltip}-review-tests.log`。工作区 all-targets Clippy（-D warnings）、格式和 diff 检查通过，日志 `hover-card-review-clippy.log`；既有 block 0.1.6 future-incompatibility 提示保留。
 - collapsible.rs 已完整阅读，多次 content 调用配合 reveal 是否会复用元素状态仍待核对，暂不移入已审核清单。此次没有系统鼠标离开窗口、原生触摸或读屏验收证据。
+
+第二百四十九批审核与验证：
+
+- 完成 Base collapsible.rs 审核，台账增至 268 已核对、459 待核对。新增真实布局回归使用两个高 20px/60px 的内容块，展开进度 50%，旧实现复现首块占用 30px 而应为 10px，原因是多个 MotionReveal 使用同一元素 ID 并共享高度缓存。
+- 提交 `00b7407` 在调用方 reveal ID 下按子元素索引区分状态。修复后两个后续标记位置分别为 10px 和 41px；原有普通展开/收起测试与新回归共 2 项通过。日志 `target/audit-20261019/collapsible-reveal-{red,tests,clippy}.log`。
+- 工作区 all-targets Clippy（-D warnings）、工作区/vendor 格式和 diff 检查通过，既有 block 0.1.6 future-incompatibility 提示保留。未测原生展开动画帧耗时。
+- accordion.rs 已完整阅读，禁用状态的无障碍投射和结构角色测试的有效性还需核对，暂未移入已审核清单。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
