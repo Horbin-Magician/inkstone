@@ -779,6 +779,15 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   工作区全目标 Clippy、格式及差异检查通过。未测量整体搜索延迟。
   日志位于 `target/audit-20261018/batched-drafts-{core-tests,search-tests,links-tests,clippy}.log`。
 
+第六十七批链接检查快照复用：
+
+- `8efd50f` 将链接检查的草稿采集按共享编辑器去重，排除无路径的空白标签，并使用
+  `DocumentState::text_snapshot` 的 revision 缓存，避免重复视图和重复检查时再次展开
+  相同正文。保留先刷新视图编辑、跳过输入法组词正文及后台批量索引的原有流程。
+- 既有链接检查回归加入共享正文的第二视图和空白标签，验证外部文件更新与未保存
+  标题仍被同时纳入检查，磁盘正文不变；1 项通过。工作区全目标 Clippy、格式和差异
+  检查通过。日志位于 `target/audit-20261018/link-health-snapshots-{tests,clippy}.log`。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
