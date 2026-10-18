@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "1dea4df0731124f5695737b40b2d2c4e30b9c6da",
+  "snapshot_revision": "66843bdfaf9cd591d7ce7d3c84922dcacebb8c77",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -707,10 +707,24 @@
       "path": "crates/inkstone-core/src/syntax/incremental.rs",
       "checks": "Full production and test read: block eligibility, definitions/comments fallback, fenced interiors, local reparsing, node relocation and line/column adjustment.",
       "result": "No new actionable finding; existing differential tests compare complete AST/styles against full parsing for Unicode, tabs, LF/CRLF/CR and structural edits. Unchanged from batch 193 core full-suite evidence."
+    },
+    {
+      "path": "crates/inkstone-core/Cargo.toml",
+      "checks": "Full read: workspace-inherited package settings, direct/platform/dev dependencies; checked source references including examples and tests.",
+      "result": "All listed dependency names have source references. No dependency removed on reference-count evidence alone; platform compilation remains a separate gate."
+    },
+    {
+      "path": "crates/inkstone-core/src/lib.rs",
+      "checks": "Full read: public/private module declarations and core API boundaries.",
+      "result": "No obsolete module declaration found; private syntax helpers remain internal and existing public modules compile."
+    },
+    {
+      "path": "crates/inkstone-core/src/syntax.rs",
+      "checks": "Full production and test read: parse options, math normalization, inline footnote scanning, shared snapshots, plain-paragraph fast path, HTML attribute extraction and differential tests.",
+      "result": "Fixed CR-only line column calculation in plain-paragraph incremental parsing. Existing differential test extended to CR reproduces wrong columns before fix; syntax 13 passed, workspace Clippy/format passed. Adversarial inline-footnote scan complexity not measured in this batch."
     }
   ],
   "pending_reconciliation": [
-    "crates/inkstone-core/Cargo.toml",
     "crates/inkstone-core/examples/benchmark.rs",
     "crates/inkstone-core/examples/block_benchmark.rs",
     "crates/inkstone-core/examples/formula_benchmark.rs",
@@ -720,9 +734,7 @@
     "crates/inkstone-core/examples/projection_benchmark.rs",
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
     "crates/inkstone-core/src/index/tests.rs",
-    "crates/inkstone-core/src/lib.rs",
     "crates/inkstone-core/src/preview.rs",
-    "crates/inkstone-core/src/syntax.rs",
     "crates/inkstone-core/src/tables.rs",
     "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/backup.rs",
