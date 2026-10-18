@@ -201,6 +201,10 @@ impl Vault {
             .file_stem()
             .ok_or(VaultError::InvalidPath)?
             .to_string_lossy();
+        let reserved: std::collections::HashSet<_> = reserved
+            .iter()
+            .map(|path| crate::index::key(path))
+            .collect();
         for serial in 1u64.. {
             let suffix = if serial == 1 {
                 String::new()
@@ -208,10 +212,7 @@ impl Vault {
                 format!(" {serial}")
             };
             let relative = parent.join(format!("{stem} 副本{suffix}.md"));
-            if reserved.iter().any(|p| {
-                p.to_string_lossy().replace('\\', "/").to_lowercase()
-                    == relative.to_string_lossy().replace('\\', "/").to_lowercase()
-            }) {
+            if reserved.contains(&crate::index::key(&relative)) {
                 continue;
             }
             match fs::symlink_metadata(self.path(&relative)?) {
@@ -1202,13 +1203,25 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn duplication_does_not_confuse_literal_backslashes_with_reserved_directories() {
+        let s = Sandbox::new();
+        let source = Path::new("folder/name.md");
+        s.1.create(source, "original").unwrap();
+        let reserved = vec![PathBuf::from(r"folder\name 副本.md")];
+        let (path, _) = s.1.duplicate_note(source, "draft", &reserved).unwrap();
+        assert_eq!(path, Path::new("folder/name 副本.md"));
+        assert_eq!(s.1.read(source).unwrap().as_deref(), Some("original"));
+        assert_eq!(s.1.read(&path).unwrap().as_deref(), Some("draft"));
+    }
+    #[test]
     fn duplication_preserves_source_and_skips_disk_and_open_document_names() {
         let s = Sandbox::new();
         let source = Path::new("资料/笔记.2026.md");
         s.1.create(source, "磁盘原文").unwrap();
         s.1.create(Path::new("资料/笔记.2026 副本.md"), "不能覆盖")
             .unwrap();
-        let reserved = vec![PathBuf::from("资料/笔记.2026 副本 2.md")];
+        let reserved = vec![PathBuf::from("资料/笔记.2026 副本 2.MD")];
         let draft = "# 新编辑😀\r\n[[目标]]";
         let (path, receipt) = s.1.duplicate_note(source, draft, &reserved).unwrap();
         assert_eq!(path, Path::new("资料/笔记.2026 副本 3.md"));
