@@ -239,7 +239,12 @@ impl Index {
     pub fn resolve(&self, from: &Path, target: &str) -> Resolution {
         self.resolve_literal(
             from,
-            &target.split('#').next().unwrap_or("").replace('\\', "/"),
+            &target
+                .split('#')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .replace('\\', "/"),
         )
     }
     /// Markdown destinations are relative to the containing document, unlike wiki paths.
@@ -281,7 +286,6 @@ impl Index {
         (resolved, heading)
     }
     fn resolve_literal(&self, from: &Path, target: &str) -> Resolution {
-        let target = target.trim();
         if target.is_empty() {
             return Resolution::Found(from.into());
         }
