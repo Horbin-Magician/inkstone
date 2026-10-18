@@ -349,9 +349,8 @@ impl Index {
     /// once from the lookup maps instead of scanning the vault per link.
     fn reindex_backlinks(&mut self) {
         let mut backlinks: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-        let paths: Vec<_> = self.notes.keys().cloned().collect();
-        for from in paths {
-            for target in self.outgoing(&from) {
+        for from in self.notes.keys() {
+            for target in self.outgoing(from) {
                 backlinks.entry(target).or_default().push(from.clone());
             }
         }

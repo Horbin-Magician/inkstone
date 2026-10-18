@@ -67,20 +67,18 @@ impl Index {
             ..Default::default()
         };
         crate::startup_trace::mark("file_scan_done");
-        let paths: Vec<_> = index
+        let mut hits = 0usize;
+        let mut misses = 0usize;
+        for path in index
             .files
             .iter()
             .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("md")))
-            .cloned()
-            .collect();
-        let mut hits = 0usize;
-        let mut misses = 0usize;
-        for path in paths {
-            match vault.read_indexed(&path) {
+        {
+            match vault.read_indexed(path) {
                 Ok(Some((text, times))) => {
                     // Check content, not just size/mtime: sync tools can preserve timestamps.
                     let parsed = cached
-                        .remove(&path)
+                        .remove(path)
                         .filter(|note| note.digest == digest(&text))
                         .map(|note| {
                             hits += 1;
@@ -101,7 +99,7 @@ impl Index {
                 }
                 Ok(None) => (),
                 Err(error) => {
-                    index.errors.insert(path, error.to_string());
+                    index.errors.insert(path.clone(), error.to_string());
                 }
             }
         }
