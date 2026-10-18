@@ -174,12 +174,16 @@ pub fn attachment_link(
         .add(b'(')
         .add(b')')
         .add(b'[')
-        .add(b']');
+        .add(b']')
+        .add(b'<')
+        .add(b'>');
     let label = name
         .replace(['\r', '\n'], " ")
         .replace('\\', "\\\\")
         .replace('[', "\\[")
-        .replace(']', "\\]");
+        .replace(']', "\\]")
+        .replace('<', "\\<")
+        .replace('>', "\\>");
     format!(
         "{prefix}[{label}]({})",
         percent_encoding::utf8_percent_encode(&target, ESCAPE)
@@ -208,7 +212,7 @@ pub fn attachment_destination(
         }
         _ => format!("/{}", to.to_string_lossy().replace('\\', "/")),
     };
-    let markdown = markdown || target.contains(['#', '|', '[', ']', '\r', '\n']);
+    let markdown = markdown || target.contains(['#', '|', '[', ']', '<', '>', '\r', '\n']);
     if !markdown && target.starts_with('/') && target[1..].contains('/') {
         target.remove(0);
     }
@@ -218,11 +222,14 @@ pub fn attachment_destination(
 mod tests {
     use super::*;
     #[test]
-    fn attachment_links_preserve_newline_filenames() {
+    fn attachment_links_preserve_syntax_sensitive_filenames() {
         for name in [
             "line\nbreak.png",
             "paragraph\n\nbreak.png",
             "carriage\rreturn.png",
+            "<image>.png",
+            "less<than.png",
+            "greater>than.png",
         ] {
             let target = PathBuf::from(format!("assets/{name}"));
             let files = vec![target.clone()];
