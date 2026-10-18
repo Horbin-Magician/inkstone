@@ -221,7 +221,7 @@ impl Workspace {
             || self.ui.prefs.sort_by != inkstone_core::file_order::SortBy::Name
         {
             self.ui.tree_folders = self.ui.folders.clone();
-            self.tree_files = files.clone();
+            self.tree_files = files;
             self.rebuild_sorted_tree(cx);
         }
         self.sync_reference_contexts(cx);
@@ -341,7 +341,7 @@ pub(super) fn refresh_created_index(
     Ok((Arc::new(index), tree.folders))
 }
 
-pub(super) fn make_tree(files: &[PathBuf]) -> Vec<TreeItem> {
+pub(super) fn make_tree<'a>(files: impl IntoIterator<Item = &'a std::path::Path>) -> Vec<TreeItem> {
     use std::collections::{BTreeMap, BTreeSet};
     let mut children: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
     for file in files {
