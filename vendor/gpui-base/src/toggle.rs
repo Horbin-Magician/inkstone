@@ -168,7 +168,8 @@ impl RenderOnce for Toggle {
         let style = self.resolved_style();
         let on_change = self.on_change;
 
-        self.base
+        let base = self
+            .base
             .test_support()
             .role(Role::Button)
             // Match Button's neutral control geometry: a fixed-size toggle
@@ -207,7 +208,8 @@ impl RenderOnce for Toggle {
                 },
             )
             .children(self.children)
-            .refine_style(&style)
+            .refine_style(&style);
+        crate::accessibility::with_disabled(base, disabled)
     }
 }
 
@@ -310,6 +312,15 @@ mod tests {
         cx.simulate_click(point(px(10.), px(10.)), Modifiers::default());
         cx.simulate_keystrokes("enter space");
         assert!(changes.borrow().is_empty());
+        #[cfg(feature = "test-support")]
+        cx.update(|window, _| {
+            let nodes = crate::test_support::snapshots(window);
+            let toggle = nodes
+                .iter()
+                .find(|node| node.path().last() == Some(&ElementId::from("toggle")))
+                .unwrap();
+            assert_eq!(toggle.disabled(), Some(true));
+        });
     }
 
     #[gpui::test]
@@ -418,11 +429,10 @@ mod tests {
                 canvas(
                     move |_, window, cx| {
                         let mut info = |toggle: Toggle| {
-                            let mut node = accesskit::Node::new(Role::Button);
-                            toggle
-                                .render(window, cx)
-                                .into_element()
-                                .write_a11y_info(&mut node);
+                            let element = toggle.render(window, cx).into_element();
+                            assert_eq!(element.a11y_role(), Some(Role::Button));
+                            let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+                            element.write_a11y_info(&mut node);
                             node
                         };
                         let enabled = info(
@@ -451,6 +461,8 @@ mod tests {
         assert_eq!(enabled.label(), Some("Bold"));
         assert_eq!(enabled.toggled(), Some(Toggled::True));
         assert!(enabled.supports_action(accesskit::Action::Click));
+        assert!(!enabled.is_disabled());
+        assert!(disabled.is_disabled());
         assert_eq!(disabled.toggled(), Some(Toggled::False));
         assert!(!disabled.supports_action(accesskit::Action::Click));
     }
