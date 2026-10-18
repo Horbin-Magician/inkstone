@@ -64,7 +64,10 @@ impl Workspace {
                     target.push_str(".md");
                 }
                 let entry = crate::editor_links::CompletionPath {
-                    label: path.with_extension("").to_string_lossy().replace('\\', "/"),
+                    label: path
+                        .with_extension("")
+                        .to_string_lossy()
+                        .replace(std::path::MAIN_SEPARATOR, "/"),
                     target,
                     markdown,
                     alias: None,
@@ -132,7 +135,9 @@ impl Workspace {
                 counts.get(&name) == Some(&1),
             );
             entries.push(crate::editor_links::CompletionPath {
-                label: path.to_string_lossy().replace('\\', "/"),
+                label: path
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/"),
                 target,
                 markdown,
                 alias: None,

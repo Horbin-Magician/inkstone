@@ -1306,7 +1306,9 @@ impl Workspace {
                 let name = if tab.path.as_os_str().is_empty() {
                     "新标签页".into()
                 } else {
-                    tab.path.to_string_lossy().replace('\\', "/")
+                    tab.path
+                        .to_string_lossy()
+                        .replace(std::path::MAIN_SEPARATOR, "/")
                 };
                 (
                     tab.id,
