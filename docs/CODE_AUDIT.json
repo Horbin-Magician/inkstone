@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "297a3d255da23cae24056d11c959769edd08416f",
+  "snapshot_revision": "7327fa9bb2d827f30b7f5fdde58c18d02662a289",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1062,6 +1062,11 @@
       "path": "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
       "checks": "Complete read: inventory generation/request guards, retention preview/confirmation, exclusive cleanup tickets and cancellation, restore-as-copy, paging/focus and all twelve module tests.",
       "result": "No new actionable finding. Source byte-identical to bfbde2e version exercised by completed batch223 workspace regression: twelve module tests passed. Verified stale callbacks release tickets without overwriting state, dirty notes remain unsaved, cancelled/failed cleanup preserves required records, and pagers remain keyboard reachable. Native/Windows acceptance remains outstanding."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/modal_ui.rs",
+      "checks": "Complete read: modal detection/focus trap, keyboard picker dispatch, responsive main modal sizing, recovery controls, property type/list/date controls and keyboard reveal regression.",
+      "result": "Removed duplicate command filtering/allocation within one render (7327fa9), sharing the result for empty-state and rows. Nine command-related tests and workspace all-targets Clippy passed; formatter differences corrected and format/diff checks passed. Recovery focus test also passed in batch223. Native popup sizing/focus/accessibility acceptance and latency measurements remain outstanding."
     }
   ],
   "pending_reconciliation": [
@@ -1071,7 +1076,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
-    "crates/inkstone-desktop/src/workspace/modal_ui.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
