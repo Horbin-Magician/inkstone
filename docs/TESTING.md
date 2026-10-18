@@ -2955,6 +2955,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 工作区 all-targets Clippy（-D warnings）、工作区/vendor 格式和 diff 检查通过，既有 block 0.1.6 future-incompatibility 提示保留。未测原生展开动画帧耗时。
 - accordion.rs 已完整阅读，禁用状态的无障碍投射和结构角色测试的有效性还需核对，暂未移入已审核清单。
 
+第二百五十批审核与验证：
+
+- 继续核对 Base accordion.rs。原结构角色测试先构造期望角色的 AccessKit 节点，再检查同一角色，不能证明组件声明正确；提交本批测试改动后，触发器直接检查实际 a11y_role，标题和区域则在 test-support 构建中绘制后读取原生元素属性快照，要求各 ID 唯一且角色正确。
+- 最初尝试直接读取类型擦除后的 AnyElement.a11y_role 得到 None；这不是生产角色丢失的证据，GPUI 在内部元素 prepaint 中创建无障碍节点。已将夹具改为实际绘制后的观察方式，不对外层包装器作错误断言。
+- `--features test-support accordion::tests` 3 项通过；默认构建相关测试 2 项通过，两批有重叠，不累加。日志 `target/audit-20261019/accordion-review-tests.log` 和 `accordion-default-review-tests.log`。格式及 diff 检查通过；本批仅改测试，未重复生产 Clippy。
+- 当前 GPUI StatefulInteractiveElement 无 aria-disabled 设置方法，禁用触发器能阻止点击但不投射 disabled 标记；此限制与 Base button.rs 已记录的上游缺口一致，仍需后续无障碍方案与原生验收。accordion.rs 暂留待核对，计数保持 268/459。新增结构测试依赖显式 test-support 特性，普通 vendor 入口不会执行它，最终验证必须包含该特性配置，不能把默认配置通过视为完整覆盖。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
