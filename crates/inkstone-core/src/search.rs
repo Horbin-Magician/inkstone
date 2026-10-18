@@ -157,9 +157,11 @@ impl Term {
             Field::File => self
                 .pattern
                 .matches(&path.file_name().unwrap_or_default().to_string_lossy()),
-            Field::Path => self
-                .pattern
-                .matches(&path.to_string_lossy().replace('\\', "/")),
+            Field::Path => self.pattern.matches(
+                &path
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/"),
+            ),
             Field::Tag => tags.iter().any(|tag| match &self.pattern {
                 Pattern::Exact(s) => tag_prefix_matches(tag, s),
                 Pattern::Text(s) => tag_prefix_matches(&tag.to_lowercase(), s),
@@ -409,7 +411,9 @@ impl Query {
         let mut ranges = if let Some(expression) = &self.expression {
             expression.title_highlights(path, text, tags)
         } else {
-            let label = path.to_string_lossy().replace('\\', "/");
+            let label = path
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
             let name_start = label.rfind('/').map_or(0, |i| i + 1);
             let mut ranges = vec![];
             for group in self

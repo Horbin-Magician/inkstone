@@ -515,6 +515,24 @@ fn filename_and_path_highlights_follow_successful_query_scopes() {
     assert_eq!(excluded[0].title_highlights.len(), 1);
     assert_eq!(&title[excluded[0].title_highlights[0].clone()], "资料");
 }
+#[cfg(unix)]
+#[test]
+fn literal_backslashes_match_and_highlight_the_displayed_filename() {
+    let mut index = Index::default();
+    let path = PathBuf::from(r"资料/name\part.md");
+    index.update(path.clone(), "body".into());
+    index.update("资料/name/part.md".into(), "body".into());
+    for query in [r"file:/name\\part/", r"path:/name\\part/"] {
+        let hits = index.search(query);
+        assert_eq!(hits.len(), 1, "{query}");
+        assert_eq!(hits[0].path, path);
+        assert_eq!(hits[0].title_highlights.len(), 1, "{query}");
+        assert_eq!(
+            &path.to_str().unwrap()[hits[0].title_highlights[0].clone()],
+            r"name\part"
+        );
+    }
+}
 #[test]
 fn default_search_includes_filename_while_content_scope_excludes_it() {
     let mut index = Index::default();
