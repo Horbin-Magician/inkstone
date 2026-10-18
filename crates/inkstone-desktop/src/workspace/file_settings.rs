@@ -52,7 +52,10 @@ impl Workspace {
             .keys()
             .zip(targets)
             .flat_map(|(path, mut target)| {
-                let markdown = self.ui.prefs.use_markdown_links;
+                // These characters are valid in filenames but carry syntax in
+                // wiki links. Markdown destinations can encode them literally.
+                let markdown = self.ui.prefs.use_markdown_links
+                    || target.contains(['#', '|', '[', ']', '\n', '\r']);
                 if markdown {
                     if target.contains('/') && !target.starts_with('.') && !target.starts_with('/')
                     {
@@ -403,4 +406,78 @@ fn same_completion_targets(previous: &Index, next: &Index) -> bool {
                                 .iter()
                                 .map(|b| &b.id))))
             })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use gpui_component::input::{CompletionProvider, Rope};
+    use inkstone_core::locations::LinkFormat;
+
+    #[gpui::test]
+    async fn note_completions_escape_filenames_that_conflict_with_wiki_syntax(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let from = std::path::Path::new("notes/source.md");
+        for format in [
+            LinkFormat::Shortest,
+            LinkFormat::Relative,
+            LinkFormat::Absolute,
+        ] {
+            let task = handle
+                .update(cx, |w, window, cx| {
+                    w.ui.prefs.link_format = format;
+                    w.ui.prefs.use_markdown_links = false;
+                    for name in ["hash#part", "bracket[name]", "pipe|name", "line\nbreak"] {
+                        Arc::make_mut(&mut w.index)
+                            .update(format!("targets/{name}.md").into(), "# Heading".into());
+                    }
+                    let paths = w.cached_link_paths(from);
+                    crate::editor_links::WikiCompletions(
+                        std::rc::Rc::new(std::cell::RefCell::new(paths)),
+                        None,
+                    )
+                    .completions(
+                        &Rope::from("[["),
+                        2,
+                        lsp_types::CompletionContext {
+                            trigger_kind: lsp_types::CompletionTriggerKind::INVOKED,
+                            trigger_character: None,
+                        },
+                        window,
+                        cx,
+                    )
+                })
+                .unwrap();
+            let lsp_types::CompletionResponse::Array(items) = task.await.unwrap() else {
+                panic!("expected completion array");
+            };
+            assert_eq!(items.len(), 4);
+            handle
+                .update(cx, |w, _, _| {
+                    for item in items {
+                        let Some(lsp_types::CompletionTextEdit::Edit(edit)) = item.text_edit else {
+                            panic!("expected text edit");
+                        };
+                        assert_eq!(
+                            edit.range.start.character, 0,
+                            "must replace the wiki opener"
+                        );
+                        let parsed = inkstone_core::index::parse(&edit.new_text);
+                        assert_eq!(parsed.standard_links.len(), 1, "{}", edit.new_text);
+                        let (resolved, fragment) =
+                            w.index.resolve_markdown(from, &parsed.standard_links[0].0);
+                        assert_eq!(
+                            resolved,
+                            Resolution::Found(format!("targets/{}.md", item.label).into())
+                        );
+                        assert_eq!(fragment, None, "filename hash is not a fragment");
+                    }
+                })
+                .unwrap();
+        }
+    }
 }
