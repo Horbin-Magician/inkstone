@@ -464,7 +464,7 @@ mod tests {
         }
     }
 
-    fn styled<'a>(source: &'a str, kind: Kind) -> Vec<&'a str> {
+    fn styled(source: &str, kind: Kind) -> Vec<&str> {
         spans(source)
             .into_iter()
             .filter(|span| span.kind == kind)
