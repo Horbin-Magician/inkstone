@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "4299741ac319cf84b7bd9e9468c2b8e2967d129f",
+  "snapshot_revision": "6b66a33896ea3b1cdf72697869738293328868fb",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -72,6 +72,16 @@
       "path": "packaging/test_package.py",
       "checks": "inventory mutation coverage, symlink target checks, nested manifests, DMG staging and release asset completeness",
       "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/webdav.rs",
+      "checks": "URL restrictions, redirects, credential-safe errors, bounded responses, fresh body/ETag pairing, conditional publication, streaming upload and completion statuses",
+      "result": "Fixed unconfirmed 2xx object upload acceptance in 6b66a33; 398 core tests passed, 3 ignored; workspace Clippy and format passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/webdav/test_support.rs",
+      "checks": "loopback fixture isolation, request deadlines, Content-Length/body capture, lost-response simulation and exact response sequences",
+      "result": "Read completely; no new actionable finding. Used by transient ETag and upload completion regressions."
     }
   ],
   "pending_reconciliation": [
@@ -152,14 +162,12 @@
     "crates/inkstone-core/src/vault/sync/recovery/residue.rs",
     "crates/inkstone-core/src/vault/sync/recovery/retention.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
-    "crates/inkstone-core/src/vault/sync/webdav.rs",
     "crates/inkstone-core/src/vault/sync/webdav/capacity.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/maintenance.rs",
     "crates/inkstone-core/src/vault/sync/webdav/maintenance/tests.rs",
-    "crates/inkstone-core/src/vault/sync/webdav/test_support.rs",
     "crates/inkstone-core/src/vault/trash_metadata.rs",
     "crates/inkstone-core/src/wiki_links.rs",
     "crates/inkstone-core/src/word_count.rs",
