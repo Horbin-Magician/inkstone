@@ -1191,6 +1191,65 @@ mod tests {
     }
 
     #[gpui::test]
+    fn opening_and_switching_vaults_reads_each_vaults_sync_time(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let server = Server::new();
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-sync-time-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        for name in ["a", "b"] {
+            std::fs::create_dir(root.join(name)).unwrap();
+        }
+        let settings = Settings {
+            url: server.url.clone(),
+            username: "user".into(),
+            auto: false,
+            ..Settings::default()
+        };
+        for name in ["a", "b"] {
+            std::fs::write(
+                root.join(name).join(".inkstone-workspace.json"),
+                serde_json::json!({"webdav": settings}).to_string(),
+            )
+            .unwrap();
+        }
+        let vault = Vault::open(root.join("a"), app_dir().join("recovery")).unwrap();
+        std::fs::write(vault.root.join("note.md"), "synced in A").unwrap();
+        let remote = WebDav::new(&settings, "secret").unwrap();
+        remote.prepare().unwrap();
+        let completed = sync::synchronize(&vault, &remote, &remote.identity())
+            .unwrap()
+            .completed_at_ms;
+        let handle = cx.add_window(Workspace::new);
+        for (name, expected) in [("a", Some(completed)), ("b", None), ("a", Some(completed))] {
+            handle
+                .update(cx, |w, window, cx| {
+                    w.load_vault(root.join(name), window, cx)
+                })
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, _, _| {
+                    assert_eq!(
+                        w.vault.as_ref().unwrap().root,
+                        root.join(name).canonicalize().unwrap()
+                    );
+                    assert_eq!(w.ui.cloud_sync.last_success, expected, "vault {name}");
+                    assert!(!w.ui.cloud_sync.schedule.pending);
+                    assert!(!w.ui.cloud_sync.schedule.busy);
+                    w.watcher = None;
+                })
+                .unwrap();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn opening_a_configured_vault_syncs_without_a_manual_click(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let server = Server::new();

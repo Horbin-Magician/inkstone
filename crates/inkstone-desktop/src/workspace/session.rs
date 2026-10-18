@@ -351,7 +351,6 @@ impl Workspace {
                         let restore_active = prefs.active_path.clone();
                         let restore_active_index = prefs.active_tab_index;
                         this.ui.prefs = prefs;
-                        this.apply_cloud_secret(Some(cloud_secret), window, cx);
                         this.ui.font_size_slider.update(cx, |slider, cx| {
                             slider.set_value(this.ui.prefs.font_size, window, cx);
                         });
@@ -384,6 +383,8 @@ impl Workspace {
                         this.ui.close_pending.clear();
                         this.ui.window_close_requested = false;
                         this.vault = Some(vault);
+                        // Sync history belongs to the newly installed vault.
+                        this.apply_cloud_secret(Some(cloud_secret), window, cx);
                         this.watcher = Some(watcher);
                         this.watch_events = Some(receiver);
                         this.recoveries.clear();
