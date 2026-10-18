@@ -71,7 +71,7 @@ impl InteractiveElement for DatePicker {
     }
 
     fn track_focus(mut self, handle: &gpui::FocusHandle) -> Self {
-        self.base = self.base.track_focus(handle);
+        self.focus_handle = handle.clone();
         self
     }
 }
@@ -108,5 +108,38 @@ impl RenderOnce for DatePicker {
             })
             .refine_style(&self.style)
             .children(self.children)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Context, Render, TestAppContext, px};
+
+    struct FocusProbe {
+        original: FocusHandle,
+        replacement: FocusHandle,
+    }
+
+    impl Render for FocusProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            DatePicker::new("picker", &self.original)
+                .track_focus(&self.replacement)
+                .size(px(100.))
+        }
+    }
+
+    #[gpui::test]
+    fn explicit_focus_binding_replaces_constructor_handle(cx: &mut TestAppContext) {
+        let (probe, cx) = cx.add_window_view(|_, cx| FocusProbe {
+            original: cx.focus_handle(),
+            replacement: cx.focus_handle(),
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.focus_next(cx);
+            assert!(probe.read(cx).replacement.is_focused(window));
+            assert!(!probe.read(cx).original.is_focused(window));
+        });
     }
 }
