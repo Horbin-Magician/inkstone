@@ -463,6 +463,16 @@ impl TabGroupSkin {
         if self.last_displayed_tab.replace(displayed_tab) != displayed_tab {
             if let Some((_, visible_ix)) = displayed_tab {
                 self.scroll_handle.scroll_to_item(visible_ix);
+                // GPUI initializes the viewport and overflow direction after
+                // consuming the first prepaint scroll request. Reveal again
+                // once that initial layout has established the scroll state.
+                if self.scroll_handle.bounds().size.width == px(0.) {
+                    let scroll = self.scroll_handle.clone();
+                    window.on_next_frame(move |window, _| {
+                        scroll.scroll_to_item(visible_ix);
+                        window.refresh();
+                    });
+                }
             }
         }
 
@@ -1343,6 +1353,15 @@ mod tests {
 
     #[gpui::test]
     fn hiding_the_active_panel_scrolls_to_the_displayed_fallback(cx: &mut TestAppContext) {
+        check_tab_reveal(cx, false);
+    }
+
+    #[gpui::test]
+    fn the_initial_active_tab_is_scrolled_into_view(cx: &mut TestAppContext) {
+        check_tab_reveal(cx, true);
+    }
+
+    fn check_tab_reveal(cx: &mut TestAppContext, initially_selected: bool) {
         struct Skin(Rc<TabGroupSkin>);
         impl DockAreaRenderer for Skin {
             fn tab_group_renderer(&self) -> Rc<dyn TabGroupRenderer> {
@@ -1368,21 +1387,24 @@ mod tests {
                 .fold(DockLayout::tabs(), |layout, panel| {
                     layout.panel_view(panel_handle(panel.clone()), cx)
                 })
-                .active_index(0);
+                .active_index(if initially_selected { 15 } else { 0 });
             area.update(cx, |area, cx| area.set_center(layout, window, cx));
             panels
         });
         let draw = |cx: &mut VisualTestContext| {
             cx.run_until_parked();
             cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|window, cx| window.simulate_next_frame(cx));
             cx.update(|window, cx| window.draw(cx).clear(cx));
         };
         draw(cx);
-        cx.update(|window, cx| {
-            area.update(cx, |area, cx| {
-                area.select_panel(PanelId::from(panels[15].entity_id()), window, cx);
-            })
-        });
+        if !initially_selected {
+            cx.update(|window, cx| {
+                area.update(cx, |area, cx| {
+                    area.select_panel(PanelId::from(panels[15].entity_id()), window, cx);
+                })
+            });
+        }
         draw(cx);
         assert!(
             scroll.offset().x < px(0.),
