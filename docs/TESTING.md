@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 代码审核覆盖 | 尚无逐文件审核台账；文件散列清单只证明版本 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
-| Windows 与真实同步 | 本机测试不能证明 Windows 行为；真实 WebDAV 验证不足 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
+| Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 互通通过，但默认弱 ETag、认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
 | 最终回归与发布产物 | 完整本机回归见第 141 批；其后行号修复专项及原生复核通过，最终回归和安装包需更新，Windows 待验证 | 冻结代码版本，工作区测试、Clippy、格式、工具测试、release 构建通过，并验证该版本安装包 |
 
@@ -1740,6 +1740,27 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 证据位于 `target/audit-20261018/`：`direct-dependency-references.json`、
   `direct-dependency-tree.log`、`dependency-module-audit.json`，对应 `00719b8`。
   本轮不改应用或构建代码，不为文档记录重复运行应用回归；差异检查通过。
+
+第一百四十五批真实 Apache WebDAV 互通（2026-10-19）：
+
+- 在 `056d986` 使用 macOS 自带 Apache 2.4.67 与 dav/dav_fs 模块，独立配置、
+  独立根目录，仅监听 127.0.0.1:54374；不改系统 Apache 配置、不使用真实账号。
+  最初 Docker 镜像拉取因注册表 Service Unavailable 失败，改用本机服务。
+- **待处理兼容性发现**：默认 FileETag 在写入后一秒内返回弱标签，当前客户端
+  严格拒绝。直接 HTTP 观测为立即 GET 返回 W/ 标签，1.2 秒后返回强标签；
+  [Apache 2.4.67 源码](https://raw.githubusercontent.com/apache/httpd/2.4.67/modules/http/http_etag.c)
+  的修改时间判定与此一致。不得通过剥掉 W/ 前缀放松并发校验，应考虑有界重读。
+- 随后将隔离服务配置为 FileETag Digest，重新生成两个客户端库，调用实际
+  WebDav 客户端和 synchronize：中英文及 # 文件名、65,536 字节二进制附件
+  上传/下载一致；远端更新回传；并发版本保留本地正文与云端冲突副本；删除传播；
+  无变化时传输计数为零。旧修订 publish 返回 HTTP 412，远端清单保持未变。
+- 主动停止该隔离服务后同步失败，本地离线新笔记与成功基线未改；重启同一服务后
+  重试上传和另一客户端接收均成功。最后正常停止，确认端口不再监听。
+- 这是实际 localhost HTTP 服务互通，不是模拟响应，但没有覆盖认证、TLS、远端
+  服务商或维护清理协议。临时测量 example 已移出源码目录，未改生产逻辑。
+- 证据位于 `target/audit-20261019/` 的 webdav-{initial,digest-initial,offline,resume}.log；
+  `webdav-apache/` 保留默认与 Digest 配置、HTTP 状态日志、etag-observation.json、
+  verification.json、probe.rs 及两组生成库。默认配置的失败不计为通过。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
