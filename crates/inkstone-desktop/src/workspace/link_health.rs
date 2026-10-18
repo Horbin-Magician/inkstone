@@ -35,9 +35,11 @@ impl Workspace {
         let previous_index = self.index.clone();
         let task = cx.background_executor().spawn(async move {
             let mut index = previous_index.refresh_from_disk(&vault)?;
-            for (path, text) in drafts {
-                index.update(path, text.to_string());
-            }
+            index.update_many(
+                drafts
+                    .into_iter()
+                    .map(|(path, text)| (path, text.to_string())),
+            );
             Ok::<_, VaultError>(inkstone_core::link_audit::scan(&vault.root, &index))
         });
         cx.spawn(async move |this, cx| {

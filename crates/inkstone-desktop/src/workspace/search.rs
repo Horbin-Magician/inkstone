@@ -192,12 +192,12 @@ impl Workspace {
             let mut index = index;
             if !drafts.is_empty() {
                 let index = Arc::make_mut(&mut index);
-                for (path, text) in drafts {
-                    if cancelled() {
-                        return None;
-                    }
-                    index.update(path, text.to_string());
-                }
+                index.update_many(
+                    drafts
+                        .into_iter()
+                        .take_while(|_| !cancelled())
+                        .map(|(path, text)| (path, text.to_string())),
+                );
             }
             if cancelled() {
                 return None;

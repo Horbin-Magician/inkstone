@@ -1368,3 +1368,54 @@ fn encoded_backslash_paths_do_not_collide_with_directories() {
         Resolution::Found(nested.into())
     );
 }
+
+#[test]
+fn batched_text_updates_resolve_final_aliases_and_preserve_unchanged_notes() {
+    let mut index = Index::default();
+    index.update("target.md".into(), "---\naliases: [old]\n---\nbody".into());
+    index.update("source.md".into(), "[[old]]".into());
+    index.update("stable.md".into(), "unchanged".into());
+    let stable = index.notes[Path::new("stable.md")].clone();
+    let times = crate::file_order::FileTimes {
+        modified: Some(std::time::SystemTime::UNIX_EPOCH),
+        created: None,
+    };
+    index.set_file_times(Path::new("target.md"), times);
+    index.update_many([
+        (
+            "target.md".into(),
+            "---\naliases: [temporary]\n---\nbody".into(),
+        ),
+        ("source.md".into(), "[[temporary]] [added](added.md)".into()),
+        ("added.md".into(), "new note".into()),
+        (
+            "target.md".into(),
+            "---\naliases: [final]\n---\nbody".into(),
+        ),
+        ("source.md".into(), "[[final]] [added](added.md)".into()),
+        ("stable.md".into(), "unchanged".into()),
+    ]);
+    assert!(Arc::ptr_eq(&stable, &index.notes[Path::new("stable.md")]));
+    assert_eq!(index.notes[Path::new("target.md")].times, times);
+    for target in ["target.md", "added.md"] {
+        assert_eq!(
+            index.backlinks(Path::new(target)),
+            [PathBuf::from("source.md")]
+        );
+    }
+    assert_eq!(
+        index.resolve(Path::new("source.md"), "final"),
+        Resolution::Found("target.md".into())
+    );
+    for alias in ["old", "temporary"] {
+        assert!(matches!(
+            index.resolve(Path::new("source.md"), alias),
+            Resolution::Missing(_)
+        ));
+    }
+    let backlinks = index.backlinks.clone();
+    index.update_many(std::iter::empty());
+    assert!(Arc::ptr_eq(&backlinks, &index.backlinks));
+    index.rebuild_lookup();
+    assert_eq!(*backlinks, *index.backlinks);
+}

@@ -193,10 +193,18 @@ impl Index {
         relocated
     }
     pub fn update(&mut self, path: PathBuf, text: String) {
-        if self.notes.get(&path).is_some_and(|note| note.text == text) {
-            return;
+        self.update_many([(path, text)]);
+    }
+    /// Apply an ordered batch of in-memory texts, rebuilding name-dependent
+    /// backlinks at most once. Repeated paths use the last supplied text.
+    pub fn update_many(&mut self, updates: impl IntoIterator<Item = (PathBuf, String)>) {
+        let mut rebuild_links = false;
+        for (path, text) in updates {
+            if self.notes.get(&path).is_none_or(|note| note.text != text) {
+                rebuild_links |= self.replace_note(path, text);
+            }
         }
-        if self.replace_note(path, text) {
+        if rebuild_links {
             self.reindex_backlinks();
         }
     }
