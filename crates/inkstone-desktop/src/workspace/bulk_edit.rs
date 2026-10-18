@@ -134,6 +134,7 @@ impl Workspace {
         r.loading = true;
         r.plan = None;
         r.selected.clear();
+        r.preview.update(cx, |s, cx| s.set_value("", window, cx));
         r.message = "正在生成预览，尚未修改文件……".into();
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
@@ -323,6 +324,64 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn refreshing_bulk_preview_clears_obsolete_diff_when_no_matches_remain(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-bulk-preview-refresh-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "old").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.vault = Some(vault);
+                w.open_bulk_edit(false, window, cx);
+                let review = w.ui.bulk_edit.as_ref().unwrap();
+                review
+                    .find
+                    .update(cx, |s, cx| s.set_value("old", window, cx));
+                review
+                    .replacement
+                    .update(cx, |s, cx| s.set_value("new", window, cx));
+                w.preview_bulk_edit(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let review = w.ui.bulk_edit.as_ref().unwrap();
+                assert_eq!(review.plan.as_ref().unwrap().edits.len(), 1);
+                assert!(review.preview.read(cx).value().contains("+new"));
+                std::fs::write(root.join("a.md"), "external replacement").unwrap();
+                w.preview_bulk_edit(window, cx);
+                let review = w.ui.bulk_edit.as_ref().unwrap();
+                assert!(review.loading);
+                assert!(review.preview.read(cx).value().is_empty());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                let review = w.ui.bulk_edit.as_ref().unwrap();
+                assert!(!review.loading);
+                assert!(review.plan.as_ref().unwrap().edits.is_empty());
+                assert!(review.selected.is_empty());
+                assert!(review.preview.read(cx).value().is_empty());
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.md")).unwrap(),
+            "external replacement"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[gpui::test]
     fn batch_preview_selection_and_inflight_edit_preservation(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
