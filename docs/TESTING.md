@@ -1594,6 +1594,27 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   `verify-convergence-package.py` 位于其上级目录。未发布或上传产物。
   该检查证明 macOS 包完整性，不证明安装运行、Windows 或 Developer ID 公证。
 
+第一百三十七批发布链路逐文件复核：
+
+| 文件 | 本轮核对范围与结果 |
+| --- | --- |
+| `packaging/release.py` | 稳定版本格式、干净工作区、Cargo 版本、发布说明、标签存在性及原子推送；未执行推送，不能据此证明远端发布成功 |
+| `packaging/verify_release.py` | 两平台六附件精确集合、校验和清单数量与内容、缺件和额外文件拒绝；复用现有验证器，无新生产逻辑 |
+| `.github/workflows/publish.yml` | 标签校验、矩阵依赖、草稿重试、上传后发布顺序；发现并修复远端额外附件遗漏检查 |
+| `.github/workflows/package.yml` | 两平台依赖、测试、打包目录和附件上传范围；仅静态复核，不代表 Windows job 已运行 |
+| `.github/workflows/check.yml` | 工作区、工具与 vendor 检查入口、权限、并发和超时；仅静态复核工作流，实际本机测试见前两批 |
+| `packaging/test_package.py` | 资源清单和完整发布集合的现有断言；补充旧草稿额外附件的拒绝及移除后恢复验证 |
+
+- `62b1f0b` 修复草稿重试时 `--clobber` 只替换同名文件、保留旧附件的问题。
+  上传完成后下载全部草稿附件，再检查两平台文件集合和校验和；失败保持草稿。
+  增加一次全量附件下载，换取对实际上传结果的检查；不自动删除旧附件。
+- 直接提取工作流末尾 Bash 脚本，以隔离的模拟 `gh` 和实际校验器验证：修改前
+  额外附件场景仍执行 publish，修改后正常场景通过，额外附件、损坏、缺件、下载
+  失败及已发布场景均未执行 publish。没有调用真实 GitHub API 或创建 Release。
+- 打包脚本 6 项回归和差异检查通过。证据位于 `target/audit-20261018/`：
+  `check-publish-workflow.py`、`publish-upload-{red,workflow,tests}.log`。
+  此次仅工作流、脚本测试和文档改变，应用代码及上一批验证的二进制未改变。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
