@@ -73,6 +73,7 @@ impl Workspace {
         let drafts = self
             .tabs
             .iter()
+            .filter(|t| !t.path.as_os_str().is_empty())
             .map(|t| (t.path.clone(), t.save.editor.read(cx).value().to_string()))
             .collect();
         self.ui.exporting = true;
@@ -179,6 +180,8 @@ mod tests {
                     .save
                     .editor
                     .update(cx, |s, cx| s.replace_all("# 未保存 😀\r\n", window, cx));
+                w.new_blank(window, cx);
+                assert!(w.tabs.iter().any(|tab| tab.path.as_os_str().is_empty()));
                 w.start_export(
                     "a.md".into(),
                     root.join("export"),
