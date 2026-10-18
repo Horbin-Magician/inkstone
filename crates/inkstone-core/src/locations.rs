@@ -91,7 +91,10 @@ impl Locations {
             if mode == Location::Folder
                 && let Ok(suffix) = Path::new(folder).strip_prefix(old)
             {
-                *folder = new.join(suffix).to_string_lossy().replace('\\', "/");
+                *folder = new
+                    .join(suffix)
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/");
             }
         }
     }
@@ -112,7 +115,7 @@ impl Locations {
         if mode == Location::Current {
             return Ok(current.to_path_buf());
         }
-        let folder = PathBuf::from(folder.trim().replace('\\', "/"));
+        let folder = PathBuf::from(folder.trim().replace(std::path::MAIN_SEPARATOR, "/"));
         if folder.as_os_str().is_empty()
             || folder.components().any(|c| {
                 !matches!(c, Component::Normal(_))
@@ -242,6 +245,38 @@ pub fn attachment_destination(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn relocated_placement_preserves_literal_backslashes_on_disk() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("vault");
+        std::fs::create_dir(&root).unwrap();
+        let vault = crate::vault::Vault::open(root.clone(), temp.path().join("recovery")).unwrap();
+        let mut settings = Locations {
+            notes: Location::Folder,
+            note_folder: "old/notes".into(),
+            attachments: Location::Folder,
+            attachment_folder: "old/assets".into(),
+        };
+        settings.relocate(Path::new("old"), Path::new(r"new\folder"));
+        assert_eq!(
+            settings.directory(None, false).unwrap(),
+            Path::new(r"new\folder/notes")
+        );
+        let folder = settings.directory(None, true).unwrap();
+        let stored = vault
+            .store_attachment_to(&folder, "图.png", b"attachment")
+            .unwrap();
+        assert_eq!(stored, Path::new(r"new\folder/assets/图.png"));
+        assert_eq!(std::fs::read(root.join(&stored)).unwrap(), b"attachment");
+        assert!(!root.join("new/folder").exists());
+        settings.relocate(Path::new(r"new\folder"), Path::new("final"));
+        assert_eq!(
+            settings.directory(None, true).unwrap(),
+            Path::new("final/assets")
+        );
+    }
+
     #[test]
     fn attachment_links_preserve_syntax_sensitive_filenames() {
         for name in [
