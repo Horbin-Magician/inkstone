@@ -2,7 +2,11 @@
 use crate::syntax::Snapshot;
 use markdown_parser::mdast::Node;
 use std::ops::Range;
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -300,6 +304,7 @@ fn footer_document(
         }
     }
     let snapshot = Snapshot::new(&reading.markdown);
+    let hidden: HashSet<_> = hidden.iter().collect();
     let mut ranges = vec![];
     let mut hidden_indices = vec![];
     for node in snapshot
@@ -323,11 +328,13 @@ fn footer_document(
     }
     let mut offset = 0;
     let mut projected_hidden = vec![];
+    let mut hidden_indices = hidden_indices.into_iter().peekable();
     for (i, range) in ranges.iter().enumerate() {
         if i > 0 {
             offset += 2;
         }
-        if hidden_indices.contains(&i) {
+        if hidden_indices.peek() == Some(&i) {
+            hidden_indices.next();
             projected_hidden.push(offset..offset + range.len());
         }
         offset += range.len();
