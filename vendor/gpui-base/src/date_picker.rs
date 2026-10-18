@@ -81,7 +81,8 @@ impl RenderOnce for DatePicker {
         let open = self.open;
         let disabled = self.disabled;
         let handler = self.on_open_change;
-        self.base
+        let base = self
+            .base
             .role(Role::ComboBox)
             .aria_expanded(open)
             .track_focus(&self.focus_handle.tab_stop(!disabled))
@@ -107,7 +108,8 @@ impl RenderOnce for DatePicker {
                 }
             })
             .refine_style(&self.style)
-            .children(self.children)
+            .children(self.children);
+        crate::accessibility::with_disabled(base, disabled)
     }
 }
 
@@ -141,5 +143,79 @@ mod tests {
             assert!(probe.read(cx).replacement.is_focused(window));
             assert!(!probe.read(cx).original.is_focused(window));
         });
+    }
+
+    #[gpui::test]
+    fn native_semantics_report_disabled_and_expanded_state(cx: &mut TestAppContext) {
+        use gpui::{Element as _, accesskit};
+        let (_, cx) = cx.add_window_view(|_, cx| FocusProbe {
+            original: cx.focus_handle(),
+            replacement: cx.focus_handle(),
+        });
+        cx.update(|window, cx| {
+            for disabled in [false, true] {
+                for open in [false, true] {
+                    let focus = cx.focus_handle();
+                    let element = DatePicker::new("semantics", &focus)
+                        .disabled(disabled)
+                        .open(open)
+                        .render(window, cx)
+                        .into_element();
+                    assert_eq!(element.a11y_role(), Some(Role::ComboBox));
+                    let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+                    element.write_a11y_info(&mut node);
+                    assert_eq!(node.is_expanded(), Some(open));
+                    assert_eq!(node.is_disabled(), disabled);
+                }
+            }
+        });
+    }
+
+    struct ActionProbe {
+        focus: FocusHandle,
+        open: bool,
+        disabled: bool,
+        changes: Rc<std::cell::RefCell<Vec<bool>>>,
+    }
+
+    impl Render for ActionProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let changes = self.changes.clone();
+            DatePicker::new("action-picker", &self.focus)
+                .open(self.open)
+                .disabled(self.disabled)
+                .on_open_change(move |open, _, _| changes.borrow_mut().push(open))
+                .size(px(100.))
+        }
+    }
+
+    #[gpui::test]
+    fn confirm_respects_disabled_while_cancel_can_dismiss_an_open_picker(cx: &mut TestAppContext) {
+        for (open, disabled, expected) in [
+            (false, false, vec![true]),
+            (true, false, vec![false, false]),
+            (false, true, vec![]),
+            (true, true, vec![false]),
+        ] {
+            let changes = Rc::new(std::cell::RefCell::new(Vec::new()));
+            let (probe, cx) = cx.add_window_view({
+                let changes = changes.clone();
+                move |_, cx| ActionProbe {
+                    focus: cx.focus_handle(),
+                    open,
+                    disabled,
+                    changes,
+                }
+            });
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                let focus = probe.read(cx).focus.clone();
+                focus.focus(window, cx);
+                window.draw(cx).clear(cx);
+            });
+            cx.dispatch_action(Confirm { secondary: false });
+            cx.dispatch_action(Cancel);
+            assert_eq!(*changes.borrow(), expected);
+        }
     }
 }
