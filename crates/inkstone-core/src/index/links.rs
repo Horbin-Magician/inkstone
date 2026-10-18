@@ -108,15 +108,24 @@ impl Index {
                 let note_target = destination
                     .extension()
                     .is_some_and(|e| e.eq_ignore_ascii_case("md"));
-                // Asset embeds retain Wiki dimensions; Markdown note embeds preserve
-                // transclusion when the destination cannot be expressed in Wiki syntax.
-                if (!embedded || note_target) && path.contains(['#', '|', '[', ']', '\r', '\n']) {
+                if path.contains(['#', '|', '[', ']', '\r', '\n']) {
                     let mut label = String::new();
                     for c in link.label.chars() {
                         if matches!(c, '\\' | '[' | ']' | '|') {
                             label.push('\\');
                         }
                         label.push(if matches!(c, '\r' | '\n') { ' ' } else { c });
+                    }
+                    let image = crate::rendering::image_path(&destination);
+                    if embedded
+                        && image
+                        && let Some((width, height)) =
+                            crate::rendering::image_dimensions(&link.label)
+                    {
+                        label = format!(
+                            "\\|{width}{}",
+                            height.map(|h| format!("x{h}")).unwrap_or_default()
+                        );
                     }
                     let path = percent_encoding::utf8_percent_encode(&path, LINK_PATH_ESCAPE);
                     let fragment = link.target.split_once('#').map_or(String::new(), |(_, s)| {
@@ -125,8 +134,15 @@ impl Index {
                             percent_encoding::utf8_percent_encode(s, LINK_FRAGMENT_ESCAPE)
                         )
                     });
-                    replacements
-                        .push((link.range.clone(), format!("[{label}](/{path}{fragment})")));
+                    if embedded && !note_target && !image {
+                        replacements.push((
+                            link.range.start - 1..link.range.end,
+                            format!("\n\n[附件：{label}](/{path}{fragment})\n\n"),
+                        ));
+                    } else {
+                        replacements
+                            .push((link.range.clone(), format!("[{label}](/{path}{fragment})")));
+                    }
                     continue;
                 }
                 let fragment = link

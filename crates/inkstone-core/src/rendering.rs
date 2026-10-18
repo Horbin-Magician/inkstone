@@ -479,6 +479,17 @@ fn reference_actions(ast: &markdown_parser::mdast::Node) -> Vec<(Range<usize>, A
         definitions: &BTreeMap<String, (String, Option<String>)>,
         out: &mut Vec<(Range<usize>, Action)>,
     ) {
+        if let Node::Image(n) = node
+            && let Some(p) = &n.position
+            && n.alt
+                .rsplit_once('|')
+                .is_some_and(|(_, size)| image_dimensions(size).is_some())
+        {
+            out.push((
+                p.start.offset..p.end.offset,
+                Action::ReferenceImage(n.alt.clone(), n.url.clone(), n.title.clone()),
+            ));
+        }
         if let Node::ImageReference(n) = node
             && let Some(p) = &n.position
             && let Some((url, title)) = definitions.get(&n.identifier.to_lowercase())
@@ -524,14 +535,43 @@ fn label(text: &str) -> String {
         .replace(['\r', '\n'], " ")
 }
 fn image_target(target: &str) -> bool {
-    Path::new(target.split('#').next().unwrap_or(""))
-        .extension()
-        .is_some_and(|e| {
-            matches!(
-                e.to_string_lossy().to_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif"
-            )
-        })
+    image_path(Path::new(target.split('#').next().unwrap_or("")))
+}
+pub(crate) fn image_path(path: &Path) -> bool {
+    path.extension().is_some_and(|e| {
+        matches!(
+            e.to_string_lossy().to_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif"
+        )
+    })
+}
+pub(crate) fn image_dimensions(value: &str) -> Option<(u32, Option<u32>)> {
+    let (width, height) = value
+        .split_once('x')
+        .map_or((value, None), |(w, h)| (w, Some(h)));
+    let width = width
+        .parse::<u32>()
+        .ok()
+        .filter(|w| (1..=10000).contains(w))?;
+    let height = height
+        .and_then(|h| h.parse::<u32>().ok())
+        .filter(|h| (1..=10000).contains(h));
+    Some((width, height))
+}
+
+fn image_attributes(width: u32, height: Option<u32>) -> String {
+    let height = height
+        .map(|h| format!(" height=\"{h}\""))
+        .unwrap_or_default();
+    format!("width=\"{width}\"{height}")
+}
+
+fn html_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 pub fn attachment_target(target: &str) -> bool {
     image_target(target)
@@ -748,9 +788,26 @@ impl Builder<'_> {
                 }
                 Action::ReferenceImage(alt, url, title) => {
                     let uri = self.reference(path, url, false);
-                    let title = reference_title(title);
                     let start = self.output.markdown.len();
-                    self.push(&format!("![{}]({uri}{title})", label(&alt)), None);
+                    if let Some((alt, (width, height))) = alt
+                        .rsplit_once('|')
+                        .and_then(|(alt, size)| image_dimensions(size).map(|size| (alt, size)))
+                    {
+                        let title = title
+                            .map(|t| format!(" title=\"{}\"", html_attribute(&t)))
+                            .unwrap_or_default();
+                        self.push(
+                            &format!(
+                                "<img src=\"{uri}\" alt=\"{}\" {}{title} />",
+                                html_attribute(alt),
+                                image_attributes(width, height)
+                            ),
+                            None,
+                        );
+                    } else {
+                        let title = reference_title(title);
+                        self.push(&format!("![{}]({uri}{title})", label(&alt)), None);
+                    }
                     self.maps.push(SourceMap {
                         output: start..self.output.markdown.len(),
                         path: path.to_path_buf(),
@@ -778,20 +835,12 @@ impl Builder<'_> {
                 Action::Wiki(link, embed) => {
                     let uri = self.reference(path, link.target.clone(), true);
                     if embed && image_target(&link.target) {
-                        let dimensions = link
-                            .label
-                            .split_once('x')
-                            .map(|(w, h)| (w.parse::<u32>().ok(), h.parse::<u32>().ok()))
-                            .unwrap_or_else(|| (link.label.parse::<u32>().ok(), None));
-                        if let (Some(width), height) = dimensions
-                            && (1..=10000).contains(&width)
-                        {
-                            let height = height
-                                .filter(|h| (1..=10000).contains(h))
-                                .map(|h| format!(" height=\"{h}\""))
-                                .unwrap_or_default();
+                        if let Some((width, height)) = image_dimensions(&link.label) {
                             self.push(
-                                &format!("<img src=\"{uri}\" width=\"{width}\"{height} />"),
+                                &format!(
+                                    "<img src=\"{uri}\" {} />",
+                                    image_attributes(width, height)
+                                ),
                                 None,
                             );
                         } else {
@@ -1244,6 +1293,40 @@ mod tests {
         assert!(asset_path(&vault.root, &outside, &index.files).is_none());
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(recovery).unwrap();
+    }
+    #[test]
+    fn markdown_image_dimensions_keep_source_and_attributes() {
+        let index = Index::default();
+        for source in [
+            "![图|160x80](image.png)",
+            "![图|160x80][image]\n\n[image]: image.png",
+        ] {
+            let rendered = reading_document(&index, Path::new("source.md"), source);
+            assert!(
+                rendered.markdown.contains("width=\"160\" height=\"80\""),
+                "{}",
+                rendered.markdown
+            );
+            assert!(rendered.markdown.contains("alt=\"图\""));
+            assert_eq!(rendered.references[0].target, "image.png");
+            assert!(!rendered.references[0].wiki);
+        }
+        for size in ["0", "10001", "-1", "999999999999999999999"] {
+            let source = format!("![图|{size}](image.png)");
+            let rendered = reading_document(&index, Path::new("source.md"), &source);
+            assert!(!rendered.markdown.contains("<img"), "{}", rendered.markdown);
+        }
+        let rendered = reading_document(
+            &index,
+            Path::new("source.md"),
+            "![&quot;&lt;|160](image.png \"&quot;&lt;\")",
+        );
+        assert!(
+            rendered.markdown.contains("alt=\"&quot;&lt;\""),
+            "{}",
+            rendered.markdown
+        );
+        assert!(rendered.markdown.contains("title=\"&quot;&lt;\""));
     }
     #[test]
     fn markdown_note_embeds_keep_sections_tasks_and_cycles() {
