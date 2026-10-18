@@ -36,9 +36,14 @@ def metrics(stdout):
 
 
 def summarize(runs):
+    counts = (1000, 10000)
+    if {run['count'] for run in runs} != set(counts):
+        raise ValueError('expected benchmark runs for exactly 1000 and 10000 notes')
     summary = {}
-    for count in (1000, 10000):
+    for count in counts:
         group = [run for run in runs if run['count'] == count]
+        if len(group) != 3 or {run.get('iteration') for run in group} != {1, 2, 3}:
+            raise ValueError(f'expected distinct rounds 1, 2 and 3 for {count} notes')
         names = set(group[0]['metrics'])
         if not names or any(set(run['metrics']) != names for run in group):
             raise ValueError(f'inconsistent or empty timing metrics for {count} notes')
