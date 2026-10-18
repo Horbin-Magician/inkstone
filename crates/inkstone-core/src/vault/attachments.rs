@@ -4,7 +4,6 @@ use crate::{
     index::Index,
     rendering::{self, Reference},
 };
-use markdown_parser::mdast::Node;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,37 +58,24 @@ pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Invento
     }
     let mut uses: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
     for (path, note) in &index.notes {
-        let snapshot = crate::syntax::Snapshot::new(&note.text);
-        let mut refs: Vec<_> = note
+        let refs = note
             .parsed
             .links
             .iter()
-            .map(|l| (l.target.clone(), true))
-            .collect();
-        // Read decoded AST destinations, including reference definitions and escapes.
-        fn walk(node: &Node, refs: &mut Vec<(String, bool)>) {
-            match node {
-                Node::Link(n) => refs.push((n.url.clone(), false)),
-                Node::Image(n) => refs.push((n.url.clone(), false)),
-                Node::Definition(n) => refs.push((n.url.clone(), false)),
-                _ => (),
-            }
-            if let Some(children) = node.children() {
-                for n in children {
-                    walk(n, refs);
-                }
-            }
-        }
-        if let Some(ast) = &snapshot.ast {
-            walk(ast, &mut refs);
-            refs.extend(
+            .map(|link| (link.target.clone(), true))
+            .chain(
+                note.parsed
+                    .destination_urls
+                    .iter()
+                    .cloned()
+                    .map(|url| (url, false)),
+            )
+            .chain(
                 note.parsed
                     .html_destinations
                     .iter()
-                    .cloned()
-                    .map(|(_, url)| (url, false)),
+                    .map(|(_, url)| (url.clone(), false)),
             );
-        }
         for (target, wiki) in refs {
             if let Some(full) = rendering::asset_path(
                 &vault.root,
@@ -198,6 +184,36 @@ mod tests {
             assert_eq!(
                 fs::read(vault.root.join(name)).unwrap(),
                 b"original attachment"
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn decoded_destinations_and_drafts_remain_protected() {
+        let root =
+            std::env::temp_dir().join(format!("inkstone-attachment-escapes-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        for name in ["a(b).png", "a&b.png", "unused.png"] {
+            fs::write(vault.root.join(name), b"fixture").unwrap();
+        }
+        let source = "![escaped](a\\(b\\).png)\n![entity](a&amp;b.png)\n\n[unused-definition]: a(b).png\n\n`![code](unused.png)`\n\n%% ![comment](unused.png) %%";
+        fs::write(vault.root.join("source.md"), source).unwrap();
+        let inventory = scan(&vault, &BTreeMap::new()).unwrap();
+        for entry in &inventory.entries {
+            if entry.path == Path::new("unused.png") {
+                assert!(entry.references.is_empty());
+            } else {
+                assert_eq!(entry.references, vec![PathBuf::from("source.md")]);
+                assert!(trash_unused(&vault, entry, &BTreeMap::new()).is_err());
+            }
+        }
+        let drafts = BTreeMap::from([("source.md".into(), "![draft](unused.png)".into())]);
+        let changed = scan(&vault, &drafts).unwrap();
+        for entry in &changed.entries {
+            assert_eq!(
+                entry.references.is_empty(),
+                entry.path != Path::new("unused.png")
             );
         }
         fs::remove_dir_all(root).unwrap();
