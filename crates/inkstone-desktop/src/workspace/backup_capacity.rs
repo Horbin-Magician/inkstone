@@ -156,6 +156,7 @@ impl Workspace {
     }
     fn retain_interrupted_backup(&mut self, index: usize, cx: &mut Context<Self>) {
         if self.ui.backup.busy
+            || self.ui.backup.picker_open
             || self.ui.backup.pending.is_some()
             || self.ui.backup.capacity.loading
             || self.ui.backup.capacity.directory != self.ui.prefs.backup.directory
@@ -323,7 +324,7 @@ impl Workspace {
                         div().flex().flex_col().gap_1().min_w_0().debug_selector(move || format!("backup-interrupted-{i}"))
                             .child(div().whitespace_normal().child(path.to_string_lossy().to_string()))
                             .child(FocusReveal::new((ElementId::from(("backup-interrupted-retain-focus", i)), "focus"), &self.ui.settings_scroll,
-                                Button::new(("backup-cleanup-interrupted-retain", i)).label("校验并保留为备份").accessibility_label(format!("校验并保留为备份：{}", path.display())).tooltip(path.to_string_lossy().to_string()).disabled(self.ui.backup.busy || self.ui.backup.pending.is_some() || self.ui.backup.capacity.loading).on_click(cx.listener(move |this, _, _, cx| this.retain_interrupted_backup(i, cx)))))
+                                Button::new(("backup-cleanup-interrupted-retain", i)).label("校验并保留为备份").accessibility_label(format!("校验并保留为备份：{}", path.display())).tooltip(path.to_string_lossy().to_string()).disabled(self.ui.backup.busy || self.ui.backup.picker_open || self.ui.backup.pending.is_some() || self.ui.backup.capacity.loading).on_click(cx.listener(move |this, _, _, cx| this.retain_interrupted_backup(i, cx)))))
                             .child(FocusReveal::new((ElementId::from(("backup-interrupted-partial-focus", i)), "focus"), &self.ui.settings_scroll,
                                 Button::new(("backup-interrupted-partial", i)).label("校验剩余文件并恢复副本……").accessibility_label(format!("校验剩余文件并恢复副本：{}", path.display())).disabled(self.ui.backup.busy || self.ui.backup.picker_open || state.loading).on_click(cx.listener(move |this, _, _, cx| this.inspect_partial_backup(i, cx)))))
                             .child(FocusReveal::new((ElementId::from(("backup-interrupted-reveal-focus", i)), "focus"), &self.ui.settings_scroll,
@@ -512,6 +513,11 @@ mod tests {
                         .iter()
                         .all(|r| r.decision == Decision::IncompleteInventory)
                 );
+                w.ui.backup.picker_open = true;
+                w.retain_interrupted_backup(0, cx);
+                assert!(!w.ui.backup.busy);
+                assert_eq!(w.file_writes.pending(), 0);
+                w.ui.backup.picker_open = false;
                 w.retain_interrupted_backup(0, cx);
                 w.retain_interrupted_backup(0, cx);
                 assert_eq!(w.file_writes.pending(), 1);
