@@ -678,6 +678,49 @@ fn search_excerpts_include_late_matches_and_metadata_hits_are_not_repeated() {
     assert_eq!(index.search("file:note").len(), 1);
 }
 #[test]
+fn metadata_only_search_uses_a_bounded_first_line_preview() {
+    let mut index = Index::default();
+    for text in [
+        String::new(),
+        "\nsecond line".into(),
+        "first line\r\nsecond line".into(),
+        format!("{}\n#work second line", "前😀e\u{301}".repeat(10_000)),
+    ] {
+        index.update("folder/note.md".into(), text.clone());
+        let mut queries = vec![
+            "file:note",
+            "path:folder",
+            "-absent",
+            "note",
+            "file:note OR absent",
+        ];
+        if text.contains("#work") {
+            queries.push("tag:work");
+        }
+        for query in queries {
+            let hits = index.search(query);
+            assert_eq!(hits.len(), 1, "{query}");
+            let hit = &hits[0];
+            assert_eq!(hit.offset, 0, "{query}");
+            assert_eq!(hit.line, 1, "{query}");
+            assert_eq!(
+                hit.excerpt,
+                text.split('\n')
+                    .next()
+                    .unwrap()
+                    .chars()
+                    .take(120)
+                    .collect::<String>()
+            );
+            assert!(hit.highlights.is_empty(), "{query}");
+            if query == "file:note" {
+                assert_eq!(hit.title_highlights.len(), 1);
+                assert_eq!(&"folder/note.md"[hit.title_highlights[0].clone()], "note");
+            }
+        }
+    }
+}
+#[test]
 fn search_excerpt_context_is_bounded_in_unicode_characters() {
     let mut index = Index::default();
     for count in [0, 1, 39, 40, 41, 10_000] {

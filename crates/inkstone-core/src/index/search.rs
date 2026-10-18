@@ -165,14 +165,6 @@ impl Index {
         if limit == 0 {
             return Ok(Some(vec![]));
         }
-        fn excerpt(text: &str, at: usize) -> String {
-            let start = text[..at]
-                .char_indices()
-                .rev()
-                .nth(39)
-                .map_or(0, |(i, _)| i);
-            text[start..].chars().take(120).collect()
-        }
         let query = crate::search::Query::parse_with_case(query, case_sensitive)?;
         let mut hits = vec![];
         // Before reaching the cap, discard nonmatches without sorting them.
@@ -226,23 +218,19 @@ impl Index {
                 });
             }
             if hits.len() == before {
-                let at = query
-                    .first_offset(path, &note.text, &note.parsed.tags)
-                    .unwrap_or(0);
-                let start = note.text[..at].rfind('\n').map_or(0, |i| i + 1);
-                let end = note.text[at..]
-                    .find('\n')
-                    .map_or(note.text.len(), |i| at + i);
+                // Any body match already produced a line hit. Metadata-only
+                // matches use the first line without running the query again.
                 hits.push(SearchHit {
                     path: path.clone(),
                     display_name: None,
-                    offset: at,
-                    line: note.text[..at]
-                        .bytes()
-                        .filter(|byte| *byte == b'\n')
-                        .count()
-                        + 1,
-                    excerpt: excerpt(&note.text[start..end], at - start),
+                    offset: 0,
+                    line: 1,
+                    excerpt: note
+                        .text
+                        .chars()
+                        .take_while(|ch| *ch != '\n')
+                        .take(120)
+                        .collect(),
                     highlights: vec![],
                     title_highlights,
                 });
