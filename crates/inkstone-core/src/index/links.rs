@@ -10,6 +10,8 @@ const LINK_PATH_ESCAPE: &percent_encoding::AsciiSet = &percent_encoding::CONTROL
     .add(b' ')
     .add(b'#')
     .add(b'%')
+    .add(b'<')
+    .add(b'>')
     .add(b'(')
     .add(b')');
 
