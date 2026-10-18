@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "e10c245642dbccf6aa0640124cd5f46d60a70218",
+  "snapshot_revision": "66326b913f328315d21296512d6cd45cffa4d00a",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -397,6 +397,16 @@
       "path": "crates/inkstone-desktop/src/shortcuts.rs",
       "checks": "platform translation of defaults only, tab cycling exceptions and macOS replacement shortcut",
       "result": "No new actionable finding in this full read; native IME/platform acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/focus_reveal.rs",
+      "checks": "stable keyed focus identity, descendant change detection, vertical viewport adjustment and no extra tab stop",
+      "result": "No new actionable finding in this full read. Source unchanged since batch 152 desktop regression; relevant existing tests inspected, native acceptance still separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/tree_name.rs",
+      "checks": "UI-only placeholder, parent expansion and focus, cancellation, composition guard, invalid names/collisions, dirty/save/conflict gates and retained rename target",
+      "result": "No new actionable finding in this full read. Source unchanged since batch 152 desktop regression; relevant existing tests inspected, native acceptance still separate."
     }
   ],
   "pending_reconciliation": [
@@ -507,7 +517,6 @@
     "crates/inkstone-desktop/src/workspace/file_drop.rs",
     "crates/inkstone-desktop/src/workspace/file_settings.rs",
     "crates/inkstone-desktop/src/workspace/file_sync.rs",
-    "crates/inkstone-desktop/src/workspace/focus_reveal.rs",
     "crates/inkstone-desktop/src/workspace/history_catalog.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/link_updates.rs",
@@ -532,7 +541,6 @@
     "crates/inkstone-desktop/src/workspace/table_editor.rs",
     "crates/inkstone-desktop/src/workspace/tabs.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
-    "crates/inkstone-desktop/src/workspace/tree_name.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
     "crates/inkstone-desktop/src/workspace/updates.rs",
     "crates/inkstone-desktop/src/workspace/views.rs",
