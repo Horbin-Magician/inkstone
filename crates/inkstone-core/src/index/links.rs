@@ -12,8 +12,12 @@ const LINK_PATH_ESCAPE: &percent_encoding::AsciiSet = &percent_encoding::CONTROL
     .add(b'%')
     .add(b'<')
     .add(b'>')
+    .add(b'[')
+    .add(b']')
+    .add(b'|')
     .add(b'(')
     .add(b')');
+const LINK_FRAGMENT_ESCAPE: &percent_encoding::AsciiSet = &LINK_PATH_ESCAPE.remove(b'%');
 
 fn normalized(path: &Path) -> Option<PathBuf> {
     let mut result = PathBuf::new();
@@ -85,6 +89,38 @@ impl Index {
                 if destination == target && source == *from {
                     continue;
                 }
+                let path = destination.to_string_lossy().replace('\\', "/");
+                let embedded = link.range.start.checked_sub(1).is_some_and(|i| {
+                    note.text.as_bytes()[i] == b'!'
+                        && note.text[..i]
+                            .bytes()
+                            .rev()
+                            .take_while(|b| *b == b'\\')
+                            .count()
+                            % 2
+                            == 0
+                });
+                // Wiki syntax cannot represent these path characters. Keep embeds in
+                // their existing syntax until Markdown note transclusion is supported.
+                if !embedded && path.contains(['#', '|', '[', ']', '\r', '\n']) {
+                    let mut label = String::new();
+                    for c in link.label.chars() {
+                        if c.is_ascii_punctuation() {
+                            label.push('\\');
+                        }
+                        label.push(if matches!(c, '\r' | '\n') { ' ' } else { c });
+                    }
+                    let path = percent_encoding::utf8_percent_encode(&path, LINK_PATH_ESCAPE);
+                    let fragment = link.target.split_once('#').map_or(String::new(), |(_, s)| {
+                        format!(
+                            "#{}",
+                            percent_encoding::utf8_percent_encode(s, LINK_FRAGMENT_ESCAPE)
+                        )
+                    });
+                    replacements
+                        .push((link.range.clone(), format!("[{label}](/{path}{fragment})")));
+                    continue;
+                }
                 let fragment = link
                     .target
                     .split_once('#')
@@ -93,15 +129,14 @@ impl Index {
                 let alias = raw[2..raw.len() - 2]
                     .split_once('|')
                     .map_or(String::new(), |(_, s)| format!("|{s}"));
-                let destination = if destination
+                let target = if destination
                     .extension()
                     .is_some_and(|e| e.eq_ignore_ascii_case("md"))
                 {
-                    destination.with_extension("")
+                    &path[..path.len() - 3]
                 } else {
-                    destination
+                    &path
                 };
-                let target = destination.to_string_lossy().replace('\\', "/");
                 replacements.push((
                     link.range.clone(),
                     format!("[[/{target}{fragment}{alias}]]"),

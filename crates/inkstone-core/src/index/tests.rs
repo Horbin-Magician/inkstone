@@ -1039,3 +1039,50 @@ fn markdown_relocation_preserves_syntax_with_special_filenames() {
         }
     }
 }
+
+#[test]
+fn wiki_reference_relocation_preserves_special_filenames_and_labels() {
+    for filename in [
+        "hash#name.md",
+        "pipe|name.md",
+        "bracket[name].md",
+        "line\nname.md",
+        "nested/hash#name.md",
+    ] {
+        for text in [
+            "[[target]]",
+            "[[target#heading]]",
+            "[[target#heading|literal.label]]",
+            "[[target#with%20space]]",
+            "\\![[target#heading]]",
+            "| Link |\n| --- |\n| [[target#heading]] |",
+        ] {
+            let mut index = Index::default();
+            let from = Path::new("source.md");
+            let old = Path::new("target.md");
+            let new = Path::new(filename);
+            index.update(from.into(), text.into());
+            index.update(old.into(), "# heading".into());
+            let edits = index.relocation_edits(old, new, false, None);
+            let after = &edits.iter().find(|(path, _, _)| path == from).unwrap().2;
+            let parsed = parse(after);
+            assert_eq!(parsed.destinations.len(), 1, "{filename}: {after}");
+            index.update(new.into(), "# heading".into());
+            assert_eq!(
+                index.resolve_markdown(from, &parsed.destinations[0].1),
+                (
+                    Resolution::Found(new.into()),
+                    if text.contains("#with%20space") {
+                        Some("with space".into())
+                    } else {
+                        text.contains("#heading").then(|| "heading".into())
+                    }
+                ),
+                "{filename}: {after}"
+            );
+            if text.contains("literal.label") {
+                assert!(after.starts_with("[literal\\.label]"), "{after}");
+            }
+        }
+    }
+}
