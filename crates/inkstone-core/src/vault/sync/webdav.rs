@@ -52,7 +52,7 @@ impl WebDav {
             .timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent("Inkstone/0.1 WebDAV")
+            .user_agent(concat!("Inkstone/", env!("CARGO_PKG_VERSION"), " WebDAV"))
             .build()
             .context("无法初始化 WebDAV 客户端")?;
         Ok(Self {
