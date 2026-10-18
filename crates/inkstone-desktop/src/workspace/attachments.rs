@@ -64,6 +64,10 @@ impl Workspace {
         self.refresh_attachments(window, cx);
     }
     fn refresh_attachments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Cleanup may finish after the panel closes; avoid collecting unused drafts.
+        if self.ui.attachment_manager.is_none() {
+            return;
+        }
         let Some(vault) = self.vault.clone() else {
             return;
         };
