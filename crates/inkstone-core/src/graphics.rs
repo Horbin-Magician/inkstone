@@ -59,6 +59,7 @@ pub fn render_svg(kind: Kind, source: &str, light: bool) -> Result<Arc<[u8]>> {
     .map_err(|_| anyhow::anyhow!("渲染器无法处理此内容"))?
 }
 
+#[derive(PartialEq, Eq)]
 struct LayoutKey {
     kind: Kind,
     light: bool,
@@ -91,18 +92,34 @@ fn cached_math_layout(
     let mut cache = MATH_LAYOUTS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if cache.len() >= LAYOUT_LIMIT {
-        cache.remove(0);
-    }
-    cache.push((
+    Ok(remember_layout(
+        &mut cache,
         LayoutKey {
             kind,
             light,
             source: Arc::from(source),
         },
-        list.clone(),
-    ));
-    Ok(list)
+        list,
+    ))
+}
+
+fn remember_layout(
+    cache: &mut Vec<CachedLayout>,
+    key: LayoutKey,
+    list: Arc<ratex_types::display_item::DisplayList>,
+) -> Arc<ratex_types::display_item::DisplayList> {
+    // Layout runs outside the lock, so another caller may have filled this key.
+    if let Some(index) = cache.iter().position(|(cached, _)| *cached == key) {
+        let hit = cache.remove(index);
+        let existing = hit.1.clone();
+        cache.push(hit);
+        return existing;
+    }
+    if cache.len() >= LAYOUT_LIMIT {
+        cache.remove(0);
+    }
+    cache.push((key, list.clone()));
+    list
 }
 
 fn math_layout(
@@ -210,6 +227,28 @@ fn validate_size(width: f32, height: f32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn duplicate_layout_completion_reuses_cached_result_without_evicting_other_formulas() {
+        let canonical = Arc::new(math_layout("x", false, true).unwrap());
+        let redundant = Arc::new(math_layout("x", false, true).unwrap());
+        let key = |index| LayoutKey {
+            kind: Kind::InlineMath,
+            light: true,
+            source: Arc::from(format!("x+{index}")),
+        };
+        let mut cache = Vec::new();
+        for index in 0..LAYOUT_LIMIT {
+            remember_layout(&mut cache, key(index), canonical.clone());
+        }
+        // A second computation started on a cache miss but finishes after the first.
+        let reused = remember_layout(&mut cache, key(LAYOUT_LIMIT / 2), redundant);
+        assert!(Arc::ptr_eq(&reused, &canonical));
+        assert_eq!(cache.len(), LAYOUT_LIMIT);
+        assert!(cache.iter().any(|(key, _)| &*key.source == "x+0"));
+        remember_layout(&mut cache, key(LAYOUT_LIMIT), canonical);
+        assert!(!cache.iter().any(|(key, _)| &*key.source == "x+0"));
+    }
+
     #[test]
     fn native_math_covers_required_formulas_with_outlined_fonts_and_baselines() {
         let snapshot =
