@@ -5,7 +5,7 @@ from backend import metrics, summarize
 class MetricsTest(unittest.TestCase):
     def runs(self):
         return [{'count': count, 'metrics': {'index_build_ms': value},
-                 'process_peak_rss_bytes': value * 100}
+                 'process_peak_rss_bytes': value * 100, 'iteration': value}
                 for count in (1000, 10000) for value in (3, 1, 2)]
 
     def test_summary_keeps_medians_for_both_corpus_sizes(self):
@@ -13,6 +13,30 @@ class MetricsTest(unittest.TestCase):
             count: {'index_build_ms': 2, 'process_peak_rss_bytes': 200}
             for count in (1000, 10000)
         })
+
+    def test_summary_rejects_missing_and_unexpected_corpus_sizes(self):
+        for runs in ([], self.runs()[:3], self.runs()[3:],
+                     self.runs() + [{'count': 100, 'iteration': 1}]):
+            with self.subTest(counts=[run['count'] for run in runs]):
+                with self.assertRaises(ValueError):
+                    summarize(runs)
+
+    def test_summary_requires_three_distinct_rounds_per_size(self):
+        for count in (1000, 10000):
+            for mode in ('missing', 'extra', 'duplicate', 'unnumbered'):
+                with self.subTest(count=count, mode=mode):
+                    runs = self.runs()
+                    run = next(run for run in runs if run['count'] == count)
+                    if mode == 'missing':
+                        runs.remove(run)
+                    elif mode == 'extra':
+                        runs.append(dict(run))
+                    elif mode == 'duplicate':
+                        run['iteration'] = 1
+                    else:
+                        del run['iteration']
+                    with self.assertRaises(ValueError):
+                        summarize(runs)
 
     def test_summary_rejects_empty_or_inconsistent_metrics(self):
         for count in (1000, 10000):
