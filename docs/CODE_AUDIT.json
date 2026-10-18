@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "a3a730367bbadafb72b620a457c3a199286a25d2",
+  "snapshot_revision": "6eaa54af33661e33ab612ef6d57d9b71b7061cd3",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1512,6 +1512,31 @@
       "path": "vendor/gpui-base/src/dock/test_support.rs",
       "checks": "shared lifecycle log, test panel visibility/zoom state, group setup and focus delegation",
       "result": "No new actionable finding in this read; test helpers are not native acceptance."
+    },
+    {
+      "path": "vendor/gpui-component/src/dock/mod.rs",
+      "checks": "public re-exports, registry initialization, skin ownership, settings notification and export consistency test",
+      "result": "No new actionable finding in this read. Component dock tests pass in default and test-support configurations (24 each); native acceptance remains."
+    },
+    {
+      "path": "vendor/gpui-component/src/dock/panel.rs",
+      "checks": "presentation traits, concrete type-erased handle, lifecycle/persistence delegation and restoration tests",
+      "result": "No new actionable finding in this read. Component dock tests pass in default and test-support configurations (24 each); native acceptance remains."
+    },
+    {
+      "path": "vendor/gpui-component/src/dock/invalid_panel.rs",
+      "checks": "unknown-panel placeholder construction, retained state dump and fallback rendering",
+      "result": "No new actionable finding in this read. Component dock tests pass in default and test-support configurations (24 each); native acceptance remains."
+    },
+    {
+      "path": "vendor/gpui-component/src/dock/dock.rs",
+      "checks": "renderer layout ownership, placeholder construction, per-placement resize identities, window listeners and pointer resize tests",
+      "result": "No new actionable finding in this read. Component dock tests pass in default and test-support configurations (24 each); native acceptance remains."
+    },
+    {
+      "path": "vendor/gpui-component/src/dock/test_support.rs",
+      "checks": "measurement probes, focus handles, visibility notifications and layout measurement callbacks",
+      "result": "No new actionable finding in this read. Component dock tests pass in default and test-support configurations (24 each); native acceptance remains."
     }
   ],
   "pending_reconciliation": [
@@ -1686,12 +1711,7 @@
     "vendor/gpui-component/src/dialog/header.rs",
     "vendor/gpui-component/src/dialog/mod.rs",
     "vendor/gpui-component/src/dialog/title.rs",
-    "vendor/gpui-component/src/dock/dock.rs",
-    "vendor/gpui-component/src/dock/invalid_panel.rs",
-    "vendor/gpui-component/src/dock/mod.rs",
-    "vendor/gpui-component/src/dock/panel.rs",
     "vendor/gpui-component/src/dock/tab_panel.rs",
-    "vendor/gpui-component/src/dock/test_support.rs",
     "vendor/gpui-component/src/element_ext.rs",
     "vendor/gpui-component/src/empty.rs",
     "vendor/gpui-component/src/form/field.rs",
