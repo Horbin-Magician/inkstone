@@ -17,7 +17,10 @@ impl Index {
         if cancelled() {
             return None;
         }
-        let query = query.trim().replace('\\', "/").to_lowercase();
+        let query = query.trim().to_lowercase();
+        let normalized_query = query.replace('\\', "/");
+        let queries = std::iter::once(query.as_str())
+            .chain((normalized_query != query).then_some(normalized_query.as_str()));
         let mut matches = Vec::new();
         for (path_key, path) in self.by_path.iter() {
             if cancelled() {
@@ -25,27 +28,41 @@ impl Index {
             }
             let file = path_key.rsplit('/').next().unwrap_or(path_key);
             let stem = file.strip_suffix(".md").unwrap_or(file);
-            let mut best = if stem == query {
-                Some((0, None))
-            } else if stem.starts_with(&query) {
-                Some((2, None))
-            } else if path_key.contains(&query) {
-                Some((4, None))
-            } else {
-                None
-            };
+            let mut best = queries
+                .clone()
+                .filter_map(|query| {
+                    if stem == query {
+                        Some(0)
+                    } else if stem.starts_with(query) {
+                        Some(2)
+                    } else if path_key.contains(query) {
+                        Some(4)
+                    } else {
+                        None
+                    }
+                })
+                .min()
+                .map(|rank| (rank, None));
             let Some(note) = self.notes.get(path) else {
                 continue;
             };
             for alias in &note.parsed.aliases {
                 let name = alias.to_lowercase();
-                let rank = if name == query {
-                    1
-                } else if name.starts_with(&query) {
-                    3
-                } else if name.contains(&query) {
-                    5
-                } else {
+                let Some(rank) = queries
+                    .clone()
+                    .filter_map(|query| {
+                        if name == query {
+                            Some(1)
+                        } else if name.starts_with(query) {
+                            Some(3)
+                        } else if name.contains(query) {
+                            Some(5)
+                        } else {
+                            None
+                        }
+                    })
+                    .min()
+                else {
                     continue;
                 };
                 if best.as_ref().is_none_or(|(old, _)| rank < *old) {
