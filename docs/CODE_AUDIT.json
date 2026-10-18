@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "2286d10e5f430f0d37184962c93d179f0536af21",
+  "snapshot_revision": "4fc1cb949131bc416dd804e95a7f1f97f31ea095",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -492,6 +492,16 @@
       "path": "crates/inkstone-desktop/src/editor/live_objects.rs",
       "checks": "Full production and test read: object reuse, syntax/dependency rebasing, selection/IME reveal, viewport raster scheduling, completion attachment, overlay layout, task/link/image/footnote routing; theme and task-retention regressions.",
       "result": "Fixed stale theme raster reuse in 7b356e1 and unbounded completed task retention in 2286d10. All 18 live-object tests and workspace all-targets Clippy pass. Native performance and accessibility acceptance remain open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/presentation.rs",
+      "checks": "Full read: revision-based source reuse, initial versus incremental syntax, cancellation checkpoints, completion guards, style and selection/search reveal, task and object projection, quote padding, UTF-8 IME overlay rebasing; inspected related regressions in editor/tests.rs.",
+      "result": "No new actionable finding in this read. Current editor:: filtered test run passed 136 tests with 4 existing ignored tests; native IME, latency and platform acceptance remain open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/projection.rs",
+      "checks": "Full read including ownership/replacement test: pane-owned atomic cancellation token, release on owner drop and acquire checks by the worker.",
+      "result": "No new actionable finding in this read. Current editor:: filtered test run passed 136 tests with 4 existing ignored tests; native IME, latency and platform acceptance remain open."
     }
   ],
   "pending_reconciliation": [
@@ -563,8 +573,6 @@
     "crates/inkstone-desktop/src/editor/live_quotes.rs",
     "crates/inkstone-desktop/src/editor/live_rules.rs",
     "crates/inkstone-desktop/src/editor/live_tasks.rs",
-    "crates/inkstone-desktop/src/editor/presentation.rs",
-    "crates/inkstone-desktop/src/editor/projection.rs",
     "crates/inkstone-desktop/src/editor/reading.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/editor/view.rs",
