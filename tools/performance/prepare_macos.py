@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Prepare (never launch) an isolated macOS bundle and generated acceptance vault."""
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +11,7 @@ import sys
 import uuid
 
 import corpus
+from file_hash import sha256
 
 MODES = ("live", "source", "reading")
 
@@ -74,7 +74,7 @@ def prepare(output, binary, scenario, mode, trace_activity=False, trace_performa
     report = dict(
         bundle=str(bundle), bundle_id=identifier, vault=str(vault),
         environment=info["LSEnvironment"], binary=str(binary),
-        signed_binary_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
+        signed_binary_sha256=sha256(executable),
         scenario=scenario, mode=mode, corpus=data,
         note="Preparation only; no application launched or performance acceptance measured.",
     )

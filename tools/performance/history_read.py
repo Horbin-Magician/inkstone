@@ -4,7 +4,6 @@
 Uses only generated data in a fresh target directory. Build the example first:
 cargo build --locked --release -p inkstone-core --example history_read_benchmark
 """
-import hashlib
 import json
 from pathlib import Path
 import platform
@@ -12,6 +11,8 @@ import re
 import statistics
 import subprocess
 import tempfile
+
+from file_hash import sha256
 
 
 def main():
@@ -30,14 +31,14 @@ def main():
         "baseline": body, "draft": body,
     }, ensure_ascii=False), encoding="utf-8")
     metadata = {
-        "fixture_sha256": hashlib.sha256(fixture.read_bytes()).hexdigest(),
+        "fixture_sha256": sha256(fixture),
         "file_bytes": fixture.stat().st_size,
         "body_bytes_each": len(body.encode()),
         "platform": platform.platform(),
         "machine": platform.machine(),
         "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=project, text=True).strip(),
-        "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
-        "metadata_source_sha256": hashlib.sha256((project / "crates/inkstone-core/src/vault/history/metadata.rs").read_bytes()).hexdigest(),
+        "binary_sha256": sha256(binary),
+        "metadata_source_sha256": sha256(project / "crates/inkstone-core/src/vault/history/metadata.rs"),
         "rustc": subprocess.check_output(["rustc", "--version"], cwd=project, text=True).strip(),
     }
     (root / "fixture.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -59,7 +60,7 @@ def main():
             elapsed = float(re.search(r"elapsed_ms=([\d.]+)", result.stdout)[1])
             rss = int(re.search(r"(\d+)\s+maximum resident set size", result.stderr)[1])
             runs.append({"mode": mode, "iteration": iteration, "elapsed_ms": elapsed, "max_rss_bytes": rss})
-    assert hashlib.sha256(fixture.read_bytes()).hexdigest() == metadata["fixture_sha256"]
+    assert sha256(fixture) == metadata["fixture_sha256"]
     summary = {
         mode: {
             "elapsed_ms_median": statistics.median(r["elapsed_ms"] for r in runs if r["mode"] == mode),

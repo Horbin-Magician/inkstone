@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 
+from file_hash import sha256
+
 
 def main():
     if sys.platform != "darwin":
@@ -24,8 +26,8 @@ def main():
         "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=project, text=True).strip(),
         "platform": platform.platform(),
         "rustc": subprocess.check_output(["rustc", "--version"], cwd=project, text=True).strip(),
-        "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
-        "example_sha256": hashlib.sha256((project / "crates/inkstone-core/examples/sync_scan_benchmark.rs").read_bytes()).hexdigest(),
+        "binary_sha256": sha256(binary),
+        "example_sha256": sha256(project / "crates/inkstone-core/examples/sync_scan_benchmark.rs"),
         "fixtures": [],
     }
     print(root, flush=True)
@@ -70,8 +72,7 @@ def main():
     # Independent content verification is outside the measured processes.
     for fixture in manifest["fixtures"]:
         for entry in fixture["files"]:
-            with (root / fixture["name"] / entry["path"]).open("rb") as source:
-                assert hashlib.file_digest(source, "sha256").hexdigest() == entry["sha256"]
+            assert sha256(root / fixture["name"] / entry["path"]) == entry["sha256"]
     medians = {fixture["name"]: {
         key: statistics.median(result[key] for result in results if result["fixture"] == fixture["name"])
         for key in ["enumeration_ms", "file_processing_ms", "manifest_validation_ms", "scan_ms", "peak_rss_bytes"]
