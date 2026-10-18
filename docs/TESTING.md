@@ -1512,6 +1512,17 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 核心导出 10 项、全目标 Clippy、格式及差异检查通过；日志
   `target/audit-20261018/export-alias-preservation-{tests,clippy}.log`。
 
+第一百三十二批导出附件范围查询复用：
+
+- `a76bb26` 将每次附件引用解析后的全库文件 Vec 线性成员检查，改为首次检查时
+  构建 HashSet<&Path> 并复用。未遇到附件时不构建集合，路径借用索引数据；仍需
+  集合条目内存，未删除 catalog 范围校验、canonicalize 或复制前 safe_path 检查。
+- 新回归在真实文件系统中创建允许和未列入索引的附件，确认后者仍返回未解析
+  链接且不加入导出集合；重复合法引用只收集一个附件。核心导出 11 项、全目标
+  Clippy、格式及差异检查通过，日志
+  `target/audit-20261018/export-asset-catalog-{tests,clippy}.log`。
+- 此优化消除重复线性成员查询，未测量包含文件系统操作的端到端导出加速。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
