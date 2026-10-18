@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "755559894199f40189f799d087e10a70ea83883d",
+  "snapshot_revision": "498908b06ff90c47bf8173a1722cc57aa691e108",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1242,6 +1242,31 @@
       "path": "vendor/gpui-base/src/virtual_list.rs",
       "checks": "Cached size prefix sums, direction/gap invalidation, visible range search, deferred scrolling and inferred dimensions",
       "result": "Fixed stale extents after gap/axis changes with a failing-before regression; consolidated duplicate inferred sizing branches. Nine tests passed. Native performance and platform validation remain outstanding."
+    },
+    {
+      "path": "vendor/gpui-base/src/scroll_bounce.rs",
+      "checks": "Gesture phase and axis handling, boundary residuals, momentum suppression, catch/release behavior, reduced motion reset and frame termination; 21 existing tests passed.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/reduce_motion.rs",
+      "checks": "Platform preference reads, deterministic scheduler exclusion and application override detection; 5 tests passed. Corrected documentation that incorrectly promised explicit re-reading resumes system control.",
+      "result": "Documentation corrected for reduce-motion override semantics; no new production change in this batch. Native and cross-platform acceptance remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/animation.rs",
+      "checks": "Bezier inversion and bounded easing, interpolation and effect application, compatibility alias; 4 reference-curve tests passed.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/motion/timing.rs",
+      "checks": "Signed delay, finite/infinite iterations, terminal sampling, playback directions and saturating duration arithmetic; related motion tests passed.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/motion/easing.rs",
+      "checks": "Bezier and step validation, omitted linear-stop interpolation, boundary sampling and custom easing; related motion tests passed.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
     }
   ],
   "pending_reconciliation": [
@@ -1250,7 +1275,6 @@
     "vendor/gpui-base/src/accordion.rs",
     "vendor/gpui-base/src/actions.rs",
     "vendor/gpui-base/src/alert_dialog.rs",
-    "vendor/gpui-base/src/animation.rs",
     "vendor/gpui-base/src/avatar.rs",
     "vendor/gpui-base/src/button.rs",
     "vendor/gpui-base/src/calendar.rs",
@@ -1327,13 +1351,11 @@
     "vendor/gpui-base/src/link.rs",
     "vendor/gpui-base/src/macos_accessibility.rs",
     "vendor/gpui-base/src/motion.rs",
-    "vendor/gpui-base/src/motion/easing.rs",
     "vendor/gpui-base/src/motion/keyframes.rs",
     "vendor/gpui-base/src/motion/presence.rs",
     "vendor/gpui-base/src/motion/reveal.rs",
     "vendor/gpui-base/src/motion/sequence.rs",
     "vendor/gpui-base/src/motion/stagger.rs",
-    "vendor/gpui-base/src/motion/timing.rs",
     "vendor/gpui-base/src/nav_stack.rs",
     "vendor/gpui-base/src/number_input.rs",
     "vendor/gpui-base/src/otp_input.rs",
@@ -1371,12 +1393,10 @@
     "vendor/gpui-base/src/questionnaire/types.rs",
     "vendor/gpui-base/src/radio.rs",
     "vendor/gpui-base/src/radio_group.rs",
-    "vendor/gpui-base/src/reduce_motion.rs",
     "vendor/gpui-base/src/resizable/mod.rs",
     "vendor/gpui-base/src/resizable/panel.rs",
     "vendor/gpui-base/src/resizable/resize_handle.rs",
     "vendor/gpui-base/src/root.rs",
-    "vendor/gpui-base/src/scroll_bounce.rs",
     "vendor/gpui-base/src/scrollbar.rs",
     "vendor/gpui-base/src/select.rs",
     "vendor/gpui-base/src/selectable_text.rs",
