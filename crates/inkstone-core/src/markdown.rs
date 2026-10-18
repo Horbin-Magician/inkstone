@@ -293,68 +293,6 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
         ) {
             return;
         }
-        if let Node::Text(_) = node {
-            let raw = &text[range.clone()];
-            if !raw.contains("[[") {
-                return;
-            }
-            let mut i = 0;
-            // Jump over ordinary prose without decoding every Unicode scalar.
-            // Only an opening bracket or an escape can affect a wiki link.
-            while let Some(relative) = raw[i..].find(['[', '\\']) {
-                i += relative;
-                let rest = &raw[i..];
-                if rest.starts_with('\\') {
-                    i += 1;
-                    if i < raw.len() {
-                        i += raw[i..].chars().next().unwrap().len_utf8();
-                    }
-                    continue;
-                }
-                if !rest.starts_with("[[") {
-                    i += 1;
-                    continue;
-                }
-                if text[..range.start + i]
-                    .bytes()
-                    .rev()
-                    .take_while(|b| *b == b'\\')
-                    .count()
-                    % 2
-                    == 1
-                {
-                    i += 2;
-                    continue;
-                }
-                let start = i + 2;
-                let Some(end) = raw[start..].find("]]").map(|p| p + start) else {
-                    // Later openers cannot succeed either. Incomplete links
-                    // must not repeatedly scan the rest of a long paragraph.
-                    break;
-                };
-                if let Some(newline) = raw[start..end].rfind(['\r', '\n']) {
-                    // No opener before this newline can pair with the closer.
-                    i = start + newline + 1;
-                    continue;
-                }
-                if end == start {
-                    i += 1;
-                    continue;
-                }
-                let label = raw[start..end].find('|').map_or(start, |p| start + p + 1);
-                out.push(Span {
-                    kind: Kind::WikiLink,
-                    source: range.start + i..range.start + end + 2,
-                    content: range.start + label..range.start + end,
-                    markers: vec![
-                        range.start + i..range.start + label,
-                        range.start + end..range.start + end + 2,
-                    ],
-                    list_depth: 0,
-                });
-                i = end + 2;
-            }
-        }
         if let Some(children) = children {
             for child in children {
                 walk(child, text, out, quote_depth, list_depth);
@@ -374,6 +312,20 @@ pub fn spans_snapshot(snapshot: &crate::syntax::Snapshot) -> Vec<Span> {
         .collect();
     if let Some(node) = snapshot.ast.as_deref() {
         walk(node, text, &mut result, 0, 0);
+        result.extend(
+            crate::wiki_links::scan(text, node)
+                .into_iter()
+                .map(|link| Span {
+                    kind: Kind::WikiLink,
+                    markers: vec![
+                        link.source.start..link.label.start,
+                        link.label.end..link.source.end,
+                    ],
+                    source: link.source,
+                    content: link.label,
+                    list_depth: 0,
+                }),
+        );
         if !text.contains("==") {
             return result;
         }

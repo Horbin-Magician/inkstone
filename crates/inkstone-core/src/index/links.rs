@@ -105,7 +105,7 @@ impl Index {
                 if !embedded && path.contains(['#', '|', '[', ']', '\r', '\n']) {
                     let mut label = String::new();
                     for c in link.label.chars() {
-                        if c.is_ascii_punctuation() {
+                        if matches!(c, '\\' | '[' | ']' | '|') {
                             label.push('\\');
                         }
                         label.push(if matches!(c, '\r' | '\n') { ' ' } else { c });

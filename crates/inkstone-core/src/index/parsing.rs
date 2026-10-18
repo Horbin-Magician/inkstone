@@ -211,35 +211,6 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
                         result.tags.push(tag);
                     }
                 }
-                let mut offset = 0;
-                while let Some(start) = raw[offset..].find("[[") {
-                    let start = offset + start;
-                    let preceding = source[..range.start + start]
-                        .bytes()
-                        .rev()
-                        .take_while(|b| *b == b'\\')
-                        .count();
-                    if preceding % 2 == 1 {
-                        offset = start + 2;
-                        continue;
-                    }
-                    let Some(end) = raw[start + 2..].find("]]").map(|n| start + 2 + n) else {
-                        break;
-                    };
-                    let inner = &raw[start + 2..end];
-                    if !inner.contains(['\r', '\n']) {
-                        let (target, label) = inner.split_once('|').unwrap_or((inner, inner));
-                        let target = target.replace('\u{1}', "");
-                        if !target.trim().is_empty() {
-                            result.links.push(WikiLink {
-                                range: range.start + start..range.start + end + 2,
-                                target: target.trim().into(),
-                                label: label.replace('\u{1}', ""),
-                            });
-                        }
-                    }
-                    offset = end + 2;
-                }
             }
         }
         if let Some(children) = node.children() {
@@ -255,6 +226,14 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
     };
     if let Some(root) = snapshot.ast.as_deref() {
         walk(root, source, &mut result);
+        result.links = crate::wiki_links::scan(source, root)
+            .into_iter()
+            .map(|link| WikiLink {
+                range: link.source,
+                target: source[link.target].replace('\u{1}', "").trim().into(),
+                label: source[link.label].replace('\u{1}', ""),
+            })
+            .collect();
         fn folds(node: &Node, out: &mut Vec<(Range<usize>, FoldKind)>) {
             if matches!(
                 node,

@@ -1226,6 +1226,29 @@ mod tests {
         std::fs::remove_dir_all(recovery).unwrap();
     }
     #[test]
+    fn formatted_wiki_aliases_resolve_and_embeds_keep_task_sources() {
+        let mut index = Index::default();
+        let child = "# Section\n- [ ] 嵌入任务\n";
+        index.update("child.md".into(), child.into());
+        let source = "[[child|*链接*]]\n\n![[child#Section|**嵌入**]]";
+        index.update("root.md".into(), source.into());
+        assert_eq!(
+            index.backlinks(Path::new("child.md")),
+            vec![PathBuf::from("root.md")]
+        );
+        let rendered = reading_document(&index, Path::new("root.md"), source);
+        assert_eq!(rendered.references.len(), 2);
+        assert!(rendered.markdown.contains("[*链接*](inkstone-reference:0)"));
+        assert!(
+            rendered
+                .markdown
+                .contains("[**嵌入**](inkstone-reference:1)")
+        );
+        assert_eq!(rendered.tasks.len(), 1);
+        assert_eq!(rendered.tasks[0].path, Path::new("child.md"));
+        assert_eq!(&child[rendered.tasks[0].marker.clone()], " ");
+    }
+    #[test]
     fn embedded_sections_keep_distinct_footnotes_and_pull_their_definitions() {
         let mut index = Index::default();
         let child = "# Section\nchild[^same]\n\n# Next\nother\n\n[^same]: CHILD";

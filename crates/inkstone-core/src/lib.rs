@@ -21,6 +21,7 @@ pub mod tags;
 pub mod text_changes;
 pub mod updates;
 pub mod vault;
+mod wiki_links;
 pub mod word_count;
 mod yaml_source;
 
