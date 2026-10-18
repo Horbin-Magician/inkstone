@@ -83,8 +83,10 @@ pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Invento
         if let Some(ast) = &snapshot.ast {
             walk(ast, &mut refs);
             refs.extend(
-                crate::syntax::html_destinations(ast, &snapshot.structural)
-                    .into_iter()
+                note.parsed
+                    .html_destinations
+                    .iter()
+                    .cloned()
                     .map(|(_, url)| (url, false)),
             );
         }

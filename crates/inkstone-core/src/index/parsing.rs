@@ -45,6 +45,8 @@ pub struct ParsedNote {
     pub aliases: Vec<String>,
     pub standard_links: Vec<(String, usize)>,
     pub destinations: Vec<(Range<usize>, String)>,
+    #[serde(default)]
+    pub html_destinations: Vec<(Range<usize>, String)>,
     pub tasks: Vec<TaskItem>,
     pub blocks: Vec<BlockReference>,
     /// Zero-based header row through the exclusive body end row.
@@ -229,6 +231,9 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
     };
     if let Some(root) = snapshot.ast.as_deref() {
         walk(root, source, &mut result);
+        if source.contains('<') {
+            result.html_destinations = crate::syntax::html_destinations(root, source);
+        }
         if source.contains("![") {
             result.markdown_embeds = crate::note_embeds::scan(root);
         }
