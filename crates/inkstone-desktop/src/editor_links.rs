@@ -348,7 +348,9 @@ impl CompletionProvider for WikiCompletions {
                                     .replace(['\r', '\n'], " ")
                                     .replace('\\', "\\\\")
                                     .replace('[', "\\[")
-                                    .replace(']', "\\]");
+                                    .replace(']', "\\]")
+                                    .replace('<', "\\<")
+                                    .replace('>', "\\>");
                                 const ESCAPE: &percent_encoding::AsciiSet =
                                     &percent_encoding::CONTROLS
                                         .add(b' ')
@@ -357,7 +359,9 @@ impl CompletionProvider for WikiCompletions {
                                         .add(b'(')
                                         .add(b')')
                                         .add(b'[')
-                                        .add(b']');
+                                        .add(b']')
+                                        .add(b'<')
+                                        .add(b'>');
                                 let mut destination =
                                     percent_encoding::utf8_percent_encode(&path.target, ESCAPE)
                                         .to_string();

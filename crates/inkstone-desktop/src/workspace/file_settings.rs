@@ -55,7 +55,7 @@ impl Workspace {
                 // These characters are valid in filenames but carry syntax in
                 // wiki links. Markdown destinations can encode them literally.
                 let markdown = self.ui.prefs.use_markdown_links
-                    || target.contains(['#', '|', '[', ']', '\n', '\r']);
+                    || inkstone_core::locations::requires_markdown_link(&target);
                 if markdown {
                     if target.contains('/') && !target.starts_with('.') && !target.starts_with('/')
                     {
@@ -437,6 +437,9 @@ mod tests {
                         "pipe|name",
                         "line\nbreak",
                         "paragraph\n\nbreak",
+                        "<name>",
+                        "less<than",
+                        "greater>than",
                     ] {
                         Arc::make_mut(&mut w.index)
                             .update(format!("targets/{name}.md").into(), "# Heading".into());
@@ -461,7 +464,7 @@ mod tests {
             let lsp_types::CompletionResponse::Array(items) = task.await.unwrap() else {
                 panic!("expected completion array");
             };
-            assert_eq!(items.len(), 5);
+            assert_eq!(items.len(), 8);
             handle
                 .update(cx, |w, _, _| {
                     for item in items {
