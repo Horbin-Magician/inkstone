@@ -10,6 +10,23 @@ concurrency:
   group: workspace-checks-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  tools:
+    name: Tool regression (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify package inventories and release checksums
+        run: python -m unittest discover -s packaging -p "test_*.py"
+      - name: Verify performance fixtures and process sampling
+        run: python -m unittest discover -s tools/performance -p "test_*.py"
   check:
     strategy:
       fail-fast: false
