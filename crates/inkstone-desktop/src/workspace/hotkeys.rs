@@ -175,11 +175,6 @@ impl Workspace {
         let key = &event.keystroke;
         if self.ui.link_update.is_some()
             || self
-                .ui
-                .inline_title
-                .as_ref()
-                .is_some_and(|edit| edit.input.read(cx).focus_handle(cx).is_focused(window))
-            || self
                 .current_pane()
                 .is_some_and(|p| p.read(cx).has_footnote_editor())
         {

@@ -77,16 +77,6 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.ui.inline_title.is_some() {
-            self.commit_inline_title(false, window, cx);
-            if self.ui.inline_title.is_some() && !self.file_writes.operation_active() {
-                self.ui.window_close_requested = false;
-                self.notifications
-                    .publish("请完成或取消标题修改后关闭窗口。".into());
-                cx.notify();
-                return false;
-            }
-        }
         self.flush_document_views(window, cx);
         for tab in &mut self.tabs {
             tab.save

@@ -144,16 +144,6 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if self.ui.inline_title.is_some() {
-            self.commit_inline_title(false, window, cx);
-            if self.ui.inline_title.is_some() {
-                self.notifications
-                    .publish("请完成或取消标题修改后再打开其他笔记。".into());
-                self.pending_jump = None;
-                cx.notify();
-                return;
-            }
-        }
         self.flush_document_views(window, cx);
         let save = self.tabs[index].save.clone();
         // Navigation must not drop the last owner of an unsaved document or
@@ -308,28 +298,6 @@ mod tests {
     use super::*;
     use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
-
-    #[gpui::test]
-    fn invalid_inline_title_keeps_the_source_and_draft(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let handle = cx.add_window(Workspace::new);
-        handle
-            .update(cx, |w, window, cx| {
-                w.add_tab("b.md".into(), Some("B".into()), false, window, cx);
-                w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
-                let pane = w.current_pane().unwrap();
-                w.begin_inline_title(1, false, window, cx);
-                let input = w.ui.inline_title.as_ref().unwrap().input.clone();
-                input.update(cx, |s, cx| s.set_value("bad/name", window, cx));
-                w.open_note("b.md".into(), window, cx);
-                assert_eq!(w.current_pane().unwrap(), pane);
-                assert_eq!(w.tabs[1].path, PathBuf::from("a.md"));
-                assert_eq!(input.read(cx).value().as_ref(), "bad/name");
-                assert!(w.ui.inline_title.is_some());
-                assert!(w.pending_navigation.is_none());
-            })
-            .unwrap();
-    }
 
     #[gpui::test]
     fn closed_history_keeps_the_ten_most_recent_views(cx: &mut TestAppContext) {

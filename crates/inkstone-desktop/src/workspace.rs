@@ -40,7 +40,6 @@ mod exports;
 mod extras;
 mod file_settings;
 mod hotkeys;
-mod inline_title;
 mod link_health;
 mod link_updates;
 mod navigation;

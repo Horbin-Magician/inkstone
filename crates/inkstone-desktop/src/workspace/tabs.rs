@@ -11,9 +11,6 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.inline_title.is_some() {
-            self.commit_inline_title(false, window, cx);
-        }
         if !self.loading
             && !path.as_os_str().is_empty()
             && !self.views.secondary_focused
@@ -217,14 +214,6 @@ impl Workspace {
             self.pending_navigation = None;
         }
         let id = self.tabs[index].id;
-        if self
-            .ui
-            .inline_title
-            .as_ref()
-            .is_some_and(|edit| edit.id != id)
-        {
-            self.commit_inline_title(false, window, cx);
-        }
         if !self.views.secondary_focused
             && !self.tabs[index].path.as_os_str().is_empty()
             && let Some(i) = self.active.filter(|i| {
@@ -325,20 +314,6 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self
-            .ui
-            .inline_title
-            .as_ref()
-            .is_some_and(|edit| self.tabs.get(index).is_some_and(|tab| tab.id == edit.id))
-        {
-            self.commit_inline_title(false, window, cx);
-            if self.ui.inline_title.is_some() && !self.file_writes.operation_active() {
-                self.notifications
-                    .publish("请完成或取消标题修改后关闭标签。".into());
-                cx.notify();
-                return;
-            }
-        }
         if let Some(id) = self.tabs.get(index).map(|t| t.id)
             && self.has_pending_input(id, window, cx)
         {
@@ -410,14 +385,6 @@ impl Workspace {
             self.ui.tree_active = None;
             self.tree
                 .update(cx, |tree, cx| tree.set_selected_index(None, cx));
-        }
-        if self
-            .ui
-            .inline_title
-            .as_ref()
-            .is_some_and(|edit| edit.id == removed.id)
-        {
-            self.ui.inline_title = None;
         }
         let closed_view = Self::snapshot_view(removed.path.clone(), &removed.pane, cx);
         if self

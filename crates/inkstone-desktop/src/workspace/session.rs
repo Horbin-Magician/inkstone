@@ -352,7 +352,6 @@ impl Workspace {
                         this.sync_font_selects(window, cx);
                         this.pending_navigation = None;
                         this.ui.closed.clear();
-                        this.ui.inline_title = None;
                         this.ui.close_pending.clear();
                         this.ui.window_close_requested = false;
                         this.vault = Some(vault);
