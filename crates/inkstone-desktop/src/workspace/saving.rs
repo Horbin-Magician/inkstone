@@ -57,6 +57,7 @@ impl Workspace {
                     let path = tab.save.path.borrow().clone();
                     let baseline = tab.save.persistence.baseline().clone();
                     let save = tab.save.clone();
+                    let generation = self.generation;
                     let task = cx
                         .background_executor()
                         .spawn(async move { vault.journal(&path, baseline.as_deref(), &text) });
@@ -69,6 +70,9 @@ impl Workspace {
                                     .find(|t| std::rc::Rc::ptr_eq(&t.save, &save))
                                 {
                                     tab.save.persistence.journal_failed();
+                                }
+                                if this.generation != generation {
+                                    return;
                                 }
                                 this.notifications
                                     .publish(format!("恢复副本写入失败：{error}"));
@@ -189,5 +193,54 @@ impl Workspace {
         self.sync_reference_contexts(cx);
         self.save_all(window, cx);
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn recovery_write_failure_respects_workspace_generation(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for switch_generation in [false, true] {
+            let temp = std::env::temp_dir().join(format!(
+                "inkstone-journal-generation-{}-{switch_generation}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(temp.join("vault")).unwrap();
+            let mut vault = Vault::open(temp.join("vault"), temp.join("recovery")).unwrap();
+            let invalid = temp.join("not-a-directory");
+            std::fs::write(&invalid, b"preserve").unwrap();
+            vault.recovery_dir = invalid.clone();
+            let handle = cx.add_window(Workspace::new);
+            handle
+                .update(cx, |w, window, cx| {
+                    w.vault = Some(vault);
+                    w.add_tab("note.md".into(), Some("draft".into()), false, window, cx);
+                    w.tabs[0].save.persistence.preserve_external_change();
+                    w.save_pending(window, cx);
+                    if switch_generation {
+                        w.generation += 1;
+                    }
+                    w.notifications.publish("current workspace status".into());
+                })
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, _, _| {
+                    if switch_generation {
+                        assert_eq!(w.notifications.text(), "current workspace status");
+                    } else {
+                        assert!(w.notifications.text().contains("恢复副本写入失败"));
+                    }
+                    assert!(w.tabs[0].save.persistence.begin_journal("draft"));
+                    assert!(w.tabs[0].save.persistence.has_conflict());
+                })
+                .unwrap();
+            assert_eq!(std::fs::read(invalid).unwrap(), b"preserve");
+            std::fs::remove_dir_all(temp).unwrap();
+        }
     }
 }
