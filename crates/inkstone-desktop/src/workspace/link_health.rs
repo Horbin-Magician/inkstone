@@ -94,6 +94,50 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
+    fn vault_switch_dismisses_pending_review_even_when_loading_fails(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-link-switch-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::write(root.join("vault/source.md"), "[missing](missing.md)").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("vault"), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.open_link_health(window, cx);
+                assert!(w.ui.link_health.as_ref().unwrap().loading);
+                w.load_vault(root.join("missing"), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.loading);
+                assert!(!w.ui.trash_open);
+                assert!(w.ui.link_health.is_none());
+                w.open_link_health(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                let review = w.ui.link_health.as_ref().unwrap();
+                assert!(!review.loading);
+                assert_eq!(review.issues.len(), 1);
+                assert_eq!(review.issues[0].from, PathBuf::from("source.md"));
+                w.watcher = None;
+                w.watch_events = None;
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
     fn link_issue_navigation_reveals_the_source_offset(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let root =
