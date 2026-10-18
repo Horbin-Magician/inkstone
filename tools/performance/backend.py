@@ -7,6 +7,7 @@ This measures backend stages, not native UI latency. No user vault is accepted.
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import platform
 import re
@@ -23,12 +24,18 @@ def digest(path):
 def metrics(stdout):
     result = {}
     for line in stdout.splitlines():
-        tokens = dict(re.findall(r'(\w+)=([^\s]+)', line))
+        tokens = re.findall(r'(\w+)=([^\s]+)', line)
         # Only explicitly named stage timings, never arbitrary source text.
         stage = line.split()[0] if line.split() else ''
-        for key, value in tokens.items():
+        for key, value in tokens:
             if key.endswith('_ms'):
-                result[key if key != 'p50_ms' and key != 'max_ms' else f'{stage}.{key}'] = float(value)
+                name = key if key not in ('p50_ms', 'max_ms') else f'{stage}.{key}'
+                if name in result:
+                    raise ValueError(f'duplicate timing metric: {name}')
+                timing = float(value)
+                if not math.isfinite(timing) or timing < 0:
+                    raise ValueError(f'invalid timing metric: {name}={value}')
+                result[name] = timing
     return result
 
 
