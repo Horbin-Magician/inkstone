@@ -108,31 +108,10 @@ impl Workspace {
                         #[cfg(not(test))]
                         cx.reveal_path(&report.entry);
                         #[cfg(not(test))]
-                        if format == Format::Html {
-                            let path = report.entry.to_string_lossy().replace('\\', "/");
-                            let encoded = path
-                                .split('/')
-                                .map(|s| {
-                                    #[cfg(windows)]
-                                    if s.len() == 2
-                                        && s.as_bytes()[0].is_ascii_alphabetic()
-                                        && s.ends_with(':')
-                                    {
-                                        return s.to_owned();
-                                    }
-                                    percent_encoding::utf8_percent_encode(
-                                        s,
-                                        percent_encoding::NON_ALPHANUMERIC,
-                                    )
-                                    .to_string()
-                                })
-                                .collect::<Vec<_>>()
-                                .join("/");
-                            #[cfg(windows)]
-                            let url = format!("file:///{encoded}");
-                            #[cfg(not(windows))]
-                            let url = format!("file://{encoded}");
-                            cx.open_url(&url);
+                        if format == Format::Html
+                            && let Ok(url) = url::Url::from_file_path(&report.entry)
+                        {
+                            cx.open_url(url.as_str());
                         }
                     }
                     Err(error) => this
