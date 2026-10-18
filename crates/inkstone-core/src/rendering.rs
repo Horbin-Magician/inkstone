@@ -55,10 +55,11 @@ impl ReadingDocument {
     /// Keep selected output spans while preserving their source and action maps.
     /// Callers supply ordered, disjoint UTF-8 ranges from parsed Markdown nodes.
     pub(crate) fn select_output(&self, ranges: &[Range<usize>]) -> Self {
-        let mut result = self.clone();
-        result.markdown.clear();
-        result.locations.clear();
-        result.tasks.clear();
+        let mut result = Self {
+            references: self.references.clone(),
+            sources: self.sources.clone(),
+            ..Default::default()
+        };
         for range in ranges {
             if !result.markdown.is_empty() {
                 result.markdown.push_str("\n\n");
