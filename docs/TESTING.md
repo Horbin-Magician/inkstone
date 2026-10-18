@@ -1099,6 +1099,16 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   `embedded-section.png`、`anchor-jump.png`、`anchor-body.png` 和 `ordinary-file.png`。
   本批没有生产代码改动，未测量性能，也不替代完整读屏或其他平台验收。
 
+第九十七批近期优化后的全工作区回归：
+
+- `1623b7d` 代码状态执行 `cargo test --workspace --locked` 全部通过：核心
+  386 项、桌面 429 项、集成 8 项，另有 8 项既有测试忽略。桌面测试耗时
+  95.51 秒；不将测试总时长变化作为产品性能收益。
+- 覆盖第 90–94 批嵌入解析复用、锚点规范化、阅读投影复制、脚注成员查询及
+  历史预览共享记录等修改。日志为
+  `target/audit-20261018/current-anchors-workspace-tests.log`。
+  本批仅补充检查记录，全项目审核仍在进行。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
