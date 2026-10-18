@@ -50,6 +50,18 @@ impl DocumentState {
 use super::*;
 
 impl Workspace {
+    /// Snapshot named documents once per owner. Callers flush views and apply
+    /// their operation-specific pending-input checks before collecting.
+    pub(super) fn file_drafts(&self, cx: &App) -> std::collections::BTreeMap<PathBuf, String> {
+        let mut seen = std::collections::HashSet::new();
+        self.tabs
+            .iter()
+            .filter(|tab| !tab.path.as_os_str().is_empty())
+            .filter(|tab| seen.insert(tab.save.editor.entity_id()))
+            .map(|tab| (tab.path.clone(), tab.save.text_snapshot(cx).to_string()))
+            .collect()
+    }
+
     /// Bring committed view edits into their document owners before save/close.
     pub(super) fn flush_document_views(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let ids: Vec<_> = self.tabs.iter().map(|tab| tab.id).collect();

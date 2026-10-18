@@ -5,7 +5,6 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
 };
 use inkstone_core::vault::attachments::{self, Attachment, Inventory, Kind};
-use std::collections::BTreeMap;
 
 pub(super) struct Manager {
     inventory: Inventory,
@@ -36,13 +35,6 @@ impl Manager {
     }
 }
 impl Workspace {
-    fn attachment_drafts(&self, cx: &App) -> BTreeMap<PathBuf, String> {
-        self.tabs
-            .iter()
-            .filter(|t| !t.path.as_os_str().is_empty())
-            .map(|t| (t.path.clone(), t.save.editor.read(cx).value().to_string()))
-            .collect()
-    }
     pub(super) fn open_attachment_manager(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.vault.is_none() {
             return;
@@ -74,7 +66,7 @@ impl Workspace {
             return;
         };
         self.flush_document_views(window, cx);
-        let drafts = self.attachment_drafts(cx);
+        let drafts = self.file_drafts(cx);
         let Some(manager) = &mut self.ui.attachment_manager else {
             return;
         };
@@ -171,7 +163,7 @@ impl Workspace {
             return;
         };
         self.flush_document_views(window, cx);
-        let drafts = self.attachment_drafts(cx);
+        let drafts = self.file_drafts(cx);
         let write_ticket = self.file_writes.begin();
         if let Some(m) = &mut self.ui.attachment_manager {
             m.loading = true;
@@ -277,6 +269,8 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), None, false, window, cx);
+                assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
                 w.new_blank(window, cx);
                 assert!(w.tabs.iter().any(|tab| tab.path.as_os_str().is_empty()));
                 w.open_attachment_manager(window, cx);
