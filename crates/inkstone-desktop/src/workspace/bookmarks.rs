@@ -6,6 +6,61 @@ use gpui_component::{
 };
 use inkstone_core::preferences::{AnchorBookmark, BookmarkAnchor};
 
+/// Keep only the last displayed document. Identity, revision and path prevent
+/// stale candidates after switching views, editing text or renaming a note.
+#[derive(Default)]
+pub(super) struct CandidateCache(std::cell::RefCell<Option<CachedCandidates>>);
+
+struct CachedCandidates {
+    editor: gpui::EntityId,
+    revision: u64,
+    path: PathBuf,
+    entries: Arc<Vec<AnchorBookmark>>,
+}
+
+impl CandidateCache {
+    fn get(&self, tab: &Tab, cx: &App) -> Arc<Vec<AnchorBookmark>> {
+        let editor = tab.save.editor.entity_id();
+        let revision = tab.save.editor.read(cx).text_revision();
+        let mut cache = self.0.borrow_mut();
+        if let Some(cached) = cache.as_ref()
+            && cached.editor == editor
+            && cached.revision == revision
+            && cached.path == tab.path
+        {
+            return cached.entries.clone();
+        }
+        let parsed = inkstone_core::index::parse(&tab.save.text_snapshot(cx));
+        let mut occurrences = std::collections::HashMap::new();
+        let mut entries = Vec::with_capacity(parsed.headings.len() + parsed.blocks.len());
+        for heading in &parsed.headings {
+            let occurrence = occurrences.entry(&heading.title).or_insert(0);
+            entries.push(AnchorBookmark {
+                path: tab.path.clone(),
+                anchor: BookmarkAnchor::Heading {
+                    title: heading.title.clone(),
+                    occurrence: *occurrence,
+                },
+            });
+            *occurrence += 1;
+        }
+        entries.extend(parsed.blocks.iter().map(|block| AnchorBookmark {
+            path: tab.path.clone(),
+            anchor: BookmarkAnchor::Block {
+                id: block.id.clone(),
+            },
+        }));
+        let entries = Arc::new(entries);
+        *cache = Some(CachedCandidates {
+            editor,
+            revision,
+            path: tab.path.clone(),
+            entries: entries.clone(),
+        });
+        entries
+    }
+}
+
 impl Workspace {
     fn toggle_anchor_bookmark(&mut self, entry: AnchorBookmark, cx: &mut Context<Self>) {
         if let Some(i) = self
@@ -51,28 +106,11 @@ impl Workspace {
     }
 
     pub(super) fn bookmark_panel(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut candidates = Vec::new();
-        if let Some(tab) = self.active.and_then(|i| self.tabs.get(i)) {
-            let parsed = inkstone_core::index::parse(&tab.save.editor.read(cx).value());
-            for (i, heading) in parsed.headings.iter().enumerate() {
-                candidates.push(AnchorBookmark {
-                    path: tab.path.clone(),
-                    anchor: BookmarkAnchor::Heading {
-                        title: heading.title.clone(),
-                        occurrence: parsed.headings[..i]
-                            .iter()
-                            .filter(|h| h.title == heading.title)
-                            .count(),
-                    },
-                });
-            }
-            candidates.extend(parsed.blocks.iter().map(|block| AnchorBookmark {
-                path: tab.path.clone(),
-                anchor: BookmarkAnchor::Block {
-                    id: block.id.clone(),
-                },
-            }));
-        }
+        let candidates = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .map(|tab| self.ui.bookmark_candidates.get(tab, cx))
+            .unwrap_or_default();
         let weak = cx.entity().downgrade();
         let saved = self.ui.prefs.anchor_bookmarks.clone();
         div()
@@ -87,7 +125,7 @@ impl Workspace {
                     .label("添加标题 / 块书签")
                     .disabled(candidates.is_empty())
                     .dropdown_menu(move |mut menu, _, _| {
-                        for entry in &candidates {
+                        for entry in candidates.iter() {
                             let weak = weak.clone();
                             let entry = entry.clone();
                             menu = menu.item(
@@ -226,6 +264,92 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn bookmark_candidates_track_document_revision_identity_and_path(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let text = "# Same\n\n## Other\n\n# Same\n\nText ^block\n";
+                w.add_tab("a.md".into(), Some(text.into()), false, window, cx);
+                let initial = w.ui.bookmark_candidates.get(&w.tabs[0], cx);
+                assert_eq!(initial.len(), 4);
+                assert_eq!(
+                    initial[2].anchor,
+                    BookmarkAnchor::Heading {
+                        title: "Same".into(),
+                        occurrence: 1
+                    }
+                );
+                assert_eq!(
+                    initial[3].anchor,
+                    BookmarkAnchor::Block { id: "block".into() }
+                );
+                // Repaints and another view of this document reuse the parsed candidates.
+                assert!(Arc::ptr_eq(
+                    &initial,
+                    &w.ui.bookmark_candidates.get(&w.tabs[0], cx)
+                ));
+                w.add_tab("a.md".into(), None, false, window, cx);
+                assert!(Arc::ptr_eq(
+                    &initial,
+                    &w.ui.bookmark_candidates.get(&w.tabs[1], cx)
+                ));
+                // Same-length text changes must not reuse the old title or block ID.
+                w.tabs[0].save.editor.update(cx, |editor, cx| {
+                    editor.replace_all(
+                        text.replace("Same", "Else").replace("block", "other"),
+                        window,
+                        cx,
+                    );
+                });
+                let changed = w.ui.bookmark_candidates.get(&w.tabs[1], cx);
+                assert_eq!(
+                    changed[2].anchor,
+                    BookmarkAnchor::Heading {
+                        title: "Else".into(),
+                        occurrence: 1
+                    }
+                );
+                assert_eq!(
+                    changed[3].anchor,
+                    BookmarkAnchor::Block { id: "other".into() }
+                );
+                let document = w.tabs[0].save.clone();
+                w.relocate_document(&document, "renamed.md".into());
+                let renamed = w.ui.bookmark_candidates.get(&w.tabs[0], cx);
+                assert!(
+                    renamed
+                        .iter()
+                        .all(|entry| entry.path == std::path::Path::new("renamed.md"))
+                );
+                // A different editor may have the same revision; it has its own candidates.
+                w.add_tab(
+                    "b.md".into(),
+                    Some("# Different\n".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                let other = w.ui.bookmark_candidates.get(&w.tabs[2], cx);
+                assert_eq!(other.len(), 1);
+                assert_eq!(
+                    other[0].anchor,
+                    BookmarkAnchor::Heading {
+                        title: "Different".into(),
+                        occurrence: 0
+                    }
+                );
+                assert_eq!(w.ui.bookmark_candidates.get(&w.tabs[0], cx), renamed);
+                w.tabs[0].save.editor.update(cx, |editor, cx| {
+                    editor.replace_all("plain text", window, cx)
+                });
+                assert!(w.ui.bookmark_candidates.get(&w.tabs[0], cx).is_empty());
+            })
+            .unwrap();
+        cx.run_until_parked();
+    }
 
     #[gpui::test]
     fn anchor_bookmarks_follow_drafts_relocations_and_missing_targets(cx: &mut TestAppContext) {

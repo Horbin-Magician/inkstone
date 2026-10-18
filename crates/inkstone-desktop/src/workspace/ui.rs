@@ -129,6 +129,7 @@ impl PartialEq<PathBuf> for ClosedTab {
 
 pub(super) struct UiState {
     pub prefs: Preferences,
+    pub bookmark_candidates: super::bookmarks::CandidateCache,
     pub available_fonts: Arc<Vec<String>>,
     pub default_fonts: (SharedString, SharedString),
     pub font_selects: [Entity<SelectState<SearchableVec<super::appearance::FontChoice>>>; 3],
@@ -465,6 +466,7 @@ impl UiState {
                 _ => (),
             });
         Self {
+            bookmark_candidates: Default::default(),
             prefs,
             available_fonts: Arc::new(available_fonts),
             default_fonts,
