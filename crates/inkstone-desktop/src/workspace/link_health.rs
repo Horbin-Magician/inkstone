@@ -16,11 +16,14 @@ impl Workspace {
             return;
         };
         self.flush_document_views(window, cx);
+        let mut seen = std::collections::HashSet::new();
         let drafts: Vec<_> = self
             .tabs
             .iter()
+            .filter(|t| !t.path.as_os_str().is_empty())
+            .filter(|t| seen.insert(t.save.editor.entity_id()))
             .filter(|t| !t.save.editor.read(cx).is_composing())
-            .map(|t| (t.path.clone(), t.save.editor.read(cx).value()))
+            .map(|t| (t.path.clone(), t.save.text_snapshot(cx)))
             .collect();
         self.close_overlays(window, cx);
         self.ui.link_health = Some(Review {
@@ -98,6 +101,9 @@ mod tests {
                 w.index = Arc::new(Index::build(&vault).unwrap());
                 w.vault = Some(vault);
                 w.add_tab("a.md".into(), Some("# new".into()), false, window, cx);
+                w.add_tab("a.md".into(), None, false, window, cx);
+                assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
+                w.new_blank(window, cx);
                 std::fs::write(root.join("source.md"), "[ok](a.md#new)").unwrap();
                 w.open_link_health(window, cx);
             })
