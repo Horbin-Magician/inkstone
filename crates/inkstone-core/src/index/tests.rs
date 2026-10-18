@@ -1447,3 +1447,59 @@ fn batched_text_updates_resolve_final_aliases_and_preserve_unchanged_notes() {
     index.rebuild_lookup();
     assert_eq!(*backlinks, *index.backlinks);
 }
+
+#[test]
+fn case_colliding_paths_remain_searchable_and_resolve_without_guessing() {
+    let mut index = Index::default();
+    index.update("Folder/Note.md".into(), "Upper".into());
+    index.update("folder/note.md".into(), "Lower".into());
+    index.update("upper-source.md".into(), "[upper](/Folder/Note.md)".into());
+    index.update("lower-source.md".into(), "[lower](/folder/note.md)".into());
+    let from = Path::new("upper-source.md");
+    assert_eq!(
+        index
+            .filenames("note")
+            .iter()
+            .map(|hit| hit.path.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            PathBuf::from("Folder/Note.md"),
+            PathBuf::from("folder/note.md")
+        ]
+    );
+    assert_eq!(
+        index.resolve(from, "/Folder/Note.md"),
+        Resolution::Found("Folder/Note.md".into())
+    );
+    assert_eq!(
+        index.resolve(from, "/folder/note.md"),
+        Resolution::Found("folder/note.md".into())
+    );
+    assert_eq!(
+        index.resolve(from, "/FOLDER/NOTE.md"),
+        Resolution::Ambiguous(vec!["Folder/Note.md".into(), "folder/note.md".into()])
+    );
+    assert_eq!(
+        index.backlinks(Path::new("Folder/Note.md")),
+        vec![PathBuf::from("upper-source.md")]
+    );
+    assert_eq!(
+        index.backlinks(Path::new("folder/note.md")),
+        vec![PathBuf::from("lower-source.md")]
+    );
+    assert!(index.backlinks(Path::new("FOLDER/NOTE.md")).is_empty());
+    index.remove_note(Path::new("folder/note.md"));
+    index.reindex_backlinks();
+    assert_eq!(
+        index.resolve(from, "/FOLDER/NOTE.md"),
+        Resolution::Found("Folder/Note.md".into())
+    );
+    assert_eq!(index.filenames("note").len(), 1);
+    assert_eq!(
+        index.backlinks(Path::new("FOLDER/NOTE.md")),
+        vec![
+            PathBuf::from("lower-source.md"),
+            PathBuf::from("upper-source.md")
+        ]
+    );
+}
