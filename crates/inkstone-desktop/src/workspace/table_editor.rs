@@ -24,29 +24,26 @@ impl Review {
             .map(|row| row.iter().map(|s| s.read(cx).value().to_string()).collect())
             .collect();
     }
-    fn rebuild(&mut self, window: &mut Window, cx: &mut Context<Workspace>) {
-        self.cells = self
-            .grid
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(r, row)| {
-                row.iter()
-                    .enumerate()
-                    .map(|(c, text)| {
-                        cx.new(|cx| {
-                            let mut input = InputState::new(window, cx).placeholder(format!(
-                                "第 {} 行，第 {} 列",
-                                r + 1,
-                                c + 1
-                            ));
-                            input.set_value(text.clone(), window, cx);
-                            input
-                        })
-                    })
-                    .collect()
-            })
-            .collect();
+    fn resize_cells(&mut self, window: &mut Window, cx: &mut Context<Workspace>) {
+        self.cells.truncate(self.grid.rows.len());
+        for (r, row) in self.grid.rows.iter().enumerate() {
+            if r == self.cells.len() {
+                self.cells.push(vec![]);
+            }
+            let cells = &mut self.cells[r];
+            cells.truncate(row.len());
+            for (c, text) in row.iter().enumerate().skip(cells.len()) {
+                cells.push(cx.new(|cx| {
+                    let mut input = InputState::new(window, cx).placeholder(format!(
+                        "第 {} 行，第 {} 列",
+                        r + 1,
+                        c + 1
+                    ));
+                    input.set_value(text.clone(), window, cx);
+                    input
+                }));
+            }
+        }
     }
 }
 impl Workspace {
@@ -77,7 +74,7 @@ impl Workspace {
             cells: vec![],
             message: String::new(),
         };
-        review.rebuild(window, cx);
+        review.resize_cells(window, cx);
         self.close_overlays(window, cx);
         self.ui.table_editor = Some(review);
         self.ui.trash_open = true;
@@ -117,7 +114,7 @@ impl Workspace {
                 return;
             }
         }
-        review.rebuild(window, cx);
+        review.resize_cells(window, cx);
         review.message.clear();
         cx.notify();
     }
@@ -202,8 +199,29 @@ mod tests {
                 w.add_tab("table.md".into(), Some(text.into()), false, window, cx);
                 let editor = w.tabs[0].save.editor.clone();
                 w.open_table_editor(window, cx);
-                w.ui.table_editor.as_ref().unwrap().cells[1][0]
-                    .update(cx, |s, cx| s.set_value("new|值", window, cx));
+                w.ui.table_editor.as_ref().unwrap().cells[1][0].update(cx, |s, cx| {
+                    s.set_value("new|值", window, cx);
+                    s.set_selected_range(0..3, cx);
+                });
+                let original_cells = w.ui.table_editor.as_ref().unwrap().cells.clone();
+                for op in [0, 2, 3, 1] {
+                    w.resize_table_grid(op, window, cx);
+                    let review = w.ui.table_editor.as_ref().unwrap();
+                    for (r, row) in original_cells.iter().enumerate() {
+                        for (c, cell) in row.iter().enumerate() {
+                            assert_eq!(review.cells[r][c].entity_id(), cell.entity_id());
+                        }
+                    }
+                    assert_eq!(review.cells[1][0].read(cx).value().as_ref(), "new|值");
+                    assert_eq!(review.cells[1][0].read(cx).selected_range(), 0..3);
+                    assert_eq!(review.cells.len(), review.grid.rows.len());
+                    assert!(
+                        review
+                            .cells
+                            .iter()
+                            .all(|row| row.len() == review.grid.alignment.len())
+                    );
+                }
                 w.resize_table_grid(0, window, cx);
                 w.apply_table_grid(window, cx);
                 assert!(editor.read(cx).value().contains("new\\|值"));
