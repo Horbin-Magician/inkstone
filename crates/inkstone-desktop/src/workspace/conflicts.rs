@@ -10,7 +10,7 @@ pub(super) struct Review {
     document: Rc<document::DocumentState>,
     path: PathBuf,
     baseline: Option<String>,
-    local: String,
+    local: SharedString,
     disk: Option<String>,
     ready: bool,
     message: String,
@@ -41,7 +41,7 @@ impl Workspace {
         let document = tab.save.clone();
         let path = document.path.borrow().clone();
         let baseline = document.persistence.baseline().clone();
-        let local = document.editor.read(cx).value().to_string();
+        let local = document.text_snapshot(cx);
         self.close_overlays(window, cx);
         let preview = cx.new(|cx| {
             let mut s = TextareaState::new(window, cx).rows(16);
@@ -64,7 +64,7 @@ impl Workspace {
         let request = self.ui.recovery_refresh;
         let task = cx.background_executor().spawn(async move {
             let disk = vault.read(&path)?;
-            let preview = if disk.as_deref() == Some(&local) {
+            let preview = if disk.as_deref() == Some(local.as_ref()) {
                 "本地正文与磁盘内容一致。".into()
             } else {
                 let diff = similar::TextDiff::configure()
@@ -140,7 +140,7 @@ impl Workspace {
             || document.persistence.is_saving()
             || *document.path.borrow() != path
             || *document.persistence.baseline() != baseline
-            || document.editor.read(cx).value().as_ref() != local
+            || document.text_snapshot(cx).as_ref() != local.as_ref()
             || tabs
                 .iter()
                 .any(|id| self.has_pending_input(*id, window, cx))
@@ -169,7 +169,7 @@ impl Workspace {
                 baseline.as_deref(),
                 &local,
                 disk.as_deref(),
-                keep_local.then_some(local.as_str()),
+                keep_local.then_some(local.as_ref()),
             )
         });
         cx.spawn_in(window, async move |this, cx| {
@@ -181,7 +181,7 @@ impl Workspace {
                     return;
                 }
                 this.flush_document_views(window, cx);
-                let still_current = document.editor.read(cx).value().as_ref() == expected_local
+                let still_current = document.text_snapshot(cx).as_ref() == expected_local.as_ref()
                     && !document.editor.read(cx).is_composing()
                     && !this
                         .tabs
