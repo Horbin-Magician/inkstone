@@ -1014,7 +1014,10 @@ fn markdown_relocation_preserves_syntax_with_special_filenames() {
         "bracket[name].md",
         "hash#name.md",
         "space name.md",
-    ] {
+    ]
+    .into_iter()
+    .chain(cfg!(unix).then_some(r"literal\[name].md"))
+    {
         let from = Path::new("source.md");
         let old = Path::new("target.md");
         let new = Path::new(filename);
@@ -1051,7 +1054,10 @@ fn wiki_reference_relocation_preserves_special_filenames_and_labels() {
         "bracket[name].md",
         "line\nname.md",
         "nested/hash#name.md",
-    ] {
+    ]
+    .into_iter()
+    .chain(cfg!(unix).then_some(r"literal\[name].md"))
+    {
         for text in [
             "[[target]]",
             "[[target#heading]]",
@@ -1251,4 +1257,27 @@ fn wiki_aliases_cross_inline_formatting_without_crossing_code_or_blocks() {
         assert_eq!(link.range, span.source);
         assert_eq!(&source[span.content.clone()], link.label);
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn encoded_backslash_paths_do_not_collide_with_directories() {
+    let mut index = Index::default();
+    let literal = Path::new(r"folder\name.md");
+    let nested = Path::new("folder/name.md");
+    let from = Path::new("source.md");
+    index.update(literal.into(), "literal".into());
+    index.update(nested.into(), "nested".into());
+    assert_eq!(
+        index.resolve_markdown(from, "folder%5Cname.md").0,
+        Resolution::Found(literal.into())
+    );
+    assert_eq!(
+        index.resolve_markdown(from, "folder/name.md").0,
+        Resolution::Found(nested.into())
+    );
+    assert_eq!(
+        index.resolve(from, r"folder\name"),
+        Resolution::Found(nested.into())
+    );
 }

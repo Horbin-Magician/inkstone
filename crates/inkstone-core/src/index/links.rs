@@ -9,6 +9,7 @@ use std::{
 const LINK_PATH_ESCAPE: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
     .add(b' ')
     .add(b'#')
+    .add(b'\\')
     .add(b'%')
     .add(b'<')
     .add(b'>')
@@ -94,7 +95,9 @@ impl Index {
                 if destination == target && source == *from {
                     continue;
                 }
-                let path = destination.to_string_lossy().replace('\\', "/");
+                let path = destination
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/");
                 let embedded = link.range.start.checked_sub(1).is_some_and(|i| {
                     note.text.as_bytes()[i] == b'!'
                         && note.text[..i]
@@ -203,7 +206,9 @@ impl Index {
                 for part in &b[common..] {
                     relative.push(part.as_os_str());
                 }
-                let path = relative.to_string_lossy().replace('\\', "/");
+                let path = relative
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/");
                 let encoded =
                     percent_encoding::utf8_percent_encode(&path, LINK_PATH_ESCAPE).to_string();
                 let fragment = url.split_once('#').map_or(String::new(), |(_, s)| {
@@ -232,7 +237,10 @@ impl Index {
         edits
     }
     pub fn resolve(&self, from: &Path, target: &str) -> Resolution {
-        self.resolve_literal(from, target.split('#').next().unwrap_or(""))
+        self.resolve_literal(
+            from,
+            &target.split('#').next().unwrap_or("").replace('\\', "/"),
+        )
     }
     /// Markdown destinations are relative to the containing document, unlike wiki paths.
     /// Decode the path and fragment separately so an encoded '#' stays in the filename.
@@ -273,7 +281,7 @@ impl Index {
         (resolved, heading)
     }
     fn resolve_literal(&self, from: &Path, target: &str) -> Resolution {
-        let target = target.trim().replace('\\', "/");
+        let target = target.trim();
         if target.is_empty() {
             return Resolution::Found(from.into());
         }
@@ -282,11 +290,11 @@ impl Index {
         }
         let explicit = target.contains('/');
         let mut path = if target.starts_with("./") || target.starts_with("../") {
-            from.parent().unwrap_or(Path::new("")).join(&target)
+            from.parent().unwrap_or(Path::new("")).join(target)
         } else if explicit {
             PathBuf::from(target.trim_start_matches('/'))
         } else {
-            from.parent().unwrap_or(Path::new("")).join(&target)
+            from.parent().unwrap_or(Path::new("")).join(target)
         };
         if path
             .extension()

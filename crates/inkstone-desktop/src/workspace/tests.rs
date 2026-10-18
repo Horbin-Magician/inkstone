@@ -4471,7 +4471,11 @@ fn completion_link_preferences_keep_full_labels_and_resolve(cx: &mut TestAppCont
                 "same.md",
                 "a/sub/中文.2026.md",
                 "other/unique.md",
-            ] {
+            ]
+            .into_iter()
+            .chain(cfg!(unix).then_some(r"a/sub/literal\name.md"))
+            .chain(cfg!(unix).then_some(r"a/sub/literal\[name].md"))
+            {
                 index.update(name.into(), String::new());
             }
             w.index = Arc::new(index);
@@ -4489,10 +4493,15 @@ fn completion_link_preferences_keep_full_labels_and_resolve(cx: &mut TestAppCont
                     for (path, entry) in w.index.notes.keys().zip(entries.iter()) {
                         assert_eq!(
                             entry.label,
-                            path.with_extension("").to_string_lossy().replace('\\', "/")
+                            path.with_extension("")
+                                .to_string_lossy()
+                                .replace(std::path::MAIN_SEPARATOR, "/")
                         );
-                        assert_eq!(entry.markdown, markdown);
-                        let resolved = if markdown {
+                        assert_eq!(
+                            entry.markdown,
+                            markdown || path.to_string_lossy().contains('\\')
+                        );
+                        let resolved = if entry.markdown {
                             w.index.resolve_markdown(from, &entry.target).0
                         } else {
                             w.index.resolve(from, &entry.target)
