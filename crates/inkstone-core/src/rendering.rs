@@ -355,11 +355,6 @@ impl Prepared {
         parsed: Arc<index::ParsedNote>,
     ) -> Self {
         let source = &snapshot.source;
-        let html_destinations = snapshot
-            .ast
-            .as_deref()
-            .map(|ast| crate::syntax::html_destinations(ast, &snapshot.structural))
-            .unwrap_or_default();
         let mut actions: Vec<_> = parsed
             .comments
             .iter()
@@ -414,8 +409,10 @@ impl Prepared {
             actions.push((range, Action::Destination(url)));
         }
         actions.extend(
-            html_destinations
-                .into_iter()
+            parsed
+                .html_destinations
+                .iter()
+                .cloned()
                 .map(|(range, url)| (range, Action::Destination(url))),
         );
         for span in crate::markdown::spans_snapshot(&snapshot)

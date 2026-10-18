@@ -1092,6 +1092,72 @@ fn wiki_reference_relocation_preserves_special_filenames_and_labels() {
 }
 
 #[test]
+fn html_image_relocation_keeps_dimensions_and_ignores_literal_examples() {
+    let root =
+        std::env::temp_dir().join(format!("inkstone-html-relocation-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("pics")).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let old = Path::new("old.png");
+    let new = Path::new("pics/hash#image.png");
+    std::fs::write(root.join(old), b"image fixture").unwrap();
+    let from = Path::new("nested/source.md");
+    let source = "<img src=\"../old.png\" width=\"160\" height=\"80\">\n\n`<img src=\"../old.png\">`\n\n<!-- <img src=\"../old.png\"> -->";
+    let mut index = Index::default();
+    index.files.push(old.into());
+    index.update(from.into(), source.into());
+    let edits = index.relocation_edits(old, new, false, Some(&root));
+    let after = &edits.iter().find(|(path, _, _)| path == from).unwrap().2;
+    assert!(after.contains("width=\"160\" height=\"80\""));
+    assert!(after.contains("`<img src=\"../old.png\">`"));
+    assert!(after.contains("<!-- <img src=\"../old.png\"> -->"));
+    std::fs::rename(root.join(old), root.join(new)).unwrap();
+    let parsed = parse(after);
+    assert_eq!(parsed.html_destinations.len(), 1);
+    let reference = crate::rendering::Reference {
+        from: from.into(),
+        target: parsed.html_destinations[0].1.clone(),
+        wiki: false,
+    };
+    assert_eq!(
+        crate::rendering::asset_path(&root, &reference, &[new.into()]),
+        Some(root.join(new))
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn relocation_updates_html_destinations_without_changing_attributes() {
+    let from = Path::new("source.md");
+    let old = Path::new("target.md");
+    let new = Path::new("quotes\"'&name.md");
+    for source in [
+        "<a href=\"target.md#heading\" title=\"keep\">label</a>",
+        "<a href='target.md#heading' title='keep'>label</a>",
+        "<a href=target.md#heading title=keep>label</a>",
+    ] {
+        let mut index = Index::default();
+        index.update(from.into(), source.into());
+        index.update(old.into(), "# heading".into());
+        let edits = index.relocation_edits(old, new, false, None);
+        let after = &edits
+            .iter()
+            .find(|(path, _, _)| path == from)
+            .expect("HTML reference must be relocated")
+            .2;
+        let snapshot = crate::syntax::Snapshot::new(after);
+        let links = crate::syntax::html_destinations(snapshot.ast.as_deref().unwrap(), after);
+        assert_eq!(links.len(), 1, "{after}");
+        index.update(new.into(), "# heading".into());
+        assert_eq!(
+            index.resolve_markdown(from, &links[0].1),
+            (Resolution::Found(new.into()), Some("heading".into()))
+        );
+        assert!(after.contains("title="));
+        assert!(after.ends_with(">label</a>"));
+    }
+}
+
+#[test]
 fn relocated_note_embeds_keep_content_and_live_source_ranges() {
     for name in ["hash#name", "pipe|name", "bracket[name]", "line\nname"] {
         for folder in [false, true] {

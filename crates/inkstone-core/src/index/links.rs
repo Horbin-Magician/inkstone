@@ -15,6 +15,11 @@ const LINK_PATH_ESCAPE: &percent_encoding::AsciiSet = &percent_encoding::CONTROL
     .add(b'[')
     .add(b']')
     .add(b'|')
+    .add(b'"')
+    .add(b'\'')
+    .add(b'&')
+    .add(b'=')
+    .add(b'`')
     .add(b'(')
     .add(b')');
 const LINK_FRAGMENT_ESCAPE: &percent_encoding::AsciiSet = &LINK_PATH_ESCAPE.remove(b'%');
@@ -145,7 +150,18 @@ impl Index {
                     format!("[[/{target}{fragment}{alias}]]"),
                 ));
             }
-            for (range, url) in &note.parsed.destinations {
+            for (range, url, html) in note
+                .parsed
+                .destinations
+                .iter()
+                .map(|(r, u)| (r, u, false))
+                .chain(
+                    note.parsed
+                        .html_destinations
+                        .iter()
+                        .map(|(r, u)| (r, u, true)),
+                )
+            {
                 if url.starts_with('#') {
                     continue;
                 }
@@ -174,9 +190,16 @@ impl Index {
                 let path = relative.to_string_lossy().replace('\\', "/");
                 let encoded =
                     percent_encoding::utf8_percent_encode(&path, LINK_PATH_ESCAPE).to_string();
-                let fragment = url
-                    .split_once('#')
-                    .map_or(String::new(), |(_, s)| format!("#{s}"));
+                let fragment = url.split_once('#').map_or(String::new(), |(_, s)| {
+                    if html {
+                        format!(
+                            "#{}",
+                            percent_encoding::utf8_percent_encode(s, LINK_FRAGMENT_ESCAPE)
+                        )
+                    } else {
+                        format!("#{s}")
+                    }
+                });
                 replacements.push((range.clone(), format!("{encoded}{fragment}")));
             }
             if !replacements.is_empty() {
