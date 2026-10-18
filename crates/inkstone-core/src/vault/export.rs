@@ -144,7 +144,12 @@ impl Builder<'_> {
                 &note_path(from, self.format),
                 &Path::new("assets").join(path),
             );
-            if let Some((_, fragment)) = target.split_once('#') {
+            // Markdown fragments are decoded by resolve_markdown; Wiki fragments
+            // are literal. Preserve the previous fallback for malformed escapes.
+            if let Some(fragment) = fragment
+                .as_deref()
+                .or_else(|| target.split_once('#').map(|(_, value)| value))
+            {
                 url.push('#');
                 url.push_str(&encoded(fragment));
             }
@@ -434,6 +439,47 @@ pub fn create(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn attachment_fragments_are_encoded_once_in_portable_exports() {
+        let root = std::env::temp_dir().join(format!("inkstone-export-fragments-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let asset = b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>";
+        fs::write(vault.root.join("asset.svg"), asset).unwrap();
+        let source = "[space](asset.svg#part%20one)\n\n[percent](asset.svg#part%2520one)\n\n![image](asset.svg#%E4%B8%AD%E6%96%87)\n\n[[asset.svg#literal%20value|wiki]]\n\n[invalid](asset.svg#%FF)\n";
+        fs::write(vault.root.join("note.md"), source).unwrap();
+        for format in [Format::Markdown, Format::Html] {
+            let output = root.join(format.extension());
+            let report = create(
+                &vault,
+                Path::new("note.md"),
+                BTreeMap::new(),
+                &output,
+                format,
+            )
+            .unwrap();
+            assert_eq!((report.notes, report.attachments), (1, 1));
+            let exported = fs::read_to_string(report.entry).unwrap();
+            for fragment in [
+                "part%20one",
+                "part%2520one",
+                "%E4%B8%AD%E6%96%87",
+                "literal%2520value",
+                "%25FF",
+            ] {
+                assert!(
+                    exported.contains(&format!("../assets/asset%2Esvg#{fragment}")),
+                    "{exported}"
+                );
+            }
+            assert_eq!(fs::read(output.join("assets/asset.svg")).unwrap(), asset);
+        }
+        assert_eq!(
+            fs::read_to_string(vault.root.join("note.md")).unwrap(),
+            source
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn relocated_wiki_assets_keep_rendering_and_portable_resources() {
         let root =
