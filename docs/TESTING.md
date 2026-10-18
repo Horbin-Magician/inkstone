@@ -3116,6 +3116,12 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 在 `6eaa54a` 源码上重新准备 vendor 测试环境，Component dock:: 默认与 test-support 配置各 24 项通过，无忽略，覆盖包装面板恢复、尺寸布局、侧栏拖动隔离及底栏最小尺寸吸附等既有回归。日志 `target/audit-20261019/dock-skin-{prepare,tests,observed-tests}.log`。两种配置测试重叠，不合计为独立用例数。
 - 台账范围、唯一性和交集检查及 git diff --check 通过，更新为 307 已核对、421 待核对，总范围 728。tab_panel.rs 尚未完整读取，不计入本批；以上无头测试不替代原生拖动、读屏或多 DPI 验收，也不代表全量回归完成。
 
+第二百七十三批审核与验证：
+
+- 已完整读取 Component dock/tab_panel.rs，但尚有交互疑点待验证，因此保持在待核对清单，不增加已审核计数。待查：存储活动索引对应面板被隐藏后，自动滚动是否跟随实际显示面板；已缩放状态下不提供菜单缩放控件的面板，菜单“缩小”的禁用条件是否正确。
+- 提交 `ac56500` 让 render_tabs 接收 render_tab_bar 已收集的可见索引，删除每帧第二次遍历、可见性查询和 Vec 收集。保持本次选择与菜单行为，未声称上述待查项已经解决，也未测量帧耗时提升。
+- Component dock:: 默认和 test-support 配置各 24 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、修改文件直接 rustfmt 与 diff 检查通过。日志 `target/audit-20261019/dock-visible-{prepare,tests,observed-tests,clippy}.log`，保留既有 block 0.1.6 提示。未重跑完整工作区或原生验收；台账仍为 307 已核对、421 待核对。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
