@@ -29,7 +29,7 @@ pub(super) struct Browser {
     current_available: bool,
     entries: Vec<HistoryEntry>,
     selected: Option<usize>,
-    record: Option<Recovery>,
+    record: Option<Arc<Recovery>>,
     baseline: bool,
     difference: bool,
     loading: bool,
@@ -194,7 +194,7 @@ impl Workspace {
                             saved: false,
                         }];
                         browser.selected = Some(0);
-                        browser.record = Some(entry.record);
+                        browser.record = Some(Arc::new(entry.record));
                         this.update_history_preview(window, cx);
                     }
                     Err(error) => {
@@ -447,7 +447,7 @@ impl Workspace {
                         if record.baseline.is_none() {
                             browser.baseline = false;
                         }
-                        browser.record = Some(record);
+                        browser.record = Some(Arc::new(record));
                         this.update_history_preview(window, cx);
                     }
                     Err(error) => {
@@ -466,15 +466,10 @@ impl Workspace {
         let Some(browser) = &mut self.ui.history else {
             return;
         };
-        let Some(record) = &browser.record else {
+        let Some(record) = browser.record.clone() else {
             return;
         };
-        let text = if browser.baseline {
-            record.baseline.as_ref().unwrap_or(&record.draft)
-        } else {
-            &record.draft
-        }
-        .clone();
+        let baseline = browser.baseline;
         let current = browser.current.clone();
         let difference = browser.difference;
         let draft_review = browser.draft_review;
@@ -483,6 +478,11 @@ impl Workspace {
         let request = self.ui.recovery_refresh;
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {
+            let text = if baseline {
+                record.baseline.as_ref().unwrap_or(&record.draft)
+            } else {
+                &record.draft
+            };
             if difference {
                 if text.as_str() == current.as_ref() {
                     return if draft_review {
@@ -514,7 +514,7 @@ impl Workspace {
                         .to_string(),
                 )
             } else {
-                preview_text(&text)
+                preview_text(text)
             }
         });
         cx.spawn_in(window, async move |this, cx| {
