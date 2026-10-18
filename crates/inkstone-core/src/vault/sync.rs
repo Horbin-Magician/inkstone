@@ -506,21 +506,11 @@ pub fn changed_since_sync(
             return Ok(snapshot_with_progress(vault, Phase::Scanning, &|_| {})? != base.files);
         }
         let digest = if metadata.is_some() {
-            let mut file = fs::File::open(path)?;
-            ensure!(file.metadata()?.is_file(), "同步目标不是普通文件");
-            let mut hasher = Sha256::new();
-            let mut buffer = [0u8; 64 * 1024];
-            let mut bytes = 0u64;
-            loop {
-                let read = file.read(&mut buffer)?;
-                if read == 0 {
-                    break;
-                }
-                bytes += read as u64;
-                ensure!(bytes <= MAX_FILE_BYTES, "单个同步文件超过 128 MiB");
-                hasher.update(&buffer[..read]);
-            }
-            Some(format!("{:x}", hasher.finalize()))
+            Some(
+                fingerprint(&path, &Cancellation::default())?
+                    .context("检查期间文件被删除，请重试")?
+                    .0,
+            )
         } else {
             None
         };
