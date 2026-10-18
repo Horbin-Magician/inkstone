@@ -2842,6 +2842,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 分屏过滤 21 项、多标签布局与自动显露 1 项通过；工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志 `target/audit-20261019/tab-selected-tests.log`、`tab-selected-layout-tests.log`、`tab-selected-clippy.log`。
 - 后续待处理发现：editor_group 文件菜单的回调在主标签已移除时仍会执行命令，副视图分支只按当前 split 聚焦，未校验菜单原始 pane 身份。下一步需回归确认旧菜单是否可误操作新的当前视图，并补齐保护；本批只完成标签查找优化，不把该发现记为已解决。
 
+第二百三十三批审核与验证：
+
+- 解决上一批文件菜单目标绑定发现（`e079366`）：主标签已移除、分屏已替换后，原菜单回调会错误切换另一视图的阅读模式。两种场景分别用真实 GPUI 弹出菜单点击先复现失败；现在捕获原始 pane，复用 focus_navigation_pane 查找，目标不再属于工作区时忽略命令。
+- 新增一项菜单交互回归覆盖四组情形：失效主视图、替换分屏、正常主视图、正常分屏。正常操作仍只切换原视图，失效操作不改变其他视图。菜单按钮增加调试选择器，不改变用户界面；没有通过危险删除动作验证回归。
+- 菜单四场景回归 1 项、导航回归 12 项通过；工作区 all-targets Clippy（`-D warnings`）、格式及 diff 检查通过。日志 `target/audit-20261019/stale-file-menu-red.log`、`stale-file-menu-secondary-red.log`、`stale-file-menu-tests.log`、`stale-file-menu-navigation-tests.log`、`stale-file-menu-clippy.log`。初次测试编译缺少 core test 宏导入已修正，两个 red 日志均为运行期行为断言失败。
+- 台账仍为 234 已核对、493 待核对；本批处理已审文件中的发现，不新增逐文件覆盖。以上为测试平台点击，未替代原生界面、Windows 或最终冻结版本全量验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
