@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "7650f4d73761a9f29dc45f096f71de73c5550507",
+  "snapshot_revision": "aaa117c4a97e2ea87597328b52fc8a6604030c58",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1032,6 +1032,11 @@
       "path": "crates/inkstone-desktop/src/workspace/commands.rs",
       "checks": "Complete read: stable command IDs, filtering, editor transforms, tab/view commands, file actions and menu tests. Traced reveal command to sidebar visibility and tree selection.",
       "result": "Fixed explicit file reveal leaving sidebar hidden in focus mode (7650f4d). Existing nested-file reveal regression failed before fix and passed after, preserving disabled automatic reveal preference. Three reveal/command tests, workspace all-targets Clippy, formatting and diff checks passed. Native UI validation remains outstanding."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
+      "checks": "Complete read: drag targets/generation, tree labels and context actions, current-file reveal, sorting and placeholder rows, search groups/highlights, scroll pagination and indent guides.",
+      "result": "Limited per-paint indent guide traversal to viewport-intersecting rows (aaa117c), preserving scroll offset reads during paint and content masking. Clipped geometry matches the full-tree algorithm over 48 viewport cases plus empty input. Fourteen tree-related tests, workspace all-targets Clippy, formatting and diff checks passed. Render-time depth collection remains full-tree; no native frame-rate improvement measured."
     }
   ],
   "pending_reconciliation": [
@@ -1041,7 +1046,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
-    "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
     "crates/inkstone-desktop/src/workspace/navigation.rs",
     "crates/inkstone-desktop/src/workspace/recovery.rs",
