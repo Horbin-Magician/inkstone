@@ -614,6 +614,7 @@ impl RenderOnce for Input {
                     .editor_active_line_number,
                 fold_icon_renderer: Some(Rc::new(|ix, is_folded| {
                     Button::new(("fold-icon", ix))
+                        .role(RoleOverride::Presentational)
                         .ghost()
                         .icon(if is_folded {
                             IconName::ChevronRight

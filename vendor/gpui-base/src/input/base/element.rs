@@ -1349,6 +1349,7 @@ impl<M: InputModeKind> TextElement<M> {
         window: &mut Window,
         cx: &mut App,
     ) -> FoldIconLayout {
+        use gpui::StatefulInteractiveElement as _;
         // First pass: collect fold information from state
         struct FoldInfo {
             buffer_line: usize,
@@ -1455,6 +1456,23 @@ impl<M: InputModeKind> TextElement<M> {
                 });
             let mut icon = gpui::div()
                 .id(("fold", ix))
+                .role(gpui::Role::Button)
+                .aria_label(format!(
+                    "{} line {}",
+                    if info.is_folded { "Expand" } else { "Collapse" },
+                    info.buffer_line + 1
+                ))
+                .aria_expanded(!info.is_folded)
+                .on_a11y_action(gpui::AccessibleAction::Click, {
+                    let state = self.state.clone();
+                    let buffer_line = info.buffer_line;
+                    move |_, _, cx| {
+                        state.update(cx, |state, cx| {
+                            state.toggle_fold_line(buffer_line, cx);
+                            cx.notify();
+                        });
+                    }
+                })
                 .size(FOLD_ICON_WIDTH)
                 .child(child)
                 .on_mouse_down(MouseButton::Left, {
