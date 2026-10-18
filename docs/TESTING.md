@@ -2962,6 +2962,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - `--features test-support accordion::tests` 3 项通过；默认构建相关测试 2 项通过，两批有重叠，不累加。日志 `target/audit-20261019/accordion-review-tests.log` 和 `accordion-default-review-tests.log`。格式及 diff 检查通过；本批仅改测试，未重复生产 Clippy。
 - 当前 GPUI StatefulInteractiveElement 无 aria-disabled 设置方法，禁用触发器能阻止点击但不投射 disabled 标记；此限制与 Base button.rs 已记录的上游缺口一致，仍需后续无障碍方案与原生验收。accordion.rs 暂留待核对，计数保持 268/459。新增结构测试依赖显式 test-support 特性，普通 vendor 入口不会执行它，最终验证必须包含该特性配置，不能把默认配置通过视为完整覆盖。
 
+第二百五十一批审核与验证：
+
+- 补齐正式独立 vendor 回归入口：提交 `0f4d508` 保留 Base 默认构建，并增加 Base test-support 全量构建，随后执行 Component 默认构建。观察封装的有无改变实际元素类型，两种配置不能互相替代；上一批手风琴结构角色测试从此进入正式入口及调用该入口的 CI。
+- 首次全量发现导航栈退出夹具失败：同一帧前连续 push 两页，旧页未曾绘制，却要求它继续播放退出动画。此前 Presence 的初始隐藏修复使未显示页面直接 Absent。提交 `a81c552` 先绘制 root，再 push 第二页；仍检查 100ms 时过渡保留、250ms 后释放及立即退出。专项 7 项通过，日志 `target/audit-20261019/nav-stack-visible-exit-tests.log`。这是测试前提修正，没有恢复隐藏页面的无效退场行为。
+- 完整正式入口重新执行成功：Base 默认 1252 通过/1 忽略（25.17s）；Base test-support 1253 通过/1 忽略（26.66s）；Component 默认 573 通过/0 忽略（2.42s）。两个 Base 配置忽略的是同一既有手工 long_paragraph_range_performance 测试，覆盖有重叠，不累加。最终日志 `target/audit-20261019/vendor-observation-full-tests.log`，首次失败留在 `vendor-observation-first-attempt.log`。脚本语法、修改测试格式及 diff 检查通过；保留 block 0.1.6 future-incompatibility 提示。
+- 禁用状态的原生无障碍投射仍待实现；未往 test-support 层添加假属性。nav_stack.rs 已继续阅读部分实现和相关测试，尚未完成全文件审核。台账计数保持 268/459，原生/跨平台与最终发布验收继续待办。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
