@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "44203deb1bc7dcf82e119ca126a998412ce9ceee",
+  "snapshot_revision": "2fd37190accb65d5b63cbc9e60643e46254cc983",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1432,6 +1432,11 @@
       "path": "vendor/gpui-base/src/checkbox.rs",
       "checks": "Complete read: three-state activation, controlled values, focus ownership and Tab policy, role override, indicator/root style precedence, disabled pointer bubbling and native semantics. Added native disabled adapter and actual role/observed disabled assertions.",
       "result": "Native disabled assertion fails before fix. Base default/test-support checkbox suites each pass 8 tests; Component checkbox suite passes 5; workspace all-targets Clippy passes. Existing disabled pointer bubbling is preserved. Native screen-reader/platform acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-component/src/checkbox.rs",
+      "checks": "Complete read: controlled bool callback aliases, Base state/role/label forwarding, indicator animation and layout, disabled styles, content rendering, pointer focus policy and focus ring ownership. Preserve explicit track_focus handle instead of overwriting it with keyed state.",
+      "result": "Real Tab-focus regression failed before fix. Default/test-support checkbox suites each pass 6 tests, including observed native disabled flag after drawing; workspace all-targets Clippy passes. Native layout/IME/screen-reader acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
@@ -1602,7 +1607,6 @@
     "vendor/gpui-component/src/chart/pie_chart.rs",
     "vendor/gpui-component/src/chart/radar_chart.rs",
     "vendor/gpui-component/src/chart/sankey_chart.rs",
-    "vendor/gpui-component/src/checkbox.rs",
     "vendor/gpui-component/src/clipboard.rs",
     "vendor/gpui-component/src/collapsible.rs",
     "vendor/gpui-component/src/color_picker.rs",
