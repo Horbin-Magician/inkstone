@@ -101,9 +101,24 @@ impl Expression {
         if !self.matches_in(path, text, tags, context, original) {
             return vec![];
         }
+        self.matched_patterns_in(path, text, tags, context, original)
+    }
+    // The caller has already verified this expression in the same scope.
+    fn matched_patterns_in<'a, 't>(
+        &'a self,
+        path: &Path,
+        text: &'t str,
+        tags: &[String],
+        context: Option<&super::sections::Context<'t>>,
+        original: &'t str,
+    ) -> Vec<ScopedPattern<'a>> {
         match self {
             Self::Leaf(query) => query.patterns(path, text, tags),
-            Self::All(items) | Self::Any(items) => items
+            Self::All(items) => items
+                .iter()
+                .flat_map(|item| item.matched_patterns_in(path, text, tags, context, original))
+                .collect(),
+            Self::Any(items) => items
                 .iter()
                 .flat_map(|item| item.patterns_in(path, text, tags, context, original))
                 .collect(),
@@ -124,7 +139,7 @@ impl Expression {
                     let context = view.context(i);
                     if item.matches_in(path, body, tags, Some(&context), original) {
                         let mut patterns =
-                            item.patterns_in(path, body, tags, Some(&context), original);
+                            item.matched_patterns_in(path, body, tags, Some(&context), original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
@@ -145,7 +160,8 @@ impl Expression {
                 for range in regions.ranges(text).iter() {
                     let body = &text[range.clone()];
                     if item.matches_in(path, body, tags, None, original) {
-                        let mut patterns = item.patterns_in(path, body, tags, None, original);
+                        let mut patterns =
+                            item.matched_patterns_in(path, body, tags, None, original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
@@ -166,7 +182,8 @@ impl Expression {
                 let mut offset = 0;
                 for line in text.split('\n') {
                     if item.matches_in(path, line, tags, None, original) {
-                        let mut patterns = item.patterns_in(path, line, tags, None, original);
+                        let mut patterns =
+                            item.matched_patterns_in(path, line, tags, None, original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
