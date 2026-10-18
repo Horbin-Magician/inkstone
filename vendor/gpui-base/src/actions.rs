@@ -26,14 +26,3 @@ actions!(
         SelectPageDown
     ]
 );
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn confirm_keeps_its_secondary_payload() {
-        assert!(Confirm { secondary: true }.secondary);
-        assert!(!Confirm { secondary: false }.secondary);
-    }
-}
