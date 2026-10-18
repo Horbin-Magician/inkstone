@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "2673246899f00c5ef1c2e4ab5f3a03d2427d81ee",
+  "snapshot_revision": "82bba26da188df8c1520b025ee684d8e1ee040f3",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1197,10 +1197,14 @@
       "path": "crates/inkstone-desktop/src/editor/tests.rs",
       "checks": "Full-file review of cached and asynchronous presentation, reading source mappings, folding and layout geometry, multi-caret Markdown edits and undo, Unicode selection and IME preedit/commit/cancel regression assertions",
       "result": "All 96 editor::tests cases passed on the unchanged source. Tests assert document bytes, selection/undo results, geometry and stale-job cancellation; no redundant test or actionable implementation defect found. Headless geometry and IME API checks do not replace native platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/tests.rs",
+      "checks": "Full-file review of workspace regressions: shared-document ownership and saving, IME and undo, session restore and vault changes, file operations and stale completion guards, links/search/properties, settings keyboard navigation and viewport geometry",
+      "result": "115 baseline cases passed. Removed an obsolete attachment-path assertion; assert committed input and released pending work instead. Slider focus detection now requires an existing target. Both changed cases passed separately. Native runtime, performance and cross-platform acceptance remain outstanding."
     }
   ],
   "pending_reconciliation": [
-    "crates/inkstone-desktop/src/workspace/tests.rs",
     "vendor/gpui-base/benches/motion.rs",
     "vendor/gpui-base/benches/text_view_scroll.rs",
     "vendor/gpui-base/src/accordion.rs",
