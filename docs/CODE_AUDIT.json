@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "7036cd166f607cd0c034bc7fb46095a23ec23c2f",
+  "snapshot_revision": "e079366a4dd745bfc41250adfa572cdd69f8ee42",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1171,7 +1171,7 @@
     {
       "path": "crates/inkstone-desktop/src/workspace/ui.rs",
       "checks": "Complete read across UI state/subscriptions, theme/icons, preference propagation, navigation/recovery handlers, tab and split rendering, actions and status bar.",
-      "result": "7036cd1 reuses selected tab identity, removing per-tab linear main_tab lookup in split mode; 21 split and 1 tab-layout tests passed, Clippy/format passed. Follow-up required: test stale editor-group file-menu callbacks after their original pane is closed/replaced; callback currently can fall through to execute_command against current pane. Native UI acceptance remains outstanding."
+      "result": "7036cd1 reuses selected tab identity, removing per-tab linear main_tab lookup in split mode; 21 split and 1 tab-layout tests passed. e079366 binds file-menu commands to their original pane; stale primary and replaced split regressions each failed before the fix, then a real popup-click test covering stale/valid primary and secondary panes passed along with 12 navigation tests. Workspace all-targets Clippy and formatting passed; native UI acceptance remains outstanding."
     }
   ],
   "pending_reconciliation": [
