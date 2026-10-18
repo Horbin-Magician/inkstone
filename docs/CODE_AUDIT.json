@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "542d21486184ff190ce4ed26cf9a1f1ab1fa358c",
+  "snapshot_revision": "2dc71e20aeadb549e547ca18d1d990a371c2327f",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -652,6 +652,26 @@
       "path": "crates/inkstone-core/src/line_edit.rs",
       "checks": "Full production and test read: UTF-8 boundaries, line grouping, positional newline styles, move/copy selection mapping; LF/CRLF and disjoint/merged regression tests.",
       "result": "Fixed copied-up selections spanning trailing newlines to end at the upper block separator. Core 404 passed, 3 ignored; workspace all-targets Clippy and format checks passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/markdown_edit/indentation.rs",
+      "checks": "Full read: line selection endpoints, quote prefixes, tab column calculations, reverse application and mapped selection offsets; verified public callers clamp widths and validate UTF-8 ranges.",
+      "result": "No new actionable finding; reviewed related parent-module indentation regressions and prior core full-suite evidence."
+    },
+    {
+      "path": "crates/inkstone-core/src/markdown_edit/multi_enter.rs",
+      "checks": "Full read: shared literal ranges, overlapping edits, cumulative offsets, removal anchors, row-based renumbering and final selections.",
+      "result": "No new actionable finding; related tests cover CRLF, mixed insertion/removal, number width changes and fallback behavior."
+    },
+    {
+      "path": "crates/inkstone-core/src/markdown_edit/renumber.rs",
+      "checks": "Full read: parsed ordered siblings, removal anchors, nested traversal, nine-digit limits and unaffected-suffix trimming on character boundaries.",
+      "result": "No new actionable finding; parent-module tests cover nested/code/separate lists and marker removal. Parent file remains pending full read."
+    },
+    {
+      "path": "crates/inkstone-core/src/index/parsing.rs",
+      "checks": "Full read: snapshot metadata, links and definitions, tag ranges/counts, fold ranges, block and heading anchors, Unicode task markers and source edits.",
+      "result": "Simplified redundant tag scanning to direct marker matching. Existing index regression suite: 55 passed; format and diff checks passed. No native performance claim."
     }
   ],
   "pending_reconciliation": [
@@ -665,14 +685,10 @@
     "crates/inkstone-core/examples/projection_benchmark.rs",
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
     "crates/inkstone-core/src/graphics.rs",
-    "crates/inkstone-core/src/index/parsing.rs",
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/lib.rs",
     "crates/inkstone-core/src/markdown.rs",
     "crates/inkstone-core/src/markdown_edit.rs",
-    "crates/inkstone-core/src/markdown_edit/indentation.rs",
-    "crates/inkstone-core/src/markdown_edit/multi_enter.rs",
-    "crates/inkstone-core/src/markdown_edit/renumber.rs",
     "crates/inkstone-core/src/note_embeds.rs",
     "crates/inkstone-core/src/preview.rs",
     "crates/inkstone-core/src/syntax.rs",
