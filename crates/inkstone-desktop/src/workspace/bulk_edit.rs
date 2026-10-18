@@ -267,6 +267,7 @@ impl Workspace {
             return;
         };
         let generation = self.generation;
+        let request = self.ui.recovery_refresh;
         if let Some(r) = &mut self.ui.bulk_edit {
             r.loading = true;
             r.plan = None;
@@ -290,7 +291,7 @@ impl Workspace {
             }
             for editor in changed{this.document_changed(editor,w,cx);}
             let message=format!("已修改 {} 篇笔记；失败 {} 篇；{} 篇处理中产生的新编辑已保留为冲突。可在各笔记版本历史查看修改前内容。{}",result.written.len(),result.errors.len(),conflicts,result.errors.join("；"));
-            this.notifications.publish(message.clone());if let Some(r)=&mut this.ui.bulk_edit{r.loading=false;r.message=message;}
+            this.notifications.publish(message.clone());if this.ui.recovery_refresh==request && let Some(r)=&mut this.ui.bulk_edit{r.loading=false;r.message=message;}
             for edit in &result.written { this.changed_paths.insert(edit.path.clone()); }
             if !result.written.is_empty() { this.schedule_auto_sync(true); }
             this.refresh_requested=true;cx.notify();
@@ -381,6 +382,59 @@ mod tests {
             std::fs::read_to_string(root.join("a.md")).unwrap(),
             "external replacement"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn completed_batch_does_not_overwrite_a_reopened_panel(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-bulk-reopened-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "old").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let vault = Vault::open(&root, root.with_extension("recovery")).unwrap();
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.vault = Some(vault);
+                w.open_bulk_edit(false, window, cx);
+                let r = w.ui.bulk_edit.as_ref().unwrap();
+                r.find.update(cx, |s, cx| s.set_value("old", window, cx));
+                r.replacement
+                    .update(cx, |s, cx| s.set_value("new", window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.preview_bulk_edit(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.ui.bulk_edit.as_ref().unwrap().selected.len(), 1);
+                w.apply_bulk_edit(window, cx);
+                assert!(w.file_writes.operation_active());
+                w.close_overlays(window, cx);
+                w.open_bulk_edit(true, window, cx);
+                assert!(w.ui.bulk_edit.as_ref().unwrap().message.is_empty());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(w.file_writes.pending(), 0);
+                assert!(!w.file_writes.operation_active());
+                assert!(w.notifications.text().contains("已修改 1 篇"));
+                let r = w.ui.bulk_edit.as_ref().unwrap();
+                assert!(r.tags);
+                assert!(!r.loading);
+                assert!(r.message.is_empty(), "{}", r.message);
+                assert!(r.plan.is_none());
+            })
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("a.md")).unwrap(), "new");
+        std::fs::remove_dir_all(root.with_extension("recovery")).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
