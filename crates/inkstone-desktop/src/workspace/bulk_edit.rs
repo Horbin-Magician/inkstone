@@ -284,25 +284,62 @@ impl Workspace {
             drop(plan);
             batch::apply(&vault, edits)
         });
-        cx.spawn_in(window,async move|this,cx|{let result=task.await;let _=this.update_in(cx,|this,w,cx|{
-            this.file_writes.finish(write_ticket);if this.generation!=generation{return;}
-            this.flush_document_views(w,cx);
-            let mut changed=vec![];let mut conflicts=0;
-            for edit in &result.written {
-                if let Some(tab)=this.tabs.iter().find(|t|t.path==edit.path){
-                    let document=tab.save.clone();let pending=this.has_pending_input(tab.id,w,cx);
-                    if !document.persistence.apply_reviewed_edit(&edit.before, &edit.after, document.editor.read(cx).value().as_ref(), pending){
-                        conflicts+=1;
-                    }else{document.editor.update(cx,|s,cx|{let range=s.selected_range();s.replace_all(&edit.after,w,cx);s.set_selected_range(range,cx);});changed.push(document.editor.clone());}
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.file_writes.finish(write_ticket);
+                if this.generation != generation {
+                    return;
                 }
-            }
-            for editor in changed{this.document_changed(editor,w,cx);}
-            let message=format!("已修改 {} 篇笔记；失败 {} 篇；{} 篇处理中产生的新编辑已保留为冲突。可在各笔记版本历史查看修改前内容。{}",result.written.len(),result.errors.len(),conflicts,result.errors.join("；"));
-            this.notifications.publish(message.clone());if this.ui.recovery_refresh==request && let Some(r)=&mut this.ui.bulk_edit{r.loading=false;r.message=message;}
-            for edit in &result.written { this.changed_paths.insert(edit.path.clone()); }
-            if !result.written.is_empty() { this.schedule_auto_sync(true); }
-            this.refresh_requested=true;cx.notify();
-        });}).detach();
+                this.flush_document_views(window, cx);
+                let mut changed = vec![];
+                let mut conflicts = 0;
+                for edit in &result.written {
+                    if let Some(tab) = this.tabs.iter().find(|tab| tab.path == edit.path) {
+                        let document = tab.save.clone();
+                        let pending = this.has_pending_input(tab.id, window, cx);
+                        if !document.persistence.apply_reviewed_edit(
+                            &edit.before,
+                            &edit.after,
+                            document.editor.read(cx).value().as_ref(),
+                            pending,
+                        ) {
+                            conflicts += 1;
+                        } else {
+                            document.editor.update(cx, |state, cx| {
+                                let range = state.selected_range();
+                                state.replace_all(&edit.after, window, cx);
+                                state.set_selected_range(range, cx);
+                            });
+                            changed.push(document.editor.clone());
+                        }
+                    }
+                }
+                for editor in changed {
+                    this.document_changed(editor, window, cx);
+                }
+                let message = format!(
+                    "已修改 {} 篇笔记；失败 {} 篇；{} 篇处理中产生的新编辑已保留为冲突。可在各笔记版本历史查看修改前内容。{}",
+                    result.written.len(), result.errors.len(), conflicts, result.errors.join("；")
+                );
+                this.notifications.publish(message.clone());
+                if this.ui.recovery_refresh == request
+                    && let Some(review) = &mut this.ui.bulk_edit
+                {
+                    review.loading = false;
+                    review.message = message;
+                }
+                for edit in &result.written {
+                    this.changed_paths.insert(edit.path.clone());
+                }
+                if !result.written.is_empty() {
+                    this.schedule_auto_sync(true);
+                }
+                this.refresh_requested = true;
+                cx.notify();
+            });
+        })
+        .detach();
         cx.notify();
     }
     pub(super) fn bulk_edit_panel(&self, cx: &mut Context<Self>) -> AnyElement {
