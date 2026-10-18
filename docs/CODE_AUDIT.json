@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "6ebee1749fb9bd1aa9a89364f7d0e4e4333f471f",
+  "snapshot_revision": "649c930c8fe3dce8e7f9b7cf43cdc3186aca463f",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1372,6 +1372,11 @@
       "path": "vendor/gpui-component/src/button/button_icon.rs",
       "checks": "Complete read: icon/spinner/progress conversions, loading replacement, size propagation and custom SVG slot tests. Corrected stale variant predicate documentation.",
       "result": "No newly confirmed runtime defect in this read. Previous four-configuration vendor regression covered existing tests; native animation acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-component/src/button/button_group.rs",
+      "checks": "Complete read: builders, disabled inheritance, group styling/corners, rendered selection, callback ownership and pointer/keyboard activation. Batches 256–257 fix disabled composition and dispatch changes directly from child activation instead of a parent listener and shared last-click Cell.",
+      "result": "Two regressions failed on previous code: keyboard activation omitted callback and background clicks emitted a selection. Default and test-support group suites each pass 7 tests after the fix; workspace all-targets Clippy passes. Native UI acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
@@ -1538,7 +1543,6 @@
     "vendor/gpui-component/src/badge.rs",
     "vendor/gpui-component/src/breadcrumb.rs",
     "vendor/gpui-component/src/bubble.rs",
-    "vendor/gpui-component/src/button/button_group.rs",
     "vendor/gpui-component/src/button/dropdown_button.rs",
     "vendor/gpui-component/src/button/toggle.rs",
     "vendor/gpui-component/src/carousel/carousel.rs",
