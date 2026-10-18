@@ -391,6 +391,16 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   `benchmark-metrics-before.log`、`benchmark-metrics-tests.log`、`packaging-recheck.log`
   位于 `target/audit-20261018/`。本批未运行新的耗时基准或远端 CI。
 
+第三十批更新下载读取：
+
+- 更新下载的流读取遇到 Interrupted 原先直接返回错误，未按 Read 约定重试。
+  注入一次中断的回归先复现失败；现仅对 Interrupted 重试，每次重试仍先检查取消，
+  其他读取错误继续返回。已有大小上限、完整性与 SHA-256 校验保持不变。
+- 更新模块 6 项回归通过，覆盖语义版本/平台附件选择、来源与大小拒绝、校验文件、
+  长度与哈希、取消、中断重试及下载缓存重验/清理；工作区 all-targets Clippy、格式
+  和差异检查通过。日志前缀 `update-interrupted-`，位于 `target/audit-20261018/`。
+  本批使用模拟读取，不代表真实 GitHub 下载、代理网络或安装流程已验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
