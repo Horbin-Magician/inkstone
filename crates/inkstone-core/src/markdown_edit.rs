@@ -360,11 +360,26 @@ pub fn inline_format(text: &str, selection: Range<usize>, left: &str, right: &st
         "`" => Some(crate::markdown::Kind::Code),
         _ => None,
     };
-    let spans = if kind.is_some() {
+    let mut spans = if kind.is_some() {
         crate::markdown::spans(text)
     } else {
         vec![]
     };
+    if left == "`" {
+        for span in &mut spans {
+            if span.kind == crate::markdown::Kind::Code {
+                let content = &text[span.content.clone()];
+                // Code spans discard one edge space unless their content is all spaces.
+                if content.starts_with(' ')
+                    && content.ends_with(' ')
+                    && content.bytes().any(|byte| byte != b' ')
+                {
+                    span.content.start += 1;
+                    span.content.end -= 1;
+                }
+            }
+        }
+    }
     if let Some(kind) = kind
         && let Some(span) = spans.iter().find(|s| {
             if s.kind != kind {
@@ -379,6 +394,9 @@ pub fn inline_format(text: &str, selection: Range<usize>, left: &str, right: &st
             }
             s.source == selection
                 || s.content == selection
+                || (s.kind == crate::markdown::Kind::Code
+                    && s.markers.first().is_some_and(|m| m.end == selection.start)
+                    && s.markers.last().is_some_and(|m| m.start == selection.end))
                 || (!selection.is_empty() && inner == selection)
         })
     {
@@ -428,7 +446,12 @@ pub fn inline_format(text: &str, selection: Range<usize>, left: &str, right: &st
             .unwrap_or(0)
             + 1;
         let marker = "`".repeat(run);
-        let padding = if selected.starts_with('`') || selected.ends_with('`') {
+        let padding = if selected.starts_with('`')
+            || selected.ends_with('`')
+            || (selected.starts_with(' ')
+                && selected.ends_with(' ')
+                && selected.bytes().any(|byte| byte != b' '))
+        {
             " "
         } else {
             ""
@@ -1077,6 +1100,34 @@ mod tests {
         assert_eq!(apply("~~text~~", 2..6, "~~").0, "text");
         assert_eq!(apply("****", 2..2, "**"), (String::new(), 0..0));
     }
+    #[test]
+    fn inline_code_format_preserves_selected_edge_spaces() {
+        for selected in [
+            " 中文 ", "  text  ", " text", "text ", "   ", "`text", "text`",
+        ] {
+            let edit = inline_format(selected, 0..selected.len(), "`", "`").unwrap();
+            assert_eq!(&edit.replacement[edit.selection.clone()], selected);
+            let root =
+                markdown_parser::to_mdast(&edit.replacement, &crate::syntax::options()).unwrap();
+            let paragraph = &root.children().unwrap()[0];
+            let markdown_parser::mdast::Node::InlineCode(code) = &paragraph.children().unwrap()[0]
+            else {
+                panic!("expected inline code for {selected:?}");
+            };
+            assert_eq!(code.value, selected);
+            let undo = inline_format(&edit.replacement, edit.selection, "`", "`").unwrap();
+            let mut restored = edit.replacement;
+            restored.replace_range(undo.range, &undo.replacement);
+            assert_eq!(restored, selected);
+            assert_eq!(undo.selection, 0..selected.len());
+            let whole = inline_format(&restored, 0..restored.len(), "`", "`").unwrap();
+            let delimiter = whole.replacement.bytes().take_while(|b| *b == b'`').count();
+            let raw_content = delimiter..whole.replacement.len() - delimiter;
+            let undo = inline_format(&whole.replacement, raw_content, "`", "`").unwrap();
+            assert_eq!(undo.replacement, selected);
+        }
+    }
+
     fn press(source: &str, key: Key) -> String {
         let cursor = source.find('|').unwrap();
         let mut text = source.replacen('|', "", 1);
