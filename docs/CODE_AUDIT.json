@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "4ed9b991f4b0a743b533a2a9490989b4ae9aca37",
+  "snapshot_revision": "42bcfc7a755c498173cfb9659926a40bcfff2c2c",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -457,6 +457,31 @@
       "path": "crates/inkstone-core/src/vault/drafts.rs",
       "checks": "summary scope and metadata, reviewed-record validation, publish-before-retire, failed publication tracking, owned cleanup and restart fixtures",
       "result": "No new actionable finding in full source/test read; filesystem race and platform acceptance remain separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/main.rs",
+      "checks": "platform modules, assets/theme/locale setup, key bindings, minimum window opt-in and last-window quit delegation",
+      "result": "No new actionable finding in this full read. Source unchanged since batch 152 full regression; native/platform acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/app_icon.rs",
+      "checks": "embedded resource, main-thread requirement, decode failure fallback and AppKit invocation",
+      "result": "No new actionable finding in this full read. Source unchanged since batch 152 full regression; native/platform acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/app_menu.rs",
+      "checks": "deferred window actions, per-window quit guards, binding override/rebuild preservation and existing tests",
+      "result": "No new actionable finding in this full read. Source unchanged since batch 152 full regression; native/platform acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/product.rs",
+      "checks": "locale language prefix and fallback display name",
+      "result": "No new actionable finding in this full read. Source unchanged since batch 152 full regression; native/platform acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/theme.rs",
+      "checks": "shared light/dark palette roles and minimum auxiliary font size",
+      "result": "No new actionable finding in this full read. Source unchanged since batch 152 full regression; native/platform acceptance remains separate."
     }
   ],
   "pending_reconciliation": [
@@ -518,8 +543,6 @@
     "crates/inkstone-core/src/wiki_links.rs",
     "crates/inkstone-core/src/yaml_source.rs",
     "crates/inkstone-desktop/Cargo.toml",
-    "crates/inkstone-desktop/src/app_icon.rs",
-    "crates/inkstone-desktop/src/app_menu.rs",
     "crates/inkstone-desktop/src/editor.rs",
     "crates/inkstone-desktop/src/editor/code_blocks.rs",
     "crates/inkstone-desktop/src/editor/editing.rs",
@@ -539,11 +562,8 @@
     "crates/inkstone-desktop/src/editor_links.rs",
     "crates/inkstone-desktop/src/editor_links/benchmark.rs",
     "crates/inkstone-desktop/src/editor_links/slash.rs",
-    "crates/inkstone-desktop/src/main.rs",
     "crates/inkstone-desktop/src/native_graphics.rs",
-    "crates/inkstone-desktop/src/product.rs",
     "crates/inkstone-desktop/src/test_support.rs",
-    "crates/inkstone-desktop/src/theme.rs",
     "crates/inkstone-desktop/src/workspace.rs",
     "crates/inkstone-desktop/src/workspace/appearance.rs",
     "crates/inkstone-desktop/src/workspace/attachments.rs",
