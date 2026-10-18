@@ -52,10 +52,14 @@ fn kind(path: &Path) -> Kind {
 }
 pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Inventory, VaultError> {
     let mut index = Index::build(vault)?;
-    for (path, text) in drafts {
+    for path in drafts.keys() {
         Vault::validate_relative(path)?;
-        index.update(path.clone(), text.clone());
     }
+    index.update_many(
+        drafts
+            .iter()
+            .map(|(path, text)| (path.clone(), text.clone())),
+    );
     let mut uses: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
     for (path, note) in &index.notes {
         let refs = note
