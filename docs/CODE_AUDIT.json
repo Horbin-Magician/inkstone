@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "01cb33d96ee9e2cd1dca0864df376624d7e10d18",
+  "snapshot_revision": "6d03011f1026b99131039c0e7f7034fe857e2007",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1087,6 +1087,41 @@
       "path": "vendor/gpui-component/build.rs",
       "checks": "Complete read: icon directory metadata dependency, generated compile-time environment and Cargo rebuild triggers.",
       "result": "No new actionable finding. All declared local targets exist; locked offline macOS metadata resolves intended local patches and enabled features. Source matches bfbde2e completed workspace regression. Unfiltered offline metadata cannot resolve uncached accesskit_atspi_common 0.19.1; optional vendor test/bench targets and other platforms are not proven by workspace tests."
+    },
+    {
+      "path": "vendor/gpui-base/src/async_util.rs",
+      "checks": "Native/WASM channel reexports and target cfg separation",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/event.rs",
+      "checks": "Native axis-lock forwarding, WASM no-op and double-click event filtering",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/index_path.rs",
+      "checks": "Row/section equality, element IDs, builder defaults and existing unit tests",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/observe.rs",
+      "checks": "Feature-gated identity wrapper and native accessibility observation contract",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/measure.rs",
+      "checks": "Conditional measurement executes closure once and consumes timer on end",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/text_boundary.rs",
+      "checks": "UTF-8 clipping, bounded word scans and shared character grouping; boundary tests passed",
+      "result": "Shared word-boundary cleanup in 6d03011; existing end-selection behavior preserved."
+    },
+    {
+      "path": "vendor/gpui-base/src/text/selection.rs",
+      "checks": "Removed duplicated character classification and word scanning; retained inline end-of-text behavior; selection regression tests passed",
+      "result": "Shared word-boundary cleanup in 6d03011; existing end-selection behavior preserved."
     }
   ],
   "pending_reconciliation": [
@@ -1105,7 +1140,6 @@
     "vendor/gpui-base/src/actions.rs",
     "vendor/gpui-base/src/alert_dialog.rs",
     "vendor/gpui-base/src/animation.rs",
-    "vendor/gpui-base/src/async_util.rs",
     "vendor/gpui-base/src/auto_scroll.rs",
     "vendor/gpui-base/src/avatar.rs",
     "vendor/gpui-base/src/button.rs",
@@ -1135,13 +1169,11 @@
     "vendor/gpui-base/src/dock/tab_group.rs",
     "vendor/gpui-base/src/dock/test_support.rs",
     "vendor/gpui-base/src/element_ext.rs",
-    "vendor/gpui-base/src/event.rs",
     "vendor/gpui-base/src/focus_trap.rs",
     "vendor/gpui-base/src/geometry.rs",
     "vendor/gpui-base/src/global_state.rs",
     "vendor/gpui-base/src/history.rs",
     "vendor/gpui-base/src/hover_card.rs",
-    "vendor/gpui-base/src/index_path.rs",
     "vendor/gpui-base/src/input/base/blink_cursor.rs",
     "vendor/gpui-base/src/input/base/change.rs",
     "vendor/gpui-base/src/input/base/cursor.rs",
@@ -1195,7 +1227,6 @@
     "vendor/gpui-base/src/link.rs",
     "vendor/gpui-base/src/list_settings.rs",
     "vendor/gpui-base/src/macos_accessibility.rs",
-    "vendor/gpui-base/src/measure.rs",
     "vendor/gpui-base/src/motion.rs",
     "vendor/gpui-base/src/motion/easing.rs",
     "vendor/gpui-base/src/motion/keyframes.rs",
@@ -1206,7 +1237,6 @@
     "vendor/gpui-base/src/motion/timing.rs",
     "vendor/gpui-base/src/nav_stack.rs",
     "vendor/gpui-base/src/number_input.rs",
-    "vendor/gpui-base/src/observe.rs",
     "vendor/gpui-base/src/otp_input.rs",
     "vendor/gpui-base/src/pagination.rs",
     "vendor/gpui-base/src/plot/axis.rs",
@@ -1274,14 +1304,12 @@
     "vendor/gpui-base/src/text/mod.rs",
     "vendor/gpui-base/src/text/node.rs",
     "vendor/gpui-base/src/text/range_highlight.rs",
-    "vendor/gpui-base/src/text/selection.rs",
     "vendor/gpui-base/src/text/selection_adapter.rs",
     "vendor/gpui-base/src/text/state.rs",
     "vendor/gpui-base/src/text/stream_fade.rs",
     "vendor/gpui-base/src/text/style.rs",
     "vendor/gpui-base/src/text/text_view.rs",
     "vendor/gpui-base/src/text/utils.rs",
-    "vendor/gpui-base/src/text_boundary.rs",
     "vendor/gpui-base/src/text_selection.rs",
     "vendor/gpui-base/src/theme.rs",
     "vendor/gpui-base/src/theme_tokens.rs",
