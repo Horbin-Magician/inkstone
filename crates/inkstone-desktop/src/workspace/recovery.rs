@@ -326,7 +326,13 @@ impl Workspace {
         };
         let pane = self
             .current_pane()
-            .filter(|p| p.read(cx).current_path == path);
+            .filter(|p| p.read(cx).current_path == path)
+            .or_else(|| {
+                self.tabs
+                    .iter()
+                    .find(|tab| tab.path == path)
+                    .map(|tab| tab.pane.clone())
+            });
         if pane
             .as_ref()
             .is_some_and(|p| p.read(cx).editor.read(cx).is_composing())
@@ -938,6 +944,64 @@ mod tests {
                 assert!(journal.exists());
             }
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn catalog_history_compares_an_inactive_open_notes_unsaved_text(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-inactive-history-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let path = PathBuf::from("note.md");
+        vault.save(&path, None, "disk text").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.add_tab(path.clone(), Some("disk text".into()), false, window, cx);
+                w.current_pane()
+                    .unwrap()
+                    .read(cx)
+                    .editor
+                    .clone()
+                    .update(cx, |s, cx| {
+                        s.set_value("unsaved text", window, cx);
+                    });
+                w.flush_document_views(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("other.md".into(), Some("other".into()), false, window, cx);
+                w.open_history_path(path.clone(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                let browser = w.ui.history.as_ref().unwrap();
+                assert!(browser.current_available);
+                assert_eq!(browser.current.as_ref(), "unsaved text");
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("other.md"));
+                assert_eq!(
+                    w.tabs[0].save.editor.read(cx).value().as_ref(),
+                    "unsaved text"
+                );
+                assert!(w.tabs[0].save.persistence.is_dirty());
+                assert_eq!(w.file_writes.pending(), 0);
+            })
+            .unwrap();
+        assert_eq!(vault.read(&path).unwrap().as_deref(), Some("disk text"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
