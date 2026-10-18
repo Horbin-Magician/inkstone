@@ -27,10 +27,7 @@ pub struct Grid {
 }
 impl Grid {
     pub fn at(text: &str, offset: usize) -> Option<Self> {
-        let (table, _, _) = Table::at(text, offset)?;
-        if table.rows.len() * table.alignment.len() > 500 {
-            return None;
-        }
+        let (table, _, _) = Table::at(text, offset, 500)?;
         Some(Self {
             range: table.range,
             rows: table
@@ -119,7 +116,7 @@ struct Table {
     alignment: Vec<&'static str>,
 }
 impl Table {
-    fn at(text: &str, offset: usize) -> Option<(Self, usize, usize)> {
+    fn at(text: &str, offset: usize, max_cells: usize) -> Option<(Self, usize, usize)> {
         let root = markdown_parser::to_mdast(text, &crate::syntax::options()).ok()?;
         for node in root.children()? {
             let Node::Table(table) = node else {
@@ -128,6 +125,22 @@ impl Table {
             let p = table.position.as_ref()?;
             if offset < p.start.offset || offset > p.end.offset {
                 continue;
+            }
+            let cols = table
+                .children
+                .iter()
+                .try_fold(table.align.len(), |cols, row| {
+                    Some(cols.max(row.children()?.len()))
+                })?;
+            // Check before copying cell contents or padding ragged rows.
+            if cols == 0
+                || table
+                    .children
+                    .len()
+                    .checked_mul(cols)
+                    .is_none_or(|cells| cells > max_cells)
+            {
+                return None;
             }
             let mut rows = vec![];
             let mut row_ranges = vec![];
@@ -151,17 +164,6 @@ impl Table {
                     });
                 }
                 rows.push(cells);
-            }
-            let cols = rows.iter().map(Vec::len).max()?.max(table.align.len());
-            // A ragged table can have many columns but very short rows. Do not
-            // expand a small source into an unbounded rectangular allocation.
-            if cols == 0
-                || rows
-                    .len()
-                    .checked_mul(cols)
-                    .is_none_or(|cells| cells > 100_000)
-            {
-                return None;
             }
             for (row, range) in rows.iter_mut().zip(&row_ranges) {
                 while row.len() < cols {
@@ -302,7 +304,7 @@ pub fn edit(text: &str, selection: Range<usize>, operation: Operation) -> Option
             selection: at..at,
         });
     }
-    let (mut table, row, col) = Table::at(text, selection.start)?;
+    let (mut table, row, col) = Table::at(text, selection.start, 100_000)?;
     let mut target = (row, col);
     match operation {
         Operation::AddRow => {
@@ -356,7 +358,7 @@ pub fn navigate(text: &str, selection: Range<usize>, backwards: bool) -> Option<
     {
         return None;
     }
-    let (mut table, row, col) = Table::at(text, selection.start)?;
+    let (mut table, row, col) = Table::at(text, selection.start, 100_000)?;
     if selection.end > table.row_ranges[row].end {
         return None;
     }
@@ -426,6 +428,16 @@ mod tests {
         assert!(grid.edit(text).is_none());
     }
     #[test]
+    fn visual_grid_limit_does_not_limit_source_table_commands() {
+        let mut text = format!("| a | b |\n| --- | --- |\n{}", "| c | d |\n".repeat(249));
+        assert_eq!(Grid::at(&text, 2).unwrap().rows.len(), 250);
+        text.push_str("| e |\n");
+        assert!(Grid::at(&text, 2).is_none());
+        let edited = edit(&text, 2..2, Operation::Center).unwrap();
+        assert!(edited.replacement.contains("| :---: | --- |"));
+        assert!(edited.replacement.ends_with("| e |  |"));
+    }
+    #[test]
     fn oversized_ragged_table_does_not_expand_into_a_huge_grid() {
         let header = format!(
             "|{}|\n|{}|\n",
@@ -479,7 +491,7 @@ mod tests {
         let edit = edit("before\nafter", 7..7, Operation::Insert).unwrap();
         let mut inserted = "before\nafter".to_string();
         inserted.replace_range(edit.range, &edit.replacement);
-        assert!(Table::at(&inserted, edit.selection.start).is_some());
+        assert!(Table::at(&inserted, edit.selection.start, 100_000).is_some());
         let ragged = "| a | b |\n| --- | --- |\n| c";
         let at = ragged.len();
         let Some(Navigation::Edit(edit)) = navigate(ragged, at..at, false) else {
