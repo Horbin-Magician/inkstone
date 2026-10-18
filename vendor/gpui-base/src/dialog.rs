@@ -16,6 +16,7 @@ use crate::actions::{Cancel, Confirm};
 use crate::{FocusTrapElement as _, StyledExt as _};
 
 const CONTEXT: &str = "Dialog";
+const CONFIRM_ONLY_CONTEXT: &str = "DialogConfirmOnly";
 type Decision = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) -> bool>;
 type Closed = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 type CloseRequest = Rc<dyn Fn(bool, &mut Window, &mut App)>;
@@ -90,6 +91,11 @@ pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("escape", Cancel, Some(CONTEXT)),
         KeyBinding::new("enter", Confirm { secondary: false }, Some(CONTEXT)),
+        KeyBinding::new(
+            "enter",
+            Confirm { secondary: false },
+            Some(CONFIRM_ONLY_CONTEXT),
+        ),
     ]);
 }
 
@@ -126,7 +132,7 @@ pub struct Dialog {
     focus: FocusHandle,
     role: Role,
     layer: usize,
-    keyboard: bool,
+    close_on_escape: bool,
     overlay_closable: bool,
     topmost: bool,
     dismiss_below_y: Pixels,
@@ -427,7 +433,7 @@ impl Dialog {
             focus: cx.focus_handle(),
             role: Role::Dialog,
             layer: 0,
-            keyboard: true,
+            close_on_escape: true,
             overlay_closable: true,
             topmost: true,
             dismiss_below_y: px(0.),
@@ -475,7 +481,7 @@ impl Dialog {
         self
     }
     pub fn close_on_escape(mut self, value: bool) -> Self {
-        self.keyboard = value;
+        self.close_on_escape = value;
         self
     }
     pub fn close_on_backdrop_press(mut self, value: bool) -> Self {
@@ -563,7 +569,11 @@ impl RenderOnce for Dialog {
                     .role(self.role)
                     .track_focus(&self.focus)
                     .focus_trap(format!("dialog-{}", self.layer), &self.focus)
-                    .when(self.keyboard, |this| this.key_context(CONTEXT))
+                    .key_context(if self.close_on_escape {
+                        CONTEXT
+                    } else {
+                        CONFIRM_ONLY_CONTEXT
+                    })
                     .map(|this| {
                         let request_cancel = request_close.clone();
                         let request_confirm = request_close.clone();
@@ -929,5 +939,67 @@ mod tests {
             bounds.get().center(),
             point(viewport.width / 2., viewport.height / 2.)
         );
+    }
+
+    #[gpui::test]
+    fn disabling_escape_preserves_enter_and_explicit_cancel(cx: &mut gpui::TestAppContext) {
+        struct Harness {
+            focus: FocusHandle,
+            handle: DialogHandle,
+            confirmations: Rc<Cell<usize>>,
+            cancellations: Rc<Cell<usize>>,
+        }
+        impl Render for Harness {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                let confirmations = self.confirmations.clone();
+                let cancellations = self.cancellations.clone();
+                Dialog::new(cx)
+                    .handle(self.handle.clone())
+                    .focus_handle(self.focus.clone())
+                    .close_on_escape(false)
+                    .on_ok(move |_, _, _| {
+                        confirmations.set(confirmations.get() + 1);
+                        true
+                    })
+                    .on_cancel(move |_, _, _| {
+                        cancellations.set(cancellations.get() + 1);
+                        true
+                    })
+                    .popup(DialogPopup::new().size(px(100.)))
+            }
+        }
+        cx.update(crate::init);
+        let handle = DialogHandle::new(true);
+        let confirmations = Rc::new(Cell::new(0));
+        let cancellations = Rc::new(Cell::new(0));
+        let (view, cx) = cx.add_window_view({
+            let handle = handle.clone();
+            let confirmations = confirmations.clone();
+            let cancellations = cancellations.clone();
+            move |_, cx| Harness {
+                focus: cx.focus_handle(),
+                handle,
+                confirmations,
+                cancellations,
+            }
+        });
+        cx.update(|window, cx| {
+            view.read(cx).focus.clone().focus(window, cx);
+            window.draw(cx).clear(cx);
+        });
+        cx.simulate_keystrokes("escape");
+        assert!(handle.is_open());
+        assert_eq!(cancellations.get(), 0);
+        cx.simulate_keystrokes("enter");
+        assert!(!handle.is_open());
+        assert_eq!(confirmations.get(), 1);
+        cx.update(|window, cx| {
+            handle.open(window, cx);
+            view.read(cx).focus.clone().focus(window, cx);
+            window.draw(cx).clear(cx);
+        });
+        cx.dispatch_action(Cancel);
+        assert!(!handle.is_open());
+        assert_eq!(cancellations.get(), 1);
     }
 }
