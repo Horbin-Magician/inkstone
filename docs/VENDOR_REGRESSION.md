@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 Checkbox 禁用语义：原生节点补齐 disabled，保留三态和既有事件冒泡策略；测试检查真实角色及绘制后的禁用属性。
+
 2026-10-19 对话框 Escape 开关：关闭 Escape 时使用保留 Enter 确认的按键上下文，显式取消动作保持有效；与上层 keyboard 仅控制 Escape 的文档一致。
 
 2026-10-19 对话框触发器去重：AlertDialogTrigger 委托 DialogTrigger 的指针打开行为，保留 handle 与 on_open 接口，实际点击回归同时覆盖两种触发器。
