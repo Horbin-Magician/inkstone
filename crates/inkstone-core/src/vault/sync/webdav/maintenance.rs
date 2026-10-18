@@ -238,14 +238,23 @@ fn validate_reply(root_url: &Url, token: &HeaderValue, bytes: &[u8]) -> Result<u
             == Some(token_uri(token)?),
         "维护锁正文与响应令牌不一致"
     );
-    let href = child(child(lock, "lockroot")?, "href")?;
-    let location = root_url
-        .join(href.text().unwrap_or("").trim())
-        .context("维护锁目录无效")?;
-    ensure!(
-        location == *root_url && href.text().is_some_and(|s| !s.trim().is_empty()),
-        "维护锁目录与请求不一致"
-    );
+    // RFC 4918 §14.12 says servers SHOULD include lockroot. Older servers
+    // omit it: use our non-redirected LOCK request URL in tagged conditions.
+    // A supplied root must still be unique and match that exact directory.
+    let mut roots = lock
+        .children()
+        .filter(|n| n.has_tag_name(("DAV:", "lockroot")));
+    if let Some(root) = roots.next() {
+        ensure!(roots.next().is_none(), "维护锁响应存在重复属性");
+        let href = child(root, "href")?;
+        let location = root_url
+            .join(href.text().unwrap_or("").trim())
+            .context("维护锁目录无效")?;
+        ensure!(
+            location == *root_url && href.text().is_some_and(|s| !s.trim().is_empty()),
+            "维护锁目录与请求不一致"
+        );
+    }
     let timeout = child(lock, "timeout")?;
     let seconds = timeout
         .text()
