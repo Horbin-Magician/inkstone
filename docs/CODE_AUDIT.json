@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "d913a3cbef45d23073bd4cd62ee562b084c11feb",
+  "snapshot_revision": "1431e2d8d40992ac77845f0aa79b9c43a24a1c2a",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -572,6 +572,16 @@
       "path": "crates/inkstone-desktop/src/workspace/attachments.rs",
       "checks": "Full production/test read: filters and virtual list, draft snapshot flush, scan generation/request guards, prompt and write-operation guards, pending IME/footnote rejection, cleanup completion ownership and stale panel message protection; manager integration test.",
       "result": "No new confirmed defect. Reused batch 183 workspace regression (855 passed, 8 ignored), with source equality verified. Inventory covers resolved direct note references; external applications and attachment-internal references are outside its declared scope. Native panel acceptance remains incomplete."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/trash_metadata.rs",
+      "checks": "Full production/test read: optional display metadata separate from restore authorization; iterative regular-file logical byte counting, reparse/link skip, checked overflow and unknown-on-error; nested restore test.",
+      "result": "No new confirmed defect. Reused source-identical batch 183 workspace regression (855 passed, 8 ignored). Native file-drop and platform acceptance remain incomplete."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/file_drop.rs",
+      "checks": "Full production/test read: canonical Markdown path routing, current-vault versus standalone window behavior, pending startup handling, generation guards, exclusive import ticket release, partial import results and refresh; actual drop routing and save-conflict tests.",
+      "result": "No new confirmed defect. Reused source-identical batch 183 workspace regression (855 passed, 8 ignored). Native file-drop and platform acceptance remain incomplete."
     }
   ],
   "pending_reconciliation": [
@@ -628,7 +638,6 @@
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
-    "crates/inkstone-core/src/vault/trash_metadata.rs",
     "crates/inkstone-core/src/wiki_links.rs",
     "crates/inkstone-core/src/yaml_source.rs",
     "crates/inkstone-desktop/Cargo.toml",
@@ -649,7 +658,6 @@
     "crates/inkstone-desktop/src/workspace/conflicts.rs",
     "crates/inkstone-desktop/src/workspace/exports.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
-    "crates/inkstone-desktop/src/workspace/file_drop.rs",
     "crates/inkstone-desktop/src/workspace/file_settings.rs",
     "crates/inkstone-desktop/src/workspace/file_sync.rs",
     "crates/inkstone-desktop/src/workspace/history_catalog.rs",
