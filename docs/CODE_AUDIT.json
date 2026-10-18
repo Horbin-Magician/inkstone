@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "908b5e5d05db6088370d6eda2124c2322dcee33b",
+  "snapshot_revision": "678544fcde2cc31b7f4ab10ac7f16995cc9d5728",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -587,6 +587,16 @@
       "path": "crates/inkstone-desktop/src/workspace/file_sync.rs",
       "checks": "Full production/test read: queued refresh flags, worker disk/index reconciliation, generation and operation guards, document baseline handling, duplicate/split completion updates, relocation/bookmarks/tree construction and failure recovery.",
       "result": "Fixed lost reconciliation intent on scan failure in 908b5e5: next requested refresh performs a full rescan. Regression reproduced stale A after unrelated B refresh, then passed; 5 file-sync tests, workspace Clippy and format passed. This does not add an immediate automatic retry."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/file_settings.rs",
+      "checks": "Full source/test read: completion cache target equality and invalidation, note/attachment destinations, Wiki-incompatible path and alias fallback, settings updates and focus reveal. Inspected cache regression and location input subscriptions.",
+      "result": "No new confirmed defect in this read. These files are unchanged since batch 183 full regression; subsequent file_sync change has its own batch 186 tests. This is not a new full-workspace acceptance claim; native settings and file-operation matrix remain open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/note_files.rs",
+      "checks": "Full source read: recovery copies, named-note operation guards, dirty/conflict checks, exclusive ticket and persistence lifecycle, worker rename/trash/link edits, completion generation checks, bookmark/navigation/index relocation, new-note path validation and quick capture.",
+      "result": "No new confirmed defect in this read. These files are unchanged since batch 183 full regression; subsequent file_sync change has its own batch 186 tests. This is not a new full-workspace acceptance claim; native settings and file-operation matrix remain open."
     }
   ],
   "pending_reconciliation": [
@@ -663,14 +673,12 @@
     "crates/inkstone-desktop/src/workspace/conflicts.rs",
     "crates/inkstone-desktop/src/workspace/exports.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
-    "crates/inkstone-desktop/src/workspace/file_settings.rs",
     "crates/inkstone-desktop/src/workspace/history_catalog.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/link_updates.rs",
     "crates/inkstone-desktop/src/workspace/links.rs",
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
     "crates/inkstone-desktop/src/workspace/navigation.rs",
-    "crates/inkstone-desktop/src/workspace/note_files.rs",
     "crates/inkstone-desktop/src/workspace/note_open.rs",
     "crates/inkstone-desktop/src/workspace/recent_vault.rs",
     "crates/inkstone-desktop/src/workspace/recovery.rs",
