@@ -524,66 +524,43 @@ impl Element for VirtualList {
                     },
                 );
 
-                let axis = self.axis;
-                let layout_id =
-                    match self.sizing_behavior {
-                        ListSizingBehavior::Infer => {
-                            window.with_text_style(style.text_style().cloned(), |window| {
-                                let size_layout = size_layout.clone();
+                let layout_id = match self.sizing_behavior {
+                    ListSizingBehavior::Infer => {
+                        window.with_text_style(style.text_style().cloned(), |window| {
+                            let size_layout = size_layout.clone();
 
-                                window.request_measured_layout(style, {
-                                    move |known_dimensions, available_space, _, _| {
-                                        let mut size = Size::default();
-                                        if axis.is_horizontal() {
-                                            size.width = known_dimensions.width.unwrap_or(
-                                                match available_space.width {
-                                                    AvailableSpace::Definite(x) => x,
-                                                    AvailableSpace::MinContent
-                                                    | AvailableSpace::MaxContent => {
-                                                        size_layout.content_size.width
-                                                    }
-                                                },
-                                            );
-                                            size.height = known_dimensions.width.unwrap_or(
-                                                match available_space.height {
-                                                    AvailableSpace::Definite(x) => x,
-                                                    AvailableSpace::MinContent
-                                                    | AvailableSpace::MaxContent => {
-                                                        size_layout.content_size.height
-                                                    }
-                                                },
-                                            );
-                                        } else {
-                                            size.width = known_dimensions.width.unwrap_or(
-                                                match available_space.width {
-                                                    AvailableSpace::Definite(x) => x,
-                                                    AvailableSpace::MinContent
-                                                    | AvailableSpace::MaxContent => {
-                                                        size_layout.content_size.width
-                                                    }
-                                                },
-                                            );
-                                            size.height = known_dimensions.height.unwrap_or(
-                                                match available_space.height {
-                                                    AvailableSpace::Definite(x) => x,
-                                                    AvailableSpace::MinContent
-                                                    | AvailableSpace::MaxContent => {
-                                                        size_layout.content_size.height
-                                                    }
-                                                },
-                                            );
-                                        }
+                            window.request_measured_layout(style, {
+                                move |known_dimensions, available_space, _, _| {
+                                    let mut size = Size::default();
+                                    size.width = known_dimensions.width.unwrap_or(
+                                        match available_space.width {
+                                            AvailableSpace::Definite(x) => x,
+                                            AvailableSpace::MinContent
+                                            | AvailableSpace::MaxContent => {
+                                                size_layout.content_size.width
+                                            }
+                                        },
+                                    );
+                                    size.height = known_dimensions.height.unwrap_or(
+                                        match available_space.height {
+                                            AvailableSpace::Definite(x) => x,
+                                            AvailableSpace::MinContent
+                                            | AvailableSpace::MaxContent => {
+                                                size_layout.content_size.height
+                                            }
+                                        },
+                                    );
 
-                                        size
-                                    }
-                                })
+                                    size
+                                }
                             })
-                        }
-                        ListSizingBehavior::Auto => window
-                            .with_text_style(style.text_style().cloned(), |window| {
-                                window.request_layout(style, None, cx)
-                            }),
-                    };
+                        })
+                    }
+                    ListSizingBehavior::Auto => window
+                        .with_text_style(style.text_style().cloned(), |window| {
+                            window.request_layout(style, None, cx)
+                        }),
+                };
 
                 layout_id
             },
@@ -873,6 +850,38 @@ mod tests {
             cx.update(|window, cx| window.draw(cx).clear(cx));
             assert_eq!(scroll_handle.offset().along(axis), px(60. - extent));
         }
+    }
+
+    #[gpui::test]
+    fn horizontal_inferred_height_is_independent_of_fixed_width(cx: &mut TestAppContext) {
+        struct Probe;
+        impl Render for Probe {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                let view = cx.entity();
+                gpui::canvas(
+                    move |_, window, cx| {
+                        let mut list = h_virtual_list(
+                            view,
+                            "infer-test",
+                            Rc::new(vec![size(px(10.), px(20.)); 20]),
+                            |_, range, _, _| range.map(|_| div().w(px(10.)).h(px(20.))).collect(),
+                        )
+                        .with_sizing_behavior(ListSizingBehavior::Infer)
+                        .w(px(120.))
+                        .h_auto()
+                        .into_any_element();
+                        assert_eq!(
+                            list.layout_as_root(AvailableSpace::min_size(), window, cx),
+                            size(px(120.), px(20.)),
+                        );
+                    },
+                    |_, _, _, _| {},
+                )
+                .size_full()
+            }
+        }
+        let (_, cx) = cx.add_window_view(|_, _| Probe);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
     }
 
     fn layout(sizes: &[f32]) -> (Vec<Pixels>, Vec<Pixels>) {
