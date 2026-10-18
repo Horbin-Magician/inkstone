@@ -200,7 +200,11 @@ impl Workspace {
             self.execute_command(command, window, cx);
         }
         self.apply_jump(window, cx);
-        self.run_search(cx);
+        // Vault restoration searches once the complete batch is installed.
+        // Avoid collecting every partial batch just to cancel its search next.
+        if !self.loading {
+            self.run_search(cx);
+        }
         cx.notify();
     }
     pub(super) fn activate_tab(
