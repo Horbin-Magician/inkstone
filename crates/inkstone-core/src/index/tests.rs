@@ -1016,6 +1016,23 @@ fn dotted_wiki_names_keep_their_entire_stem() {
     );
 }
 #[test]
+fn shortest_markdown_paths_preserve_encoded_leading_whitespace() {
+    let mut index = Index::default();
+    index.update("elsewhere/ note.md".into(), "# Target".into());
+    index.update("elsewhere/note.md".into(), "# Other".into());
+    assert_eq!(
+        index.resolve_markdown(Path::new("source.md"), "%20note.md#Target"),
+        (
+            Resolution::Found("elsewhere/ note.md".into()),
+            Some("Target".into())
+        )
+    );
+    assert_eq!(
+        index.resolve(Path::new("source.md"), " note "),
+        Resolution::Found("elsewhere/note.md".into())
+    );
+}
+#[test]
 fn markdown_paths_are_relative_and_decode_path_separately_from_anchor() {
     let mut index = Index::default();
     index.update("目录/子目录/中文 空格#笔记.md".into(), "# 标题".into());
