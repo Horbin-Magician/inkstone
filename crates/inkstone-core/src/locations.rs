@@ -193,6 +193,11 @@ pub fn attachment_link(
     )
 }
 
+/// Whether a literal target path needs Markdown encoding instead of Wiki syntax.
+pub fn requires_markdown_link(target: &str) -> bool {
+    target.contains(['#', '|', '[', ']', '<', '>', '\r', '\n'])
+}
+
 /// Return the unescaped destination and effective syntax for an attachment.
 pub fn attachment_destination(
     from: &Path,
@@ -215,7 +220,7 @@ pub fn attachment_destination(
         }
         _ => format!("/{}", to.to_string_lossy().replace('\\', "/")),
     };
-    let markdown = markdown || target.contains(['#', '|', '[', ']', '<', '>', '\r', '\n']);
+    let markdown = markdown || requires_markdown_link(&target);
     if !markdown && target.starts_with('/') && target[1..].contains('/') {
         target.remove(0);
     }

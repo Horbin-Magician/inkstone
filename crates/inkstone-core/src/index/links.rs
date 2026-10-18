@@ -108,10 +108,10 @@ impl Index {
                 let note_target = destination
                     .extension()
                     .is_some_and(|e| e.eq_ignore_ascii_case("md"));
-                if path.contains(['#', '|', '[', ']', '\r', '\n']) {
+                if crate::locations::requires_markdown_link(&path) {
                     let mut label = String::new();
                     for c in link.label.chars() {
-                        if matches!(c, '\\' | '[' | ']' | '|') {
+                        if matches!(c, '\\' | '[' | ']' | '|' | '<' | '>') {
                             label.push('\\');
                         }
                         label.push(if matches!(c, '\r' | '\n') { ' ' } else { c });

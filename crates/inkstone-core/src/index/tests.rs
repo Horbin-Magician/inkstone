@@ -1043,6 +1043,9 @@ fn markdown_relocation_preserves_syntax_with_special_filenames() {
 #[test]
 fn wiki_reference_relocation_preserves_special_filenames_and_labels() {
     for filename in [
+        "<name>.md",
+        "less<than.md",
+        "greater>than.md",
         "hash#name.md",
         "pipe|name.md",
         "bracket[name].md",
