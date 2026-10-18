@@ -67,16 +67,21 @@ impl ParentElement for Collapsible {
 
 impl RenderOnce for Collapsible {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        self.base
-            .children(self.children.into_iter().filter_map(|child| match child {
-                Child::Element(element) => Some(element),
-                Child::Content(content) => match &self.reveal {
-                    Some((id, progress)) => {
-                        Some(MotionReveal::new(id.clone(), *progress, content).into_any_element())
-                    }
-                    None => self.open.then_some(content),
-                },
-            }))
+        self.base.children(
+            self.children
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, child)| match child {
+                    Child::Element(element) => Some(element),
+                    Child::Content(content) => match &self.reveal {
+                        Some((id, progress)) => Some(
+                            MotionReveal::new((id.clone(), index.to_string()), *progress, content)
+                                .into_any_element(),
+                        ),
+                        None => self.open.then_some(content),
+                    },
+                }),
+        )
     }
 }
 
@@ -108,5 +113,31 @@ mod tests {
         cx.update(|window, cx| window.draw(cx).clear(cx));
         assert!(cx.debug_bounds("trigger").is_some());
         assert!(cx.debug_bounds("content").is_some());
+    }
+
+    struct MultipleContents;
+
+    impl Render for MultipleContents {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            Collapsible::new()
+                .flex()
+                .flex_col()
+                .w(px(100.))
+                .reveal("reveal", 0.5)
+                .content(div().h(px(20.)))
+                .child(div().debug_selector(|| "after-first".into()).h(px(1.)))
+                .content(div().h(px(60.)))
+                .child(div().debug_selector(|| "after-second".into()).h(px(1.)))
+        }
+    }
+
+    #[gpui::test]
+    fn multiple_revealed_contents_keep_independent_measurements(cx: &mut TestAppContext) {
+        let (_, cx) = cx.add_window_view(|_, _| MultipleContents);
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        assert_eq!(cx.debug_bounds("after-first").unwrap().origin.y, px(10.));
+        assert_eq!(cx.debug_bounds("after-second").unwrap().origin.y, px(41.));
     }
 }

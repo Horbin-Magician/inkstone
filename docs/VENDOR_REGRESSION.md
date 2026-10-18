@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 多内容折叠展开：Base `src/collapsible.rs` 在 reveal ID 下按子元素索引区分各内容块的 MotionReveal，避免不同高度内容共享测量缓存。布局回归使用 20px/60px 内容和 50% 进度检查两个后续元素位置。
+
 2026-10-19 悬停任务清理：Base `src/hover_card.rs` 安排延迟打开/关闭前复用 cancel_tasks 已递增的 epoch，删除重复递增和冗余辅助函数；旧任务失效策略保持一致。
 
 2026-10-19 嵌套焦点容器：Base `src/focus_trap.rs` 按实际焦点树选择包含当前焦点的最内层容器，避免 HashMap 遍历顺序决定 Tab 约束范围。回归显式覆盖两种容器遍历顺序、外层焦点及失焦。
