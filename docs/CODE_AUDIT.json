@@ -290,7 +290,7 @@
     },
     {
       "path": "tools/vendor-regression/run.py",
-      "checks": "Complete read: repository-local staging, fresh patched dependency copies, separate lockfile/fixtures, locked serial vendor test execution and error propagation",
+      "checks": "Complete read: repository-local staging, fresh patched dependency copies, separate lockfile/fixtures, locked serial vendor test execution and error propagation Batch 251: run Base default and test-support configurations, then Component default; all three full suites passed after correcting the outgoing-page visibility fixture.",
       "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
     },
     {
