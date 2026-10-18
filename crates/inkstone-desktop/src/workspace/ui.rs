@@ -1367,7 +1367,7 @@ impl Workspace {
                     .children(self.tabs.iter().enumerate().map(|(i, t)| {
                         let tab_id = t.id;
                         let menu_weak = cx.entity().downgrade();
-                        let selected = self.main_tab() == Some(i);
+                        let selected = selected == Some(tab_id);
                         let pinned = t.pinned;
                         div()
                             .id(("tab", t.id))
