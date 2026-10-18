@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "ebc11ab7d3f0e547f6ab8e6d733f722828027963",
+  "snapshot_revision": "7036cd166f607cd0c034bc7fb46095a23ec23c2f",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1167,6 +1167,11 @@
       "path": "crates/inkstone-desktop/src/workspace/settings_ui.rs",
       "checks": "Complete read of shared settings layout, accessible labels, category navigation, search filtering, dropdowns and editor switches; checked file-settings preparation side effects.",
       "result": "ebc11ab shares category-switch behavior between navigation and search results; 21 settings-filter tests, workspace all-targets Clippy and formatting passed. Native acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/ui.rs",
+      "checks": "Complete read across UI state/subscriptions, theme/icons, preference propagation, navigation/recovery handlers, tab and split rendering, actions and status bar.",
+      "result": "7036cd1 reuses selected tab identity, removing per-tab linear main_tab lookup in split mode; 21 split and 1 tab-layout tests passed, Clippy/format passed. Follow-up required: test stale editor-group file-menu callbacks after their original pane is closed/replaced; callback currently can fall through to execute_command against current pane. Native UI acceptance remains outstanding."
     }
   ],
   "pending_reconciliation": [
@@ -1176,7 +1181,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
-    "crates/inkstone-desktop/src/workspace/ui.rs",
     "vendor/gpui-base/benches/motion.rs",
     "vendor/gpui-base/benches/text_view_scroll.rs",
     "vendor/gpui-base/src/accordion.rs",
