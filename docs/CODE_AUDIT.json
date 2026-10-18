@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "c7a0fd39a4ec784e6eb1e57c85983fe2d2ac76b1",
+  "snapshot_revision": "547e7d830ba9d5bdf7f8da6ca3eb30f2c2d33074",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1392,6 +1392,16 @@
       "path": "vendor/gpui-base/src/toggle.rs",
       "checks": "Complete read: controlled pressed state, focus binding and Tab configuration, semantic styles, pointer/keyboard activation, child geometry and native accessibility. Reused disabled property adapter and replaced prefilled-role test with actual element role inspection.",
       "result": "Native disabled assertion failed before fix. Base default/observed suites each pass 7 tests; Component toggle suites each pass 10 tests; workspace all-targets Clippy passes. Observed disabled flag is checked after drawing. Native screen-reader acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-component/src/button/dropdown_button.rs",
+      "checks": "Complete read: inherited size/variant, selected and disabled composition, menu-open state, shared hover styling, split borders and builders. Apply half-button border/corner overrides only when both halves exist.",
+      "result": "Four existing dropdown tests passed after change; they cover builders and inherited properties, not rendered border pixels. Formatting and diff checks passed. Native visual validation of standalone and split controls remains pending."
+    },
+    {
+      "path": "vendor/gpui-component/src/input/group/button_element.rs",
+      "checks": "Complete read: inherited disable accumulation, immediate-child type-erasure unwrapping, single-use render ownership and layout/prepaint/paint forwarding.",
+      "result": "No newly confirmed defect in this read. Existing group regression suite was not rerun in this batch; source review is not native runtime acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -1556,7 +1566,6 @@
     "vendor/gpui-component/src/badge.rs",
     "vendor/gpui-component/src/breadcrumb.rs",
     "vendor/gpui-component/src/bubble.rs",
-    "vendor/gpui-component/src/button/dropdown_button.rs",
     "vendor/gpui-component/src/carousel/carousel.rs",
     "vendor/gpui-component/src/carousel/mod.rs",
     "vendor/gpui-component/src/carousel/scroll_mask.rs",
@@ -1619,7 +1628,6 @@
     "vendor/gpui-component/src/input/content_type.rs",
     "vendor/gpui-component/src/input/editor.rs",
     "vendor/gpui-component/src/input/group.rs",
-    "vendor/gpui-component/src/input/group/button_element.rs",
     "vendor/gpui-component/src/input/group/tests.rs",
     "vendor/gpui-component/src/input/input.rs",
     "vendor/gpui-component/src/input/language_config.rs",
