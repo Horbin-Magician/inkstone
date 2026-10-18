@@ -956,51 +956,37 @@ impl PopupMenu {
         window.dispatch_action(action.boxed_clone(), cx);
     }
 
-    fn set_selected_index(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if self.selected_index != Some(ix) {
-            self.selected_index = Some(ix);
-            self.scroll_handle.scroll_to_item(ix);
+    fn set_selected_index(&mut self, ix: Option<usize>, cx: &mut Context<Self>) {
+        if self.selected_index != ix {
+            self.selected_index = ix;
+            if let Some(ix) = ix {
+                self.scroll_handle.scroll_to_item(ix);
+            }
             cx.notify();
         }
     }
 
     fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
-        let ix = self.selected_index.unwrap_or(0);
-
-        if let Some((prev_ix, _)) = self
-            .menu_items
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(i, item)| *i < ix && item.is_clickable())
-        {
-            self.set_selected_index(prev_ix, cx);
-            return;
-        }
-
-        let last_clickable_ix = self.clickable_menu_items().last().map(|(ix, _)| ix);
-        self.set_selected_index(last_clickable_ix.unwrap_or(0), cx);
+        let selected = self.selected_index;
+        let ix = self
+            .clickable_menu_items()
+            .filter(|(ix, _)| selected.is_some_and(|selected| *ix < selected))
+            .last()
+            .or_else(|| self.clickable_menu_items().last())
+            .map(|(ix, _)| ix);
+        self.set_selected_index(ix, cx);
     }
 
     fn select_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
-        let Some(ix) = self.selected_index else {
-            self.set_selected_index(0, cx);
-            return;
-        };
-
-        if let Some((next_ix, _)) = self
-            .menu_items
-            .iter()
-            .enumerate()
-            .find(|(i, item)| *i > ix && item.is_clickable())
-        {
-            self.set_selected_index(next_ix, cx);
-            return;
-        }
-
-        self.set_selected_index(0, cx);
+        let selected = self.selected_index;
+        let ix = self
+            .clickable_menu_items()
+            .find(|(ix, _)| selected.is_none_or(|selected| *ix > selected))
+            .or_else(|| self.clickable_menu_items().next())
+            .map(|(ix, _)| ix);
+        self.set_selected_index(ix, cx);
     }
 
     fn select_left(&mut self, _: &SelectLeft, window: &mut Window, cx: &mut Context<Self>) {
@@ -1049,7 +1035,8 @@ impl PopupMenu {
         if let Some(active_submenu) = self.active_submenu() {
             // Focus the submenu, so that can be handle the action.
             active_submenu.update(cx, |view, cx| {
-                view.set_selected_index(0, cx);
+                let first = view.clickable_menu_items().next().map(|(ix, _)| ix);
+                view.set_selected_index(first, cx);
                 view.focus_handle.focus(window, cx);
             });
             cx.notify();
@@ -1563,6 +1550,51 @@ impl Render for PopupMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn arrow_navigation_skips_noninteractive_items_and_wraps(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(cx));
+        let (menu, cx) = cx.add_window_view(|_, cx| {
+            let mut menu = PopupMenu::new(cx);
+            menu.menu_items = vec![
+                PopupMenuItem::new("Disabled").disabled(true),
+                PopupMenuItem::separator(),
+                PopupMenuItem::label("Section"),
+                PopupMenuItem::new("First"),
+                PopupMenuItem::element(|_, _| div()).disabled(true),
+                PopupMenuItem::new("Last"),
+            ];
+            menu
+        });
+        cx.update(|window, cx| menu.read(cx).focus_handle(cx).focus(window, cx));
+        for (key, expected) in [("down", 3), ("down", 5), ("down", 3), ("up", 5), ("up", 3)] {
+            cx.simulate_keystrokes(key);
+            assert_eq!(cx.read(|cx| menu.read(cx).selected_index), Some(expected));
+        }
+        cx.update(|_, cx| menu.update(cx, |menu, _| menu.selected_index = None));
+        cx.simulate_keystrokes("up");
+        assert_eq!(cx.read(|cx| menu.read(cx).selected_index), Some(5));
+    }
+
+    #[gpui::test]
+    fn menus_without_enabled_items_have_no_keyboard_selection(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(cx));
+        for empty in [false, true] {
+            let (menu, cx) = cx.add_window_view(|_, cx| {
+                let mut menu = PopupMenu::new(cx);
+                if !empty {
+                    menu.menu_items
+                        .push(PopupMenuItem::new("Disabled").disabled(true));
+                }
+                menu
+            });
+            cx.update(|window, cx| menu.read(cx).focus_handle(cx).focus(window, cx));
+            for key in ["down", "up"] {
+                cx.simulate_keystrokes(key);
+                assert_eq!(cx.read(|cx| menu.read(cx).selected_index), None);
+            }
+        }
+    }
 
     #[gpui::test]
     fn enter_does_not_activate_disabled_items(cx: &mut gpui::TestAppContext) {
