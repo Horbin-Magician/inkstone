@@ -283,7 +283,10 @@ fn copy_limited(mut input: impl Read, output: &mut dyn Write, limit: u64) -> Res
     let mut buffer = [0u8; 64 * 1024];
     let mut copied = 0u64;
     loop {
-        let count = input.read(&mut buffer).context("读取 WebDAV 响应失败")?;
+        let count = match input.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result.context("读取 WebDAV 响应失败")?,
+        };
         if count == 0 {
             return Ok(copied);
         }
@@ -312,6 +315,20 @@ mod stream_tests {
     use super::*;
     #[test]
     fn bounded_stream_handles_short_writes_limits_and_destination_failure() -> Result<()> {
+        struct Interrupted<'a> {
+            bytes: &'a [u8],
+            interrupt: bool,
+        }
+        impl Read for Interrupted<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.interrupt = !self.interrupt;
+                if self.interrupt {
+                    Err(io::ErrorKind::Interrupted.into())
+                } else {
+                    self.bytes.read(buffer)
+                }
+            }
+        }
         struct Sink {
             bytes: Vec<u8>,
             max_chunk: usize,
@@ -337,7 +354,17 @@ mod stream_tests {
             max_chunk: 0,
             fail: false,
         };
-        assert_eq!(copy_limited(input.as_slice(), &mut sink, 200_000)?, 200_000);
+        assert_eq!(
+            copy_limited(
+                Interrupted {
+                    bytes: &input,
+                    interrupt: false
+                },
+                &mut sink,
+                200_000
+            )?,
+            200_000
+        );
         assert_eq!(sink.bytes, input);
         assert!(sink.max_chunk <= 64 * 1024);
         assert!(copy_limited(input.as_slice(), &mut io::sink(), 199_999).is_err());

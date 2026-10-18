@@ -75,7 +75,10 @@ impl Cache {
             let mut bytes = 0u64;
             loop {
                 cancellation.check()?;
-                let count = source.read(&mut buffer)?;
+                let count = match source.read(&mut buffer) {
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    result => result?,
+                };
                 if count == 0 {
                     break;
                 }
@@ -185,7 +188,10 @@ fn verify(path: &Path, digest: &str, cancellation: &Cancellation) -> Result<u64>
     let mut bytes = 0u64;
     loop {
         cancellation.check()?;
-        let count = file.read(&mut buffer)?;
+        let count = match file.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
         if count == 0 {
             break;
         }
@@ -215,7 +221,10 @@ impl Object {
         let mut digest = Sha256::new();
         let mut bytes = 0u64;
         loop {
-            let count = file.read(&mut buffer)?;
+            let count = match file.read(&mut buffer) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                result => result?,
+            };
             if count == 0 {
                 break;
             }
