@@ -54,6 +54,17 @@ impl PaneTree {
     /// Move a panel to a new home without ever removing it from the tree's
     /// perspective, so the caller never fires `on_removed` for a drag.
     pub fn move_panel(&mut self, panel: PanelId, target: InsertTarget) -> EditResult {
+        // Detaching does not normalize, so a valid destination stays present
+        // until insertion, including when source and destination are the same group.
+        let valid_target = match target {
+            InsertTarget::Tabs { node, .. } => self
+                .find_node(node)
+                .is_some_and(|node| matches!(node.kind_ref(), NodeKind::Tabs { .. })),
+            InsertTarget::Split { node, .. } => self.find_node(node).is_some(),
+        };
+        if !valid_target {
+            return EditResult::default();
+        }
         self.edit(|tree| {
             let detached = tree.detach_panel(panel);
             let inserted = tree.apply_insert(panel, target);
@@ -634,5 +645,36 @@ mod tests {
         tree.remove_panel(panel(3));
 
         assert!(tree.is_normalized());
+    }
+
+    #[test]
+    fn moving_to_an_invalid_target_preserves_the_source_tree() {
+        let (tree, _) = tree_with_one_group();
+        let missing = PaneTree::new(RootKind::Split).root().id();
+        for target in [
+            InsertTarget::Tabs {
+                node: missing,
+                ix: None,
+                activate: true,
+            },
+            InsertTarget::Tabs {
+                node: tree.root().id(),
+                ix: None,
+                activate: true,
+            },
+            InsertTarget::Split {
+                node: missing,
+                placement: Placement::Right,
+                size: None,
+            },
+        ] {
+            let mut moved = tree.clone();
+            let result = moved.move_panel(panel(1), target);
+            assert!(!result.changed());
+            assert_eq!(
+                moved, tree,
+                "an invalid destination must not remove the source panel"
+            );
+        }
     }
 }
