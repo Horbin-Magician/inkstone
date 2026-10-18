@@ -8,7 +8,7 @@
 python3 tools/vendor-regression/run.py
 ```
 
-脚本在 `target/vendor-regression` 中重新复制当前源码，保持上游 `crates/base` / `crates/component` 布局，并复制同一上游提交的 README、图标、Markdown 和主题夹具供 include_str/include_bytes 测试使用。测试依次执行 Base 默认配置、Base 启用 `test-support` 配置以及 Component 默认配置的全部 library tests，失败返回非零；不使用旧 target 源码作测试输入。`tools/vendor-regression/Cargo.lock` 固定其开发依赖，主 Cargo.lock 不会被改写。普通工作区测试不运行依赖包内部测试，不能替代此命令。
+脚本在 `target/vendor-regression` 中重新复制当前源码，保持上游 `crates/base` / `crates/component` 布局，并复制同一上游提交的 README、图标、Markdown 和主题夹具供 include_str/include_bytes 测试使用。测试依次执行 Base 默认配置、Base 启用 `test-support` 配置、Component 默认配置和 Component 启用 `test-support` 配置的全部 library tests，失败返回非零；不使用旧 target 源码作测试输入。`tools/vendor-regression/Cargo.lock` 固定其开发依赖，主 Cargo.lock 不会被改写。普通工作区测试不运行依赖包内部测试，不能替代此命令。
 
 2026-10-06 在 macOS 独立源码目录、空 Cargo 依赖缓存及构建目录执行上述正式入口：Base 1,236 项、Component 572 项全部通过，无忽略项。暂存源码与归档的 vendor 源码一致，两份独立锁均未变化；仍复用本机工具链和 SDK，不能替代 Windows、远端 CI 或原生交互验收。详见 [验收记录](TESTING.md)。
 
