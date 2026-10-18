@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "33b0b9eb04837cf10817b894785e89dc770229ca",
+  "snapshot_revision": "5f6697e9b51bf9238220c53aace69b6397e2d2d1",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -347,6 +347,11 @@
       "path": "crates/inkstone-core/src/locations.rs",
       "checks": "note link formats, directory identity, attachment escaping and placement containment, relocation and relative paths",
       "result": "Fixed incorrect shortest links across case-distinct directories in 33b0b9e; four existing tests including extended round-trip fixture pass."
+    },
+    {
+      "path": "crates/inkstone-core/src/rendering.rs",
+      "checks": "full source and tests: source mappings and fragment rebasing, footnote namespace/closure, reference expansion and escaping, embed cycle/depth/byte bounds, task baselines, canonical asset confinement and ambiguous basename rejection",
+      "result": "No new actionable finding. Rendering source unchanged since batch 163 full core regression; native display and case-sensitive volume acceptance remain separate."
     }
   ],
   "pending_reconciliation": [
@@ -377,7 +382,6 @@
     "crates/inkstone-core/src/preferences.rs",
     "crates/inkstone-core/src/preview.rs",
     "crates/inkstone-core/src/properties.rs",
-    "crates/inkstone-core/src/rendering.rs",
     "crates/inkstone-core/src/search.rs",
     "crates/inkstone-core/src/search/group.rs",
     "crates/inkstone-core/src/search/property.rs",
