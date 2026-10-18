@@ -302,6 +302,7 @@ impl Workspace {
                         .iter()
                         .any(|t| t.save.persistence.is_dirty() || t.save.persistence.is_saving())
                 {
+                    this.run_search(cx);
                     this.notifications
                         .publish("读取期间产生了新编辑，已保留当前笔记库。".into());
                     cx.notify();
@@ -474,7 +475,10 @@ impl Workspace {
                             });
                         }
                     }
-                    Err(error) => this.notifications.publish(error.to_string()),
+                    Err(error) => {
+                        this.run_search(cx);
+                        this.notifications.publish(error.to_string());
+                    }
                 }
                 cx.notify();
             });
@@ -538,6 +542,85 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn failed_vault_load_restarts_the_cancelled_search(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-search-load-failure-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::create_dir_all(root.join("other")).unwrap();
+        std::fs::write(root.join("vault/source.md"), "unique current content").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("vault"), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.fulltext = true;
+                w.search
+                    .update(cx, |s, cx| s.set_value("unique", window, cx));
+                w.schedule_search(cx);
+                assert!(w.ui.search_loading);
+                w.load_vault(root.join("missing"), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.loading);
+                assert!(!w.ui.search_loading);
+                assert_eq!(w.search_results.len(), 1);
+                assert_eq!(w.search_results[0].path, PathBuf::from("source.md"));
+                assert_eq!(
+                    w.vault.as_ref().unwrap().root,
+                    std::fs::canonicalize(root.join("vault")).unwrap()
+                );
+                w.add_tab(
+                    "source.md".into(),
+                    Some("unique current content".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.schedule_search(cx);
+                w.load_vault(root.join("other"), window, cx);
+                w.tabs[0].save.editor.update(cx, |s, cx| {
+                    s.replace_all("unique fresh draft", window, cx);
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert!(!w.loading);
+                assert!(!w.ui.search_loading);
+                assert_eq!(w.search_results.len(), 1);
+                assert_eq!(w.search_results[0].path, PathBuf::from("source.md"));
+                assert_eq!(
+                    w.tabs[0].save.editor.read(cx).value().as_ref(),
+                    "unique fresh draft"
+                );
+                assert_eq!(
+                    w.vault.as_ref().unwrap().root,
+                    std::fs::canonicalize(root.join("vault")).unwrap()
+                );
+                assert!(w.notifications.text().contains("读取期间产生了新编辑"));
+                w.watcher = None;
+                w.watch_events = None;
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("vault/source.md")).unwrap(),
+            "unique current content"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn restored_tabs_search_only_after_the_batch_is_ready(cx: &mut TestAppContext) {
