@@ -160,7 +160,12 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("inkstone-draft-ui-{stamp}"));
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-draft-ui-{}-{stamp}-{sequence}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(root.join("vault")).unwrap();
         std::fs::write(root.join("vault/note.md"), "original").unwrap();
         let handle = cx.add_window(Workspace::new);
