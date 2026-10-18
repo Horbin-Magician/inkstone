@@ -590,14 +590,18 @@ impl Workspace {
             .into_any_element()
     }
     pub(super) fn rebuild_sorted_tree(&mut self, cx: &mut Context<Self>) {
-        let mut paths = self.tree_files.clone();
-        paths.extend(self.ui.folders.iter().cloned());
-        if let Some(edit) = &self.ui.tree_name
-            && edit.creating
-        {
-            paths.push(edit.row.clone());
-        }
-        let mut items = make_tree(&paths);
+        let creating = self
+            .ui
+            .tree_name
+            .as_ref()
+            .filter(|edit| edit.creating)
+            .map(|edit| &edit.row);
+        let paths = self
+            .tree_files
+            .iter()
+            .chain(&self.ui.folders)
+            .chain(creating);
+        let mut items = make_tree(paths.map(PathBuf::as_path));
         fn apply(
             items: Vec<TreeItem>,
             folders: &std::collections::HashSet<&std::path::Path>,
