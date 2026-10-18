@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "6eaa54af33661e33ab612ef6d57d9b71b7061cd3",
+  "snapshot_revision": "9cc718aa340d9bf01f3eb37b9b6955e49dc5c61c",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1537,6 +1537,11 @@
       "path": "vendor/gpui-component/src/dock/test_support.rs",
       "checks": "measurement probes, focus handles, visibility notifications and layout measurement callbacks",
       "result": "No new actionable finding in this read. Component dock tests pass in default and test-support configurations (24 each); native acceptance remains."
+    },
+    {
+      "path": "vendor/gpui-component/src/dock/tab_panel.rs",
+      "checks": "full tab skin, drag gates and preview, title/toolbar/menu, close and zoom constraints, visibility fallback, first-layout reveal, drop geometry and tests",
+      "result": "Reused visible indices; fixed zoom-out menu gating, displayed-tab visibility scrolling and initial reveal after layout. Default/test-support dock tests: 27 each. Native acceptance remains."
     }
   ],
   "pending_reconciliation": [
@@ -1711,7 +1716,6 @@
     "vendor/gpui-component/src/dialog/header.rs",
     "vendor/gpui-component/src/dialog/mod.rs",
     "vendor/gpui-component/src/dialog/title.rs",
-    "vendor/gpui-component/src/dock/tab_panel.rs",
     "vendor/gpui-component/src/element_ext.rs",
     "vendor/gpui-component/src/empty.rs",
     "vendor/gpui-component/src/form/field.rs",
