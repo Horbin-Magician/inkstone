@@ -345,17 +345,22 @@ impl RenderOnce for AccordionTrigger {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let next_open = !self.open;
 
-        self.base
-            .role(Role::Button)
-            .aria_expanded(self.open)
-            .when_some(
-                (!self.disabled).then_some(self.on_change).flatten(),
-                move |this, on_change| {
-                    this.on_click(move |event, window, cx| on_change(next_open, event, window, cx))
-                },
-            )
-            .children(self.children)
-            .refine_style(&self.style)
+        crate::accessibility::with_disabled(
+            self.base
+                .role(Role::Button)
+                .aria_expanded(self.open)
+                .when_some(
+                    (!self.disabled).then_some(self.on_change).flatten(),
+                    move |this, on_change| {
+                        this.on_click(move |event, window, cx| {
+                            on_change(next_open, event, window, cx)
+                        })
+                    },
+                )
+                .children(self.children)
+                .refine_style(&self.style),
+            self.disabled,
+        )
     }
 }
 
@@ -417,6 +422,33 @@ mod tests {
         assert!(requested.borrow().is_empty());
     }
 
+    #[gpui::test]
+    fn trigger_projects_native_disabled_state(cx: &mut gpui::TestAppContext) {
+        struct Probe;
+        impl Render for Probe {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                canvas(
+                    |_, window, cx| {
+                        for disabled in [false, true] {
+                            let element = AccordionTrigger::new("trigger")
+                                .disabled(disabled)
+                                .on_change(|_, _, _, _| {})
+                                .render(window, cx)
+                                .into_element();
+                            let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+                            element.write_a11y_info(&mut node);
+                            assert_eq!(node.is_disabled(), disabled);
+                            assert_eq!(node.supports_action(accesskit::Action::Click), !disabled);
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+            }
+        }
+        let (_, window) = cx.add_window_view(|_, _| Probe);
+        window.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
     struct TriggerHarness {
         open: bool,
         disabled: bool,
@@ -466,22 +498,37 @@ mod tests {
     #[cfg(feature = "test-support")]
     #[gpui::test]
     fn header_and_panel_project_structural_roles(cx: &mut gpui::TestAppContext) {
-        struct Probe;
+        struct Probe(gpui::FocusHandle);
         impl Render for Probe {
             fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
                 div()
                     .child(
-                        AccordionHeader::new(AccordionTrigger::new("trigger"))
-                            .id("header")
-                            .level(2),
+                        AccordionHeader::new(
+                            AccordionTrigger::new("trigger")
+                                .disabled(true)
+                                .track_focus(&self.0),
+                        )
+                        .id("header")
+                        .level(2),
                     )
                     .child(AccordionPanel::new().id("panel").open(true))
             }
         }
-        let (_, view) = cx.add_window_view(|_, _| Probe);
+        let focus = cx.update(|cx| cx.focus_handle());
+        let (_, view) = cx.add_window_view({
+            let focus = focus.clone();
+            move |_, _| Probe(focus)
+        });
         view.update(|window, cx| {
+            focus.focus(window, cx);
             window.draw(cx).clear(cx);
             let snapshots = crate::test_support::snapshots(window);
+            let trigger = snapshots
+                .iter()
+                .find(|node| node.path().last() == Some(&ElementId::from("trigger")))
+                .unwrap();
+            assert_eq!(trigger.disabled(), Some(true));
+            assert_eq!(trigger.focused(), Some(true));
             for (id, role) in [("header", Role::Heading), ("panel", Role::Region)] {
                 let matching: Vec<_> = snapshots
                     .iter()

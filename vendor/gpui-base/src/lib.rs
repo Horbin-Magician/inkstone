@@ -4,6 +4,7 @@
 //! colors, sizing, and motion belong to applications or the
 //! `gpui-component` façade.
 
+mod accessibility;
 mod accordion;
 pub mod actions;
 mod alert_dialog;

@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 原生禁用标记：新增 Base `src/accessibility.rs` 透明元素适配器，转发布局、标识、交互与无障碍子节点，并向真实 AccessKit 节点写入禁用标记。观察封装保留在适配器之外且保留焦点绑定；首个接入组件为 AccordionTrigger。
+
 2026-10-19 多内容折叠展开：Base `src/collapsible.rs` 在 reveal ID 下按子元素索引区分各内容块的 MotionReveal，避免不同高度内容共享测量缓存。布局回归使用 20px/60px 内容和 50% 进度检查两个后续元素位置。
 
 2026-10-19 悬停任务清理：Base `src/hover_card.rs` 安排延迟打开/关闭前复用 cancel_tasks 已递增的 epoch，删除重复递增和冗余辅助函数；旧任务失效策略保持一致。
@@ -145,6 +147,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 
 新增补丁文件：
+
+- `src/accessibility.rs`（2026-10-19）
 
 
 - `src/input/base/grapheme_cursor.rs`
