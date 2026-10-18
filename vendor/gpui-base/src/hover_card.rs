@@ -133,7 +133,7 @@ impl HoverCardState {
 
     fn schedule_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_tasks();
-        let epoch = self.next_epoch();
+        let epoch = self.epoch;
         let delay = self.open_delay;
         self.open_task = Some(cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(delay).await;
@@ -147,7 +147,7 @@ impl HoverCardState {
 
     fn schedule_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_tasks();
-        let epoch = self.next_epoch();
+        let epoch = self.epoch;
         let delay = self.close_delay;
         self.close_task = Some(cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(delay).await;
@@ -164,11 +164,6 @@ impl HoverCardState {
         self.epoch += 1;
         self.open_task = None;
         self.close_task = None;
-    }
-
-    fn next_epoch(&mut self) -> usize {
-        self.epoch += 1;
-        self.epoch
     }
 
     fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
