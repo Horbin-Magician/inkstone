@@ -24,6 +24,7 @@ pub struct Button {
     semantic_styles: ButtonStyles,
     selected: bool,
     disabled: bool,
+    busy: bool,
     children: SmallVec<[AnyElement; 2]>,
     on_click: Option<ClickHandler>,
     accessibility_label: Option<SharedString>,
@@ -44,6 +45,7 @@ impl Button {
             semantic_styles: ButtonStyles::default(),
             selected: false,
             disabled: false,
+            busy: false,
             children: SmallVec::new(),
             on_click: None,
             accessibility_label: None,
@@ -58,6 +60,13 @@ impl Button {
     /// Sets whether the button ignores pointer and keyboard activation.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Prevents activation while work is in progress, retaining keyboard focus
+    /// and normal styling. Accessibility reports busy and disabled.
+    pub fn busy(mut self, busy: bool) -> Self {
+        self.busy = busy;
         self
     }
 
@@ -208,6 +217,7 @@ impl RenderOnce for Button {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let focus_handle = self.focus_handle(window, cx);
         let disabled = self.disabled;
+        let busy = self.busy;
         let style = self.resolved_style();
         let on_click = self.on_click;
 
@@ -240,22 +250,25 @@ impl RenderOnce for Button {
                         .tab_stop(self.tab_stop),
                 )
             })
-            .when(disabled, |this| {
+            .when(disabled || busy, |this| {
                 this.on_mouse_down(MouseButton::Left, |_, _, cx| {
                     cx.stop_propagation();
                 })
             })
             .when_some(
-                (!disabled).then_some(on_click).flatten(),
+                (!disabled && !busy).then_some(on_click).flatten(),
                 |this, on_click| {
                     this.on_click(move |event, window, cx| {
                         on_click(event, window, cx);
                     })
                 },
             )
+            .when(busy && !disabled, |this| {
+                this.on_click(|_, _, cx| cx.stop_propagation())
+            })
             .children(self.children)
             .refine_style(&style);
-        crate::accessibility::with_disabled(base, disabled)
+        crate::accessibility::with_control_state(base, disabled || busy, busy)
     }
 }
 
@@ -508,7 +521,7 @@ mod tests {
 
     #[gpui::test]
     fn accessibility_role_label_and_disabled_action_surface(cx: &mut TestAppContext) {
-        type Captured = Arc<Mutex<Option<(accesskit::Node, accesskit::Node)>>>;
+        type Captured = Arc<Mutex<Option<(accesskit::Node, accesskit::Node, accesskit::Node)>>>;
 
         struct A11yProbe {
             captured: Captured,
@@ -537,7 +550,13 @@ mod tests {
                                 .accessibility_label("Save")
                                 .on_click(|_, _, _| {}),
                         );
-                        *captured.lock().unwrap() = Some((enabled, disabled));
+                        let busy = info(
+                            Button::new("busy")
+                                .busy(true)
+                                .accessibility_label("Save")
+                                .on_click(|_, _, _| {}),
+                        );
+                        *captured.lock().unwrap() = Some((enabled, disabled, busy));
                     },
                     |_, _, _, _| {},
                 )
@@ -550,7 +569,7 @@ mod tests {
         cx.update(|window, cx| {
             window.draw(cx).clear(cx);
         });
-        let (enabled, disabled) = result.lock().unwrap().take().unwrap();
+        let (enabled, disabled, busy) = result.lock().unwrap().take().unwrap();
         assert_eq!(enabled.role(), Role::Button);
         assert_eq!(enabled.label(), Some("Save"));
         assert!(enabled.supports_action(accesskit::Action::Click));
@@ -560,5 +579,10 @@ mod tests {
 
         assert!(!enabled.is_disabled());
         assert!(disabled.is_disabled());
+        assert!(!enabled.is_busy());
+        assert!(busy.is_busy());
+        assert!(busy.is_disabled());
+        assert!(!busy.supports_action(accesskit::Action::Click));
+        assert!(busy.supports_action(accesskit::Action::Focus));
     }
 }
