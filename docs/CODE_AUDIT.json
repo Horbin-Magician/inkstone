@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "7c64a8c50d83b693b6f9f85c5fadfb6a0f2be9a8",
+  "snapshot_revision": "a7bdeb7fe50f72c21b9d8e51599169dc055944cc",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -142,6 +142,16 @@
       "path": "crates/inkstone-core/src/vault/sync/recovery/retention.rs",
       "checks": "Complete read including tests: minimum one retained record per original, cutoff ties, protected/in-use records, incomplete inventory exclusion and checked candidate byte sums",
       "result": "No newly confirmed defect in this read. Sources unchanged from consolidated core regression (399 passed, 3 ignored); no tests repeated and no claim of adversarial filesystem race immunity."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/recovery/cleanup.rs",
+      "checks": "Complete source and test read: local-storage admission, operation ownership, full retained/candidate body validation, protected displacement, pre/post move guards, cancellation and killed-process recovery",
+      "result": "Replaced repeated linear membership scans with path-indexed full-record comparisons in a7bdeb7. Duplicate expected paths rejected; 27 local recovery tests and workspace Clippy passed. No end-to-end speed claim."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/recovery/residue.rs",
+      "checks": "Complete source and test read: descriptor-only retention, local storage and operation locks, before/after move identity checks, no replacement/rollback, reappearing body protection and restart recovery",
+      "result": "No new confirmed defect. Unix recovery tests passed; Windows-specific guard test is not validated on this host."
     }
   ],
   "pending_reconciliation": [
@@ -216,8 +226,6 @@
     "crates/inkstone-core/src/vault/history/metadata.rs",
     "crates/inkstone-core/src/vault/history/records.rs",
     "crates/inkstone-core/src/vault/sync.rs",
-    "crates/inkstone-core/src/vault/sync/recovery/cleanup.rs",
-    "crates/inkstone-core/src/vault/sync/recovery/residue.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
