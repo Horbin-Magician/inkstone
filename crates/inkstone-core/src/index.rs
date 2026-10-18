@@ -59,7 +59,9 @@ pub struct SearchHit {
     pub title_highlights: Vec<Range<usize>>,
 }
 pub(crate) fn key(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/").to_lowercase()
+    path.to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
+        .to_lowercase()
 }
 fn stem_key(path: &Path) -> String {
     path.file_stem()

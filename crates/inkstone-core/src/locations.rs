@@ -29,7 +29,9 @@ impl LinkFormat {
     }
     fn note_target(self, from: &Path, to: &Path, short_resolves: bool) -> String {
         let stem = to.with_extension("");
-        let absolute = stem.to_string_lossy().replace('\\', "/");
+        let absolute = stem
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
         if self == Self::Shortest {
             let name = stem.file_name().unwrap_or_default().to_string_lossy();
             if short_resolves {
@@ -39,7 +41,7 @@ impl LinkFormat {
         if self == Self::Relative {
             let relative = relative_path(from, &stem)
                 .to_string_lossy()
-                .replace('\\', "/");
+                .replace(std::path::MAIN_SEPARATOR, "/");
             return if relative.starts_with("../") || !relative.contains('/') {
                 relative
             } else {
@@ -196,7 +198,7 @@ pub fn attachment_link(
 
 /// Whether a literal target path needs Markdown encoding instead of Wiki syntax.
 pub fn requires_markdown_link(target: &str) -> bool {
-    target.contains('#') || requires_markdown_text(target)
+    target.contains(['#', '\\']) || requires_markdown_text(target)
 }
 
 /// Wiki labels and fragments must not introduce markup or split the link.
@@ -231,7 +233,7 @@ pub fn attachment_destination(
             to.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
         ),
     };
-    let markdown = markdown || requires_markdown_link(&target) || target.contains('\\');
+    let markdown = markdown || requires_markdown_link(&target);
     if !markdown && target.starts_with('/') && target[1..].contains('/') {
         target.remove(0);
     }
