@@ -850,7 +850,11 @@ impl PopupMenu {
         if let Some(ix) = self.selected_index {
             if let Some(item) = self.menu_items.get(ix) {
                 return match item {
-                    PopupMenuItem::Submenu { menu, .. } => Some(menu.clone()),
+                    PopupMenuItem::Submenu {
+                        menu,
+                        disabled: false,
+                        ..
+                    } => Some(menu.clone()),
                     _ => None,
                 };
             }
@@ -1417,7 +1421,7 @@ impl PopupMenu {
                                 ),
                         ),
                 )
-                .when(selected, |this| {
+                .when(selected && !disabled, |this| {
                     this.child({
                         let (anchor, left) = self.submenu_anchor;
                         let is_bottom_pos =
@@ -1550,6 +1554,47 @@ impl Render for PopupMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn a_disabled_submenu_cannot_take_keyboard_focus(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| crate::init(cx));
+        let child = cx.update(|cx| {
+            cx.new(|cx| {
+                PopupMenu::new(cx)
+                    .item(PopupMenuItem::label("Section"))
+                    .item(PopupMenuItem::new("Disabled").disabled(true))
+                    .item(PopupMenuItem::new("Available"))
+            })
+        });
+        let (parent, cx) = cx.add_window_view(|_, cx| {
+            PopupMenu::new(cx).item(PopupMenuItem::submenu("Child", child.clone()))
+        });
+        cx.update(|window, cx| parent.read(cx).focus_handle(cx).focus(window, cx));
+        cx.simulate_keystrokes("down");
+        // A selected item can become disabled while the popup remains open.
+        cx.update(|_, cx| {
+            parent.update(cx, |menu, cx| {
+                if let PopupMenuItem::Submenu { disabled, .. } = &mut menu.menu_items[0] {
+                    *disabled = true;
+                }
+                cx.notify();
+            })
+        });
+        cx.simulate_keystrokes("right");
+        assert!(cx.update(|window, cx| parent.read(cx).focus_handle(cx).is_focused(window)));
+        assert!(cx.read(|cx| parent.read(cx).active_submenu().is_none()));
+        cx.update(|_, cx| {
+            parent.update(cx, |menu, cx| {
+                if let PopupMenuItem::Submenu { disabled, .. } = &mut menu.menu_items[0] {
+                    *disabled = false;
+                }
+                cx.notify();
+            })
+        });
+        cx.simulate_keystrokes("right");
+        assert!(cx.update(|window, cx| child.read(cx).focus_handle(cx).is_focused(window)));
+        assert_eq!(cx.read(|cx| child.read(cx).selected_index), Some(2));
+    }
 
     #[gpui::test]
     fn arrow_navigation_skips_noninteractive_items_and_wraps(cx: &mut gpui::TestAppContext) {
