@@ -4,7 +4,7 @@ use inkstone_core::tables::Grid;
 
 pub(super) struct Review {
     tab: usize,
-    original: String,
+    original: SharedString,
     grid: Grid,
     cells: Vec<Vec<Entity<InputState>>>,
     message: String,
@@ -59,7 +59,7 @@ impl Workspace {
             return;
         };
         let editor = pane.read(cx).editor.clone();
-        let original = editor.read(cx).value().to_string();
+        let original = editor.read(cx).value();
         let offset = editor.read(cx).selected_range().start;
         let Some(grid) = Grid::at(&original, offset) else {
             self.notifications.publish(
@@ -133,7 +133,7 @@ impl Workspace {
         let Some(tab) = self.tabs.iter().find(|t| t.id == id) else {
             return;
         };
-        if tab.save.editor.read(cx).value().as_ref() != original
+        if tab.save.editor.read(cx).value().as_ref() != original.as_ref()
             || self.has_pending_input(id, window, cx)
         {
             self.ui.table_editor.as_mut().unwrap().message =
