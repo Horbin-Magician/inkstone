@@ -32,6 +32,13 @@ pub type PathCache = Rc<RefCell<Arc<Vec<CompletionPath>>>>;
 pub struct WikiDefinitions(pub ParsedCache);
 pub struct WikiCompletions(pub PathCache, pub Option<WeakEntity<EditorState>>);
 
+fn strip_markdown_extension(target: &str) -> &str {
+    target
+        .rsplit_once('.')
+        .filter(|(_, extension)| extension.eq_ignore_ascii_case("md"))
+        .map_or(target, |(stem, _)| stem)
+}
+
 fn accepts_wiki_completion(source: &str, start: usize) -> bool {
     if source[..start]
         .bytes()
@@ -199,10 +206,10 @@ impl CompletionProvider for WikiCompletions {
                             .filter(|p| {
                                 p.alias.is_none()
                                     && (p.label.eq_ignore_ascii_case(file)
-                                        || p.target
-                                            .trim_start_matches('/')
-                                            .trim_end_matches(".md")
-                                            .eq_ignore_ascii_case(file.trim_end_matches(".md")))
+                                        || strip_markdown_extension(
+                                            p.target.trim_start_matches('/'),
+                                        )
+                                        .eq_ignore_ascii_case(strip_markdown_extension(file)))
                             })
                             .cloned(),
                     );
@@ -488,6 +495,9 @@ mod provider_tests {
         let handle = cx.add_window(|w, cx| crate::editor::EditorPane::new("", w, cx));
         for (source, markdown, expected) in [
             ("[[note#章]]", false, "[[note#章节 1]]"),
+            ("[[note.MD#章]]", false, "[[note#章节 1]]"),
+            ("[[note.Md#章]]", true, "note.md#章节 1"),
+            ("[[note.md.md#章]]", false, ""),
             ("![[note#^bl]]", false, "![[note#^block]]"),
             ("[[note#章]]", true, "note.md#章节 1"),
             ("# 当前/标题\n\n[[#当前]]", true, "#当前/标题"),
@@ -525,6 +535,10 @@ mod provider_tests {
             let lsp_types::CompletionResponse::Array(items) = task.await.unwrap() else {
                 panic!("array expected");
             };
+            if expected.is_empty() {
+                assert!(items.is_empty(), "{source}");
+                continue;
+            }
             assert_eq!(items.len(), 1, "{source}");
             let Some(lsp_types::CompletionTextEdit::Edit(edit)) = items[0].text_edit.clone() else {
                 panic!("edit expected");
