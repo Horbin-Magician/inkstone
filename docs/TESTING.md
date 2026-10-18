@@ -108,6 +108,21 @@ all-targets Clippy、格式和差异检查通过。日志前缀为 `sync-backsla
 `fold-accessibility-` 与 `native-menu-`，均在 `target/audit-20261018/`。本批没有完整运行
 VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐项原生验收通过。
 
+第七批打包与工具审核：
+
+- `be49d1c`：资源清单原先按文件名排除清单自身，连嵌套目录中同名资源也被排除，
+  导致这些资源改动无法被完整性校验发现。现在只排除根目录的清单路径；新增回归覆盖
+  `resources.json` 和 `.resources.json` 两种名称，均先复现失败，修复后打包测试 5 项通过。
+- `0f10c8d`：日常推送和 PR 检查新增 macOS/Windows 工具测试任务，运行打包与性能工具
+  unittest。性能工具本地 10 项通过，工作流 YAML 解析通过；平台专用测试保留原有跳过条件。
+  本批没有触发远端工作流，不能据此宣称 Windows 或 GitHub CI 已通过。
+
+当前代码工作区全量回归：核心 347、桌面 424、集成 8 项通过，8 项既有手动测试忽略。
+工作区格式、all-targets Clippy（`-D warnings`）与差异检查通过。日志
+`seventh-workspace-tests.log`、`seventh-workspace-clippy.log`、
+`seventh-performance-tools-tests.log` 及 `package-inventory-{before,after}.log`
+位于 `target/audit-20261018/`。未执行发布、推送或安装包上传。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
@@ -120,7 +135,7 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 并初查保存状态、文件任务凭据、设置持久化、同步通知、历史目录调度及若干核心算法。
 后续继续逐模块审核文件存储、同步/备份/恢复、编辑投影、UI、vendor 和工具；
 初查不视为模块审核完成。Wiki 链接重命名为含语法分隔符的文件名仍需继续验证；
-上述 Markdown 修复不代表 Wiki 引用与嵌入也已解决。仍待当前代码全量收尾、完整原生 UI/输入法验收；
+上述 Markdown 修复不代表 Wiki 引用与嵌入也已解决。当前代码已通过上述本地全量回归，仍待完整原生 UI/输入法验收；
 Windows 和真实 WebDAV 环境的既有验收缺口保持未验证。
 
 开发环境安装 rustup 后，从仓库根目录执行。`rust-toolchain.toml` 是开发和 CI 的唯一工具链版本来源，目前固定 Rust 1.97.0，并安装 Clippy、rustfmt。首次执行 rustup/Cargo 时自动安装该版本；依赖仍通过 `Cargo.lock` 和 `--locked` 固定。
