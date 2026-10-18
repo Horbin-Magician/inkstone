@@ -7,15 +7,24 @@ impl Workspace {
         &mut self,
         path: &std::path::Path,
         fragment: &str,
+        wiki: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<usize> {
         self.flush_document_views(window, cx);
+        let anchor = if wiki {
+            inkstone_core::index::anchor_range
+        } else {
+            inkstone_core::index::anchor_range_decoded
+        };
         let range = if let Some(tab) = self.tabs.iter().find(|tab| tab.path == path) {
             let text = tab.save.text_snapshot(cx);
-            inkstone_core::index::anchor_range(&text, &inkstone_core::index::parse(&text), fragment)
+            anchor(&text, &inkstone_core::index::parse(&text), fragment)
         } else {
-            self.index.anchor_range(path, fragment)
+            self.index
+                .notes
+                .get(path)
+                .and_then(|note| anchor(&note.text, &note.parsed, fragment))
         };
         range.map(|range| range.start)
     }
@@ -84,8 +93,8 @@ impl Workspace {
         let (resolution, heading) = self.index.resolve_markdown(&from, href);
         match resolution {
             Resolution::Found(path) => {
-                if let Some(offset) =
-                    heading.and_then(|heading| self.link_anchor_offset(&path, &heading, window, cx))
+                if let Some(offset) = heading
+                    .and_then(|heading| self.link_anchor_offset(&path, &heading, false, window, cx))
                 {
                     self.pending_jump = Some((path.clone(), offset));
                 }
@@ -113,7 +122,7 @@ impl Workspace {
         match self.index.resolve(&from, &target) {
             Resolution::Found(path) => {
                 if let Some((_, heading)) = target.split_once('#')
-                    && let Some(offset) = self.link_anchor_offset(&path, heading, window, cx)
+                    && let Some(offset) = self.link_anchor_offset(&path, heading, true, window, cx)
                 {
                     self.pending_jump = Some((path.clone(), offset));
                 }
@@ -154,6 +163,34 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn markdown_percent_encoded_heading_is_decoded_once(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let source = "# A\nwrong\n\n# %41\ncorrect\n";
+                Arc::make_mut(&mut w.index).update("a.md".into(), source.into());
+                assert_eq!(
+                    w.link_anchor_offset(std::path::Path::new("a.md"), "%41", false, window, cx),
+                    source.find("# %41")
+                );
+                w.add_tab("a.md".into(), Some(source.into()), false, window, cx);
+                w.follow_markdown_link("a.md".into(), "#%2541", false, window, cx);
+                assert_eq!(
+                    w.current_pane()
+                        .unwrap()
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .selected_range()
+                        .start,
+                    source.find("# %41").unwrap()
+                );
+            })
+            .unwrap();
+    }
 
     #[gpui::test]
     fn link_anchors_use_pending_duplicate_and_split_edits(cx: &mut TestAppContext) {

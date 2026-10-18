@@ -405,6 +405,15 @@ pub fn anchor_range(source: &str, parsed: &ParsedNote, fragment: &str) -> Option
     let fragment = percent_encoding::percent_decode_str(fragment.trim_start_matches('#'))
         .decode_utf8()
         .ok()?;
+    anchor_range_decoded(source, parsed, &fragment)
+}
+
+/// Find a section from an already decoded fragment, preserving literal percent sequences.
+pub fn anchor_range_decoded(
+    source: &str,
+    parsed: &ParsedNote,
+    fragment: &str,
+) -> Option<Range<usize>> {
     if let Some(id) = fragment.strip_prefix('^') {
         return parsed
             .blocks
@@ -427,7 +436,7 @@ pub fn anchor_range(source: &str, parsed: &ParsedNote, fragment: &str) -> Option
             parsed
                 .headings
                 .iter()
-                .position(|h| normalized(&h.title) == normalized(&fragment))
+                .position(|h| normalized(&h.title) == normalized(fragment))
         })?;
     let heading = &parsed.headings[i];
     let end = parsed.headings[i + 1..]

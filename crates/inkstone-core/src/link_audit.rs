@@ -54,7 +54,12 @@ pub fn scan(root: &Path, index: &Index) -> Vec<Issue> {
                 Resolution::Found(path) if index.notes.contains_key(&path) => {
                     fragment.filter(|f| !f.is_empty()).and_then(|fragment| {
                         let n = &index.notes[&path];
-                        index::anchor_range(&n.text, &n.parsed, &fragment)
+                        let anchor = if wiki {
+                            index::anchor_range
+                        } else {
+                            index::anchor_range_decoded
+                        };
+                        anchor(&n.text, &n.parsed, &fragment)
                             .is_none()
                             .then(|| "标题或块引用不存在".to_string())
                     })

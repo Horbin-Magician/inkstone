@@ -110,6 +110,11 @@ impl Builder<'_> {
                 &note_path(&path, self.format),
             );
             if let Some(fragment) = fragment.filter(|s| !s.is_empty()) {
+                let anchor = if wiki {
+                    index::anchor_range
+                } else {
+                    index::anchor_range_decoded
+                };
                 if self.format == Format::Markdown {
                     url.push('#');
                     url.push_str(&encoded(&fragment));
@@ -117,7 +122,7 @@ impl Builder<'_> {
                     && let Some(i) = note.parsed.blocks.iter().position(|b| b.id == id)
                 {
                     url.push_str(&format!("#block-{i}"));
-                } else if let Some(range) = index::anchor_range(&note.text, &note.parsed, &fragment)
+                } else if let Some(range) = anchor(&note.text, &note.parsed, &fragment)
                     && let Some(i) = note
                         .parsed
                         .headings
@@ -585,6 +590,43 @@ mod tests {
                     assert!(text.contains("\\|160x80"));
                 }
             }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn markdown_percent_encoded_heading_is_decoded_once() {
+        let root =
+            std::env::temp_dir().join(format!("inkstone-export-percent-heading-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        fs::write(
+            vault.root.join("child.md"),
+            "# A\nwrong\n\n# %41\ncorrect\n",
+        )
+        .unwrap();
+        fs::write(vault.root.join("root.md"), "[literal](child.md#%2541)").unwrap();
+        for (format, directory, fragment) in [
+            (Format::Markdown, "md", "#%2541"),
+            (Format::Html, "html", "#heading-1"),
+        ] {
+            let report = create(
+                &vault,
+                Path::new("root.md"),
+                BTreeMap::new(),
+                &root.join(directory),
+                format,
+            )
+            .unwrap();
+            assert!(
+                report
+                    .warnings
+                    .iter()
+                    .all(|warning| warning.starts_with("HTML 不执行原始 HTML 或脚本；")),
+                "{:?}",
+                report.warnings
+            );
+            let output = fs::read_to_string(report.entry).unwrap();
+            assert!(output.contains(fragment), "{output}");
         }
         fs::remove_dir_all(root).unwrap();
     }

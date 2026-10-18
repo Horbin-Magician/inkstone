@@ -645,7 +645,14 @@ impl Builder<'_> {
             }) {
                 let part = section.as_deref().map_or_else(
                     || Some(0..text.len()),
-                    |fragment| index::anchor_range(&text, &index::parse(&text), fragment),
+                    |fragment| {
+                        let anchor = if wiki {
+                            index::anchor_range
+                        } else {
+                            index::anchor_range_decoded
+                        };
+                        anchor(&text, &index::parse(&text), fragment)
+                    },
                 );
                 if let Some(part) = part {
                     self.note(&target, text, part);
@@ -1346,6 +1353,21 @@ mod tests {
             rendered.markdown
         );
         assert!(rendered.markdown.contains("title=\"&quot;&lt;\""));
+    }
+    #[test]
+    fn markdown_percent_encoded_heading_is_decoded_once() {
+        let mut index = Index::default();
+        index.update(
+            "child.md".into(),
+            "# %41\nliteral section\n\n# A\nwrong section".into(),
+        );
+        let source = "![section](child.md#%2541)";
+        index.update("root.md".into(), source.into());
+        let rendered = reading_document(&index, Path::new("root.md"), source);
+        assert!(rendered.markdown.contains("literal section"));
+        assert!(!rendered.markdown.contains("wrong section"));
+        index.update("child.md".into(), "# %41\nliteral section".into());
+        assert!(crate::link_audit::scan(Path::new("/nonexistent"), &index).is_empty());
     }
     #[test]
     fn markdown_note_embeds_keep_sections_tasks_and_cycles() {
