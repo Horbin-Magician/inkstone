@@ -5,7 +5,6 @@ Build `cargo build --release --locked -p inkstone-core --example benchmark` firs
 This measures backend stages, not native UI latency. No user vault is accepted.
 """
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -15,10 +14,7 @@ import statistics
 import subprocess
 import tempfile
 
-
-def digest(path):
-    with path.open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+from file_hash import sha256 as digest
 
 
 def metrics(stdout):
