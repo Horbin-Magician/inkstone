@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "ec710b44807368ad3efcb777220aaa3b51a4f145",
+  "snapshot_revision": "297a3d255da23cae24056d11c959769edd08416f",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1057,6 +1057,11 @@
       "path": "crates/inkstone-desktop/src/workspace/recovery.rs",
       "checks": "Complete read: draft validation/discard confirmation, request generations, history loading/selection/diff, restore-as-copy, preview limits, paging and focus/accessibility tests.",
       "result": "Fixed history comparison for inactive open notes falling back to disk instead of unsaved editor text (ec710b4). Regression reproduced old behavior; synchronized fixture confirms dirty text, active tab and disk are preserved. Thirteen recovery tests, workspace all-targets Clippy, formatting and diff checks passed. Consolidated batch223 run remains in progress and excludes this fix."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
+      "checks": "Complete read: inventory generation/request guards, retention preview/confirmation, exclusive cleanup tickets and cancellation, restore-as-copy, paging/focus and all twelve module tests.",
+      "result": "No new actionable finding. Source byte-identical to bfbde2e version exercised by completed batch223 workspace regression: twelve module tests passed. Verified stale callbacks release tickets without overwriting state, dirty notes remain unsaved, cancelled/failed cleanup preserves required records, and pagers remain keyboard reachable. Native/Windows acceptance remains outstanding."
     }
   ],
   "pending_reconciliation": [
@@ -1068,7 +1073,6 @@
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
-    "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
     "vendor/gpui-base/Cargo.toml",
