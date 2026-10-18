@@ -16,13 +16,9 @@ impl LinkFormat {
             .notes
             .keys()
             .map(|to| {
-                let local = to
-                    .parent()
-                    .unwrap_or(Path::new(""))
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(
-                        &from.parent().unwrap_or(Path::new("")).to_string_lossy(),
-                    );
+                // Distinct directory spellings can coexist on case-sensitive volumes.
+                // Shortening across them may resolve to a different local note.
+                let local = to.parent() == from.parent();
                 self.note_target(from, to, local || index.has_unique_stem(to))
             })
             .collect()
@@ -328,6 +324,7 @@ mod tests {
         let mut index = Index::default();
         for name in [
             "a/same.md",
+            "A/same.md",
             "same.md",
             "a/sub/中文.2026.md",
             "other/unique.md",
