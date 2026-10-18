@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 Dock 布局遍历：find_node 直接返回节点，避免构造路径后二次遍历；归一化根折叠移动唯一子节点，避免整棵子树克隆；合并重复测试布局构建辅助函数。
+
 2026-10-19 Dock 初始尺寸：构造器与 set_size 统一限制 PANEL_MIN_SIZE，避免新建或恢复布局直接写入过小尺寸。
 
 2026-10-19 Component Checkbox 焦点：保留调用方 track_focus 句柄，渲染和焦点环共用该句柄，避免内部 keyed 焦点覆盖显式绑定。
