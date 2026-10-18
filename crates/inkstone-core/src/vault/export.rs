@@ -204,6 +204,18 @@ impl Builder<'_> {
                 ),
             ));
         }
+        for embed in parsed.markdown_embeds {
+            let url = self.destination(path, &embed.target, false);
+            self.warnings.insert(format!(
+                "{}：嵌入已转换为关联文件链接：{}",
+                path.display(),
+                embed.target
+            ));
+            edits.push((
+                embed.range,
+                format!("[{}]({url})", escape_label(&embed.label)),
+            ));
+        }
         for (range, target) in parsed.destinations {
             edits.push((range, self.destination(path, &target, false)));
         }
@@ -422,6 +434,36 @@ pub fn create(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn markdown_note_embeds_export_as_portable_links() {
+        let root = std::env::temp_dir().join(format!("inkstone-export-embeds-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        fs::write(vault.root.join("target#note.md"), "# Section\n正文").unwrap();
+        fs::write(
+            vault.root.join("root.md"),
+            "![片段](target%23note.md#Section)\n\n![引用][r]\n\n[r]: target%23note.md#Section",
+        )
+        .unwrap();
+        for (format, directory) in [(Format::Markdown, "md"), (Format::Html, "html")] {
+            let report = create(
+                &vault,
+                Path::new("root.md"),
+                BTreeMap::new(),
+                &root.join(directory),
+                format,
+            )
+            .unwrap();
+            assert_eq!(report.notes, 2);
+            assert_eq!(report.attachments, 0);
+            assert!(report.warnings.iter().any(|w| w.contains("嵌入已转换")));
+            let output = fs::read_to_string(report.entry).unwrap();
+            assert!(!output.contains("![片段]"), "{output}");
+            assert!(!output.contains("<img"), "{output}");
+            assert!(output.contains("target%23note%2E"), "{output}");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn html_exports_native_graphics_highlights_and_block_anchors() {
         let root = std::env::temp_dir().join(format!("inkstone-export-rich-{}", unique_id()));

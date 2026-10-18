@@ -11,7 +11,7 @@ use std::{
 };
 
 // Bump when parsing semantics or the serialized representation change.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct Cache<T = ParsedNote> {
@@ -225,10 +225,10 @@ mod tests {
         let index = s.cached();
         index.save_cache(&s.vault, &s.cache).unwrap();
         let original = std::fs::read(&s.cache).unwrap();
-        for wrong_version in [true, false] {
+        for version in [Some(VERSION - 1), Some(VERSION + 1), None] {
             let mut cache: Cache = serde_json::from_slice(&original).unwrap();
-            if wrong_version {
-                cache.version += 1;
+            if let Some(version) = version {
+                cache.version = version;
             } else {
                 cache.root = s.root.join("other");
             }

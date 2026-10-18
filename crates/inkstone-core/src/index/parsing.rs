@@ -1,5 +1,6 @@
 //! Source-based Markdown metadata, fold regions, anchors, and task edits.
 
+pub use crate::note_embeds::MarkdownEmbed;
 use markdown_parser::mdast::Node;
 use std::{collections::BTreeMap, ops::Range};
 
@@ -35,6 +36,8 @@ pub struct ParsedNote {
     pub footnote_references: Vec<(Range<usize>, String)>,
     pub footnote_definitions: Vec<(Range<usize>, String)>,
     pub links: Vec<WikiLink>,
+    #[serde(default)]
+    pub markdown_embeds: Vec<MarkdownEmbed>,
     pub headings: Vec<Heading>,
     pub tags: Vec<String>,
     pub tag_counts: BTreeMap<String, usize>,
@@ -226,6 +229,15 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
     };
     if let Some(root) = snapshot.ast.as_deref() {
         walk(root, source, &mut result);
+        if source.contains("![") {
+            result.markdown_embeds = crate::note_embeds::scan(root);
+        }
+        result.standard_links.extend(
+            result
+                .markdown_embeds
+                .iter()
+                .map(|embed| (embed.target.clone(), embed.range.start)),
+        );
         result.links = crate::wiki_links::scan(source, root)
             .into_iter()
             .map(|link| WikiLink {

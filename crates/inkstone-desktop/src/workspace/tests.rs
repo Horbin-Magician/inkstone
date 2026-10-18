@@ -3325,13 +3325,16 @@ fn embedded_task_write_checks_the_source_snapshot(cx: &mut TestAppContext) {
     std::fs::create_dir_all(&root).unwrap();
     let source = "- [ ] 源任务😀\r\n";
     std::fs::write(root.join("source.md"), source).unwrap();
-    let marker = inkstone_core::index::parse(source).tasks[0].marker.clone();
-    let target = inkstone_core::rendering::TaskTarget {
-        rendered_start: 0,
-        path: "source.md".into(),
-        marker,
-        baseline: std::sync::Arc::from(source),
-    };
+    let mut index = inkstone_core::index::Index::default();
+    index.update("source.md".into(), source.into());
+    let embed = "![源任务](source.md)";
+    let rendered = inkstone_core::rendering::reading_snapshot(
+        &index,
+        std::path::Path::new("host.md"),
+        std::sync::Arc::new(inkstone_core::syntax::Snapshot::new(embed)),
+        0..embed.len(),
+    );
+    let target = rendered.tasks[0].clone();
     handle
         .update(cx, |w, window, cx| {
             w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());

@@ -100,9 +100,12 @@ impl Index {
                             % 2
                             == 0
                 });
-                // Wiki syntax cannot represent these path characters. Keep embeds in
-                // their existing syntax until Markdown note transclusion is supported.
-                if !embedded && path.contains(['#', '|', '[', ']', '\r', '\n']) {
+                let note_target = destination
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+                // Asset embeds retain Wiki dimensions; Markdown note embeds preserve
+                // transclusion when the destination cannot be expressed in Wiki syntax.
+                if (!embedded || note_target) && path.contains(['#', '|', '[', ']', '\r', '\n']) {
                     let mut label = String::new();
                     for c in link.label.chars() {
                         if matches!(c, '\\' | '[' | ']' | '|') {
