@@ -294,4 +294,43 @@ mod tests {
             assert!(active_focus_trap(window, cx).is_none());
         });
     }
+
+    #[gpui::test]
+    fn identical_trap_ids_in_separate_windows_do_not_overwrite_each_other(cx: &mut TestAppContext) {
+        cx.update(init);
+        let mut windows = Vec::new();
+        for _ in 0..2 {
+            let outer = cx.update(|cx| cx.focus_handle());
+            let inner = cx.update(|cx| cx.focus_handle());
+            let child = cx.update(|cx| cx.focus_handle());
+            let window = cx.open_window(gpui::size(gpui::px(100.), gpui::px(100.)), {
+                let inner = inner.clone();
+                let child = child.clone();
+                move |_, _| NestedTraps {
+                    outer,
+                    inner,
+                    child,
+                }
+            });
+            windows.push((window, inner, child));
+        }
+        cx.run_until_parked();
+        for order in [[0, 1], [1, 0]] {
+            for index in order {
+                windows[index]
+                    .0
+                    .update(cx, |_, window, _| window.refresh())
+                    .unwrap();
+                cx.run_until_parked();
+            }
+            for (window, inner, child) in &windows {
+                window
+                    .update(cx, |_, window, cx| {
+                        child.focus(window, cx);
+                        assert_eq!(active_focus_trap(window, cx), Some(inner.clone()));
+                    })
+                    .unwrap();
+            }
+        }
+    }
 }
