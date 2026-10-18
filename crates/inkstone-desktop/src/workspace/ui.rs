@@ -1627,10 +1627,11 @@ impl Workspace {
         let breadcrumb = active
             .map(|t| {
                 t.path
-                    .to_string_lossy()
-                    .replace('\\', " / ")
-                    .trim_end_matches(".md")
-                    .to_string()
+                    .with_extension("")
+                    .iter()
+                    .map(|part| part.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" / ")
             })
             .unwrap_or_default();
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
@@ -1674,7 +1675,11 @@ impl Workspace {
                                 tool(
                                     "read-mode",
                                     if reading { "pencil" } else { "book-open" },
-                                    format!("切换阅读视图 {}", self.hotkey_label(6)),
+                                    format!(
+                                        "切换{}视图 {}",
+                                        if reading { "编辑" } else { "阅读" },
+                                        self.hotkey_label(6)
+                                    ),
                                 )
                                 .when(active.is_none(), |s| s.hidden())
                                 .on_click(
