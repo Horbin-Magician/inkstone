@@ -1,3 +1,4 @@
+use super::accessible_text::label;
 use super::*;
 use gpui_component::{
     Disableable,
@@ -302,7 +303,7 @@ impl Workspace {
         };
         let count = r.plan.as_ref().map_or(0, |p| p.edits.len());
         div().id("bulk-edit-panel").flex().flex_col().gap_2().min_h_0().overflow_y_scroll()
-            .child(if r.tags{"标签重命名 / 合并：同时处理正文标签和 YAML 标签属性，忽略代码；标签匹配不区分大小写。"}else{"全库文本替换：包含正文、代码和属性。先预览差异，可逐篇取消选择，再应用。正则替换支持 $1 等捕获组。"})
+            .child(label("bulk-description", if r.tags{"标签重命名 / 合并：同时处理正文标签和 YAML 标签属性，忽略代码；标签匹配不区分大小写。"}else{"全库文本替换：包含正文、代码和属性。先预览差异，可逐篇取消选择，再应用。正则替换支持 $1 等捕获组。"}))
             .child(Input::new(&r.find)).child(Input::new(&r.replacement)).child(Input::new(&r.folder))
             .child(div().flex().gap_2()
                 .when(!r.tags,|s|s.child(Button::new("bulk-case").label("区分大小写").when(r.case_sensitive,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.case_sensitive = !r.case_sensitive;}this.invalidate_bulk_preview(w,cx);})))
@@ -310,13 +311,13 @@ impl Workspace {
                 .when(r.tags,|s|s.child(Button::new("bulk-descendants").label("包含子标签").when(r.descendants,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.descendants = !r.descendants;}this.invalidate_bulk_preview(w,cx);}))))
                 .child(Button::new("bulk-preview").label("生成预览").disabled(r.loading||self.file_writes.operation_active()).on_click(cx.listener(|this,_,w,cx|this.preview_bulk_edit(w,cx))))
                 .child(Button::new("bulk-apply").primary().label(format!("应用选中 {} 篇",r.selected.len())).disabled(r.loading||r.selected.is_empty()||self.file_writes.operation_active()).on_click(cx.listener(|this,_,w,cx|this.apply_bulk_edit(w,cx)))))
-            .child(r.message.clone())
+            .child(label("bulk-message", r.message.clone()))
             .child(uniform_list("bulk-files",count,cx.processor(|this,range:std::ops::Range<usize>,_,cx|{
                 let Some(r)=&this.ui.bulk_edit else{return vec![];};let Some(p)=&r.plan else{return vec![];};range.filter_map(|i|{let edit=p.edits.get(i)?;Some(div().flex().gap_1().child(Button::new(("bulk-check",i)).label(if r.selected.contains(&i){"☑"}else{"☐"}).accessibility_label(format!("选择 {}",edit.path.display())).on_click(cx.listener(move|this,_,_,cx|{if let Some(r)=&mut this.ui.bulk_edit && !r.selected.remove(&i){r.selected.insert(i);}cx.notify();})))
                     .child(Button::new(("bulk-file",i)).ghost().label(format!("{} · {} 处",edit.path.display(),edit.count)).on_click(cx.listener(move|this,_,w,cx|this.select_bulk_preview(i,w,cx)))).into_any_element())}).collect()
             })).h(px(120.)).w_full())
             .child(Textarea::new(&r.preview).readonly(true).h(px(230.)))
-            .child(div().text_sm().child("应用前会核对所有磁盘基线；执行过程中仍可能出现部分成功，会逐项报告。关闭预览后，已开始的写入继续完成。"))
+            .child(label("bulk-apply-description", "应用前会核对所有磁盘基线；执行过程中仍可能出现部分成功，会逐项报告。关闭预览后，已开始的写入继续完成。").text_sm())
             .into_any_element()
     }
 }

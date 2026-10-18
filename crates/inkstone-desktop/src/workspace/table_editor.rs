@@ -1,3 +1,4 @@
+use super::accessible_text::label;
 use super::*;
 use gpui_component::button::{Button, ButtonVariants};
 use inkstone_core::tables::Grid;
@@ -163,7 +164,7 @@ impl Workspace {
             return div().into_any_element();
         };
         div().flex().flex_col().min_h_0().gap_3()
-            .child("首行为表头；单元格支持行内 Markdown，竖线自动转义。应用后可一次撤销；关闭面板放弃本次表格修改。")
+            .child(label("table-grid-description", "首行为表头；单元格支持行内 Markdown，竖线自动转义。应用后可一次撤销；关闭面板放弃本次表格修改。"))
             .child(div().flex().flex_wrap().gap_2().children([
                 (0, "添加末行"), (1, "删除末行"), (2, "添加末列"), (3, "删除末列")
             ].into_iter().map(|(op, title)| Button::new(("table-grid-size", op)).label(title)
@@ -178,7 +179,7 @@ impl Workspace {
                         }))
                 })))
                 .children(review.cells.iter().map(|row| div().flex().flex_shrink_0().gap_2().children(row.iter().map(|cell| Input::new(cell).w(px(180.)).flex_shrink_0())))))
-            .child(review.message.clone())
+            .child(label("table-grid-message", review.message.clone()))
             .child(Button::new("apply-table-grid").primary().label("应用表格修改")
                 .on_click(cx.listener(|this, _, w, cx| this.apply_table_grid(w, cx))))
             .into_any_element()
