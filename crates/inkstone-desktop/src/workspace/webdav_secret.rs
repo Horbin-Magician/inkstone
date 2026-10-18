@@ -110,18 +110,13 @@ fn write(secrets: &BTreeMap<String, String>) -> Result<()> {
 }
 
 fn replace_file(temporary: &Path, path: &Path) -> Result<()> {
-    if std::fs::rename(temporary, path).is_ok() {
-        return Ok(());
-    }
-    if cfg!(windows) {
-        let _ = std::fs::remove_file(path);
-        if std::fs::rename(temporary, path).is_ok() {
-            return Ok(());
-        }
-    }
-    let error = std::io::Error::other(format!("无法替换 {}", path.display()));
-    let _ = std::fs::remove_file(temporary);
-    Err(error).with_context(|| format!("无法保存 WebDAV 密码：{}", path.display()))
+    // A failed replacement must never delete the last saved credentials.
+    // std::fs::rename already supports replacing an existing file on Windows.
+    std::fs::rename(temporary, path)
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(temporary);
+        })
+        .with_context(|| format!("无法保存 WebDAV 密码：{}", path.display()))
 }
 
 #[cfg(test)]
@@ -135,6 +130,40 @@ mod tests {
             auto: true,
             ..Settings::default()
         }
+    }
+
+    #[test]
+    fn replacement_preserves_existing_credentials_on_failure() {
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-secret-replace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let destination = root.join("secrets.json");
+        let temporary = root.join("secrets.tmp");
+        std::fs::write(&destination, b"old credentials").unwrap();
+        let error = replace_file(&temporary, &destination).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        assert_eq!(std::fs::read(&destination).unwrap(), b"old credentials");
+        std::fs::write(&temporary, b"new credentials").unwrap();
+        replace_file(&temporary, &destination).unwrap();
+        assert_eq!(std::fs::read(&destination).unwrap(), b"new credentials");
+        assert!(!temporary.exists());
+        let blocked = root.join("directory");
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::write(blocked.join("keep"), b"unrelated").unwrap();
+        std::fs::write(&temporary, b"cannot publish").unwrap();
+        assert!(replace_file(&temporary, &blocked).is_err());
+        assert_eq!(std::fs::read(blocked.join("keep")).unwrap(), b"unrelated");
+        assert!(!temporary.exists());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
