@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "4cc842bf71bbe826de2cf12b6a3aa6cab7fa0ea3",
+  "snapshot_revision": "76c69d702f4fce08332a662b93e3af2a6d0e51ec",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -437,6 +437,16 @@
       "path": "crates/inkstone-desktop/src/workspace/save_state.rs",
       "checks": "dirty/baseline transitions, save exclusion, conflict retry, reviewed edits, external changes and journal deduplication",
       "result": "Fixed empty recovery snapshot sentinel in 4cc842b; six state tests pass."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/saving.rs",
+      "checks": "save/journal scheduling, composition exclusion, shared document identity, generation guards, cleanup errors and conflict copies",
+      "result": "Fixed stale generation recovery failure notifications in 76c69d7; actual background journal failure regression passes."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/save_coordinator.rs",
+      "checks": "queued draft invalidation before dispatch, mutex ordering, authoritative save result and owned-draft cleanup only after success",
+      "result": "No new actionable finding in full read; existing conflict and cleanup test inspected."
     }
   ],
   "pending_reconciliation": [
@@ -554,8 +564,6 @@
     "crates/inkstone-desktop/src/workspace/recovery.rs",
     "crates/inkstone-desktop/src/workspace/recovery_metadata.rs",
     "crates/inkstone-desktop/src/workspace/right_sidebar.rs",
-    "crates/inkstone-desktop/src/workspace/save_coordinator.rs",
-    "crates/inkstone-desktop/src/workspace/saving.rs",
     "crates/inkstone-desktop/src/workspace/search_tools.rs",
     "crates/inkstone-desktop/src/workspace/session.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
