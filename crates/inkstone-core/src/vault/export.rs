@@ -247,10 +247,7 @@ impl Builder<'_> {
         out
     }
 }
-fn html_extensions(
-    source: &str,
-    warnings: &mut BTreeSet<String>,
-) -> (String, Vec<(String, String)>) {
+fn html_extensions(source: &str, warnings: &mut BTreeSet<String>) -> (String, String, Vec<String>) {
     use crate::graphics::{self, Kind};
     use markdown_parser::mdast::Node;
     fn visit(node: &Node, out: &mut Vec<(std::ops::Range<usize>, Kind, String)>) {
@@ -334,23 +331,49 @@ fn html_extensions(
         out.push_str(&snapshot.structural[cursor..range.start]);
         let token = format!("{prefix}{}END", tokens.len());
         out.push_str(&token);
-        tokens.push((token, markup));
+        tokens.push(markup);
         cursor = range.end;
     }
     out.push_str(&snapshot.structural[cursor..]);
-    (out, tokens)
+    (out, prefix, tokens)
 }
+fn restore_html_tokens(body: String, prefix: &str, tokens: &[String]) -> String {
+    if tokens.is_empty() {
+        return body;
+    }
+    let mut out = String::with_capacity(body.len());
+    let mut remaining = body.as_str();
+    while let Some(start) = remaining.find(prefix) {
+        out.push_str(&remaining[..start]);
+        let after_prefix = &remaining[start + prefix.len()..];
+        let digits = after_prefix.bytes().take_while(u8::is_ascii_digit).count();
+        let number = &after_prefix[..digits];
+        let replacement = (!number.is_empty()
+            && (number.len() == 1 || !number.starts_with('0'))
+            && after_prefix[digits..].starts_with("END"))
+        .then(|| number.parse::<usize>().ok().and_then(|i| tokens.get(i)))
+        .flatten();
+        if let Some(markup) = replacement {
+            out.push_str(markup);
+            remaining = &after_prefix[digits + 3..];
+        } else {
+            out.push_str(prefix);
+            remaining = after_prefix;
+        }
+    }
+    out.push_str(remaining);
+    out
+}
+
 fn html(title: &str, markdown: &str, warnings: &mut BTreeSet<String>) -> io::Result<String> {
-    let (markdown, tokens) = html_extensions(markdown, warnings);
+    let (markdown, prefix, tokens) = html_extensions(markdown, warnings);
     let options = markdown_parser::Options {
         parse: crate::syntax::options(),
         compile: Default::default(),
     };
-    let mut body = markdown_parser::to_html_with_options(&markdown, &options)
+    let body = markdown_parser::to_html_with_options(&markdown, &options)
         .map_err(|e| io::Error::other(e.to_string()))?;
-    for (token, markup) in tokens {
-        body = body.replace(&token, &markup);
-    }
+    let body = restore_html_tokens(body, &prefix, &tokens);
     static HEADING: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"<h([1-6])>").unwrap());
     let mut i = 0;
@@ -444,6 +467,38 @@ pub fn create(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn token_restoration_matches_literal_replacement_for_repeated_and_invalid_tokens() {
+        let prefix = "INKSTONEEXPORTTESTTOKEN";
+        let tokens: Vec<_> = (0..256)
+            .map(|i| format!("<mark>中文😀{i}</mark>"))
+            .collect();
+        let mut body = "前文 &amp; 👩‍💻".repeat(1_000);
+        for i in (0..tokens.len()).rev().chain(0..tokens.len()) {
+            body.push_str(&format!("{prefix}{i}END"));
+        }
+        for suffix in [
+            "",
+            "END",
+            "-1END",
+            "01END",
+            "256END",
+            "1EN",
+            "999999999999999999999999999999END",
+        ] {
+            body.push_str(&format!("<p>{prefix}{suffix}</p>"));
+        }
+        let mut expected = body.clone();
+        for (i, markup) in tokens.iter().enumerate() {
+            expected = expected.replace(&format!("{prefix}{i}END"), markup);
+        }
+        assert_eq!(restore_html_tokens(body, prefix, &tokens), expected);
+        assert_eq!(
+            restore_html_tokens("unchanged".into(), prefix, &[]),
+            "unchanged"
+        );
+    }
+
     #[test]
     fn repeated_and_self_references_schedule_each_note_once() {
         let mut index = Index::default();
