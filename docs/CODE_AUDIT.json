@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "00b74079c6b245c263686b46f363bd5c14b7c552",
+  "snapshot_revision": "c344e6f27ded5bd146f84520da9a4bb5e7691b95",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1342,10 +1342,19 @@
       "path": "vendor/gpui-base/src/collapsible.rs",
       "checks": "Full read: controlled mounting, child order, reveal progress and measured state identity. Real layout regression with 20px and 60px contents at 50% reproduced first content taking 30px instead of 10px; both component tests passed after per-child reveal ID fix.",
       "result": "Fixed shared measurement state in 00b7407; native animation acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/accordion.rs",
+      "checks": "Full read: controlled mounting, trigger state, disabled click handling and native accessibility roles. Corrected role tests in 1436e2d; fixed missing native disabled state with c344e6f. Default 3 and observed 4 tests passed, including native flags, click support, drawn roles and preserved focus binding.",
+      "result": "Native disabled projection fixed for AccordionTrigger; platform screen-reader acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/accessibility.rs",
+      "checks": "New transparent native disabled adapter: forwards element identity, source location, layout, prepaint, paint, interactivity, roles and synthetic children. Observation remains outside the adapter; its focus binding is preserved. Default and test-support accordion regressions passed.",
+      "result": "Added in c344e6f; other disabled control integrations remain to be audited."
     }
   ],
   "pending_reconciliation": [
-    "vendor/gpui-base/src/accordion.rs",
     "vendor/gpui-base/src/alert_dialog.rs",
     "vendor/gpui-base/src/avatar.rs",
     "vendor/gpui-base/src/button.rs",

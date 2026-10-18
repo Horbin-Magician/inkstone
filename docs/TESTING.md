@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，268 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，270 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -2968,6 +2968,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 首次全量发现导航栈退出夹具失败：同一帧前连续 push 两页，旧页未曾绘制，却要求它继续播放退出动画。此前 Presence 的初始隐藏修复使未显示页面直接 Absent。提交 `a81c552` 先绘制 root，再 push 第二页；仍检查 100ms 时过渡保留、250ms 后释放及立即退出。专项 7 项通过，日志 `target/audit-20261019/nav-stack-visible-exit-tests.log`。这是测试前提修正，没有恢复隐藏页面的无效退场行为。
 - 完整正式入口重新执行成功：Base 默认 1252 通过/1 忽略（25.17s）；Base test-support 1253 通过/1 忽略（26.66s）；Component 默认 573 通过/0 忽略（2.42s）。两个 Base 配置忽略的是同一既有手工 long_paragraph_range_performance 测试，覆盖有重叠，不累加。最终日志 `target/audit-20261019/vendor-observation-full-tests.log`，首次失败留在 `vendor-observation-first-attempt.log`。脚本语法、修改测试格式及 diff 检查通过；保留 block 0.1.6 future-incompatibility 提示。
 - 禁用状态的原生无障碍投射仍待实现；未往 test-support 层添加假属性。nav_stack.rs 已继续阅读部分实现和相关测试，尚未完成全文件审核。台账计数保持 268/459，原生/跨平台与最终发布验收继续待办。
+
+第二百五十二批审核与验证：
+
+- 完成 Base accordion.rs 审核，新增并核对 accessibility.rs；台账变为 270 已核对、458 待核对，新增源文件使总范围由 727 增至 728。旧实现新增回归明确失败：disabled=true 的触发器原生 AccessKit 节点 is_disabled() 仍为 false。
+- 提交 `c344e6f` 添加透明原生禁用适配器并接入 AccordionTrigger，转发原有 ID、布局、命中/交互、角色及合成无障碍子节点，只补充真实节点禁用标记。test-support 的 map_inner 保留焦点绑定并使观察位于适配器外层，避免观察值与平台节点不一致；不增加额外布局或无障碍节点。
+- Base 默认 accordion 3 项通过，test-support 4 项通过（有重叠），包含启用/禁用节点标记与 Click action、实际绘制后的角色/禁用状态及焦点绑定。日志 `target/audit-20261019/disabled-a11y-{red,default-tests,observed-tests,clippy}.log`。工作区 all-targets Clippy（-D warnings）、工作区/vendor 格式和 diff 检查通过；最后增加的焦点断言另经 observed 测试通过。保留既有 block 0.1.6 future-incompatibility 提示。
+- 此次解决的是手风琴触发器的原生属性缺口，其他禁用控件仍需逐项核对接入；未将 AccessKit 节点测试当成实际读屏验收。上一批全量回归早于此改动，最终全量和原生/跨平台验收仍待完成。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
