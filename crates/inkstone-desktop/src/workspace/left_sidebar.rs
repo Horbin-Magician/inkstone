@@ -757,7 +757,7 @@ impl Workspace {
                                 return path
                                     .with_extension("")
                                     .to_string_lossy()
-                                    .replace('\\', "/");
+                                    .replace(std::path::MAIN_SEPARATOR, "/");
                             }
                             path.file_stem()
                                 .unwrap_or_default()
@@ -868,7 +868,9 @@ impl Workspace {
                 let fold_path = path.clone();
                 let open_path = path.clone();
                 let offset = hits[0].offset;
-                let mut title = path.to_string_lossy().replace('\\', "/");
+                let mut title = path
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/");
                 if self
                     .tabs
                     .iter()
