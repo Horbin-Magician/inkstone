@@ -75,6 +75,7 @@ struct Builder<'a> {
     index: &'a Index,
     format: Format,
     queue: VecDeque<PathBuf>,
+    scheduled: BTreeSet<PathBuf>,
     assets: BTreeSet<PathBuf>,
     warnings: BTreeSet<String>,
 }
@@ -101,7 +102,9 @@ impl Builder<'_> {
         if let Resolution::Found(path) = resolution
             && let Some(note) = self.index.notes.get(&path)
         {
-            self.queue.push_back(path.clone());
+            if self.scheduled.insert(path.clone()) {
+                self.queue.push_back(path.clone());
+            }
             let mut url = relative_url(
                 &note_path(from, self.format),
                 &note_path(&path, self.format),
@@ -386,14 +389,11 @@ pub fn create(
         index: &index,
         format,
         queue: VecDeque::from([entry.into()]),
+        scheduled: BTreeSet::from([entry.into()]),
         assets: Default::default(),
         warnings: Default::default(),
     };
-    let mut seen = BTreeSet::new();
     while let Some(path) = builder.queue.pop_front() {
-        if !seen.insert(path.clone()) {
-            continue;
-        }
         let note = &index.notes[&path];
         let markdown = builder.markdown(&path, note);
         let content = if format == Format::Html {
@@ -421,7 +421,7 @@ pub fn create(
     let report = format!(
         "墨砚导出\n入口：{}\n笔记：{}\n附件：{}\n包含当前编辑快照和递归关联笔记。嵌入笔记转换为链接。请携带整个目录。\n\n{}\n",
         note_path(entry, format).display(),
-        seen.len(),
+        builder.scheduled.len(),
         builder.assets.len(),
         warnings.join("\n")
     );
@@ -429,7 +429,7 @@ pub fn create(
     move_no_replace(&stage.0, &destination)?;
     Ok(Report {
         entry: destination.join(note_path(entry, format)),
-        notes: seen.len(),
+        notes: builder.scheduled.len(),
         attachments: builder.assets.len(),
         warnings,
     })
@@ -438,6 +438,39 @@ pub fn create(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_and_self_references_schedule_each_note_once() {
+        let mut index = Index::default();
+        index.update("a.md".into(), "# A".into());
+        index.update("b.md".into(), "# B".into());
+        let vault = Vault {
+            root: PathBuf::new(),
+            recovery_dir: PathBuf::new(),
+        };
+        let mut builder = Builder {
+            vault: &vault,
+            index: &index,
+            format: Format::Markdown,
+            queue: VecDeque::from(["a.md".into()]),
+            scheduled: BTreeSet::from(["a.md".into()]),
+            assets: Default::default(),
+            warnings: Default::default(),
+        };
+        for _ in 0..1_000 {
+            assert_eq!(builder.destination(Path::new("a.md"), "b", true), "b%2Emd");
+            assert_eq!(builder.destination(Path::new("a.md"), "a", true), "a%2Emd");
+        }
+        assert_eq!(
+            builder.queue,
+            VecDeque::from([PathBuf::from("a.md"), PathBuf::from("b.md")])
+        );
+        builder.queue.clear();
+        builder.destination(Path::new("b.md"), "a.md", false);
+        assert!(
+            builder.queue.is_empty(),
+            "completed notes must not be scheduled again"
+        );
+    }
     #[test]
     fn attachment_fragments_are_encoded_once_in_portable_exports() {
         let root = std::env::temp_dir().join(format!("inkstone-export-fragments-{}", unique_id()));
