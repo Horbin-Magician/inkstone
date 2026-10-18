@@ -388,7 +388,7 @@ impl Snapshot {
             }
         }
         fn column_at(source: &str, offset: usize) -> usize {
-            let line_start = source[..offset].rfind('\n').map_or(0, |i| i + 1);
+            let line_start = source[..offset].rfind(['\r', '\n']).map_or(0, |i| i + 1);
             let mut column = 1usize;
             for ch in source[line_start..offset].chars() {
                 if ch == '\t' {
@@ -575,7 +575,7 @@ mod tests {
     #[test]
     fn plain_paragraph_updates_match_full_parser_positions_and_content() {
         use super::Snapshot;
-        for newline in ["\n", "\r\n"] {
+        for newline in ["\n", "\r\n", "\r"] {
             for paragraph in ["中文 English 😀 paragraph. x", "Alpha 中文 e\u{301} end"] {
                 let source = format!(
                     "# Before{newline}{newline}{paragraph}{newline}{newline}# After{newline}\n**bold** [link](note.md)"
