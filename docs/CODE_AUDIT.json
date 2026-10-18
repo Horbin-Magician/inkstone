@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "c28737ea638494feec7669c944c2d64da8c2015d",
+  "snapshot_revision": "9966e3a7390ef234209174e14bfcf7dca165ef2c",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1417,10 +1417,14 @@
       "path": "vendor/gpui-base/src/date_picker.rs",
       "checks": "Complete read: controlled open state, focus override and disabled Tab policy, Confirm/Cancel actions, child/style forwarding and native ComboBox semantics. Fixed explicit focus override in batch 261 and native disabled flag in batch 262.",
       "result": "Disabled-node assertion fails before fix; default/test-support suites each pass 3 tests after fix. Action regression covers all open/disabled combinations and allows cancellation of an already-open disabled picker. Workspace all-targets Clippy passes. Native keyboard bindings and screen-reader acceptance remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/alert_dialog.rs",
+      "checks": "Complete read: alert modal specialization, non-dismissible backdrop default, content parts, confirm/cancel wrappers and trigger handle/callback forwarding. Removed duplicate pointer-open implementation by delegating AlertDialogTrigger to DialogTrigger.",
+      "result": "Default/test-support dialog suites each pass 8 tests, with the existing trigger test extended to both trigger types and one callback per pointer activation. Workspace all-targets Clippy passes. Native keyboard/accessibility acceptance remains pending; Dialog close_on_escape key-context interaction requires separate verification."
     }
   ],
   "pending_reconciliation": [
-    "vendor/gpui-base/src/alert_dialog.rs",
     "vendor/gpui-base/src/calendar.rs",
     "vendor/gpui-base/src/checkbox.rs",
     "vendor/gpui-base/src/color_picker.rs",
