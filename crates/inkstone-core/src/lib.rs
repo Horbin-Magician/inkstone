@@ -9,6 +9,7 @@ pub mod link_audit;
 pub mod locations;
 pub mod markdown;
 pub mod markdown_edit;
+mod note_embeds;
 pub mod performance;
 pub mod preferences;
 pub mod preview;

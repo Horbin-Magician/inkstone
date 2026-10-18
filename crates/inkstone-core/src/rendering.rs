@@ -377,6 +377,16 @@ impl Prepared {
         if let Some(ast) = snapshot.ast.as_deref() {
             actions.extend(reference_actions(ast));
         }
+        // Full embed ranges must precede reference-image actions with the same range.
+        actions.splice(
+            0..0,
+            parsed.markdown_embeds.iter().map(|embed| {
+                (
+                    embed.range.clone(),
+                    Action::NoteEmbed(embed.target.clone(), embed.label.clone()),
+                )
+            }),
+        );
         let prefix_actions = actions;
         let mut actions = Vec::new();
         for link in parsed.links.iter().cloned() {
@@ -445,6 +455,7 @@ struct Builder<'a> {
 #[derive(Clone)]
 enum Action {
     Wiki(index::WikiLink, bool),
+    NoteEmbed(String, String),
     Destination(String),
     Remove,
     Literal(String),
@@ -570,6 +581,49 @@ impl Builder<'_> {
             wiki,
         });
         format!("inkstone-reference:{id}")
+    }
+    fn note_embed(&mut self, path: &Path, target: &str, title: &str, wiki: bool, uri: &str) {
+        let (resolution, section) = if wiki {
+            (
+                self.index.resolve(path, target),
+                target.split_once('#').map(|(_, s)| s.to_owned()),
+            )
+        } else {
+            self.index.resolve_markdown(path, target)
+        };
+        let target = match resolution {
+            Resolution::Found(p) => Some(p),
+            Resolution::Missing(p) if self.sources.contains_key(&p) => Some(p),
+            _ => None,
+        };
+        self.push("\n\n", None);
+        self.quote += 1;
+        self.push(&format!("[{}]({uri})\n\n", label(title)), None);
+        if let Some(target) = target {
+            if let Some(text) = self.sources.get(&target).cloned().or_else(|| {
+                self.index
+                    .notes
+                    .get(&target)
+                    .map(|n| Arc::<str>::from(n.text.as_str()))
+            }) {
+                let part = section.as_deref().map_or_else(
+                    || Some(0..text.len()),
+                    |fragment| index::anchor_range(&text, &index::parse(&text), fragment),
+                );
+                if let Some(part) = part {
+                    self.note(&target, text, part);
+                } else {
+                    self.push("*未找到指定的标题或块。*\n", None);
+                }
+            } else {
+                self.push("*未找到嵌入的笔记。*\n", None);
+            }
+        } else {
+            self.push("*未找到唯一的嵌入目标。*\n", None);
+        }
+        self.push("\n", None);
+        self.quote -= 1;
+        self.push("\n", None);
     }
     fn note(&mut self, path: &Path, source: Arc<str>, range: Range<usize>) {
         if self.stack.len() >= 8 || self.stack.iter().any(|(p, r)| p == path && *r == range) {
@@ -720,6 +774,10 @@ impl Builder<'_> {
                     });
                     inline_definitions.push((note, id));
                 }
+                Action::NoteEmbed(target, title) => {
+                    let uri = self.reference(path, target.clone(), false);
+                    self.note_embed(path, &target, &title, false, &uri);
+                }
                 Action::Wiki(link, embed) => {
                     let uri = self.reference(path, link.target.clone(), true);
                     if embed && image_target(&link.target) {
@@ -748,42 +806,7 @@ impl Builder<'_> {
                             None,
                         );
                     } else if embed {
-                        let target = match self.index.resolve(path, &link.target) {
-                            Resolution::Found(p) => Some(p),
-                            Resolution::Missing(p) if self.sources.contains_key(&p) => Some(p),
-                            _ => None,
-                        };
-                        self.push("\n\n", None);
-                        self.quote += 1;
-                        self.push(&format!("[{}]({uri})\n\n", label(&link.label)), None);
-                        if let Some(target) = target {
-                            if let Some(text) = self.sources.get(&target).cloned().or_else(|| {
-                                self.index
-                                    .notes
-                                    .get(&target)
-                                    .map(|n| Arc::<str>::from(n.text.as_str()))
-                            }) {
-                                let section = link.target.split_once('#').map(|(_, s)| s);
-                                let part = section.map_or_else(
-                                    || Some(0..text.len()),
-                                    |fragment| {
-                                        index::anchor_range(&text, &index::parse(&text), fragment)
-                                    },
-                                );
-                                if let Some(part) = part {
-                                    self.note(&target, text, part);
-                                } else {
-                                    self.push("*未找到指定的标题或块。*\n", None);
-                                }
-                            } else {
-                                self.push("*未找到嵌入的笔记。*\n", None);
-                            }
-                        } else {
-                            self.push("*未找到唯一的嵌入目标。*\n", None);
-                        }
-                        self.push("\n", None);
-                        self.quote -= 1;
-                        self.push("\n", None);
+                        self.note_embed(path, &link.target, &link.label, true, &uri);
                     } else {
                         self.push(&format!("[{}]({uri})", label(&link.label)), None);
                     }
@@ -1224,6 +1247,29 @@ mod tests {
         assert!(asset_path(&vault.root, &outside, &index.files).is_none());
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(recovery).unwrap();
+    }
+    #[test]
+    fn markdown_note_embeds_keep_sections_tasks_and_cycles() {
+        let mut index = Index::default();
+        let child = "# Section\n- [ ] 嵌入任务\n\n# Other\n不应显示";
+        index.update("hash#note.md".into(), child.into());
+        let source =
+            "![片段](hash%23note.md#Section)\n\n![引用][child]\n\n[child]: hash%23note.md#Section";
+        index.update("root.md".into(), source.into());
+        let rendered = reading_document(&index, Path::new("root.md"), source);
+        assert_eq!(rendered.tasks.len(), 2);
+        assert!(!rendered.markdown.contains("不应显示"));
+        for task in &rendered.tasks {
+            assert_eq!(task.path, Path::new("hash#note.md"));
+            assert_eq!(&child[task.marker.clone()], " ");
+        }
+        assert_eq!(
+            index.backlinks(Path::new("hash#note.md")),
+            vec![PathBuf::from("root.md")]
+        );
+        index.update("cycle.md".into(), "![loop](cycle.md)".into());
+        let rendered = reading_document(&index, Path::new("cycle.md"), "![loop](cycle.md)");
+        assert!(rendered.markdown.contains("循环嵌入"));
     }
     #[test]
     fn formatted_wiki_aliases_resolve_and_embeds_keep_task_sources() {

@@ -1092,6 +1092,42 @@ fn wiki_reference_relocation_preserves_special_filenames_and_labels() {
 }
 
 #[test]
+fn relocated_note_embeds_keep_content_and_live_source_ranges() {
+    for name in ["hash#name", "pipe|name", "bracket[name]", "line\nname"] {
+        for folder in [false, true] {
+            let mut index = Index::default();
+            let from = Path::new("source.md");
+            let old = Path::new("notes/target.md");
+            let new = if folder {
+                PathBuf::from(name).join("target.md")
+            } else {
+                PathBuf::from(format!("notes/{name}.md"))
+            };
+            let body = "# Section\n- [ ] 保留任务\n\n# Other\n不应显示";
+            index.update(from.into(), "![[notes/target#Section|嵌入]]".into());
+            index.update(old.into(), body.into());
+            let edits = index.relocation_edits(
+                if folder { Path::new("notes") } else { old },
+                if folder { Path::new(name) } else { &new },
+                folder,
+                None,
+            );
+            let after = &edits.iter().find(|(path, _, _)| path == from).unwrap().2;
+            index.update(new.clone(), body.into());
+            let rendered = crate::rendering::reading_document(&index, from, after);
+            assert_eq!(rendered.tasks.len(), 1, "{after}");
+            assert_eq!(rendered.tasks[0].path, new);
+            assert!(!rendered.markdown.contains("不应显示"));
+            let snapshot = crate::syntax::Snapshot::new(after);
+            let candidates = crate::preview::candidates(&snapshot);
+            assert_eq!(candidates.len(), 1, "{after}");
+            assert!(candidates[0].block);
+            assert_eq!(candidates[0].source, 0..after.len());
+        }
+    }
+}
+
+#[test]
 fn wiki_aliases_cross_inline_formatting_without_crossing_code_or_blocks() {
     let source = "[[target|*强调*]] [[target|**粗体**]] [[target|~~删除~~]]\n\n`[[code|*literal*]]`\n\n[[broken\n\nend]]\n\n[[target|before `code` after]]\n\n$[[math]]$\n\n\\[[escaped|*text*]]";
     let parsed = parse(source);

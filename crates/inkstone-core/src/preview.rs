@@ -79,6 +79,15 @@ fn candidates_with_parsed(
     if let Some(ast) = snapshot.ast.as_deref() {
         walk(ast, &snapshot.source, &mut out);
     }
+    for candidate in &mut out {
+        if parsed
+            .markdown_embeds
+            .binary_search_by_key(&candidate.source.start, |embed| embed.range.start)
+            .is_ok_and(|i| parsed.markdown_embeds[i].range == candidate.source)
+        {
+            candidate.block = true;
+        }
+    }
     for link in &parsed.links {
         if link.range.start > 0
             && snapshot.source.as_bytes()[link.range.start - 1] == b'!'
