@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "835f4bc344a5d8ada1aa58766b5a4e447e00816a",
+  "snapshot_revision": "20aeb46b658cb5e45b73a8439e20bfbd6bb59e9d",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -957,6 +957,16 @@
       "path": "crates/inkstone-desktop/src/workspace/history_catalog.rs",
       "checks": "Complete read: single in-flight scan and coalesced refresh, request/generation invalidation, retry state, pagination and focus reveal; tests for long paths, small viewport and keyboard reachability.",
       "result": "No new actionable finding in this read. Existing workspace suite at d1b7b38 supports automated behavior; this read does not establish native or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/bulk_edit.rs",
+      "checks": "Complete read: preview invalidation and snapshots, composition/write guards, selected-plan baseline checks, result application and newer-input conflict preservation, request-scoped panel updates.",
+      "result": "Expanded compressed completion callback without changing operation order (20aeb46). Existing batch regressions 3 passed; workspace all-targets Clippy and formatting passed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/tabs.rs",
+      "checks": "Complete read: blank-slot reuse, shared document subscriptions, view focus and event routing, startup batching, pinned/group close handling, deferred saves and split promotion.",
+      "result": "No new actionable finding in this read; existing workspace regression remains supporting evidence, not new native/IME/platform acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -969,7 +979,6 @@
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
     "crates/inkstone-desktop/src/workspace/backups.rs",
-    "crates/inkstone-desktop/src/workspace/bulk_edit.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
@@ -981,7 +990,6 @@
     "crates/inkstone-desktop/src/workspace/session.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
-    "crates/inkstone-desktop/src/workspace/tabs.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
     "crates/inkstone-desktop/src/workspace/views.rs",
