@@ -139,6 +139,11 @@ impl Pattern {
         }
     }
 }
+fn tag_prefix_matches(tag: &str, prefix: &str) -> bool {
+    tag.strip_prefix(prefix)
+        .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
+}
+
 impl Term {
     fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
         let found = match self.field {
@@ -156,10 +161,8 @@ impl Term {
                 .pattern
                 .matches(&path.to_string_lossy().replace('\\', "/")),
             Field::Tag => tags.iter().any(|tag| match &self.pattern {
-                Pattern::Exact(s) => tag == s || tag.starts_with(&format!("{s}/")),
-                Pattern::Text(s) => {
-                    tag.to_lowercase() == *s || tag.to_lowercase().starts_with(&format!("{s}/"))
-                }
+                Pattern::Exact(s) => tag_prefix_matches(tag, s),
+                Pattern::Text(s) => tag_prefix_matches(&tag.to_lowercase(), s),
                 Pattern::Regex(r) => r.find_iter(tag).any(|found| !found.is_empty()),
             }),
         };
@@ -820,6 +823,36 @@ mod tests {
                 .first_offset(path, "İx", &tags),
             Some("İ".len())
         );
+    }
+    #[test]
+    fn tag_search_respects_hierarchy_boundaries_and_unicode_case() {
+        let path = Path::new("note.md");
+        for (query, tag, expected) in [
+            ("work", "Work", true),
+            ("work", "WORK/Task/Nested", true),
+            ("work", "Workshop/Task", false),
+            ("work", "Other/Work", false),
+            ("工作", "工作/会议", true),
+            ("工作", "工作室/会议", false),
+            ("İ", "İ/项目", true),
+            ("i", "İ/项目", false),
+            ("ΟΣ", "ΟΣ/项目", true),
+            ("ος", "ΟΣΑ/项目", false),
+        ] {
+            for case_sensitive in [false, true] {
+                for excluded in [false, true] {
+                    let prefix = if excluded { "-" } else { "" };
+                    let search =
+                        Query::parse_with_case(&format!("{prefix}tag:{query}"), case_sensitive)
+                            .unwrap();
+                    assert_eq!(
+                        search.matches(path, "", &[tag.into()]),
+                        expected != excluded,
+                        "{prefix}tag:{query}, {tag}, case={case_sensitive}"
+                    );
+                }
+            }
+        }
     }
     #[test]
     fn line_matching_limit_counts_lines_and_keeps_earliest_across_terms() {
