@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 单侧 DropdownButton：仅当操作按钮和菜单按钮同时存在时才应用拼接边框/圆角，单侧按钮保留完整外缘。
+
 2026-10-19 Toggle 禁用语义：Base Toggle 复用透明无障碍适配器，让实际节点报告 disabled；维持选中状态、焦点策略及禁用时无 Click action，测试读取真实角色与绘制后的观察属性。
 
 2026-10-19 ToggleGroup 激活：子控件直接向组报告 checked 状态，支持 Enter/Space；没有组回调时保留子控件原回调。移除父容器点击转发及临时索引，组与子控件禁用状态仍合并生效。
