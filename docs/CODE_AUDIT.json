@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "10a869bbf639b0d7a540b2043150b6705ac99e75",
+  "snapshot_revision": "1dea4df0731124f5695737b40b2d2c4e30b9c6da",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -692,6 +692,21 @@
       "path": "crates/inkstone-core/src/note_embeds.rs",
       "checks": "Full production and test read: percent-decoded local Markdown targets, scheme exclusion, reference definition precedence and source ranges.",
       "result": "No new actionable finding; unchanged from batch 193 core regression. Related references/images and raw note bytes remain handled by their existing modules."
+    },
+    {
+      "path": "crates/inkstone-core/src/wiki_links.rs",
+      "checks": "Full read: contiguous prose ranges, formatting delimiter inclusion, excluded code/math/destinations, escape parity, multiline recovery and UTF-8 target/label offsets.",
+      "result": "No new actionable finding; existing markdown/index regressions cover escaped, incomplete, formatted and Unicode links. Production unchanged from batch 193 core full-suite evidence."
+    },
+    {
+      "path": "crates/inkstone-core/src/updates.rs",
+      "checks": "Full production and test read: semantic release selection, exact asset URL/name validation, bounded streaming, interruption/cancellation, hash verification, installer handoff and temp-directory lifetime.",
+      "result": "Corrected obsolete ownership comment. Runtime logic unchanged; Windows execution and real release download/install acceptance remain unverified by this source review."
+    },
+    {
+      "path": "crates/inkstone-core/src/syntax/incremental.rs",
+      "checks": "Full production and test read: block eligibility, definitions/comments fallback, fenced interiors, local reparsing, node relocation and line/column adjustment.",
+      "result": "No new actionable finding; existing differential tests compare complete AST/styles against full parsing for Unicode, tabs, LF/CRLF/CR and structural edits. Unchanged from batch 193 core full-suite evidence."
     }
   ],
   "pending_reconciliation": [
@@ -708,9 +723,7 @@
     "crates/inkstone-core/src/lib.rs",
     "crates/inkstone-core/src/preview.rs",
     "crates/inkstone-core/src/syntax.rs",
-    "crates/inkstone-core/src/syntax/incremental.rs",
     "crates/inkstone-core/src/tables.rs",
-    "crates/inkstone-core/src/updates.rs",
     "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/backup.rs",
     "crates/inkstone-core/src/vault/backup/capacity.rs",
@@ -730,7 +743,6 @@
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
-    "crates/inkstone-core/src/wiki_links.rs",
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/editor_links.rs",
