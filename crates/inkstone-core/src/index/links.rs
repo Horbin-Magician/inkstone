@@ -311,8 +311,14 @@ impl Index {
         let Some(path) = normalized(&path) else {
             return Resolution::Invalid;
         };
+        if self.notes.contains_key(&path) {
+            return Resolution::Found(path);
+        }
         if let Some(found) = self.by_path.get(&key(&path)) {
-            return Resolution::Found(found.clone());
+            return match found.as_slice() {
+                [only] => Resolution::Found(only.clone()),
+                _ => Resolution::Ambiguous(found.clone()),
+            };
         }
         if explicit {
             return Resolution::Missing(path);
@@ -343,10 +349,14 @@ impl Index {
         }
     }
     pub fn backlinks(&self, target: &Path) -> Vec<PathBuf> {
-        self.by_path
-            .get(&key(target))
-            .and_then(|path| self.backlinks.get(path))
-            .cloned()
-            .unwrap_or_default()
+        let path = if self.notes.contains_key(target) {
+            target
+        } else {
+            match self.by_path.get(&key(target)).map(Vec::as_slice) {
+                Some([only]) => only,
+                _ => return Vec::new(),
+            }
+        };
+        self.backlinks.get(path).cloned().unwrap_or_default()
     }
 }

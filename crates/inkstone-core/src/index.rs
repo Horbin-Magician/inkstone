@@ -32,8 +32,8 @@ pub struct Index {
     pub files: Vec<PathBuf>,
     /// Files excluded from searchable content, with actionable read diagnostics.
     pub errors: BTreeMap<PathBuf, String>,
-    /// Lowercased vault-relative path to the stored note path.
-    by_path: Arc<HashMap<String, PathBuf>>,
+    /// Lowercased vault-relative path to every spelling stored in the vault.
+    by_path: Arc<HashMap<String, Vec<PathBuf>>>,
     /// Lowercased filename stem to every note using it.
     by_stem: Arc<HashMap<String, Vec<PathBuf>>>,
     /// Lowercased alias to every note declaring it.
@@ -310,7 +310,12 @@ impl Index {
         names_changed
     }
     fn insert_note(&mut self, path: PathBuf, note: Arc<IndexedNote>) {
-        Arc::make_mut(&mut self.by_path).insert(key(&path), path.clone());
+        let paths = Arc::make_mut(&mut self.by_path)
+            .entry(key(&path))
+            .or_default();
+        if let Err(position) = paths.binary_search(&path) {
+            paths.insert(position, path.clone());
+        }
         Arc::make_mut(&mut self.by_stem)
             .entry(stem_key(&path))
             .or_default()
@@ -327,7 +332,6 @@ impl Index {
         let Some(note) = self.notes.remove(path) else {
             return;
         };
-        Arc::make_mut(&mut self.by_path).remove(&key(path));
         fn remove_entry(map: &mut HashMap<String, Vec<PathBuf>>, key: String, path: &Path) {
             if let Some(paths) = map.get_mut(&key) {
                 paths.retain(|candidate| candidate != path);
@@ -336,6 +340,7 @@ impl Index {
                 }
             }
         }
+        remove_entry(Arc::make_mut(&mut self.by_path), key(path), path);
         remove_entry(Arc::make_mut(&mut self.by_stem), stem_key(path), path);
         for alias in &note.parsed.aliases {
             remove_entry(

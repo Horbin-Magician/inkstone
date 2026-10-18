@@ -22,7 +22,11 @@ impl Index {
         let queries = std::iter::once(query.as_str())
             .chain((normalized_query != query).then_some(normalized_query.as_str()));
         let mut matches = Vec::new();
-        for (path_key, path) in self.by_path.iter() {
+        for (path_key, path) in self
+            .by_path
+            .iter()
+            .flat_map(|(key, paths)| paths.iter().map(move |path| (key, path)))
+        {
             if cancelled() {
                 return None;
             }
@@ -79,7 +83,9 @@ impl Index {
         let compare =
             |a: &(u8, &String, &std::path::PathBuf, Option<&String>),
              b: &(u8, &String, &std::path::PathBuf, Option<&String>)| {
-                a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1))
+                a.0.cmp(&b.0)
+                    .then_with(|| a.1.cmp(b.1))
+                    .then_with(|| a.2.cmp(b.2))
             };
         // Rank only the visible prefix and allocate owned hits for that prefix.
         if matches.len() > 200 {
