@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "5c22e698e88c6f1764858263cdc14f1eb54f3a0e",
+  "snapshot_revision": "835f4bc344a5d8ada1aa58766b5a4e447e00816a",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -947,6 +947,16 @@
       "path": "crates/inkstone-desktop/src/workspace/sync_recovery/residue.rs",
       "checks": "Complete read: generation/request checks, exclusive write ticket lifetime, inventory freshness, explicit retention and no-save invariants; stale callback and reappearing payload tests.",
       "result": "No new actionable finding in this read. Existing workspace regression is supporting evidence; no new native/platform acceptance claimed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor_links.rs",
+      "checks": "Complete read: definition cache equality, URI encoding, footnote/wiki coordinates, completion context, anchor/alias generation, Markdown escaping, bounded results and stale editor rejection.",
+      "result": "Moved lexical invalid-context rejection ahead of full Markdown parsing (835f4bc). Link completion suite 11 passed, 1 manual benchmark ignored; workspace all-targets Clippy and formatting passed. No native latency measurement claimed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/history_catalog.rs",
+      "checks": "Complete read: single in-flight scan and coalesced refresh, request/generation invalidation, retry state, pagination and focus reveal; tests for long paths, small viewport and keyboard reachability.",
+      "result": "No new actionable finding in this read. Existing workspace suite at d1b7b38 supports automated behavior; this read does not establish native or platform acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -956,7 +966,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/editor/tests.rs",
-    "crates/inkstone-desktop/src/editor_links.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
     "crates/inkstone-desktop/src/workspace/backups.rs",
@@ -964,7 +973,6 @@
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
-    "crates/inkstone-desktop/src/workspace/history_catalog.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
     "crates/inkstone-desktop/src/workspace/navigation.rs",
