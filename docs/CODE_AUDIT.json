@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "aaa117c4a97e2ea87597328b52fc8a6604030c58",
+  "snapshot_revision": "b9366c92811f24d5873d661efc9487e6620054fe",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1037,6 +1037,11 @@
       "path": "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
       "checks": "Complete read: drag targets/generation, tree labels and context actions, current-file reveal, sorting and placeholder rows, search groups/highlights, scroll pagination and indent guides.",
       "result": "Limited per-paint indent guide traversal to viewport-intersecting rows (aaa117c), preserving scroll offset reads during paint and content masking. Clipped geometry matches the full-tree algorithm over 48 viewport cases plus empty input. Fourteen tree-related tests, workspace all-targets Clippy, formatting and diff checks passed. Render-time depth collection remains full-tree; no native frame-rate improvement measured."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/right_sidebar.rs",
+      "checks": "Complete read: outline cache inputs/folding/virtualization, backlinks and outgoing targets, property display/editor launch, tag hierarchy/filter/navigation and persisted options.",
+      "result": "Fixed unreachable no-tags empty state and treated whitespace-only filter as empty (b9366c9). Existing tag navigation/search tests 2 and outline tests 3 passed; workspace all-targets Clippy, formatting and diff checks passed. Empty-state rendering condition verified in source; native visual/accessibility acceptance remains outstanding."
     }
   ],
   "pending_reconciliation": [
@@ -1049,7 +1054,6 @@
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
     "crates/inkstone-desktop/src/workspace/navigation.rs",
     "crates/inkstone-desktop/src/workspace/recovery.rs",
-    "crates/inkstone-desktop/src/workspace/right_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
