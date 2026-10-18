@@ -1648,7 +1648,7 @@ impl Workspace {
         .into_iter()
         .filter_map(|id| command(id).map(|entry| (entry, self.hotkey_label(id))))
         .collect();
-        let menu_tab_id = index.and_then(|i| self.tabs.get(i)).map(|tab| tab.id);
+        let menu_pane = pane.clone();
         div()
             .flex()
             .flex_col()
@@ -1702,6 +1702,14 @@ impl Workspace {
                                     "ellipsis-vertical",
                                     "更多选项",
                                 )
+                                .debug_selector(move || {
+                                    if secondary {
+                                        "secondary-file-menu"
+                                    } else {
+                                        "file-menu"
+                                    }
+                                    .into()
+                                })
                                 .dropdown_menu_with_anchor(
                                     gpui::Anchor::TopRight,
                                     move |mut menu, _, _| {
@@ -1742,6 +1750,7 @@ impl Workspace {
                                             };
                                             let shortcut = shortcut.clone();
                                             let weak = menu_weak.clone();
+                                            let pane = menu_pane.clone();
                                             menu = menu.item(
                                                 PopupMenuItem::element_with_label(
                                                     label,
@@ -1773,16 +1782,13 @@ impl Workspace {
                                                 .icon(icon(symbol))
                                                 .on_click(move |_, window, cx| {
                                                     let _ = weak.update(cx, |this, cx| {
-                                                        if secondary {
-                                                            this.focus_secondary(cx);
-                                                        } else if let Some(i) =
-                                                            this.tabs.iter().position(|tab| {
-                                                                Some(tab.id) == menu_tab_id
-                                                            })
+                                                        if let Some(pane) = &pane
+                                                            && this.focus_navigation_pane(
+                                                                pane, window, cx,
+                                                            )
                                                         {
-                                                            this.focus_primary(i, window, cx);
+                                                            this.execute_command(id, window, cx);
                                                         }
-                                                        this.execute_command(id, window, cx);
                                                     });
                                                 }),
                                             );
@@ -2279,5 +2285,78 @@ impl Render for Workspace {
                 )
             })
             .when(self.modal_is_open(), |s| s.child(self.modal(_window, cx)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn file_menu_does_not_retarget_when_its_pane_disappears(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for (secondary, stale) in [(true, true), (false, true), (false, false), (true, false)] {
+            let handle = cx.add_window(Workspace::new);
+            handle
+                .update(cx, |w, window, cx| {
+                    w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                    w.add_tab("b.md".into(), Some("B".into()), false, window, cx);
+                    w.focus_primary(0, window, cx);
+                    if secondary {
+                        w.split_active(false, window, cx);
+                    }
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.simulate_resize(size(px(1400.), px(900.)));
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let selector = if secondary {
+                "secondary-file-menu"
+            } else {
+                "file-menu"
+            };
+            let button = visual.debug_bounds(selector).unwrap().center();
+            visual.simulate_click(button, Modifiers::default());
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let item_selector = Box::leak(
+                format!("popup-menu-item-{:?}", ElementId::from(0usize)).into_boxed_str(),
+            );
+            let item = visual.debug_bounds(item_selector).unwrap().center();
+            // Replace the source while retaining the already-created popup callback.
+            handle
+                .update(&mut visual, |w, window, cx| {
+                    if stale && secondary {
+                        w.active = Some(1);
+                        w.views.secondary_focused = false;
+                        w.views.main = Some(w.tabs[1].id);
+                        w.split_active(false, window, cx);
+                    } else if stale {
+                        w.tabs.remove(0);
+                        w.active = Some(0);
+                    }
+                    cx.notify();
+                })
+                .unwrap();
+            visual.simulate_click(item, Modifiers::default());
+            handle
+                .update(&mut visual, |w, _, cx| {
+                    for (index, tab) in w.tabs.iter().enumerate() {
+                        assert_eq!(
+                            tab.pane.read(cx).reading,
+                            !stale && !secondary && index == 0,
+                            "primary menu, secondary={secondary}, stale={stale}"
+                        );
+                    }
+                    if let Some(split) = &w.views.split {
+                        assert_eq!(
+                            split.pane.read(cx).reading,
+                            !stale && secondary,
+                            "secondary menu, stale={stale}"
+                        );
+                    }
+                })
+                .unwrap();
+        }
     }
 }
