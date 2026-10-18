@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "498908b06ff90c47bf8173a1722cc57aa691e108",
+  "snapshot_revision": "200693fea7e57355e9bc14dd7f6a814e73096430",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1267,6 +1267,26 @@
       "path": "vendor/gpui-base/src/motion/easing.rs",
       "checks": "Bezier and step validation, omitted linear-stop interpolation, boundary sampling and custom easing; related motion tests passed.",
       "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/motion/keyframes.rs",
+      "checks": "Full read: endpoint/finite/monotonic validation, duplicate offsets, segment easing, discrete thresholds and shared immutable storage; existing keyframe/discrete motion tests passed.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/motion/stagger.rs",
+      "checks": "Full read: origin and index clamping, zero count, saturating duration multiplication; existing stagger origin tests passed.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/motion/sequence.rs",
+      "checks": "Full read: keyed lifecycle, step handover at absolute boundaries, zero duration, retargeting and reduced motion. New regression reproduced a finished sequence resuming Running after reduced motion was disabled; fixed by preserving settled state.",
+      "result": "Fixed in 200693f; regression and related motion tests passed."
+    },
+    {
+      "path": "vendor/gpui-base/src/motion/reveal.rs",
+      "checks": "Full read: measured child layout, cached height, clipping during prepaint/paint and frame requests on measurement changes. No dedicated native reveal acceptance in this batch.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
     }
   ],
   "pending_reconciliation": [
@@ -1351,11 +1371,7 @@
     "vendor/gpui-base/src/link.rs",
     "vendor/gpui-base/src/macos_accessibility.rs",
     "vendor/gpui-base/src/motion.rs",
-    "vendor/gpui-base/src/motion/keyframes.rs",
     "vendor/gpui-base/src/motion/presence.rs",
-    "vendor/gpui-base/src/motion/reveal.rs",
-    "vendor/gpui-base/src/motion/sequence.rs",
-    "vendor/gpui-base/src/motion/stagger.rs",
     "vendor/gpui-base/src/nav_stack.rs",
     "vendor/gpui-base/src/number_input.rs",
     "vendor/gpui-base/src/otp_input.rs",
