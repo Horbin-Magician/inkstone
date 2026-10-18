@@ -231,6 +231,13 @@ impl Workspace {
         self.cancel_tree_name(cx);
         self.ui.tree_active = None;
         self.generation += 1;
+        if self.refreshing {
+            // Its completion now belongs to the old generation. Retry against the
+            // retained vault if this load fails; success resets the refresh queue.
+            self.refreshing = false;
+            self.refresh_requested = true;
+            self.rescan = true;
+        }
         // The old picker callback is now stale, even if loading this vault fails.
         self.ui.exporting = false;
         self.ui.backup.cancel_pending_reads();
