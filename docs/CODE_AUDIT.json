@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "c5feb7a57b7c845e61aa1d93ea8f4bee118257f2",
+  "snapshot_revision": "980c9b0e9ac8f60cb2ce2b9a48f04dec33cd86ce",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1322,6 +1322,21 @@
       "path": "vendor/gpui-base/src/focus_trap.rs",
       "checks": "Full read: weak registration lifecycle, wrapper delegation, active focus lookup, nested containment and independent-window registration. Nested order regression fixed in 187fbac; two-window redraw-order regression passed without a production change in c5feb7a. Three focus-trap filtered tests passed.",
       "result": "Nested lookup fixed; independent-window coverage retained. Native keyboard and accessibility acceptance remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/hover_card.rs",
+      "checks": "Full read: delayed open/close cancellation, epoch checks, callback ownership, trigger/content hover handoff and tap dismissal; removed redundant epoch increment helper in 980c9b0; 3 tests passed.",
+      "result": "Redundant scheduling bookkeeping removed; no new runtime defect established in this batch. Native/platform acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/popup.rs",
+      "checks": "Full read: first-frame trigger measurement, tracked anchor position, deferred priority, edge margin and pointer occlusion; 3 tests passed.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
+    },
+    {
+      "path": "vendor/gpui-base/src/tooltip.rs",
+      "checks": "Full read: per-window delayed display, grace switch/hide, task cancellation, renderer epochs, mobile suppression, accessible role and placement wrapper; 3 tests passed.",
+      "result": "No new actionable finding in this read; platform/runtime limits remain."
     }
   ],
   "pending_reconciliation": [
@@ -1354,7 +1369,6 @@
     "vendor/gpui-base/src/dock/tab_group.rs",
     "vendor/gpui-base/src/dock/test_support.rs",
     "vendor/gpui-base/src/element_ext.rs",
-    "vendor/gpui-base/src/hover_card.rs",
     "vendor/gpui-base/src/input/base/blink_cursor.rs",
     "vendor/gpui-base/src/input/base/cursor.rs",
     "vendor/gpui-base/src/input/base/element.rs",
@@ -1427,7 +1441,6 @@
     "vendor/gpui-base/src/plot/shape/sankey.rs",
     "vendor/gpui-base/src/plot/shape/stack.rs",
     "vendor/gpui-base/src/popover.rs",
-    "vendor/gpui-base/src/popup.rs",
     "vendor/gpui-base/src/positioner.rs",
     "vendor/gpui-base/src/progress.rs",
     "vendor/gpui-base/src/questionnaire/control.rs",
@@ -1480,7 +1493,6 @@
     "vendor/gpui-base/src/toggle.rs",
     "vendor/gpui-base/src/toggle_group.rs",
     "vendor/gpui-base/src/toolbar.rs",
-    "vendor/gpui-base/src/tooltip.rs",
     "vendor/gpui-base/src/touch_selection.rs",
     "vendor/gpui-base/src/tree.rs",
     "vendor/gpui-base/tests/element_ext.rs",
