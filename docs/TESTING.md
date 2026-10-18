@@ -1294,6 +1294,17 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   日志 `target/audit-20261018/background-draft-copy-{attachments-tests,export-tests,clippy}.log`。
   本批未进行原生大笔记延迟或峰值内存测量。
 
+第一百一十四批附件重复引用提前去重：
+
+- `de2dee3` 在每篇笔记内按目标文本和 Wiki 标记去重，再执行附件路径解析。
+  候选迭代借用已解析文本，只为唯一目标构造解析参数，避免重复 canonicalize
+  和路径查找。来源集合仍按原逻辑生成；清理前完整扫描和身份检查没有删除。
+- 新回归重复混用 Wiki、Markdown 与 HTML 引用，验证同样的 `image%20a.png`
+  文本可分别保护字面百分号和空格文件，两个附件的来源均只计一篇笔记。
+- 核心 389 项通过、3 项既有测试忽略；工作区全目标 Clippy、格式和差异检查
+  通过。日志 `target/audit-20261018/attachment-reference-dedup-{tests,clippy}.log`。
+  去重集合在单篇扫描期间保存唯一目标的借用，增加相应集合开销；未做端到端计时。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
