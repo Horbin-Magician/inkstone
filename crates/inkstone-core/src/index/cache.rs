@@ -11,7 +11,7 @@ use std::{
 };
 
 // Bump when parsing semantics or the serialized representation change.
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 
 #[derive(Serialize, Deserialize)]
 struct Cache<T = ParsedNote> {

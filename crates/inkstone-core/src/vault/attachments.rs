@@ -65,10 +65,9 @@ pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Invento
             .map(|link| (link.target.clone(), true))
             .chain(
                 note.parsed
-                    .destination_urls
+                    .markdown_references
                     .iter()
-                    .cloned()
-                    .map(|url| (url, false)),
+                    .map(|(_, url)| (url.clone(), false)),
             )
             .chain(
                 note.parsed
