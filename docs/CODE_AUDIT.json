@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "56f47d7dc1a963c3e906c41ebbf27e147f5b3f75",
+  "snapshot_revision": "68dc4b840c04c561d007eb8d145e76053c25477d",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -752,6 +752,16 @@
       "path": "crates/inkstone-core/src/vault/backup/retention.rs",
       "checks": "Full production and test read: per-source cutoff ties, minimum retained count, in-use/protected/unknown sources, incomplete-inventory refusal and checked candidate byte sums; read cleanup-preflight parent tests.",
       "result": "No new actionable finding. Production unchanged from batch 197 core full regression (407 passed, 4 ignored). Source review does not establish Windows or external-media runtime acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/backup.rs",
+      "checks": "Completed full production and test read across batches 199–200: manifest validation, safe paths, inventory, streaming checksums, staged creation/restoration, locks, no-overwrite publication, legacy provenance and failure-path regressions.",
+      "result": "No new actionable finding. Execution code unchanged from batch 197 core full regression (407 passed, 4 ignored); existing tests cover corruption, stale plans, directory replacement, late writes and process exit. Cleanup requires cooperating local writers, not arbitrary external-write coordination."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/backup/cleanup.rs",
+      "checks": "Full read: locked preflight validates retained backups as well as candidates, identity snapshots, local-storage gate, revalidation before execution, quarantine rollback, partial failure reporting and protected interrupted-record retention.",
+      "result": "No new actionable finding. Execution code unchanged from batch 197 core full regression (407 passed, 4 ignored); existing tests cover corruption, stale plans, directory replacement, late writes and process exit. Cleanup requires cooperating local writers, not arbitrary external-write coordination."
     }
   ],
   "pending_reconciliation": [
@@ -765,8 +775,6 @@
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/vault.rs",
-    "crates/inkstone-core/src/vault/backup.rs",
-    "crates/inkstone-core/src/vault/backup/cleanup.rs",
     "crates/inkstone-core/src/vault/export.rs",
     "crates/inkstone-core/src/vault/history.rs",
     "crates/inkstone-core/src/vault/history/catalog.rs",
