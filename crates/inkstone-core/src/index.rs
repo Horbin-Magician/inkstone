@@ -7,7 +7,7 @@ mod tests;
 
 pub use parsing::{
     BlockReference, FoldKind, Heading, MarkdownEmbed, ParsedNote, TaskItem, WikiLink, anchor_range,
-    parse, parse_snapshot, set_task,
+    anchor_range_decoded, parse, parse_snapshot, set_task,
 };
 pub(crate) use parsing::{task_box_marker, task_marker};
 
