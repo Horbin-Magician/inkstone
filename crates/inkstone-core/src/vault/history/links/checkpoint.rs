@@ -115,12 +115,7 @@ pub(super) fn certify(vault: &Vault, links: &Links) {
     if checksum(&mirror).ok().as_deref() != Some(expected.as_str()) {
         return;
     }
-    let proof = proof_path(vault);
-    let temp = proof.with_extension(format!("{}.proof-temp", unique_id()));
-    if write_new_synced(&temp, expected.as_bytes()).is_ok() {
-        let _ = fs::rename(&temp, proof);
-    }
-    let _ = fs::remove_file(temp);
+    let _ = replace_proof(vault, expected.as_bytes());
 }
 pub(super) fn repair_cache(vault: &Vault, links: &Links) {
     let path = super::path(vault);
