@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "6bb6ba69be6e752fa66d3b6f4cd808e9b28b4f83",
+  "snapshot_revision": "8f80399ca605cec893eafc459b853266872c7c63",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1187,10 +1187,14 @@
       "path": "crates/inkstone-core/src/index/tests.rs",
       "checks": "Complete read of 1505 lines: incremental/full-rebuild equivalence, lookup sharing, error recovery, query scopes and Unicode offsets, bounded excerpts, link/asset relocation round trips, aliases and case-colliding paths.",
       "result": "No new actionable finding. All 53 tests in this module passed; the substring filter additionally ran 2 history-index tests (55 total). No native/platform acceptance implied."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/tests.rs",
+      "checks": "Full-file review of sync convergence, cancellation and commit boundaries, resumable verified cache, crash recovery, locking, HTTP streaming and large-library file snapshots",
+      "result": "39 ordinary tests and both explicitly invoked 576 MiB streaming tests passed. Local in-memory and HTTP models do not establish real-provider authentication, TLS or network behavior. No new actionable finding."
     }
   ],
   "pending_reconciliation": [
-    "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "vendor/gpui-base/benches/motion.rs",
