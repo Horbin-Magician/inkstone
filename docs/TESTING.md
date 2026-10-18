@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，271 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，272 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -2989,6 +2989,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 提交 `ee23476` 为 Base Button 增加 busy：保留正常样式与焦点策略，阻止指针/键盘激活，原生节点同时报告 busy/disabled 且移除 Click action。Component loading 接入该状态，删除重复点击拦截和重复 cursor_default 设置；原鼠标按下拦截仍保留其防止提前聚焦等职责。
 - Base 默认/观察配置各 8 项通过；Component 默认/观察配置各 18 项通过，验证加载按钮有无回调时均阻断父激活、底层回调保持、焦点仍可到达，以及实际绘制后的禁用属性。原生节点另查 busy、disabled、无 Click、有 Focus。日志 `target/audit-20261019/button-busy-{red,base-tests,base-observed-tests,component-tests,component-observed-tests,clippy}.log`；两配置重叠不累加。
 - 工作区 all-targets Clippy（-D warnings）、格式与 diff 检查通过，保留 block 0.1.6 future-incompatibility 提示。Component test-support 本批显式执行，但正式 vendor 入口当前仅自动覆盖 Base 两配置与 Component 默认配置；后续需将 Component 观察配置也纳入入口并完成全量验证。实际读屏/平台焦点验收仍待完成。
+
+第二百五十五批审核与验证：
+
+- 提交 `88f9fc9` 将 Component 的 test-support 配置纳入正式 vendor 回归入口，并同步运行文档。四组全量测试通过：Base 默认 1253 通过/1 忽略、观察配置 1254 通过/1 忽略；Component 默认 573、观察配置 581 通过，无失败。Base 忽略项仍为既有手动长段落性能测试；两配置结果重叠，不累加为独立测试数。日志 `target/audit-20261019/vendor-four-config-tests.log`。
+- 完成 Component button/button.rs 剩余样式与测试阅读，台账更新为 272 已核对、456 待核对，总范围 728。检查布局、Base 委托、加载/禁用事件与焦点、语义名称和状态配色。
+- GPUI Background/Hsla 的 opacity 将系数限制在 0..1；Secondary 禁用样式的两处 opacity(1.5) 实际无效。提交 `26aeb2b` 删除这两次调用，保留现有颜色，不推断应改为 0.15。清理后按钮默认/观察配置各 18 项通过；日志 `target/audit-20261019/button-opacity-{tests,observed-tests}.log`。格式、Python 编译与 diff 检查通过。四组全量验证发生在此等价清理前，清理后未重复全量运行。
+- 本批没有完成原生读屏、UI、Windows、远端服务或最终工作区全量验收，这些门槛继续保留。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、

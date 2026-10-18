@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "e261d871f81e23bd2639ff887ce5b690e922d608",
+  "snapshot_revision": "26aeb2b57067c63af23e2964ff4e69bc04113a6b",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -290,8 +290,8 @@
     },
     {
       "path": "tools/vendor-regression/run.py",
-      "checks": "Complete read: repository-local staging, fresh patched dependency copies, separate lockfile/fixtures, locked serial vendor test execution and error propagation Batch 251: run Base default and test-support configurations, then Component default; all three full suites passed after correcting the outgoing-page visibility fixture.",
-      "result": "No newly confirmed defect. Performance tests covered by the previous 18-test run; vendor suite not rerun and source review does not imply current vendor runtime acceptance."
+      "checks": "Complete read: fresh repository-local staging, separate lockfile and fixtures, locked serial execution and error propagation. Both Base and Component now run default and test-support library configurations.",
+      "result": "Batch 255: all four full suites passed (Base 1253/1254 passed, each with one existing ignored manual benchmark; Component 573/581 passed, none ignored). Configurations overlap and are not unique-test totals."
     },
     {
       "path": "tools/vendor-regression/Cargo.toml",
@@ -1357,6 +1357,11 @@
       "path": "vendor/gpui-base/src/button.rs",
       "checks": "Full read: controlled selected/disabled styling, role/label overrides, keyed/provided focus, tab policy, pointer and keyboard activation, parent blocking and geometry. Native disabled regression failed before adapter integration; default and observed button suites each passed 8 tests; Component button caller suite passed 18. Batch 254: busy state retains focus/style, blocks activation and exposes busy/disabled without native Click action; default and observed tests passed.",
       "result": "Disabled and busy native properties fixed (e261d87, ee23476); native screen-reader acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-component/src/button/button.rs",
+      "checks": "Complete read: builder and Base delegation, loading/disabled event blocking, focus and accessible naming, content layout, semantic and gradient state styles, and regression tests. Batch 255 removes two ineffective opacity(1.5) calls; GPUI clamps the factor to 1.",
+      "result": "Default and test-support button suites each passed 18 tests after cleanup. Four full vendor configurations passed before this behavior-preserving cleanup. Native visual and screen-reader acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
@@ -1523,7 +1528,6 @@
     "vendor/gpui-component/src/badge.rs",
     "vendor/gpui-component/src/breadcrumb.rs",
     "vendor/gpui-component/src/bubble.rs",
-    "vendor/gpui-component/src/button/button.rs",
     "vendor/gpui-component/src/button/button_group.rs",
     "vendor/gpui-component/src/button/button_icon.rs",
     "vendor/gpui-component/src/button/dropdown_button.rs",
