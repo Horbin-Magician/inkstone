@@ -208,8 +208,7 @@ impl Workspace {
         let selected = m
             .selected
             .as_ref()
-            .and_then(|p| m.inventory.entries.iter().find(|e| &e.path == p))
-            .cloned();
+            .and_then(|p| m.inventory.entries.iter().find(|e| &e.path == p));
         div().id("attachments-panel").flex().flex_col().gap_2().min_h_0().overflow_y_scroll()
             .child(Input::new(&m.query))
             .child(div().flex().gap_1().children([(None,"全部"),(Some(Kind::Image),"图片"),(Some(Kind::Pdf),"PDF"),(Some(Kind::Media),"音视频"),(Some(Kind::Other),"其他")].into_iter().map(|(kind,label)|Button::new(format!("attachment-kind-{label}")).label(label).when(m.kind==kind,|b|b.primary()).on_click(cx.listener(move|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.kind=kind;}cx.notify();})))))
@@ -231,7 +230,7 @@ impl Workspace {
                     .child(Button::new("attachment-reveal").label("显示文件位置").on_click(cx.listener(move|this,_,_,cx|{if let Some(v)=&this.vault{cx.reveal_path(&v.root.join(&reveal));}})))
                     .child(Button::new("attachment-trash").label("移入回收站").disabled(m.loading||m.inventory.unreadable>0||!e.references.is_empty()||self.file_writes.pending()>0).on_click(cx.listener(move|this,_,w,cx|this.request_attachment_cleanup(cleanup.clone(),w,cx)))))
                     .child("引用来源（点击打开）：")
-                    .child(div().id("attachment-references").max_h(px(140.)).overflow_y_scroll().children(e.references.into_iter().enumerate().map(|(i,path)|Button::new(("attachment-source",i)).ghost().label(path.to_string_lossy().to_string()).on_click(cx.listener(move|this,_,w,cx|{this.close_overlays(w,cx);this.open_note(path.clone(),w,cx);})))) )
+                    .child(div().id("attachment-references").max_h(px(140.)).overflow_y_scroll().children(e.references.iter().cloned().enumerate().map(|(i,path)|Button::new(("attachment-source",i)).ghost().label(path.to_string_lossy().to_string()).on_click(cx.listener(move|this,_,w,cx|{this.close_overlays(w,cx);this.open_note(path.clone(),w,cx);})))) )
             })
             .child(div().text_sm().child("疑似未引用不等于无用。仅检查笔记中的双链、Markdown 与 HTML 直接引用；不分析脚本、其他附件内容或库外引用。清理前会重新扫描，文件仍可从回收站恢复。"))
             .into_any_element()
