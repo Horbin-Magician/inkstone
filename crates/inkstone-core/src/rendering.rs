@@ -619,6 +619,20 @@ impl Builder<'_> {
         });
         format!("inkstone-reference:{id}")
     }
+    fn prepare_note(&mut self, path: &Path, source: &Arc<str>) -> Arc<Prepared> {
+        if let Some(cached) = self
+            .snapshots
+            .get(path)
+            .filter(|p| p.snapshot.source == *source)
+        {
+            return cached.clone();
+        }
+        let prepared = Arc::new(Prepared::new(Arc::new(crate::syntax::Snapshot::new(
+            source,
+        ))));
+        self.snapshots.insert(path.to_path_buf(), prepared.clone());
+        prepared
+    }
     fn note_embed(&mut self, path: &Path, target: &str, title: &str, wiki: bool, uri: &str) {
         let (resolution, section) = if wiki {
             (
@@ -651,7 +665,8 @@ impl Builder<'_> {
                         } else {
                             index::anchor_range_decoded
                         };
-                        anchor(&text, &index::parse(&text), fragment)
+                        let prepared = self.prepare_note(&target, &text);
+                        anchor(&text, &prepared.parsed, fragment)
                     },
                 );
                 if let Some(part) = part {
@@ -683,19 +698,7 @@ impl Builder<'_> {
         }
         self.stack.push((path.to_path_buf(), range.clone()));
         self.sources.insert(path.to_path_buf(), source.clone());
-        let prepared = if let Some(cached) = self
-            .snapshots
-            .get(path)
-            .filter(|p| p.snapshot.source == source)
-        {
-            cached.clone()
-        } else {
-            let prepared = Arc::new(Prepared::new(Arc::new(crate::syntax::Snapshot::new(
-                &source,
-            ))));
-            self.snapshots.insert(path.to_path_buf(), prepared.clone());
-            prepared
-        };
+        let prepared = self.prepare_note(path, &source);
         let parsed = &prepared.parsed;
         let mut actions: Vec<_> = prepared
             .prefix_actions
