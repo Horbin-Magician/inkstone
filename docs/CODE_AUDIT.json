@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "2c7a19ab224ebd0d6fa046b26e7224562ea6a30c",
+  "snapshot_revision": "1e9d4a1e497eb6ba9a6e4379ffa27630f4c39643",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -517,6 +517,26 @@
       "path": "crates/inkstone-desktop/src/editor/editing.rs",
       "checks": "Full read: folding, pairing configuration, line transforms, Markdown key focus/composition/menu guards, multi-selection edits, table navigation, task baseline/selection/scroll preservation.",
       "result": "Removed redundant multiple-selection guard after the multi-selection branch already returns (2c7a19a). editor:: filtered suite: 136 passed, 4 ignored; workspace Clippy and format passed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/live_lists.rs",
+      "checks": "Full production/test read: viewport clipping, reserved bullet slot, revision-checked source reveal, nested indentation, source/search selection and task separation.",
+      "result": "No new actionable finding. Reused batch 180 editor:: test evidence (136 passed, 4 ignored) after confirming Rust sources unchanged from 2c7a19a. Native accessibility, IME and performance acceptance remain incomplete."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/live_rules.rs",
+      "checks": "Full production/test read: viewport clipping, text-column width, revision-checked full-line selection, search reveal and source-mode removal.",
+      "result": "No new actionable finding. Reused batch 180 editor:: test evidence (136 passed, 4 ignored) after confirming Rust sources unchanged from 2c7a19a. Native accessibility, IME and performance acceptance remain incomplete."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/live_quotes.rs",
+      "checks": "Full production/test read: rem-based quote/list inset, source indentation compensation, nested/lazy/soft-wrapped border geometry and source-mode behavior.",
+      "result": "No new actionable finding. Reused batch 180 editor:: test evidence (136 passed, 4 ignored) after confirming Rust sources unchanged from 2c7a19a. Native accessibility, IME and performance acceptance remain incomplete."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/live_tasks.rs",
+      "checks": "Full production/test read: source-baseline task targets, accessible label, non-tab-stop checkbox, wheel propagation, task selection/undo preservation, prepaint geometry, scrolling and folding tests.",
+      "result": "No new actionable finding. Reused batch 180 editor:: test evidence (136 passed, 4 ignored) after confirming Rust sources unchanged from 2c7a19a. Native accessibility, IME and performance acceptance remain incomplete."
     }
   ],
   "pending_reconciliation": [
@@ -583,10 +603,6 @@
     "crates/inkstone-desktop/src/editor/font_zoom.rs",
     "crates/inkstone-desktop/src/editor/footnotes.rs",
     "crates/inkstone-desktop/src/editor/frame_benchmark.rs",
-    "crates/inkstone-desktop/src/editor/live_lists.rs",
-    "crates/inkstone-desktop/src/editor/live_quotes.rs",
-    "crates/inkstone-desktop/src/editor/live_rules.rs",
-    "crates/inkstone-desktop/src/editor/live_tasks.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/editor_links.rs",
     "crates/inkstone-desktop/src/editor_links/benchmark.rs",
