@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "c4569b2983030d4fdeaab00b9477167af37ddf66",
+  "snapshot_revision": "2ae00e1141b8562b749236b498db7552d8c712c8",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -797,6 +797,11 @@
       "path": "crates/inkstone-core/src/vault/history/links/intent.rs",
       "checks": "Full production and test read: durable rename envelope, filesystem identity, before/after checkpoints, path confinement, reconciliation outcomes and subprocess-exit recovery.",
       "result": "No new actionable finding; history links 8 passed including file/folder rename recovery and process-exit scenarios. Windows runtime remains separately unverified."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/history/links.rs",
+      "checks": "Full production and test read: authoritative ownership loading, journal identity/path validation, rename lock, folder ownership migration, staged checkpoint publication, proof restoration and no-overwrite rollback.",
+      "result": "Fixed rejection of dotted legacy journal identities after rename. Regression failed before fix, then verified ownership after reopen, original journal bytes and old-path exclusion. History module 27 passed; workspace all-targets Clippy/format passed."
     }
   ],
   "pending_reconciliation": [
@@ -811,7 +816,6 @@
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/history.rs",
-    "crates/inkstone-core/src/vault/history/links.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
