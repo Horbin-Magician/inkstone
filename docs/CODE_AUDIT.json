@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "5a33f7d51c17735506f3330b5857913b4ba376bf",
+  "snapshot_revision": "3e9006c07850468314fede72757817147a7d6103",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1292,13 +1292,35 @@
       "path": "vendor/gpui-base/src/motion/presence.rs",
       "checks": "Full read: keyed presence state, initial absence, enter/exit reversal, reduced-motion and zero-duration settling, unmount phase and animation frame requests. Two new regression tests failed before the fix; all 52 motion-filtered tests passed afterward.",
       "result": "Fixed settled state being reported as Entering/Exiting in 5a33f7d; native and platform acceptance remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/motion.rs",
+      "checks": "Completed multi-batch full read: interpolation, identity, delayed/reversed transitions, keyframe playback, spring integration and all embedded fixtures/tests. Related 53 tests passed in batch 244; fixes 200693f, 5a33f7d and e3aba39 cover reduced-motion lifecycle regressions.",
+      "result": "Read completed; changes and verification limits recorded in TESTING.md. Native and cross-platform gates remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/benches/motion.rs",
+      "checks": "Full read: system allocator forwarding, warmed batches, allocation counter, black_box inputs, percentile calculation and scalar budget. Release benchmark launched; result pending at this audit entry.",
+      "result": "Read completed; changes and verification limits recorded in TESTING.md. Native and cross-platform gates remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/benches/text_view_scroll.rs",
+      "checks": "Full read: generated Markdown variants, background parse completion, renderer callback, clamped scroll range and offset cycling. Synthetic renderer benchmark is not native event-to-display latency; not executed in this batch.",
+      "result": "Read completed; changes and verification limits recorded in TESTING.md. Native and cross-platform gates remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/component_traits.rs",
+      "checks": "Full read: selected/open fallback compatibility, disabled/collapsed/focus state interfaces and focused trait tests; no implementation changes.",
+      "result": "Read completed; changes and verification limits recorded in TESTING.md. Native and cross-platform gates remain pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/actions.rs",
+      "checks": "Full read: action namespace and Confirm secondary payload; removed tautological test that only constructed and read literal bool fields (3e9006c). Production action declarations unchanged.",
+      "result": "Read completed; changes and verification limits recorded in TESTING.md. Native and cross-platform gates remain pending."
     }
   ],
   "pending_reconciliation": [
-    "vendor/gpui-base/benches/motion.rs",
-    "vendor/gpui-base/benches/text_view_scroll.rs",
     "vendor/gpui-base/src/accordion.rs",
-    "vendor/gpui-base/src/actions.rs",
     "vendor/gpui-base/src/alert_dialog.rs",
     "vendor/gpui-base/src/avatar.rs",
     "vendor/gpui-base/src/button.rs",
@@ -1307,7 +1329,6 @@
     "vendor/gpui-base/src/collapsible.rs",
     "vendor/gpui-base/src/color_picker.rs",
     "vendor/gpui-base/src/combobox.rs",
-    "vendor/gpui-base/src/component_traits.rs",
     "vendor/gpui-base/src/date_picker.rs",
     "vendor/gpui-base/src/dialog.rs",
     "vendor/gpui-base/src/dock/active.rs",
@@ -1375,7 +1396,6 @@
     "vendor/gpui-base/src/lib.rs",
     "vendor/gpui-base/src/link.rs",
     "vendor/gpui-base/src/macos_accessibility.rs",
-    "vendor/gpui-base/src/motion.rs",
     "vendor/gpui-base/src/nav_stack.rs",
     "vendor/gpui-base/src/number_input.rs",
     "vendor/gpui-base/src/otp_input.rs",
