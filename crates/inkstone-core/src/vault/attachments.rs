@@ -4,7 +4,7 @@ use crate::{
     index::Index,
     rendering::{self, Reference},
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -66,25 +66,26 @@ pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Invento
             .parsed
             .links
             .iter()
-            .map(|link| (link.target.clone(), true))
+            .map(|link| (link.target.as_str(), true))
             .chain(
                 note.parsed
                     .markdown_references
                     .iter()
-                    .map(|(_, url)| (url.clone(), false)),
+                    .map(|(_, url)| (url.as_str(), false)),
             )
             .chain(
                 note.parsed
                     .html_destinations
                     .iter()
-                    .map(|(_, url)| (url.clone(), false)),
+                    .map(|(_, url)| (url.as_str(), false)),
             );
-        for (target, wiki) in refs {
+        let mut seen = HashSet::new();
+        for (target, wiki) in refs.filter(|reference| seen.insert(*reference)) {
             if let Some(full) = rendering::asset_path(
                 &vault.root,
                 &Reference {
                     from: path.clone(),
-                    target,
+                    target: target.to_owned(),
                     wiki,
                 },
                 &index.files,
@@ -163,6 +164,25 @@ pub fn trash_unused(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_targets_keep_wiki_and_markdown_resolution_distinct() {
+        let root = std::env::temp_dir().join(format!("inkstone-attachment-repeat-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        for name in ["image a.png", "image%20a.png"] {
+            fs::write(vault.root.join(name), b"fixture").unwrap();
+        }
+        let source =
+            "![[image%20a.png]]\n\n![image](image%20a.png)\n\n<img src=\"image%20a.png\">\n\n";
+        fs::write(vault.root.join("source.md"), source.repeat(20)).unwrap();
+        let inventory = scan(&vault, &BTreeMap::new()).unwrap();
+        assert_eq!(inventory.entries.len(), 2);
+        for entry in inventory.entries {
+            assert_eq!(entry.references, vec![PathBuf::from("source.md")]);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn attachment_names_cannot_collide_with_trash_metadata() {
         let root = std::env::temp_dir().join(format!("inkstone-attachments-{}", unique_id()));
