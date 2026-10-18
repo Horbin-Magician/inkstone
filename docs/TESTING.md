@@ -1188,6 +1188,20 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   差异检查通过。日志 `target/audit-20261018/package-symlinks-{red,tests}.log`。
   已更新打包文档，未实际构建/发布安装包，未执行 Windows 符号链接测试。
 
+第一百零五批当前 macOS 实际打包与产物复核：
+
+- 在 `e2e90bf` 使用隔离虚拟环境安装仓库固定的 DMG 依赖，完整运行
+  `packaging/package.py`。release 构建 50.13 秒，生成 0.3.0 arm64 的
+  `.app.tar.gz`、DMG 和下载校验和；未上传或发布。
+- 独立复核 staging 资源清单和两个包的 SHA-256；直接读取 tar 成员验证无重复
+  路径，普通文件内容与链接映射均与包内清单一致。
+- 只读挂载最终 DMG，验证资源清单的 9 个文件、`Applications → /Applications`
+  符号链接以及应用深度严格签名检查，随后正常卸载。没有启动应用或操作用户笔记。
+- 证据位于 `target/audit-20261018/package-current/verification.json`，日志为
+  `package-current.log`、`package-current-verification.log`，复核脚本保存在同级目录。
+  本机 hdiutil 返回弃用提示但执行成功；未据此迁移到可能不兼容旧系统的命令。
+  该结果仅覆盖本机 macOS 包，不代表 Windows、Developer ID 公证或完整发布矩阵通过。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
