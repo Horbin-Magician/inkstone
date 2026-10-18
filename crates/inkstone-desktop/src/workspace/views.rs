@@ -404,12 +404,18 @@ impl Workspace {
         let Some(index) = self.active else {
             return;
         };
-        if self.has_pending_input(self.tabs[index].id, window, cx) {
+        let source = self.tabs[index].id;
+        if self.has_pending_input(source, window, cx)
+            || self.views.split.as_ref().is_some_and(|split| {
+                split.source != source && self.has_pending_input(split.source, window, cx)
+            })
+        {
             self.notifications
                 .publish("请完成当前编辑后再操作分屏。".into());
             cx.notify();
             return;
         }
+        self.sync_from_split(window, cx);
         if self.views.split.is_none() {
             self.views.main = Some(self.tabs[index].id);
         }
@@ -781,5 +787,46 @@ impl Workspace {
         }
         self.persist_workspace(cx);
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn replacing_split_waits_for_existing_split_composition(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("first".into()), false, window, cx);
+                w.add_tab("b.md".into(), Some("second".into()), false, window, cx);
+                w.focus_primary(0, window, cx);
+                w.split_active(false, window, cx);
+                let original = w.views.split.as_ref().unwrap().pane.clone();
+                let editor = original.read(cx).editor.clone();
+                w.focus_primary(1, window, cx);
+                editor.update(cx, |state, cx| {
+                    state.set_selected_range(5..5, cx);
+                    state.replace_and_mark_text_in_range(None, "ni", Some(2..2), window, cx);
+                });
+                w.split_active(true, window, cx);
+                assert_eq!(w.views.split.as_ref().unwrap().pane, original);
+                assert!(!w.views.vertical);
+                assert!(editor.update(cx, |state, cx| {
+                    state.marked_text_range(window, cx).is_some()
+                }));
+                assert_eq!(w.tabs[0].save.editor.read(cx).value().as_ref(), "first");
+                editor.update(cx, |state, cx| state.unmark_text(window, cx));
+                w.split_active(true, window, cx);
+                assert_eq!(w.views.split.as_ref().unwrap().source, w.tabs[1].id);
+                assert!(w.views.vertical);
+                assert_eq!(w.tabs[0].save.editor.read(cx).value().as_ref(), "firstni");
+                assert_eq!(w.tabs[1].save.editor.read(cx).value().as_ref(), "second");
+            })
+            .unwrap();
     }
 }
