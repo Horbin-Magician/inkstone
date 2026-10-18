@@ -279,11 +279,15 @@ impl Workspace {
                                     s.child(Input::new(&name_input).small().h(px(25.)))
                                 })
                                 .when(!is_editing, |s| {
-                                    s.child(div().truncate().child(if folder {
-                                        entry.item().label.to_string()
+                                    let label = if !folder
+                                        && path.extension().is_some_and(|extension| {
+                                            extension.eq_ignore_ascii_case("md")
+                                        }) {
+                                        path.file_stem().unwrap_or_default().to_string_lossy()
                                     } else {
-                                        entry.item().label.trim_end_matches(".md").to_owned()
-                                    }))
+                                        std::borrow::Cow::Borrowed(entry.item().label.as_ref())
+                                    };
+                                    s.child(div().truncate().child(label.into_owned()))
                                 })
                                 .on_click(move |_, window, cx| {
                                     if folder && !is_editing {
