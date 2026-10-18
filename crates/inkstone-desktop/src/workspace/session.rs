@@ -378,7 +378,6 @@ impl Workspace {
                         inkstone_core::startup_trace::mark("ui_preferences_ready");
                         this.sync_index_ui(cx);
                         inkstone_core::startup_trace::mark("tree_ready");
-                        this.run_search(cx);
                         this.refreshing = false;
                         this.refresh_requested = false;
                         this.changed_paths.clear();
@@ -459,6 +458,10 @@ impl Workspace {
                             this.open_note(path, window, cx);
                         }
                         this.restore_split(window, cx);
+                        // Search snapshots include open documents. Only collect them
+                        // after replacing the previous vault's tabs, including when
+                        // the new vault is empty and no tab activation runs a search.
+                        this.run_search(cx);
                         inkstone_core::startup_trace::mark("ui_loaded");
                         this.load_startup_recoveries(cx);
                         if inkstone_core::startup_trace::enabled() {
@@ -534,6 +537,59 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn switching_to_empty_vault_does_not_search_previous_documents(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-empty-vault-search-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        inkstone_core::preferences::Preferences {
+            left_panel: 1,
+            search_query: "previous-vault-only".into(),
+            ..Default::default()
+        }
+        .save(&root.join(".inkstone-workspace.json"))
+        .unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab(
+                    "old.md".into(),
+                    Some("previous-vault-only".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.load_vault(root.clone(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.loading);
+                assert!(w.tabs.is_empty());
+                assert!(w.index.notes.is_empty());
+                assert_eq!(w.search.read(cx).value(), "previous-vault-only");
+                assert!(!w.ui.search_loading);
+                assert!(
+                    w.search_results.is_empty(),
+                    "old documents leaked into new vault search"
+                );
+                assert!(w.backlinks.is_empty());
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn startup_recovery_results_are_scoped_and_errors_keep_notes_usable(cx: &mut TestAppContext) {
