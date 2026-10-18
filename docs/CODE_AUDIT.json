@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "db68f4521a9a4a641ee4ad87d699b0a70e30c846",
+  "snapshot_revision": "56c52f8359879d9fc15ebd1173711b6d5ce179cc",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -102,6 +102,31 @@
       "path": "crates/inkstone-core/src/vault/sync/webdav/maintenance/tests.rs",
       "checks": "Complete read: exact acquisition/refresh/release headers, invalid leases and tokens, no hidden retries, fenced publication/readback, generation overflow, ETag parsing/retry limits, absent and duplicate lockroot",
       "result": "No new actionable finding; assertions cover request sequences and results rather than only successful returns. Real-server evidence remains separately recorded."
+    },
+    {
+      "path": "packaging/macos/dmg.py",
+      "checks": "temporary image lifetime, explicit mount location, metadata inventory rebuild, finally detach and conversion error propagation",
+      "result": "Complete source read; no new actionable defect found. Current macOS package verified separately; artwork generators were not rerun and Windows rendering was not verified."
+    },
+    {
+      "path": "packaging/macos/dmg_layout.py",
+      "checks": "Finder bounds, icon placement, background alias tied to mounted volume and closed DSStore writer",
+      "result": "Complete source read; no new actionable defect found. Current macOS package verified separately; artwork generators were not rerun and Windows rendering was not verified."
+    },
+    {
+      "path": "packaging/macos/generate_background.py",
+      "checks": "1x/2x TIFF dimensions, localized text placement and explicit output path",
+      "result": "Complete source read; no new actionable defect found. Current macOS package verified separately; artwork generators were not rerun and Windows rendering was not verified."
+    },
+    {
+      "path": "packaging/windows/generate_icon.py",
+      "checks": "alpha threshold, empty image failure, square crop and multi-size ICO output",
+      "result": "Complete source read; no new actionable defect found. Current macOS package verified separately; artwork generators were not rerun and Windows rendering was not verified."
+    },
+    {
+      "path": "packaging/windows/generate_installer_art.py",
+      "checks": "fixed output paths, 2x sidebar/header geometry, shared icon and committed-artwork packaging contract",
+      "result": "Complete source read; no new actionable defect found. Current macOS package verified separately; artwork generators were not rerun and Windows rendering was not verified."
     }
   ],
   "pending_reconciliation": [
@@ -285,11 +310,6 @@
     "crates/inkstone-desktop/tests/display_objects.rs",
     "crates/inkstone-desktop/tests/grapheme_cursor.rs",
     "crates/inkstone-desktop/tests/grapheme_wrap.rs",
-    "packaging/macos/dmg.py",
-    "packaging/macos/dmg_layout.py",
-    "packaging/macos/generate_background.py",
-    "packaging/windows/generate_icon.py",
-    "packaging/windows/generate_installer_art.py",
     "tools/performance/backend.py",
     "tools/performance/corpus.py",
     "tools/performance/file_hash.py",
