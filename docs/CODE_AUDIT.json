@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "d5d88e138a1b10e62bb6da2aef59fa35793089c0",
+  "snapshot_revision": "06e01d45bdadebd05d0fb73e1ca8a723b2a22777",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1022,6 +1022,11 @@
       "path": "vendor/gpui-base/src/input/editor/display_map/grapheme_wrap.rs",
       "checks": "Complete read: grapheme boundary construction, flooring, duplicate/end suppression and text-wrapper invocation.",
       "result": "Two regressions passed for emoji/combining sequences and a grapheme wider than the row. No new change; no native performance claim."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
+      "checks": "Complete read: inventory request generation and directory checks, retention confirmation identity, cleanup and interrupted-retention write tickets, pagination, focus reveal and state/layout tests.",
+      "result": "Fixed interrupted-retention entry and button allowing writes while a backup picker is open (06e01d4). Added regression to real isolated backup fixture, failed before fix and passed after. Eight capacity/partial tests and workspace all-targets Clippy passed, including keyboard pagination at 16/24 rem. Native UI, Windows and performance acceptance remain separate."
     }
   ],
   "pending_reconciliation": [
@@ -1030,7 +1035,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
-    "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/left_sidebar.rs",
