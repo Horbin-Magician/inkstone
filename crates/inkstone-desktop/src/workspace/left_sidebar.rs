@@ -1094,6 +1094,26 @@ fn tree_guides(depths: &[usize]) -> Vec<TreeGuide> {
     guides
 }
 
+/// Only inspect rows intersecting the viewport. Runs may start above or end
+/// below it; the content mask clips those partial rows just as for full runs.
+fn visible_tree_guides(depths: &[usize], offset: Pixels, height: Pixels) -> Vec<TreeGuide> {
+    let row_height = f32::from(TREE_ROW_HEIGHT);
+    let start = ((-f32::from(offset) / row_height).floor().max(0.) as usize).min(depths.len());
+    let end = (((f32::from(height) - f32::from(offset)) / row_height)
+        .ceil()
+        .max(0.) as usize)
+        .min(depths.len())
+        .max(start);
+    tree_guides(&depths[start..end])
+        .into_iter()
+        .map(|mut guide| {
+            guide.start += start;
+            guide.end += start;
+            guide
+        })
+        .collect()
+}
+
 /// Indent guides for the file tree, one stroke per column.
 ///
 /// Painted after the rows so a line is not cut by the next row, and clipped
@@ -1106,13 +1126,13 @@ fn file_tree_guides(
     canvas(
         |_, _, _| (),
         move |bounds, _, window, _| {
-            let guides = tree_guides(&depths);
-            if guides.is_empty() {
-                return;
-            }
             // Read during paint, after the list has clamped this frame's offset.
             // A value captured at render time is one frame behind the scroll.
             let offset_y = scroll.0.borrow().base_handle.offset().y;
+            let guides = visible_tree_guides(&depths, offset_y, bounds.size.height);
+            if guides.is_empty() {
+                return;
+            }
             window.with_content_mask(Some(ContentMask { bounds }), |window| {
                 for guide in guides {
                     let x = bounds.left() + TREE_GUIDE_X + TREE_INDENT * guide.depth as f32;
@@ -1133,7 +1153,8 @@ fn file_tree_guides(
 
 #[cfg(test)]
 mod tree_guide_tests {
-    use super::tree_guides;
+    use super::{TREE_ROW_HEIGHT, tree_guides, visible_tree_guides};
+    use gpui::px;
 
     #[test]
     fn tree_guides_join_a_column_and_stop_at_the_next_sibling() {
@@ -1144,5 +1165,33 @@ mod tree_guide_tests {
             .map(|guide| (guide.depth, guide.start, guide.end))
             .collect();
         assert_eq!(guides, vec![(1, 2, 4), (0, 1, 5), (0, 6, 7)]);
+    }
+
+    #[test]
+    fn visible_guides_match_full_tree_clipping_at_partial_rows_and_edges() {
+        let depths = [0, 1, 2, 3, 2, 1, 0, 1, 2, 1, 0];
+        let row = f32::from(TREE_ROW_HEIGHT);
+        for offset in [30., 0., -0.5, -27., -43., -180., -290., -400.] {
+            for height in [0., 1., 27., 55., 300., 600.] {
+                let clipped = |guides: Vec<super::TreeGuide>| {
+                    let mut segments: Vec<_> = guides
+                        .into_iter()
+                        .filter_map(|guide| {
+                            let top = (offset + row * guide.start as f32).max(0.);
+                            let bottom = (offset + row * guide.end as f32).min(height);
+                            (top < bottom).then_some((guide.depth, top, bottom))
+                        })
+                        .collect();
+                    segments.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.total_cmp(&b.1)));
+                    segments
+                };
+                assert_eq!(
+                    clipped(visible_tree_guides(&depths, px(offset), px(height))),
+                    clipped(tree_guides(&depths)),
+                    "offset={offset}, height={height}"
+                );
+            }
+        }
+        assert!(visible_tree_guides(&[], px(0.), px(100.)).is_empty());
     }
 }
