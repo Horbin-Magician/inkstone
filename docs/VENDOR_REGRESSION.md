@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 按钮禁用语义：Base Button 复用原生禁用适配器，禁用时 AccessKit 节点报告 disabled 且不暴露 Click action，保持原有指针/键盘阻断。原测试中记录上游缺口的断言改为要求真实禁用标记。
+
 2026-10-19 原生禁用标记：新增 Base `src/accessibility.rs` 透明元素适配器，转发布局、标识、交互与无障碍子节点，并向真实 AccessKit 节点写入禁用标记。观察封装保留在适配器之外且保留焦点绑定；首个接入组件为 AccordionTrigger。
 
 2026-10-19 多内容折叠展开：Base `src/collapsible.rs` 在 reveal ID 下按子元素索引区分各内容块的 MotionReveal，避免不同高度内容共享测量缓存。布局回归使用 20px/60px 内容和 50% 进度检查两个后续元素位置。
