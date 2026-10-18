@@ -329,6 +329,10 @@ fn restore_with(
             .extension()
             .map(|s| format!(".{}", s.to_string_lossy()))
             .unwrap_or_default();
+        let reserved: std::collections::HashSet<_> = reserved
+            .iter()
+            .map(|path| crate::index::key(path))
+            .collect();
         for serial in 1u64.. {
             let suffix = if serial == 1 {
                 String::new()
@@ -336,10 +340,7 @@ fn restore_with(
                 format!(" {serial}")
             };
             let relative = parent.join(format!("{stem} 同步恢复{suffix}{extension}"));
-            if reserved.iter().any(|p| {
-                p.to_string_lossy().replace('\\', "/").to_lowercase()
-                    == relative.to_string_lossy().replace('\\', "/").to_lowercase()
-            }) {
+            if reserved.contains(&crate::index::key(&relative)) {
                 continue;
             }
             let destination = vault.regular_file_path(&relative)?;
