@@ -1689,6 +1689,25 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 完整证据为 `target/audit-20261018/consolidated-{workspace-tests,release,package-tests,tool-tests}.log`。
 没有重跑 vendor 独立回归，亦未以本次构建替代安装包、原生界面或 Windows 验收。
 
+第一百四十二批当前 release 最小窗口原生检查：
+
+- 代码 `856f13c3ba6c46ca83f294b3799b6c66dfcf943c`，复用上一批验证的 release。
+  隔离 bundle `app.inkstone.performance-587327151b8a47babd8a987e39fa59b3`，
+  独立应用数据与 16 篇生成笔记；通过已有最小窗口环境开关启动为 800×500 逻辑
+  像素，截图 1600×1000。两侧栏打开，深色、16 字号、实时预览。
+- 设置面板可显示；粘贴“行号”后搜索结果可进入对应分组，Tab 导航能滚动并揭示
+  行号开关，空格切换后 AX 显示 on，编辑区显示行号。正常菜单退出后配置文件
+  line_numbers=true；重新启动仍显示行号，确认此次偏好保存和恢复有效。
+- **待解决发现**：开启行号后，行号栏及当前行底色疑似越过编辑区左边界进入
+  左侧栏。重开后截图仍可见，应核对绘制/裁剪几何并回归，不能判整体布局通过。
+  自动化 typeText 的中文输入及滚动指令未得到预期变化，改用粘贴和键盘完成操作；
+  本轮不作为原生输入法或鼠标滚轮验收证据，也未进行 VoiceOver 操作。
+- 两次实例均通过应用菜单正常退出，PID 66144、66201 已结束；16 篇 Markdown
+  与生成器字节完全一致。证据保留在 `target/audit-20261018/native-minimum-current/`：
+  preparation.json、verification.json、saved-preferences.json，以及 loaded、settings、
+  keyboard-focus、line-numbers-on、restored-final 的 AX/PNG。initial 和 restored
+  截图为加载中状态，不作为加载完成证据。部分 AX 文件为差异输出。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
