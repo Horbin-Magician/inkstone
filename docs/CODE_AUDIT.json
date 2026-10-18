@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "66326b913f328315d21296512d6cd45cffa4d00a",
+  "snapshot_revision": "8cd6ed44cb4b90f623988fbac13803d0a3772214",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -407,6 +407,26 @@
       "path": "crates/inkstone-desktop/src/workspace/tree_name.rs",
       "checks": "UI-only placeholder, parent expansion and focus, cancellation, composition guard, invalid names/collisions, dirty/save/conflict gates and retained rename target",
       "result": "No new actionable finding in this full read. Source unchanged since batch 152 desktop regression; relevant existing tests inspected, native acceptance still separate."
+    },
+    {
+      "path": "crates/inkstone-core/src/changed_range.rs",
+      "checks": "64-byte common prefix/suffix scan, scalar boundary restoration and all-alignment reconstruction tests",
+      "result": "No new actionable finding. Source unchanged since batch 152 full regression; deadline is not an end-to-end latency guarantee."
+    },
+    {
+      "path": "crates/inkstone-core/src/text_changes.rs",
+      "checks": "unchanged span trimming, line/character diff deadline and size fallback, ordered edit reconstruction",
+      "result": "No new actionable finding. Source unchanged since batch 152 full regression; deadline is not an end-to-end latency guarantee."
+    },
+    {
+      "path": "crates/inkstone-core/src/word_count.rs",
+      "checks": "lazy regex initialization, static character classes, UTF-16 character counts and complete-frontmatter exclusion",
+      "result": "No new actionable finding. Source unchanged since batch 152 full regression; deadline is not an end-to-end latency guarantee."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/counts.rs",
+      "checks": "editor identity/revision/selection cache, unchanged pending reuse, background debounce, stale result guard and property cache",
+      "result": "No new actionable finding. Source unchanged since batch 152 full regression; deadline is not an end-to-end latency guarantee."
     }
   ],
   "pending_reconciliation": [
@@ -420,7 +440,6 @@
     "crates/inkstone-core/examples/projection_benchmark.rs",
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
     "crates/inkstone-core/src/batch.rs",
-    "crates/inkstone-core/src/changed_range.rs",
     "crates/inkstone-core/src/comments.rs",
     "crates/inkstone-core/src/graphics.rs",
     "crates/inkstone-core/src/index/parsing.rs",
@@ -444,7 +463,6 @@
     "crates/inkstone-core/src/syntax.rs",
     "crates/inkstone-core/src/syntax/incremental.rs",
     "crates/inkstone-core/src/tables.rs",
-    "crates/inkstone-core/src/text_changes.rs",
     "crates/inkstone-core/src/updates.rs",
     "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/attachments.rs",
@@ -469,14 +487,12 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-core/src/vault/trash_metadata.rs",
     "crates/inkstone-core/src/wiki_links.rs",
-    "crates/inkstone-core/src/word_count.rs",
     "crates/inkstone-core/src/yaml_source.rs",
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/app_icon.rs",
     "crates/inkstone-desktop/src/app_menu.rs",
     "crates/inkstone-desktop/src/editor.rs",
     "crates/inkstone-desktop/src/editor/code_blocks.rs",
-    "crates/inkstone-desktop/src/editor/counts.rs",
     "crates/inkstone-desktop/src/editor/editing.rs",
     "crates/inkstone-desktop/src/editor/font_zoom.rs",
     "crates/inkstone-desktop/src/editor/footnotes.rs",
