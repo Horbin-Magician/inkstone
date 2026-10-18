@@ -233,18 +233,20 @@ impl Workspace {
         if r.loading {
             return;
         }
-        let Some(plan) = &r.plan else {
+        let Some(plan) = r.plan.clone() else {
             return;
         };
-        let edits: Vec<_> = r
+        let selected: Vec<_> = r
             .selected
             .iter()
-            .filter_map(|i| plan.edits.get(*i).cloned())
+            .copied()
+            .filter(|i| *i < plan.edits.len())
             .collect();
-        if edits.is_empty() {
+        if selected.is_empty() {
             return;
         }
-        let stale = edits.iter().any(|e| {
+        let stale = selected.iter().any(|i| {
+            let e = &plan.edits[*i];
             self.tabs.iter().filter(|t| t.path == e.path).any(|t| {
                 t.save.persistence.is_saving()
                     || t.save.persistence.has_conflict()
@@ -274,9 +276,14 @@ impl Workspace {
             r.selected.clear();
             r.message = "正在应用已审阅修改，每篇笔记保存前会记录版本……".into();
         }
-        let task = cx
-            .background_executor()
-            .spawn(async move { batch::apply(&vault, edits) });
+        let task = cx.background_executor().spawn(async move {
+            let edits = selected
+                .into_iter()
+                .map(|i| plan.edits[i].clone())
+                .collect();
+            drop(plan);
+            batch::apply(&vault, edits)
+        });
         cx.spawn_in(window,async move|this,cx|{let result=task.await;let _=this.update_in(cx,|this,w,cx|{
             this.file_writes.finish(write_ticket);if this.generation!=generation{return;}
             this.flush_document_views(w,cx);
