@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 
 from file_hash import sha256 as digest
+from process_log import run_logged
 
 
 def metrics(stdout):
@@ -80,10 +81,7 @@ def main():
         for iteration in range(3):
             label = f'{count}-{iteration + 1}'
             command = ['/usr/bin/time', '-l', str(binary), str(count), '1', str(root / f'{label}-fixture')]
-            completed = subprocess.run(command, capture_output=True, text=True)
-            (root / f'{label}.stdout').write_text(completed.stdout)
-            (root / f'{label}.stderr').write_text(completed.stderr)
-            completed.check_returncode()
+            completed = run_logged(command, root / f'{label}.stdout', root / f'{label}.stderr')
             if 'profile=release backend_only=true' not in completed.stdout:
                 raise ValueError('runner requires release backend benchmark')
             fixture_root = root / f'{label}-fixture'

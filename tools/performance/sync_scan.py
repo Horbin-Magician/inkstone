@@ -11,6 +11,7 @@ import sys
 import tempfile
 
 from file_hash import sha256
+from process_log import run_logged
 
 
 def main():
@@ -55,14 +56,12 @@ def main():
     for round_number in range(1, 4):
         for fixture in manifest["fixtures"]:
             name = fixture["name"]
-            result = subprocess.run(
+            result = run_logged(
                 ["/usr/bin/time", "-l", str(binary), str(root / name),
                  str(root / f"recovery-{name}-{round_number}")],
-                capture_output=True, text=True,
+                root / f"{name}-{round_number}.stdout",
+                root / f"{name}-{round_number}.time",
             )
-            (root / f"{name}-{round_number}.stdout").write_text(result.stdout)
-            (root / f"{name}-{round_number}.time").write_text(result.stderr)
-            result.check_returncode()
             measured = json.loads(result.stdout)
             assert measured["files"] == fixture["count"]
             assert measured["bytes"] == fixture["bytes"]

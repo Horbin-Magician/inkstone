@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 
 from file_hash import sha256
+from process_log import run_logged
 
 
 def main():
@@ -49,12 +50,10 @@ def main():
         modes = ["whole", "buffered", "metadata"]
         modes = modes[iteration:] + modes[:iteration]
         for mode in modes:
-            result = subprocess.run(
+            result = run_logged(
                 ["/usr/bin/time", "-l", str(binary), mode, str(fixture)],
-                capture_output=True, text=True,
+                root / f"{mode}-{iteration}.log",
             )
-            (root / f"{mode}-{iteration}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
-            result.check_returncode()
             if mode == "metadata":
                 assert "root=/synthetic/vault relative=中文.md" in result.stdout
             else:
