@@ -58,10 +58,11 @@ def main():
             result = subprocess.run(
                 ["/usr/bin/time", "-l", str(binary), str(root / name),
                  str(root / f"recovery-{name}-{round_number}")],
-                capture_output=True, text=True, check=True,
+                capture_output=True, text=True,
             )
             (root / f"{name}-{round_number}.stdout").write_text(result.stdout)
             (root / f"{name}-{round_number}.time").write_text(result.stderr)
+            result.check_returncode()
             measured = json.loads(result.stdout)
             assert measured["files"] == fixture["count"]
             assert measured["bytes"] == fixture["bytes"]
