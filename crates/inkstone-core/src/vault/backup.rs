@@ -109,7 +109,10 @@ pub(super) fn transfer(source: &Path, destination: Option<&Path>) -> io::Result<
     let mut bytes = 0u64;
     let mut buffer = [0; 65536];
     loop {
-        let n = input.read(&mut buffer)?;
+        let n = match input.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
         if n == 0 {
             break;
         }

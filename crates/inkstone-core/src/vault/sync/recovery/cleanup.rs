@@ -69,7 +69,10 @@ fn verify_entry(vault: &Vault, entry: &Entry, cancellation: &Cancellation) -> Re
     let mut buffer = [0u8; 64 * 1024];
     loop {
         check_cancellation(cancellation)?;
-        let count = source.0.read(&mut buffer)?;
+        let count = match source.0.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
         if count == 0 {
             break;
         }

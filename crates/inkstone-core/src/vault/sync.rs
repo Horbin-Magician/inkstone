@@ -235,7 +235,10 @@ fn fingerprint(path: &Path, cancellation: &Cancellation) -> Result<Option<(Strin
     let mut bytes = 0u64;
     loop {
         cancellation.check()?;
-        let count = file.read(&mut buffer)?;
+        let count = match file.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
         if count == 0 {
             break;
         }
