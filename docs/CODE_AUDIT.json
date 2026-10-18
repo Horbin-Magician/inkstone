@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "76c69d702f4fce08332a662b93e3af2a6d0e51ec",
+  "snapshot_revision": "4ed9b991f4b0a743b533a2a9490989b4ae9aca37",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -447,6 +447,16 @@
       "path": "crates/inkstone-desktop/src/workspace/save_coordinator.rs",
       "checks": "queued draft invalidation before dispatch, mutex ordering, authoritative save result and owned-draft cleanup only after success",
       "result": "No new actionable finding in full read; existing conflict and cleanup test inspected."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/drafts.rs",
+      "checks": "debounce/max-delay/retry, owner and revision guards, composition exclusion, clean-state cleanup and all lifecycle fixtures",
+      "result": "Fixed timestamp-only concurrent test fixture collisions in 4ed9b99. Four tests pass in two parallel runs; no application change."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/drafts.rs",
+      "checks": "summary scope and metadata, reviewed-record validation, publish-before-retire, failed publication tracking, owned cleanup and restart fixtures",
+      "result": "No new actionable finding in full source/test read; filesystem race and platform acceptance remain separate."
     }
   ],
   "pending_reconciliation": [
@@ -492,7 +502,6 @@
     "crates/inkstone-core/src/vault/backup/interrupted.rs",
     "crates/inkstone-core/src/vault/backup/origin.rs",
     "crates/inkstone-core/src/vault/backup/retention.rs",
-    "crates/inkstone-core/src/vault/drafts.rs",
     "crates/inkstone-core/src/vault/export.rs",
     "crates/inkstone-core/src/vault/history.rs",
     "crates/inkstone-core/src/vault/history/catalog.rs",
@@ -546,7 +555,6 @@
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/conflicts.rs",
-    "crates/inkstone-desktop/src/workspace/drafts.rs",
     "crates/inkstone-desktop/src/workspace/exports.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
     "crates/inkstone-desktop/src/workspace/file_drop.rs",
