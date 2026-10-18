@@ -167,11 +167,12 @@ impl CompletionProvider for WikiCompletions {
             let Some(start) = before.rfind("[[") else {
                 return Ok(lsp_types::CompletionResponse::Array(vec![]));
             };
-            if !accepts_wiki_completion(&source, start) {
+            let typed = &before[start + 2..];
+            // Reject a finished link or a different line before parsing the document.
+            if typed.contains([']', '\n', '\r', '|']) {
                 return Ok(lsp_types::CompletionResponse::Array(vec![]));
             }
-            let typed = &before[start + 2..];
-            if typed.contains([']', '\n', '\r', '|']) {
+            if !accepts_wiki_completion(&source, start) {
                 return Ok(lsp_types::CompletionResponse::Array(vec![]));
             }
             // GPUI may have auto-closed only the first '['. Absorb either one
