@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "7c570ca9db13c54baa2f127e52984b15707e083a",
+  "snapshot_revision": "33b0b9eb04837cf10817b894785e89dc770229ca",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -337,6 +337,16 @@
       "path": "crates/inkstone-core/src/index/destinations.rs",
       "checks": "validated Markdown destination ranges, escapes, nested delimiters, code spans and angle brackets",
       "result": "No new actionable finding in this read; existing relocation tests pass."
+    },
+    {
+      "path": "crates/inkstone-core/src/file_order.rs",
+      "checks": "natural numeric ordering without integer overflow, ASCII/Unicode parity, deterministic ties, folder priority, date direction and missing timestamps",
+      "result": "No new actionable finding; all three existing tests pass."
+    },
+    {
+      "path": "crates/inkstone-core/src/locations.rs",
+      "checks": "note link formats, directory identity, attachment escaping and placement containment, relocation and relative paths",
+      "result": "Fixed incorrect shortest links across case-distinct directories in 33b0b9e; four existing tests including extended round-trip fixture pass."
     }
   ],
   "pending_reconciliation": [
@@ -352,14 +362,12 @@
     "crates/inkstone-core/src/batch.rs",
     "crates/inkstone-core/src/changed_range.rs",
     "crates/inkstone-core/src/comments.rs",
-    "crates/inkstone-core/src/file_order.rs",
     "crates/inkstone-core/src/graphics.rs",
     "crates/inkstone-core/src/index/parsing.rs",
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/lib.rs",
     "crates/inkstone-core/src/line_edit.rs",
     "crates/inkstone-core/src/link_audit.rs",
-    "crates/inkstone-core/src/locations.rs",
     "crates/inkstone-core/src/markdown.rs",
     "crates/inkstone-core/src/markdown_edit.rs",
     "crates/inkstone-core/src/markdown_edit/indentation.rs",
