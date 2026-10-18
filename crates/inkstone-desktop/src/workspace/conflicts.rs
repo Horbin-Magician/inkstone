@@ -6,6 +6,17 @@ use gpui_component::{
 };
 use std::rc::Rc;
 
+fn conflict_text(id: &'static str, value: impl Into<String>) -> gpui::Stateful<gpui::Div> {
+    let value = value.into();
+    div()
+        .id(id)
+        .role(Role::Label)
+        .aria_label(value.clone())
+        .min_w_0()
+        .whitespace_normal()
+        .child(value)
+}
+
 pub(super) struct Review {
     document: Rc<document::DocumentState>,
     path: PathBuf,
@@ -238,11 +249,11 @@ impl Workspace {
         };
         let disabled = !review.ready || self.file_writes.operation_active();
         div().id("conflict-content").overflow_y_scroll().flex().flex_col().min_h_0().gap_2()
-            .child(review.path.to_string_lossy().to_string())
-            .child("差异：减号为磁盘内容，加号为本地编辑。")
-            .when(!review.message.is_empty(), |s| s.child(review.message.clone()))
+            .child(conflict_text("conflict-path", review.path.to_string_lossy().to_string()))
+            .child(conflict_text("conflict-diff-description", "差异：减号为磁盘内容，加号为本地编辑。"))
+            .when(!review.message.is_empty(), |s| s.child(conflict_text("conflict-message", review.message.clone())))
             .child(Textarea::new(&review.preview).readonly(true).h(px(300.)))
-            .child("处理前会保留本地草稿；保存时再次检查磁盘版本。需要手动合并时，可关闭此窗口在正文中编辑，再重新比较。")
+            .child(conflict_text("conflict-resolution-description", "处理前会保留本地草稿；保存时再次检查磁盘版本。需要手动合并时，可关闭此窗口在正文中编辑，再重新比较。"))
             .child(div().flex().flex_wrap().gap_2()
                 .child(Button::new("conflict-refresh").label("重新比较").disabled(self.file_writes.operation_active())
                     .on_click(cx.listener(|this, _, w, cx| this.open_conflict_review(w, cx))))
@@ -258,6 +269,24 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    fn conflict_details_expose_full_labels_without_adding_focus_targets() {
+        use gpui::{Element, accesskit};
+        for text in [
+            format!("{}/笔记👩‍💻.md", "长目录/".repeat(30)),
+            "比较后本地内容已变化，请重新比较。".to_owned(),
+            "正在读取磁盘版本……".to_owned(),
+        ] {
+            let element = conflict_text("conflict-detail", text.clone());
+            assert_eq!(element.a11y_role(), Some(Role::Label));
+            let mut node = accesskit::Node::new(Role::Label);
+            element.write_a11y_info(&mut node);
+            assert_eq!(node.label(), Some(text.as_str()));
+            assert!(!node.supports_action(accesskit::Action::Focus));
+            assert!(!node.supports_action(accesskit::Action::Click));
+        }
+    }
 
     #[gpui::test]
     fn conflict_review_rejects_stale_disk_and_preserves_edits_during_resolution(
