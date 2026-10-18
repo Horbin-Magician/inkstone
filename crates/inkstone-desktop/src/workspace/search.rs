@@ -131,6 +131,7 @@ impl Workspace {
         let drafts: std::collections::BTreeMap<_, _> = self
             .tabs
             .iter()
+            .filter(|t| !t.path.as_os_str().is_empty())
             .filter(|t| seen.insert(t.save.editor.entity_id()))
             .filter(|t| !t.save.editor.read(cx).is_composing())
             .filter_map(|t| {
@@ -266,6 +267,38 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn blank_tabs_do_not_create_search_results(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                Arc::make_mut(&mut w.index).update("note.md".into(), "saved text".into());
+                w.add_tab(
+                    "note.md".into(),
+                    Some("draft text".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.new_blank(window, cx);
+                w.fulltext = true;
+                w.search
+                    .update(cx, |s, cx| s.set_value("-absent", window, cx));
+                w.run_search(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert_eq!(w.search_results.len(), 1);
+                assert_eq!(w.search_results[0].path, PathBuf::from("note.md"));
+                assert_eq!(w.search_results[0].excerpt, "draft text");
+                assert_eq!(w.index.notes[&PathBuf::from("note.md")].text, "saved text");
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn typing_debounces_latest_query_cancels_old_work_and_clears_immediately(
         cx: &mut TestAppContext,
