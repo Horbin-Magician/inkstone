@@ -498,6 +498,7 @@ impl Vault {
         max_age: std::time::Duration,
         max_bytes: u64,
     ) -> io::Result<()> {
+        let ownership = history::links::Ownership::load(self).map_err(io::Error::other)?;
         let mut saved = Vec::new();
         let mut protected = std::collections::BTreeSet::new();
         for entry in fs::read_dir(&self.recovery_dir)? {
@@ -524,8 +525,10 @@ impl Vault {
             let Ok(note_path) = self.path(&record.relative) else {
                 continue;
             };
+            // Retention follows current ownership; the old path may now be a different note.
+            let owner = ownership.owner(&path, &record.relative).to_path_buf();
             if !completed {
-                protected.insert(record.relative);
+                protected.insert(owner);
                 continue;
             }
             let backup = note_path.parent().unwrap().join(format!(
@@ -541,7 +544,7 @@ impl Vault {
                 .filter(|_| regular_backup)
                 .map_or(0, |m| m.len());
             if backup_meta.is_some() && !regular_backup {
-                protected.insert(record.relative.clone());
+                protected.insert(owner.clone());
             }
             if regular_backup {
                 // A Unix writer can keep an old inode open after the swap. Its
@@ -552,12 +555,12 @@ impl Vault {
                         && fs::read(&backup).is_ok_and(|bytes| bytes == baseline.as_bytes())
                 });
                 if !unchanged {
-                    protected.insert(record.relative.clone());
+                    protected.insert(owner.clone());
                 }
             }
             saved.push((
                 path,
-                record.relative,
+                owner,
                 meta.modified()?,
                 meta.len().saturating_add(backup_size),
                 backup,
@@ -1134,6 +1137,38 @@ mod tests {
         assert_eq!(result, 42);
         assert!(!temp.exists());
         assert_eq!(fs::read_to_string(published).unwrap(), "full draft");
+    }
+    #[test]
+    fn retention_keeps_latest_for_renamed_note_when_old_path_is_reused() {
+        let s = Sandbox::new();
+        let old = Path::new("旧名.md");
+        let renamed = Path::new("新名.md");
+        s.1.save(old, None, "原笔记").unwrap();
+        s.1.rename_note(old, renamed, "原笔记").unwrap();
+        let fresh = s.1.create(old, "另一篇笔记").unwrap();
+        // Make ordering deterministic regardless of filesystem timestamp precision.
+        fs::File::options()
+            .write(true)
+            .open(&fresh.recovery)
+            .unwrap()
+            .set_modified(SystemTime::now() + std::time::Duration::from_secs(60))
+            .unwrap();
+        s.1.cleanup_history_with_policy(std::time::Duration::ZERO, 0)
+            .unwrap();
+        for (note, text) in [(renamed, "原笔记"), (old, "另一篇笔记")] {
+            let entries = s.1.history(note).unwrap();
+            assert_eq!(
+                entries.len(),
+                1,
+                "latest history must survive for {}",
+                note.display()
+            );
+            assert_eq!(
+                s.1.read_history(note, &entries[0].journal).unwrap().draft,
+                text
+            );
+            assert_eq!(s.1.read(note).unwrap().as_deref(), Some(text));
+        }
     }
     #[test]
     fn safe_save_reopen_preserves_exact_markdown() {
