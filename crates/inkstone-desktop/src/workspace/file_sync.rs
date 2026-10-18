@@ -42,6 +42,12 @@ impl Workspace {
         if self.loading || self.file_writes.operation_active() {
             return;
         }
+        if self.refreshing {
+            // Import/sync completions can request a refresh before the tick loop.
+            // Keep their queued changes for a pass after the current result lands.
+            self.refresh_requested = true;
+            return;
+        }
         let Some(vault) = self.vault.clone() else {
             return;
         };
@@ -380,6 +386,70 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     use std::path::Path;
+
+    #[gpui::test]
+    fn overlapping_refresh_requests_keep_changes_for_the_next_pass(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-overlapping-refresh-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "original").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.watcher = None;
+                w.watch_events = None;
+                w.refresh(window, cx);
+                assert!(w.refreshing);
+                std::fs::write(root.join("a.md"), "latest").unwrap();
+                std::fs::write(root.join("new.md"), "imported").unwrap();
+                w.note_indexed_change("a.md".into(), "latest".into(), cx);
+                w.changed_paths.insert("new.md".into());
+                w.rescan = true;
+                w.refresh(window, cx);
+                assert!(
+                    w.refresh_requested,
+                    "overlapping refresh must remain queued"
+                );
+                assert_eq!(
+                    w.known_writes.get(Path::new("a.md")).map(String::as_str),
+                    Some("latest")
+                );
+                assert!(w.changed_paths.contains(Path::new("new.md")));
+                assert!(w.rescan);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.refreshing);
+                assert!(w.refresh_requested);
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, _| {
+                assert!(!w.refreshing);
+                assert!(!w.refresh_requested);
+                assert_eq!(w.index.notes[Path::new("a.md")].text, "latest");
+                assert_eq!(w.index.notes[Path::new("new.md")].text, "imported");
+                assert_eq!(
+                    w.tabs[0].save.persistence.baseline().as_deref(),
+                    Some("latest")
+                );
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn vault_switch_releases_old_refresh_and_defers_new_refreshes(cx: &mut TestAppContext) {
