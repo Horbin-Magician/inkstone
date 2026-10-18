@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "481461cfbf4cb6a1239f8b8c59f39143016eefb1",
+  "snapshot_revision": "ad32adf6f203e15ba8243905e3e031b11b924004",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1482,6 +1482,16 @@
       "path": "vendor/gpui-base/src/dock/layout/edit.rs",
       "checks": "Complete read: tab/split insertion and sizing, detach/move behavior, active-index preservation, measured slot adoption, normalization and change reporting. Validate move destination before detaching; clamp active index before change comparison.",
       "result": "Both new assertions fail on prior implementations. Invalid-move fix passes default/test-support dock suites each 152 tests; subsequent selection fix passes default 152 tests. Workspace all-targets Clippy passes. Native drag/restore acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/state.rs",
+      "checks": "Complete read: Persisted schema and serde tags, optional docks, axis/size/index accessors and shipped-layout compatibility; corrected obsolete claim that Base has no Panel trait.",
+      "result": "Default/test-support Base dock suites each pass 152 tests; workspace all-targets Clippy passes. Optimization preserves existing conversion semantics; no measured load-time improvement or native restore acceptance claimed."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/state_convert.rs",
+      "checks": "Complete read: Tree/state conversion, root wrapping, nested tabs, legacy empty groups, size sentinel handling, unknown payload preservation and round-trip fixtures. Move wrapped root and collect panel IDs into one output vector instead of per-leaf temporary vectors.",
+      "result": "Default/test-support Base dock suites each pass 152 tests; workspace all-targets Clippy passes. Optimization preserves existing conversion semantics; no measured load-time improvement or native restore acceptance claimed."
     }
   ],
   "pending_reconciliation": [
@@ -1491,8 +1501,6 @@
     "vendor/gpui-base/src/dock/drag.rs",
     "vendor/gpui-base/src/dock/mod.rs",
     "vendor/gpui-base/src/dock/panel.rs",
-    "vendor/gpui-base/src/dock/state.rs",
-    "vendor/gpui-base/src/dock/state_convert.rs",
     "vendor/gpui-base/src/dock/tab_group.rs",
     "vendor/gpui-base/src/dock/test_support.rs",
     "vendor/gpui-base/src/element_ext.rs",
