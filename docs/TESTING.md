@@ -3144,6 +3144,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - Component dock:: 默认/观察配置各 27 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、修改文件 rustfmt 与 diff 检查通过，日志 `target/audit-20261019/dock-initial-scroll-{prepare,tests,observed-tests,clippy}.log`。未重跑完整工作区或原生截图验收。
 - tab_panel.rs 全文已在此前批次读取，本批关闭其首帧滚动待查项并加入已核对清单；台账唯一性和 tracked 范围一致性检查通过，更新为 308 已核对、420 待核对，总范围 728。该计数仍仅表示源码审核。
 
+第二百七十七批审核与验证：
+
+- 沿 PopupMenu 键盘路径核对选择与循环逻辑。首次 Down 直接选择索引 0；向下循环也回到 0；无可操作项时 Up/Down 同样写入 0。真实按键回归在旧实现失败：开头含禁用项/分隔线/标题时得到 Some(0) 而非 Some(3)，全禁用菜单得到 Some(0) 而非 None（`menu-navigation-red.log`）。
+- 提交 `d246ecd` 统一只从 clickable_menu_items 选择前后项及循环端点，选中状态支持 None；子菜单入口也选择首个可操作条目。回归覆盖首次上下选择、双向循环、跳过普通及自定义禁用项/标题/分隔线、空菜单及全禁用菜单。
+- Component 默认/观察全量分别 582/590 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、修改文件 rustfmt 和 diff 检查通过，日志 `target/audit-20261019/menu-navigation-{prepare,tests,observed-tests,clippy}.log`。保留既有 block 0.1.6 提示。
+- 本批未完整读取 PopupMenu 全部构建/渲染实现，不新增整文件审核计数，仍为 308 已核对、420 待核对；未进行原生菜单、读屏或 Windows 验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
