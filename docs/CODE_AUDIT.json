@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "8170d9f275bcf9a6e0f4a5bf50014c826c82067a",
+  "snapshot_revision": "755559894199f40189f799d087e10a70ea83883d",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1222,6 +1222,26 @@
       "path": "vendor/gpui-base/src/undo_history.rs",
       "checks": "Transaction ordering, grouping boundaries, ignoring mode, caps and redo retention",
       "result": "All 14 undo history cases passed; no new actionable finding."
+    },
+    {
+      "path": "vendor/gpui-base/src/list_settings.rs",
+      "checks": "Global list highlight setting and serialization default",
+      "result": "No new actionable finding."
+    },
+    {
+      "path": "vendor/gpui-base/src/global_state.rs",
+      "checks": "Deferred popup token lifetime, idempotent initialization, selection suppression and frame ordering",
+      "result": "Two regression tests passed; no new actionable finding."
+    },
+    {
+      "path": "vendor/gpui-base/src/scrollable_mask.rs",
+      "checks": "Capture-phase gesture handling, axis locks, occlusion, horizontal consumption and vertical ancestor chaining",
+      "result": "16 regression tests passed; no new actionable finding."
+    },
+    {
+      "path": "vendor/gpui-base/src/virtual_list.rs",
+      "checks": "Cached size prefix sums, direction/gap invalidation, visible range search, deferred scrolling and inferred dimensions",
+      "result": "Fixed stale extents after gap/axis changes with a failing-before regression; consolidated duplicate inferred sizing branches. Nine tests passed. Native performance and platform validation remain outstanding."
     }
   ],
   "pending_reconciliation": [
@@ -1260,7 +1280,6 @@
     "vendor/gpui-base/src/dock/test_support.rs",
     "vendor/gpui-base/src/element_ext.rs",
     "vendor/gpui-base/src/focus_trap.rs",
-    "vendor/gpui-base/src/global_state.rs",
     "vendor/gpui-base/src/hover_card.rs",
     "vendor/gpui-base/src/input/base/blink_cursor.rs",
     "vendor/gpui-base/src/input/base/cursor.rs",
@@ -1306,7 +1325,6 @@
     "vendor/gpui-base/src/input/textarea/mod.rs",
     "vendor/gpui-base/src/lib.rs",
     "vendor/gpui-base/src/link.rs",
-    "vendor/gpui-base/src/list_settings.rs",
     "vendor/gpui-base/src/macos_accessibility.rs",
     "vendor/gpui-base/src/motion.rs",
     "vendor/gpui-base/src/motion/easing.rs",
@@ -1359,7 +1377,6 @@
     "vendor/gpui-base/src/resizable/resize_handle.rs",
     "vendor/gpui-base/src/root.rs",
     "vendor/gpui-base/src/scroll_bounce.rs",
-    "vendor/gpui-base/src/scrollable_mask.rs",
     "vendor/gpui-base/src/scrollbar.rs",
     "vendor/gpui-base/src/select.rs",
     "vendor/gpui-base/src/selectable_text.rs",
@@ -1402,7 +1419,6 @@
     "vendor/gpui-base/src/tooltip.rs",
     "vendor/gpui-base/src/touch_selection.rs",
     "vendor/gpui-base/src/tree.rs",
-    "vendor/gpui-base/src/virtual_list.rs",
     "vendor/gpui-base/tests/element_ext.rs",
     "vendor/gpui-component/locales/ui.yml",
     "vendor/gpui-component/src/accordion.rs",
