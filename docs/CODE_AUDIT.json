@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "56c52f8359879d9fc15ebd1173711b6d5ce179cc",
+  "snapshot_revision": "7c64a8c50d83b693b6f9f85c5fadfb6a0f2be9a8",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -127,6 +127,21 @@
       "path": "packaging/windows/generate_installer_art.py",
       "checks": "fixed output paths, 2x sidebar/header geometry, shared icon and committed-artwork packaging contract",
       "result": "Complete source read; no new actionable defect found. Current macOS package verified separately; artwork generators were not rerun and Windows rendering was not verified."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/downloads.rs",
+      "checks": "Complete read: cache directory/link checks, partial-file naming, upload snapshots, cancellation checks, streamed length/hash validation, verified cache reuse and copy-time revalidation",
+      "result": "No newly confirmed defect in this read. Sources unchanged from consolidated core regression (399 passed, 3 ignored); no tests repeated and no claim of adversarial filesystem race immunity."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/recovery.rs",
+      "checks": "Complete read including tests: bounded descriptors, adjacent payload/path checks, unknown-format protection, metadata-only inventory, missing/unindexed accounting, operation lock, source identity recheck and no-clobber restored copies",
+      "result": "No newly confirmed defect in this read. Sources unchanged from consolidated core regression (399 passed, 3 ignored); no tests repeated and no claim of adversarial filesystem race immunity."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/recovery/retention.rs",
+      "checks": "Complete read including tests: minimum one retained record per original, cutoff ties, protected/in-use records, incomplete inventory exclusion and checked candidate byte sums",
+      "result": "No newly confirmed defect in this read. Sources unchanged from consolidated core regression (399 passed, 3 ignored); no tests repeated and no claim of adversarial filesystem race immunity."
     }
   ],
   "pending_reconciliation": [
@@ -201,11 +216,8 @@
     "crates/inkstone-core/src/vault/history/metadata.rs",
     "crates/inkstone-core/src/vault/history/records.rs",
     "crates/inkstone-core/src/vault/sync.rs",
-    "crates/inkstone-core/src/vault/sync/downloads.rs",
-    "crates/inkstone-core/src/vault/sync/recovery.rs",
     "crates/inkstone-core/src/vault/sync/recovery/cleanup.rs",
     "crates/inkstone-core/src/vault/sync/recovery/residue.rs",
-    "crates/inkstone-core/src/vault/sync/recovery/retention.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
