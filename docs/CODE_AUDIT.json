@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "9966e3a7390ef234209174e14bfcf7dca165ef2c",
+  "snapshot_revision": "e2e5f4311cb1c2eee4001ea720e7a7abde976905",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1422,13 +1422,17 @@
       "path": "vendor/gpui-base/src/alert_dialog.rs",
       "checks": "Complete read: alert modal specialization, non-dismissible backdrop default, content parts, confirm/cancel wrappers and trigger handle/callback forwarding. Removed duplicate pointer-open implementation by delegating AlertDialogTrigger to DialogTrigger.",
       "result": "Default/test-support dialog suites each pass 8 tests, with the existing trigger test extended to both trigger types and one callback per pointer activation. Workspace all-targets Clippy passes. Native keyboard/accessibility acceptance remains pending; Dialog close_on_escape key-context interaction requires separate verification."
+    },
+    {
+      "path": "vendor/gpui-base/src/dialog.rs",
+      "checks": "Complete read across batches 263–264: shared handle state and notifications, trigger/close action routing, modal focus and layers, backdrop hit testing, dismissal veto/order and popup geometry. Confirmed close_on_escape(false) incorrectly removed Enter binding and added confirm-only key context.",
+      "result": "Actual Escape/Enter regression failed before fix and passes after, including explicit Cancel. Base default/test-support dialog suites each pass 9 tests; Component dialog suite passes 8; workspace all-targets Clippy passes. Native focus/accessibility and platform acceptance remain pending."
     }
   ],
   "pending_reconciliation": [
     "vendor/gpui-base/src/calendar.rs",
     "vendor/gpui-base/src/checkbox.rs",
     "vendor/gpui-base/src/color_picker.rs",
-    "vendor/gpui-base/src/dialog.rs",
     "vendor/gpui-base/src/dock/active.rs",
     "vendor/gpui-base/src/dock/dock_area.rs",
     "vendor/gpui-base/src/dock/dock_placement.rs",
