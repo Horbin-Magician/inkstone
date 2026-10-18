@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "541e5756abbe4b0d148562e1256d83945a081484",
+  "snapshot_revision": "bfbde2ed53abc7f0f7cd80a7a89b457d4984e9a5",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1047,6 +1047,11 @@
       "path": "crates/inkstone-desktop/src/workspace/views.rs",
       "checks": "Complete read: close/save coordination, snapshots/restoration, shared-document pending input, view focus, split binding/event subscriptions, synchronization, promotion and closing. Inspected navigation completion identity checks as context.",
       "result": "Fixed split_active replacing an existing split with pending composition (541e575). Now guards both source documents and synchronizes committed split text before replacement. Regression fails on old implementation; 21 split and 2 window-close tests passed, plus workspace all-targets Clippy, formatting and diff checks. Native IME validation remains outstanding."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/navigation.rs",
+      "checks": "Complete read across batches 222/223: pending navigation identity, asynchronous reads and failures, unsaved-source retention, per-view history restoration, relocation and closed records; all twelve regression tests inspected.",
+      "result": "No new actionable finding in this read. Twelve navigation tests passed at bfbde2e, covering focus changes, missing files, independent history/scroll, modified clicks, reopening and drafts/save errors. Consolidated workspace test started separately and not counted as passed until terminal evidence. Native navigation/IME acceptance remains outstanding."
     }
   ],
   "pending_reconciliation": [
@@ -1057,7 +1062,6 @@
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/modal_ui.rs",
-    "crates/inkstone-desktop/src/workspace/navigation.rs",
     "crates/inkstone-desktop/src/workspace/recovery.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
