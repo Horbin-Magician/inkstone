@@ -1131,6 +1131,65 @@ mod tests {
         assert_eq!(fixture.render(cx, false).phase, PresencePhase::Absent);
     }
 
+    #[gpui::test]
+    fn settled_presence_stays_stable_when_reduced_motion_is_disabled(cx: &mut TestAppContext) {
+        cx.update(|cx| cx.set_reduce_motion(true));
+        let fixture = PresenceFixture::open(cx, true);
+        cx.update(|cx| cx.set_reduce_motion(false));
+        let sample = fixture.render(cx, true);
+        assert_eq!(sample.phase, PresencePhase::Present);
+        assert_eq!(sample.status, MotionStatus::Finished);
+        assert_eq!(
+            fixture
+                .window
+                .update(cx, |_, window, cx| window.simulate_next_frame(cx))
+                .unwrap(),
+            0
+        );
+
+        assert_eq!(fixture.render(cx, false).phase, PresencePhase::Exiting);
+        cx.executor().advance_clock(Duration::from_millis(50));
+        assert_eq!(fixture.render(cx, false).progress, 0.5);
+        cx.update(|cx| cx.set_reduce_motion(true));
+        assert_eq!(fixture.render(cx, false).phase, PresencePhase::Absent);
+        fixture
+            .window
+            .update(cx, |_, window, cx| window.simulate_next_frame(cx))
+            .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| cx.set_reduce_motion(false));
+        let sample = fixture.render(cx, false);
+        assert_eq!(sample.phase, PresencePhase::Absent);
+        assert_eq!(sample.status, MotionStatus::Finished);
+        assert!(!sample.should_render());
+        assert_eq!(
+            fixture
+                .window
+                .update(cx, |_, window, cx| window.simulate_next_frame(cx))
+                .unwrap(),
+            0
+        );
+        assert_eq!(fixture.render(cx, true).phase, PresencePhase::Entering);
+        cx.executor().advance_clock(Duration::from_millis(50));
+        assert_eq!(fixture.render(cx, true).progress, 0.5);
+    }
+
+    #[gpui::test]
+    fn initially_absent_presence_does_not_mount_an_exit_animation(cx: &mut TestAppContext) {
+        let fixture = PresenceFixture::open(cx, false);
+        let sample = *fixture.samples.borrow().last().unwrap();
+        assert_eq!(sample.phase, PresencePhase::Absent);
+        assert_eq!(sample.status, MotionStatus::Finished);
+        assert!(!sample.should_render());
+        assert_eq!(
+            fixture
+                .window
+                .update(cx, |_, window, cx| window.simulate_next_frame(cx))
+                .unwrap(),
+            0
+        );
+    }
+
     struct SequenceView {
         steps: Rc<RefCell<Vec<SequenceStep<f32>>>>,
         samples: Rc<RefCell<Vec<SequenceSample<f32>>>>,

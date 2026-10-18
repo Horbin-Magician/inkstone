@@ -72,7 +72,13 @@ impl Presence {
         }
 
         let elapsed = now.saturating_duration_since(snapshot.started_at);
-        let (progress, status) = self.transition.progress(elapsed, snapshot.duration);
+        // A settled value has no remaining transition, even if its old
+        // duration or delay has not elapsed when reduced motion is disabled.
+        let (progress, status) = if snapshot.from == snapshot.target {
+            (1.0, MotionStatus::Finished)
+        } else {
+            self.transition.progress(elapsed, snapshot.duration)
+        };
         let sampled = interpolate(
             snapshot.from,
             snapshot.target,
