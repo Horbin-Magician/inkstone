@@ -72,7 +72,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.modal_is_open() || self.ui.tree_name.is_some() || self.loading {
+        if paths.is_empty() || self.modal_is_open() || self.ui.tree_name.is_some() || self.loading {
             return;
         }
         let vault = self.vault.clone();
@@ -148,7 +148,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.modal_is_open() || self.ui.tree_name.is_some() || self.loading {
+        if paths.is_empty() || self.modal_is_open() || self.ui.tree_name.is_some() || self.loading {
             return;
         }
         let Some(vault) = self.vault.clone() else {
