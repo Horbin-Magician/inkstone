@@ -64,19 +64,25 @@ impl Workspace {
         .detach();
         cx.notify();
     }
+    fn open_link_issue(&mut self, issue: &Issue, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_overlays(window, cx);
+        self.pending_jump = Some((issue.from.clone(), issue.offset));
+        self.open_note(issue.from.clone(), window, cx);
+        self.apply_jump(window, cx);
+    }
     pub(super) fn link_health_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(r) = &self.ui.link_health else {
             return div().into_any_element();
         };
         div().flex().flex_col().gap_2().min_h_0()
-            .child("检查本地笔记、附件、标题与块引用，包含打开正文快照；不访问外部网址。点击问题可打开来源笔记，修改后请重新检查。")
+            .child("检查本地笔记、附件、标题与块引用，包含打开正文快照；不访问外部网址。点击问题可定位到来源笔记中的链接，修改后请重新检查。")
             .child(format!("{} 个待检查问题",r.issues.len()))
             .when(r.loading,|s|s.child("正在检查……"))
             .when(!r.message.is_empty(),|s|s.child(r.message.clone()))
             .when(!r.loading&&r.message.is_empty()&&r.issues.is_empty(),|s|s.child("本次扫描未发现失效的直接引用。"))
             .child(Button::new("link-health-refresh").label("重新检查").disabled(r.loading).on_click(cx.listener(|this,_,w,cx|this.open_link_health(w,cx))))
             .child(uniform_list("link-health-list",r.issues.len(),cx.processor(|this,range:std::ops::Range<usize>,_,cx|{
-                let Some(r)=&this.ui.link_health else{return vec![];};range.filter_map(|i|{let issue=r.issues.get(i)?;let path=issue.from.clone();Some(Button::new(("link-issue",i)).ghost().label(format!("{} · {} → {}",issue.reason,path.display(),issue.target)).on_click(cx.listener(move|this,_,w,cx|{this.close_overlays(w,cx);this.open_note(path.clone(),w,cx);})).into_any_element())}).collect()
+                let Some(r)=&this.ui.link_health else{return vec![];};range.filter_map(|i|{let issue=r.issues.get(i)?;let issue=issue.clone();let path=issue.from.clone();Some(Button::new(("link-issue",i)).ghost().label(format!("{} · {} → {}",issue.reason,path.display(),issue.target)).on_click(cx.listener(move|this,_,w,cx|{this.open_link_issue(&issue,w,cx);})).into_any_element())}).collect()
             })).h(px(320.)).w_full()).into_any_element()
     }
 }
@@ -85,6 +91,60 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn link_issue_navigation_reveals_the_source_offset(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-link-issue-jump-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let text = "# Source\n\n中文😀 前文\n\n[坏链接](missing.md)\n";
+        std::fs::write(root.join("source.md"), text).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.vault = Some(vault);
+                w.open_link_health(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let review = w.ui.link_health.as_ref().unwrap();
+                assert!(!review.loading);
+                assert_eq!(review.issues.len(), 1);
+                let issue = review.issues[0].clone();
+                assert_eq!(issue.offset, text.find("[坏链接]").unwrap());
+                w.open_link_issue(&issue, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert!(w.ui.link_health.is_none());
+                assert!(!w.ui.trash_open);
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("source.md"));
+                assert_eq!(
+                    w.current_pane()
+                        .unwrap()
+                        .read(cx)
+                        .editor
+                        .read(cx)
+                        .selected_range()
+                        .start,
+                    text.find("[坏链接]").unwrap()
+                );
+                assert!(w.pending_jump.is_none());
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("source.md")).unwrap(),
+            text
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn link_health_refresh_includes_external_edits_and_open_drafts(cx: &mut TestAppContext) {
