@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "678544fcde2cc31b7f4ab10ac7f16995cc9d5728",
+  "snapshot_revision": "a2eee65e2aec8d424e8b05b382f5d55273dc1567",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -597,6 +597,21 @@
       "path": "crates/inkstone-desktop/src/workspace/note_files.rs",
       "checks": "Full source read: recovery copies, named-note operation guards, dirty/conflict checks, exclusive ticket and persistence lifecycle, worker rename/trash/link edits, completion generation checks, bookmark/navigation/index relocation, new-note path validation and quick capture.",
       "result": "No new confirmed defect in this read. These files are unchanged since batch 183 full regression; subsequent file_sync change has its own batch 186 tests. This is not a new full-workspace acceptance claim; native settings and file-operation matrix remain open."
+    },
+    {
+      "path": "crates/inkstone-core/src/comments.rs",
+      "checks": "Full source/test read: comment scanning with raw-syntax exclusions, escaped openers, block/editing ranges and reparse after masked content; grapheme word selection, merged multi-selection transformations and byte-preserving masking.",
+      "result": "No new confirmed defect in this read. Source unchanged since batch 183 core regression (402 passed, 3 ignored); no claim of support for all complex YAML editing or exhaustive parser input coverage."
+    },
+    {
+      "path": "crates/inkstone-core/src/properties.rs",
+      "checks": "Full source/test read: typed encoding, YAML list and reserved metadata decoding, frontmatter boundaries, source-preserving property ranges, key validation, rename/remove collision checks and post-edit YAML validation, CRLF and neighbor preservation.",
+      "result": "No new confirmed defect in this read. Source unchanged since batch 183 core regression (402 passed, 3 ignored); no claim of support for all complex YAML editing or exhaustive parser input coverage."
+    },
+    {
+      "path": "crates/inkstone-core/src/yaml_source.rs",
+      "checks": "Full source read: parser character-to-UTF-8 byte offset mapping, top-level mapping scalar keys, compound-key rejection, nested collection value ranges, comments and flow close tracking.",
+      "result": "No new confirmed defect in this read. Source unchanged since batch 183 core regression (402 passed, 3 ignored); no claim of support for all complex YAML editing or exhaustive parser input coverage."
     }
   ],
   "pending_reconciliation": [
@@ -610,7 +625,6 @@
     "crates/inkstone-core/examples/projection_benchmark.rs",
     "crates/inkstone-core/examples/sync_scan_benchmark.rs",
     "crates/inkstone-core/src/batch.rs",
-    "crates/inkstone-core/src/comments.rs",
     "crates/inkstone-core/src/graphics.rs",
     "crates/inkstone-core/src/index/parsing.rs",
     "crates/inkstone-core/src/index/tests.rs",
@@ -623,7 +637,6 @@
     "crates/inkstone-core/src/markdown_edit/renumber.rs",
     "crates/inkstone-core/src/note_embeds.rs",
     "crates/inkstone-core/src/preview.rs",
-    "crates/inkstone-core/src/properties.rs",
     "crates/inkstone-core/src/search.rs",
     "crates/inkstone-core/src/search/group.rs",
     "crates/inkstone-core/src/search/property.rs",
@@ -654,7 +667,6 @@
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-core/src/wiki_links.rs",
-    "crates/inkstone-core/src/yaml_source.rs",
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/editor_links.rs",
