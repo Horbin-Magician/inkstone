@@ -357,6 +357,7 @@ where
 #[derive(Clone, Copy)]
 struct KeyframePlayback {
     started_at: Instant,
+    reduced_motion_finished: bool,
 }
 
 /// Samples a keyed keyframe playback and requests frames while it is active.
@@ -365,6 +366,8 @@ struct KeyframePlayback {
 /// ID continues that playback; it does not restart when `keyframes` or `timing`
 /// is reconstructed. To replay a sequence, include an application-owned
 /// generation in the ID, for example `("notification-enter", generation)`.
+/// Reduced motion finishes this playback at the final keyframe; disabling it
+/// does not resume the old playback. Use a new ID to replay it.
 pub fn animate_keyframes<T>(
     id: impl Into<TransitionId>,
     keyframes: &Keyframes<T>,
@@ -378,17 +381,23 @@ where
     let id: TransitionId = id.into();
     let id = ElementId::NamedChild(ElementId::from(id).into(), "__keyframes".into());
     let now = cx.background_executor().now();
-    let state = window.use_keyed_state(id, cx, |_, _| KeyframePlayback { started_at: now });
-    let started_at = state.read(cx).started_at;
+    let state = window.use_keyed_state(id, cx, |_, _| KeyframePlayback {
+        started_at: now,
+        reduced_motion_finished: false,
+    });
+    let snapshot = *state.read(cx);
 
-    if cx.reduce_motion() {
+    if cx.reduce_motion() || snapshot.reduced_motion_finished {
+        if !snapshot.reduced_motion_finished {
+            state.update(cx, |state, _| state.reduced_motion_finished = true);
+        }
         return MotionValue {
             value: keyframes.sample(1.0),
             status: MotionStatus::Finished,
         };
     }
 
-    let sample = timing.sample(now.saturating_duration_since(started_at));
+    let sample = timing.sample(now.saturating_duration_since(snapshot.started_at));
     let status = match sample.phase {
         MotionPhase::Before => MotionStatus::Delayed,
         MotionPhase::Active => MotionStatus::Running,
@@ -952,6 +961,7 @@ mod tests {
     }
 
     struct KeyframeView {
+        generation: usize,
         track: Keyframes<f32>,
         timing: Timing,
         samples: Rc<RefCell<Vec<MotionValue<f32>>>>,
@@ -964,7 +974,7 @@ mod tests {
             cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
             self.samples.borrow_mut().push(animate_keyframes(
-                "keyframe-test",
+                ElementId::from(("keyframe-test", self.generation)),
                 &self.track,
                 self.timing.clone(),
                 window,
@@ -980,6 +990,7 @@ mod tests {
         let window = cx.open_window(size(px(100.), px(100.)), {
             let samples = samples.clone();
             move |_, _| KeyframeView {
+                generation: 0,
                 track: Keyframes::try_new([Keyframe::new(0.0, 0.0), Keyframe::new(1.0, 10.0)])
                     .unwrap(),
                 timing: Timing::new(Duration::from_millis(100)),
@@ -1020,6 +1031,76 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[gpui::test]
+    fn reduced_motion_finishes_keyframes_until_a_new_generation(cx: &mut TestAppContext) {
+        let samples = Rc::new(RefCell::new(Vec::new()));
+        let window = cx.open_window(size(px(100.), px(100.)), {
+            let samples = samples.clone();
+            move |_, _| KeyframeView {
+                generation: 0,
+                track: Keyframes::try_new([Keyframe::new(0.0, 0.0), Keyframe::new(1.0, 10.0)])
+                    .unwrap(),
+                timing: Timing::new(Duration::from_millis(100)),
+                samples,
+            }
+        });
+        cx.run_until_parked();
+        cx.executor().advance_clock(Duration::from_millis(25));
+        window.update(cx, |_, window, _| window.refresh()).unwrap();
+        cx.run_until_parked();
+        assert_eq!(samples.borrow().last().unwrap().value, 2.5);
+
+        cx.update(|cx| cx.set_reduce_motion(true));
+        window.update(cx, |_, window, _| window.refresh()).unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            *samples.borrow().last().unwrap(),
+            MotionValue {
+                value: 10.0,
+                status: MotionStatus::Finished
+            }
+        );
+        window
+            .update(cx, |_, window, cx| window.simulate_next_frame(cx))
+            .unwrap();
+        cx.run_until_parked();
+        cx.update(|cx| cx.set_reduce_motion(false));
+        window.update(cx, |_, window, _| window.refresh()).unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            *samples.borrow().last().unwrap(),
+            MotionValue {
+                value: 10.0,
+                status: MotionStatus::Finished
+            }
+        );
+        assert_eq!(
+            window
+                .update(cx, |_, window, cx| window.simulate_next_frame(cx))
+                .unwrap(),
+            0
+        );
+
+        window
+            .update(cx, |view, window, _| {
+                view.generation += 1;
+                window.refresh();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(
+            *samples.borrow().last().unwrap(),
+            MotionValue {
+                value: 0.0,
+                status: MotionStatus::Running
+            }
+        );
+        cx.executor().advance_clock(Duration::from_millis(50));
+        window.update(cx, |_, window, _| window.refresh()).unwrap();
+        cx.run_until_parked();
+        assert_eq!(samples.borrow().last().unwrap().value, 5.0);
     }
 
     struct PresenceView {
