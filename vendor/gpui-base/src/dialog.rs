@@ -756,33 +756,56 @@ mod tests {
 
     struct TriggerHarness {
         handle: DialogHandle,
+        alert: bool,
+        opens: Rc<Cell<usize>>,
     }
     impl Render for TriggerHarness {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            DialogTrigger::new(div().size(px(100.))).handle(self.handle.clone())
+            let opens = self.opens.clone();
+            let on_open = move |_: &mut Window, _: &mut App| opens.set(opens.get() + 1);
+            if self.alert {
+                crate::AlertDialogTrigger::new(div().size(px(100.)))
+                    .handle(self.handle.clone())
+                    .on_open(on_open)
+                    .into_any_element()
+            } else {
+                DialogTrigger::new(div().size(px(100.)))
+                    .handle(self.handle.clone())
+                    .on_open(on_open)
+                    .into_any_element()
+            }
         }
     }
 
     #[gpui::test]
     fn trigger_opens_shared_handle_and_reports_reason(cx: &mut gpui::TestAppContext) {
-        let handle = DialogHandle::new(false);
-        let changes = Rc::new(RefCell::new(Vec::new()));
-        *handle.on_open_change.borrow_mut() = Some({
-            let changes = changes.clone();
-            Rc::new(move |open, reason, _, _| changes.borrow_mut().push((open, reason)))
-        });
-        let (_, cx) = cx.add_window_view({
-            let handle = handle.clone();
-            move |_, _| TriggerHarness { handle }
-        });
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-        cx.simulate_click(point(px(20.), px(20.)), Default::default());
+        for alert in [false, true] {
+            let handle = DialogHandle::new(false);
+            let opens = Rc::new(Cell::new(0));
+            let changes = Rc::new(RefCell::new(Vec::new()));
+            *handle.on_open_change.borrow_mut() = Some({
+                let changes = changes.clone();
+                Rc::new(move |open, reason, _, _| changes.borrow_mut().push((open, reason)))
+            });
+            let (_, cx) = cx.add_window_view({
+                let handle = handle.clone();
+                let opens = opens.clone();
+                move |_, _| TriggerHarness {
+                    handle,
+                    alert,
+                    opens,
+                }
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.simulate_click(point(px(20.), px(20.)), Default::default());
 
-        assert!(handle.is_open());
-        assert_eq!(
-            &*changes.borrow(),
-            &[(true, DialogChangeReason::TriggerPress)]
-        );
+            assert!(handle.is_open());
+            assert_eq!(opens.get(), 1);
+            assert_eq!(
+                &*changes.borrow(),
+                &[(true, DialogChangeReason::TriggerPress)]
+            );
+        }
     }
 
     /// The backdrop is the dimming surface every caller hands over as an
