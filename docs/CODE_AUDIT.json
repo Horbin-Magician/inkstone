@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "8cd6ed44cb4b90f623988fbac13803d0a3772214",
+  "snapshot_revision": "4cc842bf71bbe826de2cf12b6a3aa6cab7fa0ea3",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -427,6 +427,16 @@
       "path": "crates/inkstone-desktop/src/editor/counts.rs",
       "checks": "editor identity/revision/selection cache, unchanged pending reuse, background debounce, stale result guard and property cache",
       "result": "No new actionable finding. Source unchanged since batch 152 full regression; deadline is not an end-to-end latency guarantee."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/document.rs",
+      "checks": "owner revision snapshot caching, draft deduplication, shared path relocation, composing/pending view guards and synchronized history",
+      "result": "No new actionable finding in this read; multi-view concurrency still depends on caller tests."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/save_state.rs",
+      "checks": "dirty/baseline transitions, save exclusion, conflict retry, reviewed edits, external changes and journal deduplication",
+      "result": "Fixed empty recovery snapshot sentinel in 4cc842b; six state tests pass."
     }
   ],
   "pending_reconciliation": [
@@ -526,7 +536,6 @@
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/conflicts.rs",
-    "crates/inkstone-desktop/src/workspace/document.rs",
     "crates/inkstone-desktop/src/workspace/drafts.rs",
     "crates/inkstone-desktop/src/workspace/exports.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
@@ -546,7 +555,6 @@
     "crates/inkstone-desktop/src/workspace/recovery_metadata.rs",
     "crates/inkstone-desktop/src/workspace/right_sidebar.rs",
     "crates/inkstone-desktop/src/workspace/save_coordinator.rs",
-    "crates/inkstone-desktop/src/workspace/save_state.rs",
     "crates/inkstone-desktop/src/workspace/saving.rs",
     "crates/inkstone-desktop/src/workspace/search_tools.rs",
     "crates/inkstone-desktop/src/workspace/session.rs",
