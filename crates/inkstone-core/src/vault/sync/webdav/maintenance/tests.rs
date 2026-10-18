@@ -240,7 +240,8 @@ fn manifest_rejects_ambiguous_etags_before_they_can_become_publish_conditions() 
     for headers in [
         "ETag: \"one\", \"two\"\r\n",
         "ETag: \"one\"\r\nETag: \"two\"\r\n",
-        "ETag: W/\"weak\"\r\n",
+        "ETag: W/\"space inside\"\r\n",
+        "ETag: W/\"one\"\r\nETag: \"two\"\r\n",
         "ETag: \"space inside\"\r\n",
         "ETag: *\r\n",
     ] {
@@ -271,5 +272,33 @@ fn manifest_rejects_ambiguous_etags_before_they_can_become_publish_conditions() 
         let requests = task.join().unwrap();
         assert!(requests[2].contains(&format!("if-match: {etag}\r\n")));
     }
+    Ok(())
+}
+
+#[test]
+fn manifest_reloads_body_and_revision_after_a_transient_weak_etag() -> Result<()> {
+    let mut latest = Manifest::default();
+    latest.files.insert("new.md".into(), "a".repeat(64));
+    let (remote, task) = server(vec![
+        reply(404),
+        (200, "ETag: W/\"old\"\r\n".into(), "stale body".into()),
+        manifest_reply(&latest, "latest"),
+    ]);
+    let (manifest, revision) = remote.manifest()?;
+    assert_eq!(manifest.files, latest.files);
+    assert_eq!(revision.as_deref(), Some("\"latest\""));
+    let requests = task.join().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert!(requests.iter().all(|request| request.starts_with("GET ")));
+    assert!(requests[2].contains("cache-control: no-cache"));
+    Ok(())
+}
+
+#[test]
+fn manifest_stops_after_one_retry_for_persistent_weak_etags() -> Result<()> {
+    let weak = (200, "ETag: W/\"weak\"\r\n".into(), String::new());
+    let (remote, task) = server(vec![reply(404), weak.clone(), weak]);
+    assert!(remote.manifest().unwrap_err().to_string().contains("ETag"));
+    assert_eq!(task.join().unwrap().len(), 3);
     Ok(())
 }

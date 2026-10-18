@@ -139,22 +139,37 @@ impl WebDav {
 impl Remote for WebDav {
     fn manifest(&self) -> Result<(Manifest, Option<String>)> {
         self.check_legacy_directory()?;
-        let response = self.send(
-            self.request(Method::GET, "inkstone/manifest.json")
-                .header(header::CACHE_CONTROL, "no-cache"),
-        )?;
-        if response.status() == StatusCode::NOT_FOUND {
-            return Ok((Manifest::default(), None));
-        }
-        let response = Self::status(response)?;
-        let mut tags = response.headers().get_all(header::ETAG).iter();
-        let etag = tags
-            .next()
-            .and_then(|value| value.to_str().ok())
-            .filter(|value| strong_etag(value))
-            .context("WebDAV 服务器未提供单一有效强 ETag，无法安全同步")?
-            .to_owned();
-        ensure!(tags.next().is_none(), "WebDAV 返回多个 ETag，无法安全同步");
+        let mut retried = false;
+        let (response, etag) = loop {
+            let response = self.send(
+                self.request(Method::GET, "inkstone/manifest.json")
+                    .header(header::CACHE_CONTROL, "no-cache"),
+            )?;
+            if response.status() == StatusCode::NOT_FOUND {
+                return Ok((Manifest::default(), None));
+            }
+            let response = Self::status(response)?;
+            let mut tags = response.headers().get_all(header::ETAG).iter();
+            let etag = tags
+                .next()
+                .and_then(|value| value.to_str().ok())
+                .context("WebDAV 服务器未提供单一有效强 ETag，无法安全同步")?;
+            ensure!(tags.next().is_none(), "WebDAV 返回多个 ETag，无法安全同步");
+            if !retried && etag.strip_prefix("W/").is_some_and(strong_etag) {
+                // Apache may mark a freshly written file weak for one second.
+                // Reload both the body and validator; never promote a weak tag.
+                drop(response);
+                std::thread::sleep(Duration::from_millis(1100));
+                retried = true;
+                continue;
+            }
+            ensure!(
+                strong_etag(etag),
+                "WebDAV 服务器未提供单一有效强 ETag，无法安全同步"
+            );
+            let etag = etag.to_owned();
+            break (response, etag);
+        };
         let manifest: Manifest = serde_json::from_slice(&Self::body(response, MAX_MANIFEST_BYTES)?)
             .context("云端同步清单损坏或格式不兼容")?;
         validate_manifest(&manifest)?;
