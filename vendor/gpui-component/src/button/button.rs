@@ -1299,7 +1299,7 @@ impl ButtonVariant {
             Self::Warning => cx.theme().tokens.button_warning.background.opacity(0.15),
             Self::Success => cx.theme().tokens.button_success.background.opacity(0.15),
             Self::Info => cx.theme().tokens.button_info.background.opacity(0.15),
-            Self::Secondary => cx.theme().tokens.button_secondary.background.opacity(1.5),
+            Self::Secondary => cx.theme().tokens.button_secondary.background,
             Self::Custom(style) => style.color.opacity(0.15).into(),
         };
         let fg = cx.theme().muted_foreground.opacity(0.5);
@@ -1317,7 +1317,7 @@ impl ButtonVariant {
         } else {
             let border = match self {
                 Self::Primary => cx.theme().button_primary.opacity(0.15),
-                Self::Secondary => cx.theme().button_secondary.opacity(1.5),
+                Self::Secondary => cx.theme().button_secondary,
                 Self::Danger => cx.theme().button_danger.opacity(0.15),
                 Self::Warning => cx.theme().button_warning.opacity(0.15),
                 Self::Success => cx.theme().button_success.opacity(0.15),
