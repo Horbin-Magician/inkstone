@@ -73,7 +73,6 @@ fn html_escape(value: &str) -> String {
 struct Builder<'a> {
     vault: &'a Vault,
     index: &'a Index,
-    files: Vec<PathBuf>,
     format: Format,
     queue: VecDeque<PathBuf>,
     assets: BTreeSet<PathBuf>,
@@ -135,9 +134,9 @@ impl Builder<'_> {
             target: target.into(),
             wiki,
         };
-        if let Some(asset) = rendering::asset_path(&self.vault.root, &reference, &self.files)
+        if let Some(asset) = rendering::asset_path(&self.vault.root, &reference, &self.index.files)
             && let Ok(path) = asset.strip_prefix(&self.vault.root)
-            && self.files.iter().any(|p| p == path)
+            && self.index.files.iter().any(|p| p == path)
         {
             self.assets.insert(path.into());
             let mut url = relative_url(
@@ -385,7 +384,6 @@ pub fn create(
     let mut builder = Builder {
         vault,
         index: &index,
-        files: vault.scan_files().map_err(io::Error::other)?,
         format,
         queue: VecDeque::from([entry.into()]),
         assets: Default::default(),
