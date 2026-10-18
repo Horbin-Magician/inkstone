@@ -4,7 +4,10 @@ use crate::{
     index::{self, Index, Resolution},
     rendering::{self, Reference},
 };
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::{
+    cell::OnceCell,
+    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
@@ -73,6 +76,7 @@ fn html_escape(value: &str) -> String {
 struct Builder<'a> {
     vault: &'a Vault,
     index: &'a Index,
+    asset_catalog: OnceCell<HashSet<&'a Path>>,
     format: Format,
     queue: VecDeque<PathBuf>,
     scheduled: BTreeSet<PathBuf>,
@@ -144,7 +148,10 @@ impl Builder<'_> {
         };
         if let Some(asset) = rendering::asset_path(&self.vault.root, &reference, &self.index.files)
             && let Ok(path) = asset.strip_prefix(&self.vault.root)
-            && self.index.files.iter().any(|p| p == path)
+            && self
+                .asset_catalog
+                .get_or_init(|| self.index.files.iter().map(PathBuf::as_path).collect())
+                .contains(path)
         {
             self.assets.insert(path.into());
             let mut url = relative_url(
@@ -416,6 +423,7 @@ pub fn create(
     let mut builder = Builder {
         vault,
         index: &index,
+        asset_catalog: OnceCell::new(),
         format,
         queue: VecDeque::from([entry.into()]),
         scheduled: BTreeSet::from([entry.into()]),
@@ -540,6 +548,47 @@ mod tests {
     }
 
     #[test]
+    fn attachment_catalog_still_excludes_files_outside_the_index() {
+        let root = std::env::temp_dir().join(format!("inkstone-export-catalog-{}", unique_id()));
+        fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        fs::write(vault.root.join("allowed.bin"), b"allowed").unwrap();
+        fs::write(vault.root.join("excluded.bin"), b"excluded").unwrap();
+        let mut index = Index::default();
+        index.files.push("allowed.bin".into());
+        let mut builder = Builder {
+            vault: &vault,
+            index: &index,
+            asset_catalog: OnceCell::new(),
+            format: Format::Html,
+            queue: Default::default(),
+            scheduled: Default::default(),
+            assets: Default::default(),
+            warnings: Default::default(),
+        };
+        assert_eq!(
+            builder.destination(Path::new("note.md"), "excluded.bin", false),
+            "#unresolved-link"
+        );
+        assert!(builder.assets.is_empty());
+        for _ in 0..10 {
+            assert_eq!(
+                builder.destination(Path::new("note.md"), "allowed.bin", false),
+                "../assets/allowed%2Ebin"
+            );
+        }
+        assert_eq!(
+            builder.assets,
+            BTreeSet::from([PathBuf::from("allowed.bin")])
+        );
+        assert_eq!(
+            fs::read(vault.root.join("excluded.bin")).unwrap(),
+            b"excluded"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn repeated_and_self_references_schedule_each_note_once() {
         let mut index = Index::default();
         index.update("a.md".into(), "# A".into());
@@ -551,6 +600,7 @@ mod tests {
         let mut builder = Builder {
             vault: &vault,
             index: &index,
+            asset_catalog: OnceCell::new(),
             format: Format::Markdown,
             queue: VecDeque::from(["a.md".into()]),
             scheduled: BTreeSet::from(["a.md".into()]),
