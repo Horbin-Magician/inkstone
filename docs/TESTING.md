@@ -1010,6 +1010,17 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   `target/audit-20261018/anchor-decode-once-{red,core-tests,desktop-tests,clippy}.log`。
   原生鼠标点击与 Windows 环境尚未补充验收。
 
+第八十九批链接修复后的完整回归与发布构建：
+
+- 在干净的 `4b27e2f` 工作区执行完整 `cargo test --locked --workspace`：核心
+  385、桌面 429、集成 8 项通过，8 项既有手动入口忽略。桌面耗时 168.96 秒，
+  字素游标集成测试 19.90 秒；子进程单测输出不重复计数。
+- `cargo build --release --locked -p inkstone-desktop` 成功，耗时 49.93 秒。
+  以上覆盖近期批量计划共享、按需正文复制、附件详情借用、诊断字符串借用，以及
+  Markdown 前导空格和锚点重复解码修复。
+- 日志为 `target/audit-20261018/post-anchor-{workspace-tests,release}.log`。
+  本批未修改生产代码，未将构建结果记作原生 UI、Windows 或真实 WebDAV 验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
