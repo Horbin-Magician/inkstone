@@ -82,16 +82,21 @@ impl FocusTrapManager {
 
     /// Find which focus trap contains the currently focused element
     fn find_active_trap(window: &Window, cx: &App) -> Option<FocusHandle> {
-        for (_id, container_handle) in Self::global(cx).traps.iter() {
+        let mut active: Option<FocusHandle> = None;
+        for container_handle in Self::global(cx).traps.values() {
             let Some(container) = container_handle.upgrade() else {
                 continue;
             };
 
-            if container.contains_focused(window, cx) {
-                return Some(container.clone());
+            if container.contains_focused(window, cx)
+                && active
+                    .as_ref()
+                    .is_none_or(|outer| outer.contains(&container, window))
+            {
+                active = Some(container);
             }
         }
-        None
+        active
     }
 
     /// Cleanup any traps with dropped handles
@@ -225,4 +230,68 @@ impl<E: InteractiveElement + ParentElement + Styled + Element + 'static> Element
 #[doc(hidden)]
 pub fn active_focus_trap(window: &Window, cx: &App) -> Option<FocusHandle> {
     FocusTrapManager::find_active_trap(window, cx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Context, Render, TestAppContext, div};
+
+    struct NestedTraps {
+        outer: FocusHandle,
+        inner: FocusHandle,
+        child: FocusHandle,
+    }
+
+    impl Render for NestedTraps {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .child(
+                    div()
+                        .child(div().track_focus(&self.child))
+                        .focus_trap("inner", &self.inner),
+                )
+                .focus_trap("outer", &self.outer)
+        }
+    }
+
+    #[gpui::test]
+    fn nested_traps_choose_the_innermost_container_in_either_storage_order(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(init);
+        let outer = cx.update(|cx| cx.focus_handle());
+        let inner = cx.update(|cx| cx.focus_handle());
+        let child = cx.update(|cx| cx.focus_handle());
+        let (_, cx) = cx.add_window_view({
+            let outer = outer.clone();
+            let inner = inner.clone();
+            let child = child.clone();
+            move |_, _| NestedTraps {
+                outer,
+                inner,
+                child,
+            }
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|window, cx| {
+            child.focus(window, cx);
+            assert!(outer.contains(&inner, window));
+            assert!(inner.contains_focused(window, cx));
+            // IDs are opaque registration keys; test both value iteration orders
+            // without relying on a randomly seeded HashMap choosing one of them.
+            for handles in [[&outer, &inner], [&inner, &outer]] {
+                let traps = &mut FocusTrapManager::global_mut(cx).traps;
+                assert_eq!(traps.len(), 2);
+                for (slot, handle) in traps.values_mut().zip(handles) {
+                    *slot = handle.downgrade();
+                }
+                assert_eq!(active_focus_trap(window, cx), Some(inner.clone()));
+            }
+            outer.focus(window, cx);
+            assert_eq!(active_focus_trap(window, cx), Some(outer.clone()));
+            window.blur(cx);
+            assert!(active_focus_trap(window, cx).is_none());
+        });
+    }
 }
