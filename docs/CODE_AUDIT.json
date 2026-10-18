@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "1e9d4a1e497eb6ba9a6e4379ffa27630f4c39643",
+  "snapshot_revision": "78a765a13f0b6e2db356579f6f15ada69f54f056",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -537,6 +537,21 @@
       "path": "crates/inkstone-desktop/src/editor/live_tasks.rs",
       "checks": "Full production/test read: source-baseline task targets, accessible label, non-tab-stop checkbox, wheel propagation, task selection/undo preservation, prepaint geometry, scrolling and folding tests.",
       "result": "No new actionable finding. Reused batch 180 editor:: test evidence (136 passed, 4 ignored) after confirming Rust sources unchanged from 2c7a19a. Native accessibility, IME and performance acceptance remain incomplete."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/font_zoom.rs",
+      "checks": "Full source/test read: modifier gating, normal-scroll cooldown, nonfinite/zero delta rejection, modal hitbox exclusion, capture-phase font event and propagation.",
+      "result": "No new actionable finding. Batch 180 editor:: tests (136 passed, 4 ignored) cover these modules; confirmed source unchanged since 2c7a19a. Native input-method, accessibility and layout acceptance remain open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/code_blocks.rs",
+      "checks": "Full source/test read: shared block styling, language label truncation, captured exact code clipboard action and propagation; syntax highlighter registration, 17 language dark/light coverage and UTF-8 boundaries.",
+      "result": "No new actionable finding. Batch 180 editor:: tests (136 passed, 4 ignored) cover these modules; confirmed source unchanged since 2c7a19a. Native input-method, accessibility and layout acceptance remain open."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/editor/footnotes.rs",
+      "checks": "Full source/test read: popup lifecycle and pending state, IME writeback/close guards, source baseline conflict preservation, body/selection rebasing, CRLF and continuation indentation, bounded viewport layout, close/focus/undo behavior and definition resolution.",
+      "result": "No new actionable finding. Batch 180 editor:: tests (136 passed, 4 ignored) cover these modules; confirmed source unchanged since 2c7a19a. Native input-method, accessibility and layout acceptance remain open."
     }
   ],
   "pending_reconciliation": [
@@ -599,9 +614,6 @@
     "crates/inkstone-core/src/yaml_source.rs",
     "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/editor.rs",
-    "crates/inkstone-desktop/src/editor/code_blocks.rs",
-    "crates/inkstone-desktop/src/editor/font_zoom.rs",
-    "crates/inkstone-desktop/src/editor/footnotes.rs",
     "crates/inkstone-desktop/src/editor/frame_benchmark.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/editor_links.rs",
