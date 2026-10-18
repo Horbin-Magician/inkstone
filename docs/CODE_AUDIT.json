@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "9a111d61c70f9def5348e2332e42cce72e8e7fbd",
+  "snapshot_revision": "c4569b2983030d4fdeaab00b9477167af37ddf66",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -782,6 +782,21 @@
       "path": "crates/inkstone-core/src/vault/history/records.rs",
       "checks": "Full production and test read: journal identity across publication, cache seeding/reuse, cold legacy imports, corrupt-cache rebuild, cross-vault scope, orphan pruning and best-effort cache retirement without journal deletion.",
       "result": "No new actionable finding. Source unchanged from batch 197 core full regression (407 passed, 4 ignored). Cache metadata is disposable and does not itself authorize restoration; Windows/native UI acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/history/catalog.rs",
+      "checks": "Full production and test read: library-wide history discovery, recorded ownership after external rename/deletion, scope validation, stable grouping and corrupted/lost metadata rebuild.",
+      "result": "No new actionable finding; unchanged from batch 197 core full regression."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/history/links/checkpoint.rs",
+      "checks": "Full production and test read: authoritative checksums, certified mirror fallback, invalidation/rollback of proof, temporary publication and mirror repair.",
+      "result": "Removed duplicate certification publication code in favor of existing replace_proof helper; history links 8 passed, format/diff checks passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/history/links/intent.rs",
+      "checks": "Full production and test read: durable rename envelope, filesystem identity, before/after checkpoints, path confinement, reconciliation outcomes and subprocess-exit recovery.",
+      "result": "No new actionable finding; history links 8 passed including file/folder rename recovery and process-exit scenarios. Windows runtime remains separately unverified."
     }
   ],
   "pending_reconciliation": [
@@ -796,10 +811,7 @@
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/vault.rs",
     "crates/inkstone-core/src/vault/history.rs",
-    "crates/inkstone-core/src/vault/history/catalog.rs",
     "crates/inkstone-core/src/vault/history/links.rs",
-    "crates/inkstone-core/src/vault/history/links/checkpoint.rs",
-    "crates/inkstone-core/src/vault/history/links/intent.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
