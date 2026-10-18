@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "20aeb46b658cb5e45b73a8439e20bfbd6bb59e9d",
+  "snapshot_revision": "f3c003010617f195167a293365a345cbb7be1639",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -967,6 +967,16 @@
       "path": "crates/inkstone-desktop/src/workspace/tabs.rs",
       "checks": "Complete read: blank-slot reuse, shared document subscriptions, view focus and event routing, startup batching, pinned/group close handling, deferred saves and split promotion.",
       "result": "No new actionable finding in this read; existing workspace regression remains supporting evidence, not new native/IME/platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/welcome.rs",
+      "checks": "Complete read: first-vault creation, no-clobber directory creation, generation and write-ticket guards, welcome/loading/blank states and keyboard startup tests.",
+      "result": "Welcome regression 9 passed. Follow-up remains: create-first-vault path picker silently discards dialog errors; cancellation must remain quiet when adding error reporting."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/session.rs",
+      "checks": "Complete read: startup lookup, vault picker/load, watcher/index preparation, restored tab/view mapping, settings/cache maintenance and stale recovery result handling.",
+      "result": "Fixed old-vault pending navigation leaking across accepted switches (f3c0030); red test reproduced. Session tests 5 passed, welcome tests 9 passed, workspace all-targets Clippy and formatting passed. Follow-up: choose-vault dialog errors are silently discarded."
     }
   ],
   "pending_reconciliation": [
@@ -987,13 +997,11 @@
     "crates/inkstone-desktop/src/workspace/navigation.rs",
     "crates/inkstone-desktop/src/workspace/recovery.rs",
     "crates/inkstone-desktop/src/workspace/right_sidebar.rs",
-    "crates/inkstone-desktop/src/workspace/session.rs",
     "crates/inkstone-desktop/src/workspace/settings_ui.rs",
     "crates/inkstone-desktop/src/workspace/sync_recovery.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
     "crates/inkstone-desktop/src/workspace/views.rs",
-    "crates/inkstone-desktop/src/workspace/welcome.rs",
     "crates/inkstone-desktop/tests/display_objects.rs",
     "crates/inkstone-desktop/tests/grapheme_cursor.rs",
     "crates/inkstone-desktop/tests/grapheme_wrap.rs",
