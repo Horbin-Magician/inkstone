@@ -64,9 +64,8 @@ fn node_to_state(node: &PaneNode, source: &dyn PanelSource) -> PanelState {
 
 /// Turns a persisted leaf into a live panel id.
 ///
-/// The production implementation (at the `gpui-component` layer, above this
-/// crate) consults `PanelRegistry` and falls back to an invalid-panel
-/// placeholder that retains the original `PanelState`, so a panel type this
+/// The production implementation in `DockArea` consults `PanelRegistry`
+/// and falls back to an unregistered-panel placeholder that retains the original `PanelState`, so a panel type this
 /// build does not know about survives a load/save round trip instead of
 /// being erased.
 pub trait PanelBuilder {
@@ -97,19 +96,19 @@ impl PaneTree {
         let mut tree = PaneTree::new(root_kind);
         let root = build_node(&mut tree, state, builder);
 
-        let root = match (root_kind, &root) {
-            (RootKind::Split, node) if !matches!(node.kind_ref(), NodeKind::Split { .. }) => {
+        let root = match (root_kind, root.kind_ref()) {
+            (RootKind::Split, NodeKind::Split { .. }) | (RootKind::Any, _) => root,
+            (RootKind::Split, _) => {
                 let id = tree.allocate_node_id();
                 PaneNode::new(
                     id,
                     NodeKind::Split {
                         axis: Axis::Horizontal,
-                        children: vec![node.clone()],
+                        children: vec![root],
                         sizes: vec![None],
                     },
                 )
             }
-            _ => root,
         };
 
         tree.replace_root(root);
@@ -174,16 +173,20 @@ fn build_node(tree: &mut PaneTree, state: &PanelState, builder: &mut dyn PanelBu
     }
 }
 
-/// Flatten one level of tab nesting, which the old writer could produce.
+/// Flatten nested tab groups, which the old writer could produce.
 fn collect_tab_panels(children: &[PanelState], builder: &mut dyn PanelBuilder) -> Vec<PanelId> {
-    children
-        .iter()
-        .flat_map(|child| match &child.info {
-            PanelInfo::Tabs { .. } => collect_tab_panels(&child.children, builder),
-            PanelInfo::Panel(_) if child.panel_name == TAB_PANEL_NAME => Vec::new(),
-            _ => vec![builder.build(child, &child.info)],
-        })
-        .collect()
+    fn collect(children: &[PanelState], builder: &mut dyn PanelBuilder, panels: &mut Vec<PanelId>) {
+        for child in children {
+            match &child.info {
+                PanelInfo::Tabs { .. } => collect(&child.children, builder, panels),
+                PanelInfo::Panel(_) if child.panel_name == TAB_PANEL_NAME => {}
+                _ => panels.push(builder.build(child, &child.info)),
+            }
+        }
+    }
+    let mut panels = Vec::with_capacity(children.len());
+    collect(children, builder, &mut panels);
+    panels
 }
 
 #[cfg(test)]
