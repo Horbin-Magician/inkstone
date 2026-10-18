@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 按钮组禁用状态：渲染时合并组与子按钮自身的 disabled，统一 child/children 及构建顺序，避免禁用按钮仍可激活或获得 Tab 焦点。
+
 2026-10-19 按钮忙碌语义：Base Button 新增 busy 状态，保持焦点和正常样式，阻止激活并向原生节点报告 busy/disabled、移除 Click action。Component loading 接入该状态，删除重复点击拦截及重复 cursor_default 设置；鼠标按下与父事件阻断保持回归覆盖。
 
 2026-10-19 按钮禁用语义：Base Button 复用原生禁用适配器，禁用时 AccessKit 节点报告 disabled 且不暴露 Click action，保持原有指针/键盘阻断。原测试中记录上游缺口的断言改为要求真实禁用标记。
