@@ -12,7 +12,7 @@
 
 | 项目 | 当前缺口 | 完成标准 |
 | --- | --- | --- |
-| 代码审核覆盖 | 已建立版本化逐文件台账，244 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
+| 代码审核覆盖 | 已建立版本化逐文件台账，248 个文件已核对，其余历史证据仍待归档；文件清单不等于审核完成 | 核对核心、桌面、工具、打包、工作流和 vendor 修改范围，每项记录审核证据与处置；未读文件不得标为已审 |
 | 原生交互和 UI | 已有隔离窗口抽查，输入法、辅助功能及显示比例矩阵不完整 | 按本指南的原生场景记录环境、操作、结果与证据，验证编辑/保存、焦点、弹窗和布局 |
 | Windows 与真实同步 | 本机不能证明 Windows 行为；本地 Apache 普通同步、断线恢复及维护清理通过；认证/TLS 与远端环境仍待验证 | Windows 构建、测试及安装运行；隔离远端目录验证同步、冲突和失败恢复，不改用户笔记 |
 | 性能预算 | 后台基准已有，原生事件到显示和滚动证据缺失 | 按性能规程完成场景、重复次数和预算对照；工具往返耗时不得代替显示延迟 |
@@ -2886,6 +2886,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 发现自动滚动在高度小于 32px 时上下 16px 触发区重叠，中心可错误向下滚动，零高度也会产生滚动。新增窄视口对称性与空视口用例在修复前均失败；提交 `8170d9f` 将内部触发区限制为半高，零高度返回无滚动，正常高度速度曲线不变。调用点包括输入框拖选和文本选择的裁剪视口。
 - 独立 vendor 副本的 auto_scroll 过滤 7 项通过（含 4 项工具测试与 3 项选择调用方测试）；history::tests 过滤 24 项通过，覆盖 History 10 项及 UndoHistory 14 项。日志在 `target/audit-20261019/auto-scroll-{narrow-red,narrow-tests,selection-tests}.log` 和 `base-history-review-tests.log`；首次 4 项专项与后续 7 项有重叠，不累加。
 - 工作区 all-targets Clippy（-D warnings）、工作区格式、修改 vendor 文件格式和 diff 检查通过，日志 `target/audit-20261019/auto-scroll-narrow-clippy.log`。既有 block 0.1.6 future-incompatibility 提示仍存在。本批没有原生滚动帧耗时或 Windows 运行证据。
+
+第二百四十批审核与验证：
+
+- 完整核对 Base list_settings.rs、global_state.rs、scrollable_mask.rs、virtual_list.rs；台账增至 248 已核对、479 待核对。检查弹出层弱令牌生命周期、选择抑制、滚轮捕获与遮挡、轴锁定及父子滚动交接、虚拟列表前缀尺寸和可见范围。
+- 提交 `0cdb2c0` 将方向和解析后间距纳入虚拟列表尺寸缓存。实际布局回归在旧实现复现间距改为 5px 后内容仍为 400px、应为 495px；修复后覆盖方向切换、间距变化、内容长度及滚动到底偏移，8 项列表测试通过。
+- 提交 `7555598` 合并自动尺寸计算的重复横纵分支，消除横向高度误引用 known_dimensions.width 的表达式。新增真实布局用例在清理前也通过，不据此声称复现该表达式造成的 UI 错误；最终 9 项列表测试通过。最初直接按窗口布局的夹具得到 1080px 是可用空间语义，不作为生产缺陷证据；已改为内容测量夹具。
+- 独立 vendor 测试：滚动遮罩 16 项、全局状态 2 项通过。日志 `target/audit-20261019/scroll-mask-review-tests.log`、`global-state-review-tests.log`、`virtual-list-cache-{red,tests,clippy}.log`、`virtual-list-infer-{red,tests,clippy}.log`。infer-red 文件名保留尝试过程命名，最终内容为清理前通过结果。两次修改的工作区 all-targets Clippy（-D warnings）、格式与 diff 检查通过；列表测试批次有重叠，不累加。未新增原生帧耗时或 Windows 运行证据。
 
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
