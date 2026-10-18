@@ -3130,6 +3130,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - Component 默认/观察配置全量分别 578/586 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、两文件直接 rustfmt 及 diff 检查通过。日志 `target/audit-20261019/dock-menu-{tests,observed-tests,clippy}.log`，保留既有 block 0.1.6 提示。没有将两个配置计为不同独立用例，也未重跑 Base 全量或原生验收。
 - 标签自动滚动疑点尚待验证，tab_panel.rs 保持待核对；本批只检查 PopupMenu 相关确认/选择路径，不据此新增整文件审核计数，台账仍为 307 已核对、421 待核对。
 
+第二百七十五批审核与验证：
+
+- 使用真实 TabGroupSkin、400×300 测试窗口和 16 个可隐藏面板验证滚动。先显示布局并选中末尾面板，再隐藏该面板，旧实现内容回退到第一个面板但滚动仍为 -975 px，预期首标签可见（`dock-scroll-red.log`）。
+- 提交 `e351cc4` 将滚动状态由存储活动索引改为实际显示面板身份与可见序号，处理隐藏后的内容回退及恢复。新增布局回归同时验证末尾选择、隐藏后首标签可见、恢复后末尾标签重新可见。
+- Component dock:: 默认/观察配置各 26 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、修改文件 rustfmt 和 diff 检查通过。日志 `target/audit-20261019/dock-scroll-{prepare,tests,observed-tests,clippy}.log`。未测量原生滚动或帧耗时，也未重跑完整工作区。
+- 测试准备时另观察到首次构建直接指定末尾活动索引未产生预期滚动；本批通过布局后显式选择隔离了可见性回退问题，首次布局滚动仍需单独验证，不能用本次通过掩盖。tab_panel.rs 暂保留待核对，台账仍为 307 已核对、421 待核对。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
