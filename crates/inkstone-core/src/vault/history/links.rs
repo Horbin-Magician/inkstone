@@ -11,7 +11,7 @@ struct Links {
     root: PathBuf,
     owners: BTreeMap<PathBuf, PathBuf>,
 }
-pub(super) struct Ownership(Links);
+pub(in crate::vault) struct Ownership(Links);
 fn path(vault: &Vault) -> PathBuf {
     let key = serde_json::to_vec(&vault.root).expect("path serializes");
     vault
@@ -22,7 +22,7 @@ fn invalid() -> VaultError {
     io::Error::new(io::ErrorKind::InvalidData, "invalid history ownership map").into()
 }
 impl Ownership {
-    pub(super) fn load(vault: &Vault) -> Result<Self, VaultError> {
+    pub(in crate::vault) fn load(vault: &Vault) -> Result<Self, VaultError> {
         intent::reconcile(vault)?;
         let path = path(vault);
         let committed = checkpoint::read(vault)?;
@@ -67,7 +67,7 @@ impl Ownership {
         self.owner(journal, original) == requested
     }
 
-    pub(super) fn owner<'a>(&'a self, journal: &Path, original: &'a Path) -> &'a Path {
+    pub(in crate::vault) fn owner<'a>(&'a self, journal: &Path, original: &'a Path) -> &'a Path {
         self.0
             .owners
             .get(&journal.with_extension(""))
