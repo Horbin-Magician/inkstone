@@ -1472,6 +1472,22 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 顺序测试覆盖调度乱序的文件结果，不是多窗口原生并发验收。记录仍沿用原有
   best-effort 写入错误处理和文本格式，本批不提供崩溃持久性或掉电原子性保证。
 
+第一百二十九批当前版本附件管理器原生抽查：
+
+- 从 `4db12bf43b57e3054c33122d352698b25579900a` release 构建（19.89 秒）生成
+  独立 bundle、数据目录和笔记库 `target/audit-20261018/native-attachment-current/`。
+  夹具含 16 篇生成笔记及 3 个测试附件；工具自带 .performance-corpus.json
+  也被列表作为其他附件计数，因此面板总计 4 个附件。
+- 原生 AX 树可读取附件摘要、中文路径、引用来源标题和完整清理说明；默认窗口
+  截图中布局正常，已引用 SVG 的“移入回收站”按钮呈禁用样式。查询 UNUSED
+  找到 unused.bin，至少 1 MiB 筛选只显示 large.bin，选中后详情对应正确路径。
+- 未引用附件打开系统清理确认，完整显示路径及范围说明；点击取消返回列表。
+  未执行清理，也未打开外部预览程序。通过原生菜单正常退出，PID 61515 已消失，
+  19 个生成笔记/附件 SHA-256 与操作前一致，签名二进制与 preparation.json 一致。
+- 证据包含 referenced、cleanup-prompt、large-selected 的 AX 文本与 PNG，完整
+  large-filter.ax.txt、fixture-before.json 和 verification.json。仅验证默认
+  1200×820@2x 窗口下的此面板，不代表 VoiceOver、其他 DPI、IME 或性能预算通过。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
