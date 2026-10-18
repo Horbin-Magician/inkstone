@@ -250,7 +250,11 @@ fn copy_verified(
     let mut buffer = [0; 64 * 1024];
     loop {
         ensure!(!cancelled.load(Ordering::Relaxed), "下载已取消");
-        let count = input.read(&mut buffer)?;
+        let count = match input.read(&mut buffer) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        };
         if count == 0 {
             break;
         }
@@ -443,6 +447,52 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn interrupted_download_reads_retry_and_still_observe_cancellation() {
+        struct InterruptedOnce<'a> {
+            bytes: &'a [u8],
+            interrupted: bool,
+            cancel: Option<&'a AtomicBool>,
+        }
+        impl Read for InterruptedOnce<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if !self.interrupted {
+                    self.interrupted = true;
+                    if let Some(cancel) = self.cancel {
+                        cancel.store(true, Ordering::Relaxed);
+                    }
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                self.bytes.read(buffer)
+            }
+        }
+        let bytes = b"verified after interruption";
+        let hash = format!("{:x}", Sha256::digest(bytes));
+        for cancel_during_read in [false, true] {
+            let cancel = AtomicBool::new(false);
+            let mut input = InterruptedOnce {
+                bytes,
+                interrupted: false,
+                cancel: cancel_during_read.then_some(&cancel),
+            };
+            let mut output = Vec::new();
+            let result = copy_verified(
+                &mut input,
+                &mut output,
+                bytes.len() as u64,
+                &hash,
+                &cancel,
+                |_, _| {},
+            );
+            if cancel_during_read {
+                assert!(result.unwrap_err().to_string().contains("下载已取消"));
+                assert!(output.is_empty());
+            } else {
+                result.unwrap();
+                assert_eq!(output, bytes);
+            }
+        }
     }
     #[test]
     fn cached_file_is_reverified_and_removed_on_drop() {
