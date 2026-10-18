@@ -351,9 +351,10 @@ fn html(title: &str, markdown: &str, warnings: &mut BTreeSet<String>) -> io::Res
     for (token, markup) in tokens {
         body = body.replace(&token, &markup);
     }
-    let heading = regex::Regex::new(r"<h([1-6])>").unwrap();
+    static HEADING: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"<h([1-6])>").unwrap());
     let mut i = 0;
-    let body = heading.replace_all(&body, |c: &regex::Captures<'_>| {
+    let body = HEADING.replace_all(&body, |c: &regex::Captures<'_>| {
         let s = format!("<h{} id=\"heading-{i}\">", &c[1]);
         i += 1;
         s
