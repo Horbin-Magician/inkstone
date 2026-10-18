@@ -665,12 +665,17 @@ impl Workspace {
     }
 
     pub(super) fn choose_attachments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.active.is_none() {
+        let Some(tab) = self.active.and_then(|index| self.tabs.get(index)) else {
             self.notifications
                 .publish("请先打开要插入附件的笔记。".into());
             cx.notify();
             return;
-        }
+        };
+        let Some(pane) = self.current_pane() else {
+            return;
+        };
+        let target = (tab.id, pane.entity_id());
+        let generation = self.generation;
         let dialog = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -678,12 +683,50 @@ impl Workspace {
             prompt: Some("插入附件".into()),
         });
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = dialog.await {
-                let _ = this.update_in(cx, |this, w, cx| this.import_files(paths, w, cx));
-            }
+            let result = dialog
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.finish_attachment_selection(generation, target, result, window, cx);
+            });
         })
         .detach();
     }
+    fn finish_attachment_selection(
+        &mut self,
+        generation: u64,
+        target: (usize, EntityId),
+        result: Result<Option<Vec<PathBuf>>, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.generation != generation {
+            return;
+        }
+        match result {
+            Ok(Some(paths)) if !paths.is_empty() => {
+                let current = self
+                    .active
+                    .and_then(|index| self.tabs.get(index))
+                    .zip(self.current_pane())
+                    .map(|(tab, pane)| (tab.id, pane.entity_id()));
+                if current != Some(target) {
+                    self.notifications
+                        .publish("目标笔记或视图已改变，请重新选择附件。".into());
+                    cx.notify();
+                    return;
+                }
+                self.import_files(paths, window, cx);
+            }
+            Ok(_) => (),
+            Err(error) => {
+                self.notifications.publish(format!("无法选择附件：{error}"));
+                cx.notify();
+            }
+        }
+    }
+
     pub(super) fn import_files(
         &mut self,
         paths: Vec<PathBuf>,
@@ -842,5 +885,117 @@ impl Workspace {
             });
         })
         .detach();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn attachment_dialog_does_not_import_into_a_different_note(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-attachment-picker-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::write(root.join("vault/a.md"), "first").unwrap();
+        std::fs::write(root.join("vault/b.md"), "second").unwrap();
+        std::fs::write(root.join("image.png"), b"attachment bytes").unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let before = vault.scan_files().unwrap();
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.add_tab("a.md".into(), Some("first".into()), false, window, cx);
+                w.choose_attachments(window, cx);
+                w.add_tab("b.md".into(), Some("second".into()), false, window, cx);
+            })
+            .unwrap();
+        cx.simulate_path_prompt_response(|_| Some(vec![root.join("image.png")]));
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(
+                    w.tabs[w.active.unwrap()]
+                        .save
+                        .editor
+                        .read(cx)
+                        .value()
+                        .as_ref(),
+                    "second"
+                );
+                assert!(w.notifications.text().contains("目标笔记或视图已改变"));
+                assert_eq!(w.file_writes.pending(), 0);
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(vault.scan_files().unwrap(), before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn attachment_picker_rejects_changed_view_and_scopes_errors(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("first".into()), false, window, cx);
+                let generation = w.generation;
+                let target = (
+                    w.tabs[w.active.unwrap()].id,
+                    w.current_pane().unwrap().entity_id(),
+                );
+                w.finish_attachment_selection(
+                    generation,
+                    target,
+                    Err("picker unavailable".into()),
+                    window,
+                    cx,
+                );
+                assert_eq!(w.notifications.text(), "无法选择附件：picker unavailable");
+                w.notifications.publish("keep".into());
+                for result in [Ok(None), Ok(Some(vec![]))] {
+                    w.finish_attachment_selection(generation, target, result, window, cx);
+                    assert_eq!(w.notifications.text(), "keep");
+                }
+                w.split_active(true, window, cx);
+                w.finish_attachment_selection(
+                    generation,
+                    target,
+                    Ok(Some(vec!["file.png".into()])),
+                    window,
+                    cx,
+                );
+                assert!(w.notifications.text().contains("视图已改变"));
+                w.add_tab("b.md".into(), Some("second".into()), false, window, cx);
+                w.finish_attachment_selection(
+                    generation,
+                    target,
+                    Ok(Some(vec!["file.png".into()])),
+                    window,
+                    cx,
+                );
+                assert!(w.notifications.text().contains("目标笔记"));
+                w.generation += 1;
+                w.notifications.publish("new context".into());
+                for result in [Err("old error".into()), Ok(Some(vec!["file.png".into()]))] {
+                    w.finish_attachment_selection(generation, target, result, window, cx);
+                    assert_eq!(w.notifications.text(), "new context");
+                }
+                assert_eq!(w.file_writes.pending(), 0);
+                assert_eq!(w.tabs[0].save.editor.read(cx).value().as_ref(), "first");
+            })
+            .unwrap();
     }
 }
