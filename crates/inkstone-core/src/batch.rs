@@ -35,10 +35,14 @@ fn rename_tag(value: &str, old: &str, new: &str, descendants: bool) -> Option<St
     let old = old.to_lowercase();
     let replacement = if lower == old {
         new.to_owned()
-    } else if descendants && lower.starts_with(&format!("{old}/")) {
+    } else if descendants
+        && lower
+            .strip_prefix(&old)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+    {
         // Find component boundary in the original UTF-8 spelling (case folding changes byte sizes).
         let n = old.split('/').count();
-        let suffix = tag.split('/').skip(n).collect::<Vec<_>>().join("/");
+        let suffix = tag.splitn(n + 1, '/').nth(n).unwrap_or_default();
         format!("{new}/{suffix}")
     } else {
         return None;
@@ -256,6 +260,24 @@ mod tests {
             tags: false,
             descendants: true,
             folder: String::new(),
+        }
+    }
+    #[test]
+    fn tag_renaming_preserves_unicode_hierarchy_boundaries() {
+        for (value, old, descendants, expected) in [
+            (" #WORK ", "work", false, Some("#项目")),
+            ("#Work/Sub/Deep", "work", true, Some("#项目/Sub/Deep")),
+            ("#Work/Sub", "work", false, None),
+            ("#Worker/Sub", "work", true, None),
+            ("#İ/主题/Child", "İ/主题", true, Some("#项目/Child")),
+            ("#İ/主题外/Child", "İ/主题", true, None),
+            ("İ/主题/😀", "İ", true, Some("项目/主题/😀")),
+        ] {
+            assert_eq!(
+                rename_tag(value, old, "项目", descendants).as_deref(),
+                expected,
+                "{value}"
+            );
         }
     }
     #[test]
