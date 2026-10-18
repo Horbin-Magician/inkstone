@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "2ae00e1141b8562b749236b498db7552d8c712c8",
+  "snapshot_revision": "d1b7b381f1309b04674247a0764b7f389be2cc8d",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -802,20 +802,56 @@
       "path": "crates/inkstone-core/src/vault/history/links.rs",
       "checks": "Full production and test read: authoritative ownership loading, journal identity/path validation, rename lock, folder ownership migration, staged checkpoint publication, proof restoration and no-overwrite rollback.",
       "result": "Fixed rejection of dotted legacy journal identities after rename. Regression failed before fix, then verified ownership after reopen, original journal bytes and old-path exclusion. History module 27 passed; workspace all-targets Clippy/format passed."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/history.rs",
+      "checks": "Complete read: conflict draft preservation and disk recheck, history cache and ownership boundary, stable ordering, pending-to-saved lookup, retention and isolation tests.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/examples/benchmark.rs",
+      "checks": "Complete read: fresh generated output ownership, backend timing boundaries, owned/shared index clone comparison, search/update/cache stages and cleanup scope.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/examples/block_benchmark.rs",
+      "checks": "Complete read: UTF-8 marker insertion, full-parser oracle, warmup exclusion and percentile indexing.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/examples/formula_benchmark.rs",
+      "checks": "Complete read: generated formula counts, fragment assertions, backend timing stages and median sample selection.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/examples/history_catalog_benchmark.rs",
+      "checks": "Complete read: fresh fixture directory, legacy history generation, catalog count/byte assertions and metadata/body timing separation.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/examples/history_read_benchmark.rs",
+      "checks": "Complete read: argument validation, whole/buffered/metadata decoding paths, elapsed timing and retained values for RSS comparison.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/examples/markdown_benchmark.rs",
+      "checks": "Complete read: input/output signatures, warmup and percentiles, Unicode insertion boundary and incremental/full snapshot equivalence assertions.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/examples/projection_benchmark.rs",
+      "checks": "Complete read: shared snapshot setup, timed reading/fragment stages, deterministic output signature, warmup and percentile selection.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/examples/sync_scan_benchmark.rs",
+      "checks": "Complete read: fresh recovery directory, scan phase timing, cancellation before remote access and mandatory cancelled outcome.",
+      "result": "No new actionable finding in this read. Backend benchmarks do not establish native interaction latency or platform acceptance."
     }
   ],
   "pending_reconciliation": [
-    "crates/inkstone-core/examples/benchmark.rs",
-    "crates/inkstone-core/examples/block_benchmark.rs",
-    "crates/inkstone-core/examples/formula_benchmark.rs",
-    "crates/inkstone-core/examples/history_catalog_benchmark.rs",
-    "crates/inkstone-core/examples/history_read_benchmark.rs",
-    "crates/inkstone-core/examples/markdown_benchmark.rs",
-    "crates/inkstone-core/examples/projection_benchmark.rs",
-    "crates/inkstone-core/examples/sync_scan_benchmark.rs",
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/vault.rs",
-    "crates/inkstone-core/src/vault/history.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
