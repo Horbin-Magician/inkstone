@@ -200,8 +200,7 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
         {
             let range = position.start.offset..position.end.offset;
             if let Some(raw) = source.get(range.clone()) {
-                for (i, ch) in raw.char_indices().filter(|(_, ch)| *ch == '#') {
-                    let _ = ch;
+                for (i, _) in raw.match_indices('#') {
                     if range.start + i > 0
                         && source[..range.start + i]
                             .chars()
