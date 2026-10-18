@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "1bb6fd45a443e75d0cdeb9673d034e42df5f1e82",
+  "snapshot_revision": "a437b56ea3343fccd2e86bc221187a7d6a975a9f",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -91,7 +91,12 @@
     {
       "path": "crates/inkstone-core/src/vault/sync/webdav/maintenance.rs",
       "checks": "Exclusive recursive finite lease validation, token secrecy and condition syntax, permanent invalidation after uncertain refresh, manifest generation/readback, bounded unlock and Drop cleanup",
-      "result": "No new actionable finding in complete source read; mutations rely on server-evaluated conditions, not client elapsed time. Real maintenance interoperability remains unverified."
+      "result": "Apache 2.4.67 LOCK returns 200 without lockroot; validation rejects and guard releases with UNLOCK 204. Compatibility unresolved; no relaxation made. Fixture-based regressions remain distinct from real-server acceptance."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/webdav/cleanup.rs",
+      "checks": "Complete source read: preview identity and exact snapshots, referenced object protection, all-body verification, generation fencing, server lock conditions, cancellation and partial deletion accounting",
+      "result": "No new cleanup logic defect confirmed. Apache integration stops before cleanup because its lock response lacks lockroot; zero DELETEs, unchanged manifest and intact objects confirmed."
     }
   ],
   "pending_reconciliation": [
@@ -172,7 +177,6 @@
     "crates/inkstone-core/src/vault/sync/recovery/residue.rs",
     "crates/inkstone-core/src/vault/sync/recovery/retention.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
-    "crates/inkstone-core/src/vault/sync/webdav/cleanup.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/maintenance/tests.rs",
