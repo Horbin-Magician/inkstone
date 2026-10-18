@@ -100,7 +100,6 @@ impl Workspace {
         }
         let dest = PathBuf::from(name);
         let path = tab.path.clone();
-        let id = tab.id;
         let document = tab.save.clone();
         let generation = self.generation;
         let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
@@ -169,19 +168,6 @@ impl Workspace {
                         this.persist_workspace(cx);
                     }
                     Ok((false, path, edits, prepared)) => {
-                        let focus_after = this
-                            .ui
-                            .inline_title
-                            .as_ref()
-                            .is_some_and(|edit| edit.id == id && edit.focus_after);
-                        if this
-                            .ui
-                            .inline_title
-                            .as_ref()
-                            .is_some_and(|edit| edit.id == id)
-                        {
-                            this.ui.inline_title = None;
-                        }
                         let old = this.tabs[index].path.clone();
                         for item in this
                             .ui
@@ -199,9 +185,6 @@ impl Workspace {
                         this.relocate_navigation(&old, Some(&renamed), false, cx);
                         this.apply_relocated_index(&old, Some(&renamed), false, prepared, cx);
                         this.persist_workspace(cx);
-                        if focus_after && let Some(pane) = this.current_pane() {
-                            pane.update(cx, |p, cx| p.focus_view(window, cx));
-                        }
                         this.notifications.publish("已重命名。".into());
                         this.offer_link_updates(edits, window, cx);
                     }
