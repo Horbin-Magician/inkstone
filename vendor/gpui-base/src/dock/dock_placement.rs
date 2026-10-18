@@ -123,7 +123,7 @@ impl Dock {
         Self {
             open: true,
             collapsible: true,
-            size,
+            size: size.max(PANEL_MIN_SIZE),
             live_size: None,
             resizing: false,
         }
@@ -230,6 +230,9 @@ mod dock_tests {
     /// and persist it that way.
     #[test]
     fn a_dock_never_shrinks_below_the_minimum() {
+        for size in [px(-10.), px(0.), px(1.)] {
+            assert_eq!(Dock::new(size).size(), PANEL_MIN_SIZE);
+        }
         let mut dock = Dock::new(px(240.));
         dock.set_size(px(1.));
         assert_eq!(dock.size(), PANEL_MIN_SIZE);
