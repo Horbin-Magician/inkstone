@@ -49,10 +49,7 @@ impl Workspace {
         self.ui.prefs.search_case_sensitive = entry.case_sensitive;
         self.ui.prefs.search_sort_by = entry.sort_by;
         self.ui.prefs.search_descending = entry.descending;
-        self.focus_search(true, window, cx);
-        self.search
-            .update(cx, |s, cx| s.set_value(entry.query, window, cx));
-        self.run_search(cx);
+        self.focus_search_query(true, entry.query, window, cx);
         self.persist_workspace(cx);
     }
     pub(super) fn saved_search_controls(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -166,7 +163,9 @@ mod tests {
                 w.search
                     .update(cx, |s, cx| s.set_value("old disk", window, cx));
                 w.run_search(cx);
+                let revision = w.search_revision;
                 w.apply_saved_search(saved, window, cx);
+                assert_eq!(w.search_revision, revision + 1);
             })
             .unwrap();
         cx.run_until_parked();
