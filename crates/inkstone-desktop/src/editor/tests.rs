@@ -564,6 +564,56 @@ fn slash_menu_filters_confirms_and_undoes_in_both_editing_modes(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn slash_menu_inserts_blocks_and_preserves_surrounding_text(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for live in [false, true] {
+        for (query, replacement) in [
+            ("h6", "###### "),
+            ("无序", "- "),
+            ("有序", "1. "),
+            ("任务", "- [ ] "),
+            ("table", "| 列 1 | 列 2 |\n| --- | --- |\n|  |  |"),
+            ("callout", "> [!note]\n> "),
+            ("quote", "> "),
+            ("code", "```\n\n```"),
+            ("divider", "---\n\n"),
+        ] {
+            let prefix = "中文😀\n\n";
+            let suffix = "\n\n后续段落";
+            let source = format!("{prefix}{suffix}");
+            let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+            let editor = handle
+                .update(cx, |pane, window, cx| {
+                    pane.live = live;
+                    pane.editor.update(cx, |state, cx| {
+                        state.focus(window, cx);
+                        state.set_selected_range(prefix.len()..prefix.len(), cx);
+                        state.replace_text_in_range(None, &format!("/{query}"), window, cx);
+                    });
+                    pane.editor.clone()
+                })
+                .unwrap();
+            cx.run_until_parked();
+            editor.read_with(cx, |state, _| {
+                assert!(state.completion_menu_state().open, "{query}");
+                assert_eq!(state.completion_menu_state().items.len(), 1, "{query}");
+            });
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.simulate_platform_keystrokes("enter");
+            let expected = format!("{prefix}{replacement}{suffix}");
+            editor.read_with(&visual, |state, _| assert_eq!(state.value(), expected));
+            visual.simulate_platform_keystrokes("ctrl-z");
+            editor.read_with(&visual, |state, _| {
+                assert_eq!(state.value(), format!("{prefix}/{query}{suffix}"));
+            });
+            visual.simulate_platform_keystrokes("ctrl-y");
+            editor.read_with(&visual, |state, _| assert_eq!(state.value(), expected));
+        }
+    }
+}
+
+#[gpui::test]
 fn slash_menu_escape_keeps_literal_slash(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
