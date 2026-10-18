@@ -2,7 +2,7 @@
 //!
 //! This module decides *where* a drop would land and what shape a hovering
 //! drag session occupies. It draws nothing: the styled drag preview and the
-//! rendered drop indicator are appearance and live in `crates/component`.
+//! rendered drop indicator are appearance and live in `gpui_component::dock`.
 
 use std::{
     any::Any,
@@ -25,11 +25,10 @@ use super::layout::{NodeId, PanelId};
 /// A panel being dragged out of a tab group.
 ///
 /// The panel is carried as a [`PanelId`] rather than a view handle: the base
-/// layer has no `PanelView` trait or `TabPanel` entity of its own (those are
-/// layered above), and the layout algebra already addresses panels this way
-/// (see `insert_panel`/`remove_panel`/`move_panel` in `layout::edit`). A
-/// consumer resolves the id back to a view through the dock area's panel
-/// map.
+/// layout algebra addresses panels by identity, independently of their live
+/// views (see `insert_panel`/`remove_panel`/`move_panel` in `layout::edit`).
+/// A consumer resolves the id back to a `PanelView` through the dock area's
+/// panel map.
 #[derive(Clone)]
 pub struct DragPanel {
     panel: PanelId,
@@ -98,7 +97,7 @@ impl DragPanel {
 
 impl Render for DragPanel {
     /// Base draws nothing: the styled drag preview is appearance and belongs
-    /// to `crates/component`, which reintroduces it as a separate render type.
+    /// to `gpui_component::dock`, which supplies a separate render type.
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         Empty
     }

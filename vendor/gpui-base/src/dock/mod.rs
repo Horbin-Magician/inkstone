@@ -48,9 +48,9 @@
 //!
 //! # The renderer seam
 //!
-//! Base supplies behavior; the host supplies appearance. Nothing in this
-//! module paints a color, a border, or a size. Two traits carry the
-//! appearance in:
+//! Base supplies behavior and layout sizing; the host supplies panel chrome.
+//! A default split divider remains available when the host supplies no custom
+//! handle. Two traits carry the appearance in:
 //!
 //! - [`DockAreaRenderer`] — the area frame, each split's frame and the divider
 //!   between its slots, one dock's chrome, and the stand-in for a panel this
@@ -66,7 +66,7 @@
 //! that the renderer invokes rather than reimplementing.
 //!
 //! An area built without a renderer still docks, drags, resizes and persists.
-//! It simply draws nothing but the panels themselves.
+//! It draws the panels and the default split dividers.
 //!
 //! [`Panel`] splits at the same seam: this trait covers behavior, and a
 //! presentation layer — `gpui_component::dock::Panel` — extends it with
@@ -110,30 +110,6 @@
 //! untouched; and `normalize(normalize(t)) == normalize(t)` holds for every
 //! tree, which is what makes the persisted format canonical.
 //!
-//! # Where this sits among docking libraries
-//!
-//! Editors tend to build the layout engine into the application — Zed's
-//! `PaneGroup` and VS Code's workbench are not reusable outside their hosts.
-//! Standalone libraries split the engine from the view to varying degrees:
-//! `golden-layout` owns its DOM outright, `FlexLayout` keeps a JSON model
-//! beside a React renderer, and `dockview` goes furthest, running a
-//! framework-agnostic engine behind thin adapters. All of them still paint
-//! their own chrome and expose CSS as the way to change it.
-//!
-//! This module takes the same separation one step further: the engine paints
-//! nothing at all. A renderer returns elements and base attaches the drag
-//! sources, drop hit-testing, focus and keyboard handling to the elements it
-//! got back, so appearance is not a set of overrides on top of a default look —
-//! there is no default look. `crates/component/src/dock` and
-//! `crates/base/examples/showcase/components/dock.rs` are two unrelated
-//! appearances over one behavior.
-//!
-//! The naming follows the same neighborhood where it can. A tab group here is
-//! what Zed calls a `Pane` and `dockview` calls a group; a [`Dock`] is Zed's
-//! dock; a [`Panel`] is the dockable content, as in `dockview` — note that
-//! VS Code uses "panel" for the bottom *region* instead, and `rc-dock` uses it
-//! for the tab container.
-//!
 //! # A minimal area
 //!
 //! ```ignore
@@ -162,9 +138,9 @@
 //! });
 //! ```
 //!
-//! `crates/base/examples/showcase/components/dock.rs` is that program in full,
-//! renderers included — run it with `cargo run -p gpui-base dock`.
-//! `crates/component/src/dock` is the production skin over the same seam.
+//! `vendor/gpui-component/src/dock` contains the production skin over this seam.
+//! The sketch above requires a host application and its own `MySkin` renderer;
+//! this vendored crate does not include a standalone showcase executable.
 
 mod active;
 mod dock_area;
