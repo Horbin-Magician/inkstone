@@ -1,15 +1,6 @@
 //! Read-only, paginated inspection of valid descriptors without adjacent bodies.
 use super::*;
-
-pub(super) fn text(id: impl Into<ElementId>, value: String) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .role(gpui::Role::Label)
-        .aria_label(value.clone())
-        .min_w_0()
-        .whitespace_normal()
-        .child(value)
-}
+use crate::workspace::accessible_text::label as text;
 
 impl Workspace {
     pub(super) fn missing_sync_payload_panel(&self, cx: &Context<Self>) -> AnyElement {

@@ -1,5 +1,6 @@
 use super::focus_reveal::FocusReveal;
 use super::*;
+use crate::workspace::accessible_text::label as history_text;
 use gpui_component::{
     Disableable, Selectable,
     button::{Button, ButtonVariants},
@@ -8,17 +9,6 @@ use gpui_component::{
 use inkstone_core::vault::{HistoryEntry, Recovery};
 
 const VERSIONS_PER_PAGE: usize = 5;
-
-fn history_text(id: &'static str, value: impl Into<String>) -> gpui::Stateful<gpui::Div> {
-    let value = value.into();
-    div()
-        .id(id)
-        .role(Role::Label)
-        .aria_label(value.clone())
-        .min_w_0()
-        .whitespace_normal()
-        .child(value)
-}
 
 pub(super) struct Browser {
     page: usize,

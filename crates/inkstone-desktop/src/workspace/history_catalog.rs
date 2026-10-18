@@ -1,21 +1,11 @@
 //! Browse recorded history paths even when no corresponding note is open.
 use super::focus_reveal::FocusReveal;
 use super::*;
+use crate::workspace::accessible_text::label as catalog_text;
 use gpui_component::{Disableable, button::Button};
 use inkstone_core::vault::HistoryNote;
 
 const PER_PAGE: usize = 5;
-
-fn catalog_text(id: impl Into<ElementId>, value: impl Into<String>) -> gpui::Stateful<gpui::Div> {
-    let value = value.into();
-    div()
-        .id(id)
-        .role(Role::Label)
-        .aria_label(value.clone())
-        .min_w_0()
-        .whitespace_normal()
-        .child(value)
-}
 
 #[derive(Default)]
 pub(super) struct State {
