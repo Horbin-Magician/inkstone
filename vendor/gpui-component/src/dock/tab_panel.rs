@@ -430,6 +430,7 @@ impl TabGroupSkin {
     fn render_tabs(
         &self,
         group: &TabGroupContext,
+        visible: Vec<usize>,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -444,13 +445,6 @@ impl TabGroupSkin {
         let tabs_count = group.panels().len();
         let active_ix = group.active_ix();
         let displayed = group.active_panel().map(|panel| panel.panel_id(cx));
-        let visible: Vec<usize> = group
-            .panels()
-            .iter()
-            .enumerate()
-            .filter(|(_, panel)| panel.visible(cx))
-            .map(|(ix, _)| ix)
-            .collect();
         let displayed_ix = displayed.and_then(|displayed| {
             group
                 .panels()
@@ -759,7 +753,7 @@ impl TabGroupRenderer for TabGroupSkin {
                 }
                 self.render_title(group, *ix, window, cx)
             }
-            _ => self.render_tabs(group, window, cx),
+            _ => self.render_tabs(group, visible, window, cx),
         }
     }
 
