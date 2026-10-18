@@ -1268,6 +1268,9 @@ fn encoded_backslash_paths_do_not_collide_with_directories() {
     let from = Path::new("source.md");
     index.update(literal.into(), "literal".into());
     index.update(nested.into(), "nested".into());
+    let hits = index.filenames(r"folder\name");
+    assert_eq!(hits[0].path, literal);
+    assert!(hits.iter().any(|hit| hit.path == nested));
     assert_eq!(
         index.resolve_markdown(from, "folder%5Cname.md").0,
         Resolution::Found(literal.into())
