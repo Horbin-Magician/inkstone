@@ -327,6 +327,7 @@ impl TabGroupSkin {
             )
             .child(
                 Button::new("menu")
+                    .debug_selector(|| "dock-tab-menu".to_string())
                     .icon(IconName::Ellipsis)
                     .xsmall()
                     .ghost()
@@ -342,7 +343,7 @@ impl TabGroupSkin {
                                 false => t!("Dock.Zoom In"),
                             },
                             Box::new(ToggleZoom),
-                            !menu_zoom,
+                            !zoomed && !menu_zoom,
                         )
                         .when(closable, |menu| {
                             menu.separator()
@@ -1372,6 +1373,36 @@ mod tests {
         cx.dispatch_action(ToggleZoom);
         cx.run_until_parked();
         assert_eq!(cx.read(|cx| area.read(cx).is_zoomed()), false);
+    }
+
+    #[gpui::test]
+    fn the_menu_can_exit_toolbar_only_zoom(cx: &mut TestAppContext) {
+        cx.update(|cx| crate::init(cx));
+        let (area, cx) = cx.add_window_view(|window, cx| {
+            DockArea::new("skin", None, window, cx).with_renderer(DockSkin::new(cx))
+        });
+        let panel = cx.update(|window, cx| {
+            let panel = ToolbarZoomProbe::new(cx);
+            let layout = DockLayout::tabs().panel_view(panel_handle(panel.clone()), cx);
+            area.update(cx, |area, cx| area.set_center(layout, window, cx));
+            panel
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| panel.read(cx).focus_handle(cx).focus(window, cx));
+        cx.dispatch_action(ToggleZoom);
+        cx.run_until_parked();
+        assert!(cx.read(|cx| area.read(cx).is_zoomed()));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let menu = cx.debug_bounds("dock-tab-menu").expect("menu trigger");
+        cx.simulate_mouse_down(menu.center(), MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(menu.center(), MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        cx.simulate_keystrokes("down enter");
+        cx.run_until_parked();
+        assert!(
+            !cx.read(|cx| area.read(cx).is_zoomed()),
+            "the menu must allow leaving zoom even when zoom-in is toolbar-only"
+        );
     }
 
     /// Withholding the control withholds the whole affordance, keybinding
