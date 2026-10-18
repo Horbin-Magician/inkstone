@@ -16,6 +16,7 @@ pub(super) struct Widget {
     measured: Option<crate::native_graphics::MeasuredGraphic>,
     graphic: Option<crate::native_graphics::GraphicResult>,
     graphic_source: Option<SharedString>,
+    raster_light: bool,
     raster_font: f32,
     raster_dpi: f32,
     pub width: f32,
@@ -68,7 +69,8 @@ impl EditorPane {
                                 && measured.as_ref().is_some_and(|m| m.is_ok()))
                     });
                     let same_raster = previous.as_ref().is_some_and(|w| {
-                        w.raster_font.to_bits() == self.font_size.to_bits()
+                        w.raster_light == self.light
+                            && w.raster_font.to_bits() == self.font_size.to_bits()
                             && w.raster_dpi.to_bits() == self.graphic_dpi.to_bits()
                     });
                     let (view, observer, mut width, mut height, mut raster) =
@@ -132,6 +134,7 @@ impl EditorPane {
                             .map(|_| self.parse_source.clone()),
                         measured,
                         graphic: raster,
+                        raster_light: self.light,
                         raster_font: self.font_size,
                         raster_dpi: self.graphic_dpi,
                         width,
@@ -456,6 +459,7 @@ impl EditorPane {
                     .is_some_and(|s| s.as_ref() == current.as_ref())
             {
                 widget.graphic = Some(prepared.clone());
+                widget.raster_light = self.light;
                 widget.raster_font = self.font_size;
                 widget.raster_dpi = self.graphic_dpi;
             }
@@ -1625,6 +1629,52 @@ mod tests {
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
+        }
+    }
+
+    #[gpui::test]
+    fn theme_changes_replace_live_formula_rasters(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "前文\n\n$x$\n\n$$\ny\n$$\n";
+        let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(640.), px(480.)));
+        for light in [false, true, false] {
+            handle
+                .update(&mut visual, |pane, _, cx| {
+                    pane.light = light;
+                    cx.notify();
+                })
+                .unwrap();
+            for _ in 0..12 {
+                visual.run_until_parked();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+            }
+            handle
+                .update(&mut visual, |pane, _, cx| {
+                    let service = crate::native_graphics::Service::get(cx);
+                    let formulas: Vec<_> = pane
+                        .live_objects
+                        .iter()
+                        .filter(|widget| widget.formula.is_some())
+                        .collect();
+                    assert_eq!(formulas.len(), 2);
+                    for widget in formulas {
+                        let (kind, text) = widget.formula.as_ref().unwrap();
+                        let expected =
+                            service.prepare(*kind, text, light, pane.font_size, pane.graphic_dpi);
+                        assert!(expected.is_ok());
+                        assert!(
+                            Arc::ptr_eq(
+                                widget.graphic.as_ref().expect("finished raster"),
+                                &expected
+                            ),
+                            "live formula must use the current theme raster: {light}"
+                        );
+                    }
+                    assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+                })
+                .unwrap();
         }
     }
 
