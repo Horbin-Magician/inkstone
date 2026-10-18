@@ -9,6 +9,50 @@ from verify_release import verify_release
 
 
 class InventoryTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "fixture requires symlink creation")
+    def test_inventory_verifies_symlink_targets_without_following_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stage = root / "stage"
+            stage.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "file").write_bytes(b"external content")
+            link = stage / "Applications"
+            link.symlink_to(outside, target_is_directory=True)
+            broken = stage / "missing"
+            broken.symlink_to("not-present")
+            inventory(stage, "0.1.0", "test-target")
+            verify(stage)
+            (outside / "file").write_bytes(b"external changes do not change the link")
+            verify(stage)
+            link.unlink()
+            link.symlink_to(root / "wrong-target", target_is_directory=True)
+            with self.assertRaises(ValueError):
+                verify(stage)
+            link.unlink()
+            link.symlink_to(outside, target_is_directory=True)
+            broken.unlink()
+            with self.assertRaises(ValueError):
+                verify(stage)
+            broken.symlink_to("not-present")
+            extra = stage / "unexpected"
+            extra.symlink_to("also-missing")
+            with self.assertRaises(ValueError):
+                verify(stage)
+            extra.unlink()
+            first, second = outside / "first", outside / "second"
+            first.write_bytes(b"same content")
+            second.write_bytes(b"same content")
+            file_link = stage / "file-link"
+            file_link.symlink_to(first)
+            inventory(stage, "0.1.0", "test-target")
+            verify(stage)
+            file_link.unlink()
+            file_link.symlink_to(second)
+            with self.assertRaises(ValueError):
+                verify(stage)
+
     @unittest.skipUnless(sys.platform == "darwin", "DMG staging requires macOS symlinks")
     def test_dmg_layout_preserves_payload_and_rebuilds_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
