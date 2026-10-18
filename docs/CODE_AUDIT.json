@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "e079366a4dd745bfc41250adfa572cdd69f8ee42",
+  "snapshot_revision": "797542132827d1a99a21b86bb092e37ab69aaa9c",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1172,13 +1172,21 @@
       "path": "crates/inkstone-desktop/src/workspace/ui.rs",
       "checks": "Complete read across UI state/subscriptions, theme/icons, preference propagation, navigation/recovery handlers, tab and split rendering, actions and status bar.",
       "result": "7036cd1 reuses selected tab identity, removing per-tab linear main_tab lookup in split mode; 21 split and 1 tab-layout tests passed. e079366 binds file-menu commands to their original pane; stale primary and replaced split regressions each failed before the fix, then a real popup-click test covering stale/valid primary and secondary panes passed along with 12 navigation tests. Workspace all-targets Clippy and formatting passed; native UI acceptance remains outstanding."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
+      "checks": "Complete read of stateful HTTP model, lock/ETag enforcement, paused writer/reader races, lost deletion response, and killed subprocess checkpoints; assertions validate remote references, original local bytes and baseline preservation.",
+      "result": "No new actionable finding. Current cleanup test filter passed all 16 tests, including real local HTTP and child-process kill/restart. The server model does not certify a real provider or TLS/authentication."
+    },
+    {
+      "path": "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
+      "checks": "Complete read of scripted request/response regressions for read-only previews, object verification before fencing, endpoint/plan rejection, cancellation, deletion confirmation and separate release failures.",
+      "result": "No new actionable finding. Current cleanup test filter passed all 16 tests, including real local HTTP and child-process kill/restart. The server model does not certify a real provider or TLS/authentication."
     }
   ],
   "pending_reconciliation": [
     "crates/inkstone-core/src/index/tests.rs",
     "crates/inkstone-core/src/vault/sync/tests.rs",
-    "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
-    "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "vendor/gpui-base/benches/motion.rs",
