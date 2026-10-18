@@ -42,6 +42,10 @@ fn invalid_scope_or_lease_releases_returned_lock_and_never_grants_authority() {
         body().replace("Second-30", "Second-301"),
         body().replace("$ROOT", "https://elsewhere.test/inkstone/"),
         body().replace("$ROOT", ""),
+        body().replace(
+            "<d:lockroot><d:href>$ROOT</d:href></d:lockroot>",
+            "<d:lockroot><d:href>$ROOT</d:href></d:lockroot><d:lockroot><d:href>$ROOT</d:href></d:lockroot>",
+        ),
         body().replace("19c78611", "00000000"),
         body().replace("<d:depth>infinity</d:depth>", ""),
         body().replace(
@@ -300,5 +304,25 @@ fn manifest_stops_after_one_retry_for_persistent_weak_etags() -> Result<()> {
     let (remote, task) = server(vec![reply(404), weak.clone(), weak]);
     assert!(remote.manifest().unwrap_err().to_string().contains("ETag"));
     assert_eq!(task.join().unwrap().len(), 3);
+    Ok(())
+}
+
+#[test]
+fn missing_lockroot_uses_requested_root_for_acquisition_and_refresh() -> Result<()> {
+    let reply_body = body().replace("<d:lockroot><d:href>$ROOT</d:href></d:lockroot>", "");
+    let (remote, task) = server(vec![
+        grant(reply_body.clone()),
+        (200, String::new(), reply_body),
+        reply(204),
+    ]);
+    let mut lock = remote.lock_maintenance()?;
+    let expected = format!("<{}inkstone/> ({TOKEN})", remote.root);
+    assert_eq!(lock.condition()?.to_str()?, expected);
+    lock.refresh()?;
+    assert_eq!(lock.condition()?.to_str()?, expected);
+    lock.release()?;
+    let requests = task.join().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert!(requests[1].contains(&format!("if: {expected}\r\n")));
     Ok(())
 }
