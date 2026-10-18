@@ -251,6 +251,22 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   `batch-stream-count-`，位于 `target/audit-20261018/`。本批没有全量重跑或性能计时；
   只确认删除重复反序列化，以及计数不再分配随匹配数量增长的临时列表。
 
+第十八批当前 release 原生抽查：
+
+- 使用 `cc10c63` release、独立 bundle/data 与生成库
+  `target/audit-20261018/native-current-links/`。同一个含 `#`、方括号文件名的 SVG，
+  通过编码后的 Markdown 地址分别按 160×80、320×160 显示；当前 2× 截图对应
+  320×160、640×320 像素。带 `#` 文件名的笔记能嵌入指定 Section，显示中文、emoji
+  和任务，未混入后续 Hidden 章节。阅读/编辑视图往返后，18 个 Markdown/SVG
+  夹具文件哈希全部一致；通过原生菜单退出后，隔离实例进程已结束。
+- 证据为该目录下 `reading.png`、`editing.png`、`fixture-before.json` 和
+  `verification.json`。仅修改生成夹具及其隔离配置，未访问真实笔记。
+  原生工具未可靠验证 Ctrl+滚轮，仍以第十五批自动回归为依据；本次也未验证嵌入任务
+  点击回写、完整读屏、输入法、Windows 或其他显示倍率。不包含帧率/输入延迟测量。
+- 同一提交的工作区全量回归通过：核心 362、桌面 424、集成 8 项，8 项既有手动测试
+  忽略。release 构建成功；日志 `native-current-workspace-tests.log` 与
+  `native-current-build.log` 位于 `target/audit-20261018/`。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
