@@ -8,7 +8,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.exporting {
+        if self.loading || self.ui.exporting {
             return;
         }
         let Some(vault) = self.vault.clone() else {
@@ -200,6 +200,61 @@ mod tests {
                 assert_eq!(w.file_writes.pending(), 0);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn failed_vault_switch_releases_the_superseded_export_picker(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-export-switch-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::write(root.join("vault/a.md"), "note").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("vault"), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.open_note("a.md".into(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.choose_export(Format::Markdown, window, cx);
+                assert!(w.ui.exporting);
+                w.load_vault(root.join("missing"), window, cx);
+                w.choose_export(Format::Markdown, window, cx);
+                assert!(!w.ui.exporting);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.simulate_new_path_selection(|_| None);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.loading);
+                assert!(!w.ui.exporting);
+                assert_eq!(
+                    w.vault.as_ref().unwrap().root,
+                    std::fs::canonicalize(root.join("vault")).unwrap()
+                );
+                w.choose_export(Format::Markdown, window, cx);
+                assert!(w.ui.exporting);
+            })
+            .unwrap();
+        cx.simulate_new_path_selection(|_| None);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(!w.ui.exporting);
+                assert_eq!(w.file_writes.pending(), 0);
+                w.watcher = None;
+                w.watch_events = None;
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[gpui::test]

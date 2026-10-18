@@ -230,6 +230,8 @@ impl Workspace {
         self.cancel_tree_name(cx);
         self.ui.tree_active = None;
         self.generation += 1;
+        // The old picker callback is now stale, even if loading this vault fails.
+        self.ui.exporting = false;
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {
             inkstone_core::startup_trace::mark("background_started");
@@ -337,7 +339,6 @@ impl Workspace {
                         this.ui.history_catalog = Default::default();
                         this.ui.conflict_review = None;
                         this.ui.backup = Default::default();
-                        this.ui.exporting = false;
                         this.ui.attachment_manager = None;
                         this.ui.link_health = None;
                         this.ui.bulk_edit = None;
