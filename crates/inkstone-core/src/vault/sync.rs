@@ -503,7 +503,11 @@ pub fn changed_since_sync(
         };
         let prefix = format!("{name}/");
         if metadata.as_ref().is_some_and(|m| m.is_dir())
-            || base.files.keys().any(|p| p.starts_with(&prefix))
+            || base
+                .files
+                .range(prefix.clone()..)
+                .next()
+                .is_some_and(|(path, _)| path.starts_with(&prefix))
         {
             // Directory creation/removal/rename may represent a whole subtree.
             return Ok(snapshot_with_progress(vault, Phase::Scanning, &|_| {})? != base.files);
