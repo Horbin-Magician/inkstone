@@ -1,5 +1,5 @@
 //! One source-coordinate parse shared by indexing and live presentation.
-mod changed_range;
+use crate::changed_range;
 mod incremental;
 use markdown_parser::{ParseOptions, mdast::Node};
 use std::sync::Arc;

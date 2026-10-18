@@ -40,21 +40,13 @@ pub fn diff(before: &str, after: &str) -> Vec<(Range<usize>, String)> {
     if before == after {
         return Vec::new();
     }
-    let start = before
-        .chars()
-        .zip(after.chars())
-        .take_while(|(a, b)| a == b)
-        .map(|(ch, _)| ch.len_utf8())
-        .sum::<usize>();
-    let suffix = before[start..]
-        .chars()
-        .rev()
-        .zip(after[start..].chars().rev())
-        .take_while(|(a, b)| a == b)
-        .map(|(ch, _)| ch.len_utf8())
-        .sum::<usize>();
-    let old = &before[start..before.len() - suffix];
-    let new = &after[start..after.len() - suffix];
+    let crate::changed_range::ChangedRange {
+        start,
+        old_end,
+        new_end,
+    } = crate::changed_range::ChangedRange::between(before, after);
+    let old = &before[start..old_end];
+    let new = &after[start..new_end];
     let deadline = Instant::now() + Duration::from_millis(20);
     let line_diff = TextDiff::configure()
         .deadline(deadline)

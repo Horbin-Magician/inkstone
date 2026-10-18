@@ -1,5 +1,5 @@
 //! Locate an edit once, comparing unchanged bytes in chunks before restoring
-//! Unicode scalar boundaries for Markdown's source coordinates.
+//! Unicode scalar boundaries for source coordinates.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ChangedRange {

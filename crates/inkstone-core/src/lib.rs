@@ -1,4 +1,5 @@
 pub mod batch;
+mod changed_range;
 pub mod comments;
 pub mod file_order;
 pub mod graphics;
