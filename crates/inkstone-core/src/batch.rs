@@ -1,6 +1,9 @@
 //! Reviewed bulk edits. Planning never writes; applying checks every baseline first.
 use crate::{index::Index, vault::Vault};
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
     pub find: String,
@@ -53,7 +56,10 @@ fn rename_tag(value: &str, old: &str, new: &str, descendants: bool) -> Option<St
         replacement
     })
 }
-fn tag_edit(note: &crate::index::IndexedNote, spec: &Spec) -> Result<(String, usize), String> {
+fn tag_edit<'a>(
+    note: &'a crate::index::IndexedNote,
+    spec: &Spec,
+) -> Result<(Cow<'a, str>, usize), String> {
     let source = note.text.as_str();
     let old = spec.find.trim().trim_start_matches('#');
     let new = spec.replacement.trim().trim_start_matches('#');
@@ -137,9 +143,9 @@ fn tag_edit(note: &crate::index::IndexedNote, spec: &Spec) -> Result<(String, us
         }
     }
     edits.sort_by_key(|(r, _)| r.start);
-    let mut out = source.to_owned();
+    let mut out = Cow::Borrowed(source);
     for (r, value) in edits.into_iter().rev() {
-        out.replace_range(r, &value);
+        out.to_mut().replace_range(r, &value);
     }
     if let Some(block) = crate::properties::block(&out) {
         let start = out.find('\n').unwrap() + 1;
@@ -204,7 +210,7 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
                 } else {
                     regex.replace_all(&note.text, regex::NoExpand(&spec.replacement))
                 };
-                Ok((after.into_owned(), count))
+                Ok((after, count))
             } else {
                 Err("不支持零宽匹配，请使用匹配具体字符的表达式。".into())
             }
@@ -213,7 +219,7 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
             Ok((after, count)) if after != note.text => result.edits.push(Edit {
                 path: path.clone(),
                 before: note.text.clone(),
-                after,
+                after: after.into_owned(),
                 count,
             }),
             Ok(_) => (),
