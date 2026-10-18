@@ -21,34 +21,34 @@ pub fn scan(root: &Path, index: &Index) -> Vec<Issue> {
             .parsed
             .links
             .iter()
-            .map(|link| (link.range.start, link.target.clone(), true))
+            .map(|link| (link.range.start, link.target.as_str(), true))
             .chain(
                 note.parsed
                     .markdown_references
                     .iter()
-                    .map(|(offset, url)| (*offset, url.clone(), false)),
+                    .map(|(offset, url)| (*offset, url.as_str(), false)),
             )
             .chain(
                 note.parsed
                     .html_destinations
                     .iter()
-                    .map(|(range, url)| (range.start, url.clone(), false)),
+                    .map(|(range, url)| (range.start, url.as_str(), false)),
             );
         let mut seen = BTreeSet::new();
         for (offset, target, wiki) in references {
-            if rendering::is_external_link(&target)
-                || rendering::is_remote_image(&target)
-                || !seen.insert((offset, target.clone()))
+            if rendering::is_external_link(target)
+                || rendering::is_remote_image(target)
+                || !seen.insert((offset, target))
             {
                 continue;
             }
             let (resolution, fragment) = if wiki {
                 (
-                    index.resolve(from, &target),
+                    index.resolve(from, target),
                     target.split_once('#').map(|(_, f)| f.to_owned()),
                 )
             } else {
-                index.resolve_markdown(from, &target)
+                index.resolve_markdown(from, target)
             };
             let reason = match resolution {
                 Resolution::Found(path) if index.notes.contains_key(&path) => {
@@ -67,7 +67,7 @@ pub fn scan(root: &Path, index: &Index) -> Vec<Issue> {
                         root,
                         &Reference {
                             from: from.clone(),
-                            target: target.clone(),
+                            target: target.to_owned(),
                             wiki,
                         },
                         &index.files,
@@ -84,7 +84,7 @@ pub fn scan(root: &Path, index: &Index) -> Vec<Issue> {
                 issues.push(Issue {
                     from: from.clone(),
                     offset,
-                    target,
+                    target: target.to_owned(),
                     reason,
                 });
             }
