@@ -84,7 +84,11 @@ impl Workspace {
     }
 
     fn choose_partial_destination(&mut self, cx: &mut Context<Self>) {
-        if self.ui.backup.busy || self.ui.backup.picker_open || self.ui.backup.pending.is_some() {
+        if self.loading
+            || self.ui.backup.busy
+            || self.ui.backup.picker_open
+            || self.ui.backup.pending.is_some()
+        {
             return;
         }
         let state = &self.ui.backup.capacity;
