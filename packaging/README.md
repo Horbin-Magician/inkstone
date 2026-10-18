@@ -16,7 +16,7 @@ Windows 程序内嵌多尺寸应用图标；安装器和卸载器使用同一图
 macOS 仅提供 Apple Silicon 构建，需要 Xcode Command Line Tools，输出 DMG 和 app.tar.gz；应用使用临时签名。
 CI 使用 Apple Silicon runner 构建 macOS 发行包。
 DMG 按源文件逻辑大小额外预留 20% 和 64 MiB 的文件系统空间，避免自动估算容量不足。
-包内包含使用指南、许可和 `resources.json`，包外 `.sha256` 校验下载完整性；校验和不等同于数字签名。
+包内包含使用指南、许可和 `resources.json`。资源清单分别记录普通文件的 SHA-256 和符号链接的目标，链接不展开读取；包外 `.sha256` 校验下载完整性；校验和不等同于数字签名。
 当前没有 Windows 发行签名或 Apple Developer ID 公证。应用内支持检测、下载并校验更新，打开安装包后由用户完成安装；不会自动退出或替换正在运行的应用。
 
 ## 发布
@@ -37,7 +37,7 @@ CI 将待发布文件写入 runner 临时目录，与 Cargo 依赖缓存隔离�
 Windows 使用纸白背景、墨色文字与现有应用图标，支持 DPI 缩放；安装完成页可直接启动应用。引导文案提供中英文版本，安装与卸载共用品牌页眉。
 `packaging/windows/assets/` 中的 BMP 是已提交的构建输入。修改视觉资源时，安装 Pillow 11.3.0 并运行 `python packaging/windows/generate_installer_art.py`；正常打包无需 Pillow。
 
-macOS DMG 使用 640 × 400 的暖白窗口，仅并列显示墨砚和 Applications。背景包含连接箭头、“将墨砚拖入 Applications 文件夹”和安装后打开应用的说明。DMG 不再附带使用指南；许可放在隐藏的 `.support` 目录，根目录 `.resources.json` 校验全部文件。`app.tar.gz` 仍保留原来的指南、许可和目录结构。
+macOS DMG 使用 640 × 400 的暖白窗口，仅并列显示墨砚和 Applications。背景包含连接箭头、“将墨砚拖入 Applications 文件夹”和安装后打开应用的说明。DMG 不再附带使用指南；许可放在隐藏的 `.support` 目录，根目录 `.resources.json` 校验文件内容及 Applications 等符号链接的目标。`app.tar.gz` 仍保留原来的指南、许可和目录结构。
 
 DMG 在临时可写磁盘上生成 Finder 布局和背景别名，再转为压缩的只读镜像，因此背景不依赖构建机器的路径。此步骤使用 `packaging/macos/requirements.txt` 中锁定的依赖，无需启动 Finder 或授权 AppleScript；CI 自动安装这些依赖。
 背景资源 `packaging/macos/background.tiff` 包含普通与 Retina 两种分辨率。调整文案或图形时，在 macOS 安装 Pillow 11.3.0 并运行 `python packaging/macos/generate_background.py`；正常打包无需 Pillow。图标位置与窗口尺寸定义在 `packaging/macos/dmg_layout.py`。

@@ -34,19 +34,30 @@ def digest(path):
     return result.hexdigest()
 
 
+def contents(stage, manifest):
+    files, symlinks = {}, {}
+    for path in sorted(stage.rglob("*")):
+        if path == stage / manifest:
+            continue
+        name = path.relative_to(stage).as_posix()
+        if path.is_symlink():
+            symlinks[name] = os.readlink(path)
+        elif path.is_file():
+            files[name] = digest(path)
+    return files, symlinks
+
+
 def inventory(stage, version, target, manifest="resources.json"):
-    files = {p.relative_to(stage).as_posix(): digest(p)
-             for p in sorted(stage.rglob("*")) if p.is_file() and p != stage / manifest}
+    files, symlinks = contents(stage, manifest)
     (stage / manifest).write_text(json.dumps({
-        "version": version, "target": target, "files": files,
+        "version": version, "target": target, "files": files, "symlinks": symlinks,
     }, indent=2) + "\n", encoding="utf-8")
 
 
 def verify(stage, manifest="resources.json"):
     data = json.loads((stage / manifest).read_text(encoding="utf-8"))
-    actual = {p.relative_to(stage).as_posix(): digest(p)
-              for p in stage.rglob("*") if p.is_file() and p != stage / manifest}
-    if actual != data["files"]:
+    files, symlinks = contents(stage, manifest)
+    if files != data["files"] or symlinks != data.get("symlinks", {}):
         raise ValueError("Package inventory mismatch")
 
 
