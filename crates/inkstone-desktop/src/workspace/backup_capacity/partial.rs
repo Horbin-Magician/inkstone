@@ -110,21 +110,41 @@ impl Workspace {
         self.ui.backup.picker_open = true;
         let dialog = cx.prompt_for_new_path(&directory, Some("恢复的剩余文件"));
         cx.spawn(async move |this, cx| {
-            let result = dialog.await;
+            let result = dialog
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
             let _ = this.update(cx, |this, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.ui.backup.picker_open = false;
-                if this.partial_backup_current(generation, epoch, request)
-                    && let Ok(Ok(Some(destination))) = result
-                {
-                    this.restore_partial_backup(destination, cx);
-                }
-                cx.notify();
+                this.finish_partial_destination(generation, epoch, request, result, cx);
             });
         })
         .detach();
+        cx.notify();
+    }
+
+    fn finish_partial_destination(
+        &mut self,
+        generation: u64,
+        epoch: u64,
+        request: u64,
+        result: Result<Option<PathBuf>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.generation != generation {
+            return;
+        }
+        self.ui.backup.picker_open = false;
+        if self.partial_backup_current(generation, epoch, request) {
+            match result {
+                Ok(Some(destination)) => self.restore_partial_backup(destination, cx),
+                Ok(None) => (),
+                Err(error) => {
+                    let message = format!("无法选择剩余文件恢复目录：{error}");
+                    self.ui.backup.capacity.partial.message = message.clone();
+                    self.notifications.publish(message);
+                }
+            }
+        }
         cx.notify();
     }
 
@@ -268,6 +288,64 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn partial_picker_errors_are_scoped_to_the_current_preview(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                let generation = w.generation;
+                let epoch = w.ui.backup.capacity.request;
+                let request = w.ui.backup.capacity.partial.request;
+                w.ui.backup.picker_open = true;
+                w.finish_partial_destination(
+                    generation,
+                    epoch,
+                    request,
+                    Err("unavailable".into()),
+                    cx,
+                );
+                assert!(!w.ui.backup.picker_open);
+                assert!(w.ui.backup.capacity.partial.message.contains("unavailable"));
+                assert_eq!(w.notifications.text(), w.ui.backup.capacity.partial.message);
+                w.ui.backup.capacity.partial.message = "keep".into();
+                w.notifications.publish("keep".into());
+                w.ui.backup.picker_open = true;
+                w.finish_partial_destination(generation, epoch, request, Ok(None), cx);
+                assert!(!w.ui.backup.picker_open);
+                assert_eq!(w.ui.backup.capacity.partial.message, "keep");
+                for (old_epoch, old_request) in [
+                    (epoch.wrapping_add(1), request),
+                    (epoch, request.wrapping_add(1)),
+                ] {
+                    w.ui.backup.picker_open = true;
+                    w.finish_partial_destination(
+                        generation,
+                        old_epoch,
+                        old_request,
+                        Err("stale".into()),
+                        cx,
+                    );
+                    assert!(!w.ui.backup.picker_open);
+                    assert_eq!(w.ui.backup.capacity.partial.message, "keep");
+                }
+                w.generation += 1;
+                w.ui.backup.picker_open = true;
+                w.finish_partial_destination(
+                    generation,
+                    epoch,
+                    request,
+                    Err("old vault".into()),
+                    cx,
+                );
+                assert!(w.ui.backup.picker_open);
+                assert_eq!(w.notifications.text(), "keep");
+                assert_eq!(w.file_writes.pending(), 0);
+            })
+            .unwrap();
+    }
 
     #[test]
     fn recovery_text_exposes_complete_path_and_verdict_without_click_action() {
