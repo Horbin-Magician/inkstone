@@ -2753,59 +2753,73 @@ fn property_editor_preserves_multiline_aliases_and_rejects_invalid_lists(cx: &mu
 #[gpui::test]
 fn reading_quote_link_opens_its_source_relative_note(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    let handle = cx.add_window(Workspace::new);
-    let root = std::env::temp_dir().join(format!("inkstone-reading-link-{}", std::process::id()));
-    std::fs::create_dir_all(root.join("folder")).unwrap();
-    let source = "> [前往](../other.md)\n";
-    std::fs::write(root.join("folder/root.md"), source).unwrap();
-    std::fs::write(root.join("other.md"), "# 目的地").unwrap();
-    handle
-        .update(cx, |w, window, cx| {
-            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
-            w.index = Arc::new(Index::build(&vault).unwrap());
-            w.vault = Some(vault);
-            w.add_tab(
-                "folder/root.md".into(),
-                Some(source.into()),
-                false,
-                window,
-                cx,
-            );
-            w.tabs[0].pane.update(cx, |p, cx| {
-                p.reading = true;
-                p.focus_view(window, cx);
-                cx.notify();
-            });
-        })
-        .unwrap();
-    cx.run_until_parked();
-    let mut visual = VisualTestContext::from_window(handle.into(), cx);
-    visual.simulate_resize(size(px(1200.), px(820.)));
-    visual.update(|w, cx| w.draw(cx).clear(cx));
-    visual.run_until_parked();
-    visual.update(|w, cx| w.draw(cx).clear(cx));
-    let bounds = handle
-        .update(&mut visual, |w, _, cx| {
-            w.tabs[0].pane.read(cx).reading_bounds(cx)
-        })
-        .unwrap();
-    visual.simulate_click(
-        bounds.origin + point(px(28.), px(10.)),
-        Modifiers::default(),
-    );
-    visual.run_until_parked();
-    handle
-        .update(&mut visual, |w, _, _| {
-            assert_eq!(
-                w.tabs[w.active.unwrap()].path,
-                PathBuf::from("other.md"),
-                "bounds={bounds:?}; status={}",
-                w.notifications.text()
-            )
-        })
-        .unwrap();
-    visual.run_until_parked();
-    std::fs::remove_dir_all(root).unwrap();
+    for (case, source, target) in [
+        (0, "> [前往](../other.md)\n", "other.md"),
+        (1, "> [前往](../name%5Cpart.md#Target)\n", r"name\part.md"),
+    ] {
+        if case == 1 && !cfg!(unix) {
+            continue;
+        }
+        let handle = cx.add_window(Workspace::new);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-reading-link-{}-{case}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("folder")).unwrap();
+        std::fs::write(root.join("folder/root.md"), source).unwrap();
+        std::fs::write(root.join(target), "# Target\n\n目的地").unwrap();
+        if case == 1 {
+            std::fs::create_dir_all(root.join("name")).unwrap();
+            std::fs::write(root.join("name/part.md"), "# Target\n\n另一文件").unwrap();
+        }
+        handle
+            .update(cx, |w, window, cx| {
+                let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+                w.index = Arc::new(Index::build(&vault).unwrap());
+                w.vault = Some(vault);
+                w.add_tab(
+                    "folder/root.md".into(),
+                    Some(source.into()),
+                    false,
+                    window,
+                    cx,
+                );
+                w.tabs[0].pane.update(cx, |p, cx| {
+                    p.reading = true;
+                    p.focus_view(window, cx);
+                    cx.notify();
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1200.), px(820.)));
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        let bounds = handle
+            .update(&mut visual, |w, _, cx| {
+                w.tabs[0].pane.read(cx).reading_bounds(cx)
+            })
+            .unwrap();
+        visual.simulate_click(
+            bounds.origin + point(px(28.), px(10.)),
+            Modifiers::default(),
+        );
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(
+                    w.tabs[w.active.unwrap()].path,
+                    PathBuf::from(target),
+                    "bounds={bounds:?}; status={}",
+                    w.notifications.text()
+                )
+            })
+            .unwrap();
+        visual.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 #[gpui::test]
 fn file_location_settings_control_note_and_attachment_writes(cx: &mut TestAppContext) {
