@@ -3122,6 +3122,14 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 提交 `ac56500` 让 render_tabs 接收 render_tab_bar 已收集的可见索引，删除每帧第二次遍历、可见性查询和 Vec 收集。保持本次选择与菜单行为，未声称上述待查项已经解决，也未测量帧耗时提升。
 - Component dock:: 默认和 test-support 配置各 24 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、修改文件直接 rustfmt 与 diff 检查通过。日志 `target/audit-20261019/dock-visible-{prepare,tests,observed-tests,clippy}.log`，保留既有 block 0.1.6 提示。未重跑完整工作区或原生验收；台账仍为 307 已核对、421 待核对。
 
+第二百七十四批审核与验证：
+
+- 针对上批缩放菜单疑点增加真实菜单触发、Down/Enter 与 Dock 状态验证。最初错误通过，进一步检查发现 PopupMenu 的 confirm_click 未检查 disabled，Down 选中禁用条目后 Enter 仍执行。新增普通/自定义条目的禁用回归，旧实现普通条目实际调用次数为 1，预期为 0（`menu-disabled-red.log`）。
+- 提交 `cc8a808` 在统一确认入口检查当前条目 is_clickable，覆盖无选中、失效索引及禁用条目；新增回归还检查保留选中索引时的禁用确认。menu:: 18 项通过。此后 Dock 缩放回归在旧菜单启用条件下失败，证实另一问题：工具栏专用缩放面板的菜单“缩小”被禁用（`dock-menu-red.log`）。
+- 提交 `be528a7` 将菜单禁用条件限制为未缩放且不提供菜单控件，已经缩放时允许退出；真实打开菜单并按 Down/Enter 后恢复普通布局。保持未缩放时面板原有控制位置约束。
+- Component 默认/观察配置全量分别 578/586 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、两文件直接 rustfmt 及 diff 检查通过。日志 `target/audit-20261019/dock-menu-{tests,observed-tests,clippy}.log`，保留既有 block 0.1.6 提示。没有将两个配置计为不同独立用例，也未重跑 Base 全量或原生验收。
+- 标签自动滚动疑点尚待验证，tab_panel.rs 保持待核对；本批只检查 PopupMenu 相关确认/选择路径，不据此新增整文件审核计数，台账仍为 307 已核对、421 待核对。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
