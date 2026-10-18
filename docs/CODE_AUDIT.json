@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "f3c003010617f195167a293365a345cbb7be1639",
+  "snapshot_revision": "c45eea985168d8c81949375afac7902fbac98bb1",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -971,12 +971,12 @@
     {
       "path": "crates/inkstone-desktop/src/workspace/welcome.rs",
       "checks": "Complete read: first-vault creation, no-clobber directory creation, generation and write-ticket guards, welcome/loading/blank states and keyboard startup tests.",
-      "result": "Welcome regression 9 passed. Follow-up remains: create-first-vault path picker silently discards dialog errors; cancellation must remain quiet when adding error reporting."
+      "result": "Picker error follow-up resolved by c45eea9: creation uses shared current-generation selection handling; cancellation remains quiet. Welcome tests 9 passed, session tests 6 passed; workspace all-targets Clippy and formatting passed. No native/platform acceptance claimed."
     },
     {
       "path": "crates/inkstone-desktop/src/workspace/session.rs",
       "checks": "Complete read: startup lookup, vault picker/load, watcher/index preparation, restored tab/view mapping, settings/cache maintenance and stale recovery result handling.",
-      "result": "Fixed old-vault pending navigation leaking across accepted switches (f3c0030); red test reproduced. Session tests 5 passed, welcome tests 9 passed, workspace all-targets Clippy and formatting passed. Follow-up: choose-vault dialog errors are silently discarded."
+      "result": "Old-vault navigation fixed in f3c0030. Picker errors and stale success/error callbacks handled by shared generation guard (c45eea9). Session tests 6 passed, welcome tests 9 passed; workspace all-targets Clippy and formatting passed. No native/platform acceptance claimed."
     }
   ],
   "pending_reconciliation": [
