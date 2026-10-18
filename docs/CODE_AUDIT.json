@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "479e1d22c5d9fe160456439c18dbe17999b00b19",
+  "snapshot_revision": "c28737ea638494feec7669c944c2d64da8c2015d",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1412,6 +1412,11 @@
       "path": "vendor/gpui-base/src/combobox.rs",
       "checks": "Complete read: key bindings, controlled open/disabled state, Select delegation, trigger/content focus, confirm and dismiss ordering tests.",
       "result": "No newly confirmed defect in this read. Existing tests included in batch 261 four-configuration full vendor regression. Native visual/focus acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/date_picker.rs",
+      "checks": "Complete read: controlled open state, focus override and disabled Tab policy, Confirm/Cancel actions, child/style forwarding and native ComboBox semantics. Fixed explicit focus override in batch 261 and native disabled flag in batch 262.",
+      "result": "Disabled-node assertion fails before fix; default/test-support suites each pass 3 tests after fix. Action regression covers all open/disabled combinations and allows cancellation of an already-open disabled picker. Workspace all-targets Clippy passes. Native keyboard bindings and screen-reader acceptance remain pending."
     }
   ],
   "pending_reconciliation": [
@@ -1419,7 +1424,6 @@
     "vendor/gpui-base/src/calendar.rs",
     "vendor/gpui-base/src/checkbox.rs",
     "vendor/gpui-base/src/color_picker.rs",
-    "vendor/gpui-base/src/date_picker.rs",
     "vendor/gpui-base/src/dialog.rs",
     "vendor/gpui-base/src/dock/active.rs",
     "vendor/gpui-base/src/dock/dock_area.rs",

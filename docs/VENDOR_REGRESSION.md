@@ -20,6 +20,8 @@ CI 独立的 `Vendor regression` macOS/Windows jobs 执行同一命令。2026-10
 
 ## 维护目的与验证层次
 
+2026-10-19 DatePicker 禁用语义：真实 ComboBox 节点报告 disabled，保留展开状态；动作回归明确禁用时禁止确认，但仍允许取消已展开的选择器。
+
 2026-10-19 DatePicker 焦点绑定：显式 track_focus 更新渲染使用的句柄，避免被构造句柄覆盖；真实焦点遍历回归覆盖覆盖关系。
 
 2026-10-19 单侧 DropdownButton：仅当操作按钮和菜单按钮同时存在时才应用拼接边框/圆角，单侧按钮保留完整外缘。
