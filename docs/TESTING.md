@@ -2915,6 +2915,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 重新准备独立 vendor 源码后 motion:: 过滤 52 项通过（包含 5 项 reduce_motion 测试）；旧实现 3 通过/2 失败记录在 `target/audit-20261019/presence-settled-red.log`，修复后在 `presence-settled-tests.log`。工作区 all-targets Clippy（-D warnings）、工作区/vendor 格式及 diff 检查通过，日志 `presence-settled-clippy.log`；保留既有 block 0.1.6 future-incompatibility 提示。
 - motion.rs 中普通值过渡和关键帧播放的部分实现已继续阅读，但全文件审核仍未完成；关键帧在减少动态效果切换后的生命周期仍需进一步验证。未新增原生或跨平台验收证据。
 
+第二百四十四批审核与验证：
+
+- 继续核对 Base motion.rs 的关键帧播放、普通值过渡、弹簧参数与相关测试；全文件审核尚未完成，本批不增加逐文件台账数量（258 已核对、469 待核对）。
+- 新关键帧回归在旧实现复现：播放到 25ms 的 2.5 后启用减少动态效果得到终值 10，再关闭设置却回到 2.5/Running。提交 `e3aba39` 保存当前播放已因减少动态效果结束的状态；恢复动态效果保持 10/Finished 且无待处理帧，显式更换 generation 后重新从 0 播放，50ms 得到 5。
+- 重新准备独立 vendor 源码后 motion:: 过滤 53 项通过（包含 5 项 reduce_motion 测试）；日志 `target/audit-20261019/keyframe-settled-{red,tests,clippy}.log`。工作区 all-targets Clippy（-D warnings）、工作区/vendor 格式和 diff 检查通过；保留既有 block 0.1.6 future-incompatibility 提示。
+- 本批验证为确定性调度器下的关键帧状态与重播行为，不替代原生系统偏好切换或实际帧耗时验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
