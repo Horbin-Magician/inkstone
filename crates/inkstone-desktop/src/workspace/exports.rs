@@ -32,18 +32,37 @@ impl Workspace {
             cx.prompt_for_new_path(vault.root.parent().unwrap_or(&vault.root), Some(&name));
         self.ui.exporting = true;
         cx.spawn_in(window, async move |this, cx| {
-            let result = dialog.await;
+            let result = dialog
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
             let _ = this.update_in(cx, |this, window, cx| {
-                if this.generation != generation {
-                    return;
-                }
-                this.ui.exporting = false;
-                if let Ok(Ok(Some(destination))) = result {
-                    this.start_export(path, destination, format, window, cx);
-                }
+                this.finish_export_selection(generation, path, format, result, window, cx);
             });
         })
         .detach();
+    }
+    fn finish_export_selection(
+        &mut self,
+        generation: u64,
+        path: PathBuf,
+        format: Format,
+        result: Result<Option<PathBuf>, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.generation != generation {
+            return;
+        }
+        self.ui.exporting = false;
+        match result {
+            Ok(Some(destination)) => self.start_export(path, destination, format, window, cx),
+            Ok(None) => (),
+            Err(error) => self
+                .notifications
+                .publish(format!("无法选择导出目录：{error}")),
+        }
+        cx.notify();
     }
     fn start_export(
         &mut self,
@@ -130,6 +149,59 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn export_picker_errors_and_cancellation_release_only_the_current_request(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let generation = w.generation;
+                w.ui.exporting = true;
+                w.finish_export_selection(
+                    generation,
+                    "a.md".into(),
+                    Format::Html,
+                    Err("目录选择器不可用".into()),
+                    window,
+                    cx,
+                );
+                assert!(!w.ui.exporting);
+                assert!(
+                    w.notifications
+                        .text()
+                        .contains("无法选择导出目录：目录选择器不可用")
+                );
+                w.notifications.publish("existing message".into());
+                w.ui.exporting = true;
+                w.finish_export_selection(
+                    generation,
+                    "a.md".into(),
+                    Format::Html,
+                    Ok(None),
+                    window,
+                    cx,
+                );
+                assert!(!w.ui.exporting);
+                assert_eq!(w.notifications.text(), "existing message");
+                w.generation = generation.wrapping_add(1);
+                w.ui.exporting = true;
+                w.finish_export_selection(
+                    generation,
+                    "a.md".into(),
+                    Format::Html,
+                    Err("old failure".into()),
+                    window,
+                    cx,
+                );
+                assert!(w.ui.exporting);
+                assert_eq!(w.notifications.text(), "existing message");
+                assert_eq!(w.file_writes.pending(), 0);
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn export_uses_open_draft_without_saving_or_overwriting(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
