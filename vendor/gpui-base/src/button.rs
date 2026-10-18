@@ -211,7 +211,8 @@ impl RenderOnce for Button {
         let style = self.resolved_style();
         let on_click = self.on_click;
 
-        self.base
+        let base = self
+            .base
             // Centering is part of Button's control geometry. Without a flex
             // formatting context an ordinary child starts at the root's
             // leading edge, so a fixed-height unstyled Button cannot align its
@@ -253,7 +254,8 @@ impl RenderOnce for Button {
                 },
             )
             .children(self.children)
-            .refine_style(&style)
+            .refine_style(&style);
+        crate::accessibility::with_disabled(base, disabled)
     }
 }
 
@@ -377,6 +379,15 @@ mod tests {
 
         assert_eq!(button_clicks.get(), 0);
         assert_eq!(parent_clicks.get(), 0);
+        #[cfg(feature = "test-support")]
+        cx.update(|window, _| {
+            let nodes = crate::test_support::snapshots(window);
+            let button = nodes
+                .iter()
+                .find(|node| node.path().last() == Some(&ElementId::from("button")))
+                .unwrap();
+            assert_eq!(button.disabled(), Some(true));
+        });
     }
 
     #[gpui::test]
@@ -509,11 +520,10 @@ mod tests {
                 canvas(
                     move |_, window, cx| {
                         let mut info = |button: Button| {
-                            let mut node = accesskit::Node::new(Role::Button);
-                            button
-                                .render(window, cx)
-                                .into_element()
-                                .write_a11y_info(&mut node);
+                            let element = button.render(window, cx).into_element();
+                            assert_eq!(element.a11y_role(), Some(Role::Button));
+                            let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+                            element.write_a11y_info(&mut node);
                             node
                         };
                         let enabled = info(
@@ -548,9 +558,7 @@ mod tests {
         assert_eq!(disabled.role(), Role::Button);
         assert!(!disabled.supports_action(accesskit::Action::Click));
 
-        // GPUI's current StatefulInteractiveElement interface has no
-        // aria-disabled setter even though AccessKit can represent it. This
-        // assertion records that upstream gap instead of claiming support.
-        assert!(!disabled.is_disabled());
+        assert!(!enabled.is_disabled());
+        assert!(disabled.is_disabled());
     }
 }
