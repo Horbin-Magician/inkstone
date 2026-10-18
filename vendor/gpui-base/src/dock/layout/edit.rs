@@ -94,9 +94,10 @@ impl PaneTree {
             let Some(path) = tree.path_of_node(node) else {
                 return false;
             };
-            let NodeKind::Tabs { active_ix, .. } = tree.node_at_mut(&path).kind_mut() else {
+            let NodeKind::Tabs { panels, active_ix } = tree.node_at_mut(&path).kind_mut() else {
                 return false;
             };
+            let ix = ix.min(panels.len().saturating_sub(1));
             if *active_ix == ix {
                 return false;
             }
@@ -581,6 +582,7 @@ mod tests {
         let (mut tree, tabs) = tree_with_one_group();
         let result = tree.set_active(tabs, 0);
         assert!(!result.changed());
+        assert!(!tree.set_active(tabs, usize::MAX).changed());
     }
 
     #[test]
