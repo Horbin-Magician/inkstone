@@ -996,6 +996,20 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   日志为 `target/audit-20261018/markdown-leading-space-{red,tests,clippy}.log`。
   尚未执行此特殊文件名的原生点击验收。
 
+第八十八批 Markdown 锚点重复解码修复：
+
+- `7e10962` 将已解码锚点的章节查找独立为 `anchor_range_decoded`，Markdown
+  跳转、阅读嵌入、链接诊断和 HTML 导出使用此入口；原始锚点入口保留原有一次
+  解码行为供 Wiki 等调用。`#%2541` 不再被再次解码成 `A` 而选错标题。
+- 阅读嵌入回归先复现字面 `%41` 章节未被选中；修复后验证正文片段、链接诊断、
+  Markdown/HTML 导出目标和桌面光标位置。桌面同时覆盖索引正文与打开的编辑器正文，
+  既有未提交输入和多视图锚点回归仍通过。导出测试最初错误要求警告列表为空，已
+  按既有 HTML 固定说明修正，仍拒绝其他诊断并检查实际导出锚点。
+- 核心全量 385 项通过、3 项既有手动入口忽略，桌面链接定向 2 项通过；工作区
+  全目标 Clippy、格式和差异检查通过。日志为
+  `target/audit-20261018/anchor-decode-once-{red,core-tests,desktop-tests,clippy}.log`。
+  原生鼠标点击与 Windows 环境尚未补充验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
