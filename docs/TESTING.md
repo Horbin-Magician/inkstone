@@ -412,6 +412,21 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 日志前缀 `stream-interrupted-`，位于 `target/audit-20261018/`。未对每条文件路径
   分别注入操作系统中断，也未执行真实设备/网络故障或 Windows 原生验证。
 
+第三十二批当前版本原生名称验收：
+
+- `0f8962e` release 构建成功；使用新隔离 bundle/data 和生成库
+  `target/audit-20261018/native-current-labels/`。2× 截图确认文件树中 `重复.md.md`
+  显示为 `重复.md`，目录 `目录.md` 保留全名，子笔记 `笔记.md.MD` 显示为 `笔记.md`；
+  标题显示 `目录.md / 笔记.md`。打开 Unix 字面反斜杠笔记后，标题和文件树均保留
+  `名字\原样`。阅读/编辑模式的 AX 名称分别为“切换编辑视图”和“切换阅读视图”。
+- 应用通过原生菜单正常退出，进程已结束；19 篇夹具笔记哈希全部一致。
+  证据 `reading.png`、`literal-backslash.png`、`expanded-tree.png`、两份 AX 文本与
+  `verification.json` 保存在上述隔离目录。没有修改真实笔记或配置。
+  范围限定为这些名称及模式提示，不代表完整 VoiceOver、输入法或 Windows 验收。
+- 同一提交的工作区全量回归通过：核心 369、桌面 424、集成 8 项，8 项既有手动测试
+  忽略。日志 `current-review-workspace-tests.log`、`current-review-release.log` 位于
+  `target/audit-20261018/`；本次运行没有进行性能计时对照。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
