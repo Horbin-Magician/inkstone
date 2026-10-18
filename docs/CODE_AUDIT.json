@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "42bcfc7a755c498173cfb9659926a40bcfff2c2c",
+  "snapshot_revision": "8b4177c991e4bccb5e7c9f76ec0920437d55839f",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -482,6 +482,11 @@
       "path": "crates/inkstone-desktop/src/theme.rs",
       "checks": "shared light/dark palette roles and minimum auxiliary font size",
       "result": "No new actionable finding in this full read. Source unchanged since batch 152 full regression; native/platform acceptance remains separate."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/native_graphics.rs",
+      "checks": "full source/tests: measurement and raster keys, shared assets, inflight permits, raster serialization and budget, eviction, block/inline layout and cached failure display",
+      "result": "Fixed blank placeholders for cached raster errors in 8b4177c. Five graphics tests pass; cache budget is not total process memory or native frame acceptance."
     }
   ],
   "pending_reconciliation": [
@@ -562,7 +567,6 @@
     "crates/inkstone-desktop/src/editor_links.rs",
     "crates/inkstone-desktop/src/editor_links/benchmark.rs",
     "crates/inkstone-desktop/src/editor_links/slash.rs",
-    "crates/inkstone-desktop/src/native_graphics.rs",
     "crates/inkstone-desktop/src/test_support.rs",
     "crates/inkstone-desktop/src/workspace.rs",
     "crates/inkstone-desktop/src/workspace/appearance.rs",
