@@ -242,6 +242,12 @@ impl CompletionProvider for WikiCompletions {
             } else {
                 paths.as_ref()
             };
+            let needle = typed
+                .split_once('#')
+                .map_or(typed, |(_, fragment)| fragment.trim_start_matches('^'));
+            // Compile at most once per request, and only if a visible candidate
+            // needs highlights. Empty and unsuccessful queries do no regex work.
+            let mut highlight_pattern = None;
             let items = candidates
                 .iter()
                 .filter(|path| {
@@ -280,16 +286,17 @@ impl CompletionProvider for WikiCompletions {
                             .map_or("/", |(parent, _)| parent)
                             .to_string()
                     };
-                    let needle = typed
-                        .split_once('#')
-                        .map_or(typed, |(_, fragment)| fragment.trim_start_matches('^'));
                     let ranges: Vec<_> = if needle.is_empty() {
                         vec![]
                     } else {
-                        regex::RegexBuilder::new(&regex::escape(needle))
-                            .case_insensitive(true)
-                            .build()
-                            .ok()
+                        highlight_pattern
+                            .get_or_insert_with(|| {
+                                regex::RegexBuilder::new(&regex::escape(needle))
+                                    .case_insensitive(true)
+                                    .build()
+                                    .ok()
+                            })
+                            .as_ref()
                             .map(|pattern| {
                                 pattern
                                     .find_iter(&label)
