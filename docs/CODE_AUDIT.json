@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "0e141dcc1570808a92656925aad3d94cd1b145cf",
+  "snapshot_revision": "481461cfbf4cb6a1239f8b8c59f39143016eefb1",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1477,6 +1477,11 @@
       "path": "vendor/gpui-base/src/dock/layout/normalize.rs",
       "checks": "Complete read: Bottom-up empty/single-child/same-axis rules, slot redistribution, active-index clamp, bounded convergence and idempotence. Root collapse now moves the surviving subtree instead of cloning it.",
       "result": "Base dock default suite passes 151 tests after both optimizations; workspace all-targets Clippy passes. Traversal/cloning work removed by code inspection; no measured native UI speedup claimed."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/layout/edit.rs",
+      "checks": "Complete read: tab/split insertion and sizing, detach/move behavior, active-index preservation, measured slot adoption, normalization and change reporting. Validate move destination before detaching; clamp active index before change comparison.",
+      "result": "Both new assertions fail on prior implementations. Invalid-move fix passes default/test-support dock suites each 152 tests; subsequent selection fix passes default 152 tests. Workspace all-targets Clippy passes. Native drag/restore acceptance remains pending."
     }
   ],
   "pending_reconciliation": [
@@ -1484,7 +1489,6 @@
     "vendor/gpui-base/src/color_picker.rs",
     "vendor/gpui-base/src/dock/dock_area.rs",
     "vendor/gpui-base/src/dock/drag.rs",
-    "vendor/gpui-base/src/dock/layout/edit.rs",
     "vendor/gpui-base/src/dock/mod.rs",
     "vendor/gpui-base/src/dock/panel.rs",
     "vendor/gpui-base/src/dock/state.rs",
