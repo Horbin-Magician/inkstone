@@ -237,6 +237,20 @@ impl Workspace {
 }
 
 impl Workspace {
+    fn select_settings_tab(&mut self, tab: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.ui
+            .settings_filter
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.ui.settings_tab = tab;
+        self.ui.settings_scroll.set_offset(Point::default());
+        self.ui.hotkey_recording = None;
+        self.ui.hotkey_recording_focus = None;
+        if tab == 2 {
+            self.prepare_file_settings(window, cx);
+        }
+        cx.notify();
+    }
+
     pub(super) fn settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .id("settings-navigation")
@@ -286,17 +300,7 @@ impl Workspace {
                                 .child(title),
                         )
                         .on_click(cx.listener(move |this, _, w, cx| {
-                            this.ui
-                                .settings_filter
-                                .update(cx, |input, cx| input.set_value("", w, cx));
-                            this.ui.settings_tab = i;
-                            this.ui.settings_scroll.set_offset(Point::default());
-                            if i == 2 {
-                                this.prepare_file_settings(w, cx);
-                            }
-                            this.ui.hotkey_recording = None;
-                            this.ui.hotkey_recording_focus = None;
-                            cx.notify();
+                            this.select_settings_tab(i, w, cx);
                         }))
                 }),
             )
@@ -384,17 +388,7 @@ impl Workspace {
                         .accessibility_label(label)
                         .child(div().w_full().py_2().flex().flex_col().gap_1().child(label))
                         .on_click(cx.listener(move |this, _, w, cx| {
-                            this.ui
-                                .settings_filter
-                                .update(cx, |input, cx| input.set_value("", w, cx));
-                            this.ui.settings_tab = tab;
-                            this.ui.settings_scroll.set_offset(Point::default());
-                            this.ui.hotkey_recording = None;
-                            this.ui.hotkey_recording_focus = None;
-                            if tab == 2 {
-                                this.prepare_file_settings(w, cx);
-                            }
-                            cx.notify();
+                            this.select_settings_tab(tab, w, cx);
                         }))
                 })
                 .collect();
