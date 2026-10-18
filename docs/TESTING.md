@@ -2983,6 +2983,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - Base 默认与 test-support 按钮测试各 8 项通过；Component button::button::tests 18 项通过，含加载/禁用阻断、原有底层回调与样式行为。日志 `target/audit-20261019/button-disabled-{red,default-tests,observed-tests,component-tests,clippy}.log`。工作区 all-targets Clippy（-D warnings）、格式及 diff 检查通过；Base 两种配置有重叠不累加，既有 block 0.1.6 future-incompatibility 提示保留。
 - Component 加载态使用独立事件拦截，没有映射成 Base disabled；其无障碍语义尚待核对。此前进度说明中关于加载态映射的推断已更正，不能将本批禁用标记修复扩展为加载态修复。Component button 文件仅阅读相关调用点，未标为全文件已审；实际读屏验收仍待完成。
 
+第二百五十四批审核与验证：
+
+- 继续阅读 Component button/button.rs 的构建、状态接口、行为链和部分样式/测试，尚未完成全文件核对；台账计数维持 271/457。新增观察断言在旧实现失败：加载按钮的 disabled 记录为 None，应为 Some(true)。
+- 提交 `ee23476` 为 Base Button 增加 busy：保留正常样式与焦点策略，阻止指针/键盘激活，原生节点同时报告 busy/disabled 且移除 Click action。Component loading 接入该状态，删除重复点击拦截和重复 cursor_default 设置；原鼠标按下拦截仍保留其防止提前聚焦等职责。
+- Base 默认/观察配置各 8 项通过；Component 默认/观察配置各 18 项通过，验证加载按钮有无回调时均阻断父激活、底层回调保持、焦点仍可到达，以及实际绘制后的禁用属性。原生节点另查 busy、disabled、无 Click、有 Focus。日志 `target/audit-20261019/button-busy-{red,base-tests,base-observed-tests,component-tests,component-observed-tests,clippy}.log`；两配置重叠不累加。
+- 工作区 all-targets Clippy（-D warnings）、格式与 diff 检查通过，保留 block 0.1.6 future-incompatibility 提示。Component test-support 本批显式执行，但正式 vendor 入口当前仅自动覆盖 Base 两配置与 Component 默认配置；后续需将 Component 观察配置也纳入入口并完成全量验证。实际读屏/平台焦点验收仍待完成。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
