@@ -365,6 +365,9 @@ impl EditorPane {
         dpi: f32,
         cx: &mut Context<Self>,
     ) {
+        // Keep ownership of running tasks so dropping the pane cancels them,
+        // but do not retain every completed raster job for the pane's lifetime.
+        self.graphic_tasks.retain(|task| !task.is_ready());
         let service = crate::native_graphics::Service::get(cx);
         if service.cached(kind, &source, light, font, dpi).is_some() {
             self.attach_raster(kind, &source, cx);
@@ -1629,6 +1632,51 @@ mod tests {
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();
+        }
+    }
+
+    #[gpui::test]
+    fn completed_graphic_tasks_do_not_accumulate(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+        cx.run_until_parked();
+        for batch in 0..8 {
+            handle
+                .update(cx, |pane, _, cx| {
+                    for index in 0..4 {
+                        pane.enqueue_graphic(
+                            inkstone_core::graphics::Kind::InlineMath,
+                            format!("x^{{{}}}", batch * 4 + index),
+                            pane.light,
+                            pane.font_size,
+                            pane.graphic_dpi,
+                            cx,
+                        );
+                    }
+                    assert!(
+                        pane.graphic_tasks.len() <= 4,
+                        "completed tasks must be reclaimed before admitting a new batch"
+                    );
+                })
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |pane, _, cx| {
+                    let service = crate::native_graphics::Service::get(cx);
+                    for index in 0..4 {
+                        let result = service
+                            .cached(
+                                inkstone_core::graphics::Kind::InlineMath,
+                                &format!("x^{{{}}}", batch * 4 + index),
+                                pane.light,
+                                pane.font_size,
+                                pane.graphic_dpi,
+                            )
+                            .expect("active tasks must finish instead of being cancelled");
+                        assert!(result.is_ok());
+                    }
+                })
+                .unwrap();
         }
     }
 
