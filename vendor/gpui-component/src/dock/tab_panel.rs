@@ -191,7 +191,7 @@ pub(crate) struct TabGroupSkin {
     /// The displayed tab the last frame drew, so a change scrolls the new tab
     /// into view. The old dock recorded this at the moment of selection; the
     /// group now owns selection, so the skin notices instead of being told.
-    last_active_ix: Cell<Option<usize>>,
+    last_displayed_tab: Cell<Option<(PanelId, usize)>>,
 }
 
 impl TabGroupSkin {
@@ -199,7 +199,7 @@ impl TabGroupSkin {
         Self {
             shared,
             scroll_handle: ScrollHandle::default(),
-            last_active_ix: Cell::new(None),
+            last_displayed_tab: Cell::new(None),
         }
     }
 
@@ -444,7 +444,6 @@ impl TabGroupSkin {
 
         let droppable = group.is_droppable();
         let tabs_count = group.panels().len();
-        let active_ix = group.active_ix();
         let displayed = group.active_panel().map(|panel| panel.panel_id(cx));
         let displayed_ix = displayed.and_then(|displayed| {
             group
@@ -455,8 +454,14 @@ impl TabGroupSkin {
 
         // Bring a newly displayed tab into view. The group owns selection now,
         // so the skin notices the change rather than being told about it.
-        if self.last_active_ix.replace(Some(active_ix)) != Some(active_ix) {
-            if let Some(visible_ix) = visible.iter().position(|ix| *ix == active_ix) {
+        let displayed_tab = displayed.zip(displayed_ix).and_then(|(id, ix)| {
+            visible
+                .iter()
+                .position(|visible_ix| *visible_ix == ix)
+                .map(|visible_ix| (id, visible_ix))
+        });
+        if self.last_displayed_tab.replace(displayed_tab) != displayed_tab {
+            if let Some((_, visible_ix)) = displayed_tab {
                 self.scroll_handle.scroll_to_item(visible_ix);
             }
         }
@@ -1334,6 +1339,68 @@ mod tests {
                  {dock_height:?} empty"
             );
         }
+    }
+
+    #[gpui::test]
+    fn hiding_the_active_panel_scrolls_to_the_displayed_fallback(cx: &mut TestAppContext) {
+        struct Skin(Rc<TabGroupSkin>);
+        impl DockAreaRenderer for Skin {
+            fn tab_group_renderer(&self) -> Rc<dyn TabGroupRenderer> {
+                self.0.clone()
+            }
+        }
+        cx.update(|cx| crate::init(cx));
+        let mut scroll = None;
+        let (area, cx) = cx.add_window_view(|window, cx| {
+            let skin = DockSkin::new(cx);
+            let tabs = Rc::new(TabGroupSkin::new(skin.shared().clone()));
+            scroll = Some(tabs.scroll_handle.clone());
+            DockArea::new("scroll", None, window, cx).with_renderer(Rc::new(Skin(tabs)))
+        });
+        let scroll = scroll.unwrap();
+        cx.simulate_resize(gpui::size(px(400.), px(300.)));
+        let panels = cx.update(|window, cx| {
+            let panels: Vec<_> = (0..16)
+                .map(|_| HideableProbe::new(Rc::default(), cx))
+                .collect();
+            let layout = panels
+                .iter()
+                .fold(DockLayout::tabs(), |layout, panel| {
+                    layout.panel_view(panel_handle(panel.clone()), cx)
+                })
+                .active_index(0);
+            area.update(cx, |area, cx| area.set_center(layout, window, cx));
+            panels
+        });
+        let draw = |cx: &mut VisualTestContext| {
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        };
+        draw(cx);
+        cx.update(|window, cx| {
+            area.update(cx, |area, cx| {
+                area.select_panel(PanelId::from(panels[15].entity_id()), window, cx);
+            })
+        });
+        draw(cx);
+        assert!(
+            scroll.offset().x < px(0.),
+            "the last tab starts scrolled into view"
+        );
+        cx.update(|_, cx| panels[15].update(cx, |panel, cx| panel.set_visible(false, cx)));
+        draw(cx);
+        assert_eq!(
+            scroll.offset().x,
+            px(0.),
+            "the displayed first tab must be visible"
+        );
+        cx.update(|_, cx| panels[15].update(cx, |panel, cx| panel.set_visible(true, cx)));
+        draw(cx);
+        assert!(
+            scroll.offset().x < px(0.),
+            "the restored active tab must be revealed again"
+        );
     }
 
     /// The old dock installed `ToggleZoom` and `ClosePanel` on the tab panel
