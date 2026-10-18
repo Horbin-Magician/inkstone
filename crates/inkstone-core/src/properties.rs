@@ -281,7 +281,9 @@ pub fn edit(
         {
             return Err("同名属性已存在，请编辑已有属性。".into());
         }
-        return set(source, key, value);
+        let result = set(source, key, value)?;
+        validate_header(&result)?;
+        return Ok(result);
     };
     let property = checked_property(source, original)?;
     if original != key
@@ -340,6 +342,20 @@ mod tests {
         assert_eq!(Kind::Date.encode("2024-02-29").unwrap(), "\"2024-02-29\"");
         assert!(Kind::DateTime.encode("2026-09-29T25:30").is_err());
         assert!(Kind::DateTime.encode("2026-09-29T12:30").is_ok());
+    }
+    #[test]
+    fn adding_properties_rejects_invalid_combination_with_existing_yaml() {
+        for header in ["{title: old}", "- one\n- two", "scalar"] {
+            let source = format!("---\n{header}\n---\n正文😀");
+            assert!(edit(&source, None, "new", "value").is_err(), "{header}");
+        }
+        let source = "---\r\n# keep\r\ntitle: old\r\n---\r\n正文😀";
+        let result = edit(source, None, "new", "value").unwrap();
+        assert_eq!(
+            result,
+            "---\r\nnew: \"value\"\r\n# keep\r\ntitle: old\r\n---\r\n正文😀"
+        );
+        assert_eq!(header_value(&result).unwrap()["title"], "old");
     }
     #[test]
     fn rename_and_remove_properties_preserve_neighbors_and_reject_collisions() {
