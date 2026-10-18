@@ -70,12 +70,7 @@ impl Workspace {
             return;
         }
         self.flush_document_views(window, cx);
-        let drafts = self
-            .tabs
-            .iter()
-            .filter(|t| !t.path.as_os_str().is_empty())
-            .map(|t| (t.path.clone(), t.save.editor.read(cx).value().to_string()))
-            .collect();
+        let drafts = self.file_drafts(cx);
         self.ui.exporting = true;
         let write_ticket = self.file_writes.begin();
         self.notifications
@@ -159,6 +154,8 @@ mod tests {
                     .save
                     .editor
                     .update(cx, |s, cx| s.replace_all("# 未保存 😀\r\n", window, cx));
+                w.add_tab("a.md".into(), None, false, window, cx);
+                assert!(std::rc::Rc::ptr_eq(&w.tabs[0].save, &w.tabs[1].save));
                 w.new_blank(window, cx);
                 assert!(w.tabs.iter().any(|tab| tab.path.as_os_str().is_empty()));
                 w.start_export(
