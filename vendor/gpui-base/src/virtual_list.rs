@@ -349,6 +349,7 @@ pub struct VirtualListFrameState {
 /// them across a frame is a reference count, not a copy of every item.
 #[derive(Default, Clone)]
 pub struct ItemSizeLayout {
+    axis_and_gap: Option<(Axis, Pixels)>,
     items_sizes: Rc<Vec<Size<Pixels>>>,
     content_size: Size<Pixels>,
     sizes: Rc<[Pixels]>,
@@ -474,7 +475,10 @@ impl Element for VirtualList {
                             .along(self.axis)
                             .to_pixels(font_size.into(), rem_size);
 
-                        if state.items_sizes != self.item_sizes {
+                        if state.axis_and_gap != Some((self.axis, gap))
+                            || state.items_sizes != self.item_sizes
+                        {
+                            state.axis_and_gap = Some((self.axis, gap));
                             state.items_sizes = self.item_sizes.clone();
                             // Prepare each item's size by axis
                             state.sizes = self
@@ -768,10 +772,12 @@ impl Element for VirtualList {
 mod tests {
     use super::*;
 
+    use crate::ScrollbarHandle as _;
     use gpui::{Context, TestAppContext};
 
     struct VirtualListHarness {
         axis: Axis,
+        gap: Pixels,
         item_sizes: Rc<Vec<Size<Pixels>>>,
         scroll_handle: VirtualListScrollHandle,
         visible_ranges: Rc<RefCell<Vec<Range<usize>>>>,
@@ -794,6 +800,7 @@ mod tests {
                 },
             )
             .track_scroll(&self.scroll_handle)
+            .gap(self.gap)
             .w(px(60.))
             .h(px(60.))
         }
@@ -813,6 +820,7 @@ mod tests {
             let visible_ranges = visible_ranges.clone();
             move |_, _| VirtualListHarness {
                 axis,
+                gap: px(0.),
                 item_sizes,
                 scroll_handle,
                 visible_ranges,
@@ -831,6 +839,39 @@ mod tests {
         match axis {
             Axis::Horizontal => assert!(scroll_handle.offset().x < px(0.)),
             Axis::Vertical => assert!(scroll_handle.offset().y < px(0.)),
+        }
+    }
+
+    #[gpui::test]
+    fn cached_extents_follow_gap_and_axis_changes(cx: &mut TestAppContext) {
+        let scroll_handle = VirtualListScrollHandle::new();
+        let (view, cx) = cx.add_window_view({
+            let scroll_handle = scroll_handle.clone();
+            move |_, _| VirtualListHarness {
+                axis: Axis::Vertical,
+                gap: px(0.),
+                item_sizes: Rc::new(vec![size(px(10.), px(20.)); 20]),
+                scroll_handle,
+                visible_ranges: Rc::default(),
+            }
+        });
+        for (axis, gap, extent) in [
+            (Axis::Vertical, 0., 400.),
+            (Axis::Vertical, 5., 495.),
+            (Axis::Horizontal, 5., 295.),
+            (Axis::Horizontal, 0., 200.),
+            (Axis::Vertical, 0., 400.),
+        ] {
+            view.update(cx, |view, cx| {
+                view.axis = axis;
+                view.gap = px(gap);
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(scroll_handle.content_size().along(axis), px(extent));
+            scroll_handle.scroll_to_bottom();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(scroll_handle.offset().along(axis), px(60. - extent));
         }
     }
 
@@ -893,6 +934,7 @@ mod tests {
             let visible_ranges = visible_ranges.clone();
             move |_, _| VirtualListHarness {
                 axis: Axis::Vertical,
+                gap: px(0.),
                 item_sizes: Rc::new(Vec::new()),
                 scroll_handle: VirtualListScrollHandle::new(),
                 visible_ranges,
