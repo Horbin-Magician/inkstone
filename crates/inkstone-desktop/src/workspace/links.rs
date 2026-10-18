@@ -93,11 +93,9 @@ impl Workspace {
         let (resolution, heading) = self.index.resolve_markdown(&from, href);
         match resolution {
             Resolution::Found(path) => {
-                if let Some(offset) = heading
+                self.pending_jump = heading
                     .and_then(|heading| self.link_anchor_offset(&path, &heading, false, window, cx))
-                {
-                    self.pending_jump = Some((path.clone(), offset));
-                }
+                    .map(|offset| (path.clone(), offset));
                 self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
             }
@@ -121,11 +119,12 @@ impl Workspace {
     ) {
         match self.index.resolve(&from, &target) {
             Resolution::Found(path) => {
-                if let Some((_, heading)) = target.split_once('#')
-                    && let Some(offset) = self.link_anchor_offset(&path, heading, true, window, cx)
-                {
-                    self.pending_jump = Some((path.clone(), offset));
-                }
+                self.pending_jump = target
+                    .split_once('#')
+                    .and_then(|(_, heading)| {
+                        self.link_anchor_offset(&path, heading, true, window, cx)
+                    })
+                    .map(|offset| (path.clone(), offset));
                 self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
             }
@@ -163,6 +162,74 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn newer_link_request_clears_pending_anchor_for_the_same_note(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-link-anchor-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let vault = Vault::open(root.join("vault"), root.join("recovery")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        for (round, (markdown, suffix)) in [
+            (false, ""),
+            (false, "#Missing"),
+            (true, ""),
+            (true, "#Missing"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let path = PathBuf::from(format!("target-{round}.md"));
+            let text = "intro\n\n# Target\n\nbody\n";
+            std::fs::write(vault.root.join(&path), text).unwrap();
+            handle
+                .update(cx, |w, window, cx| {
+                    w.vault = Some(vault.clone());
+                    Arc::make_mut(&mut w.index).update(path.clone(), text.into());
+                    w.add_tab("source.md".into(), Some("source".into()), false, window, cx);
+                    let first = format!("{}#Target", path.display());
+                    let second = format!("{}{suffix}", path.display());
+                    if markdown {
+                        w.follow_markdown_link("source.md".into(), &first, false, window, cx);
+                        assert!(w.pending_jump.is_some());
+                        w.follow_markdown_link("source.md".into(), &second, false, window, cx);
+                    } else {
+                        w.follow_link("source.md".into(), first, false, window, cx);
+                        assert!(w.pending_jump.is_some());
+                        w.follow_link("source.md".into(), second, false, window, cx);
+                    }
+                    assert!(
+                        w.pending_jump.is_none(),
+                        "new request must not inherit a stale heading"
+                    );
+                })
+                .unwrap();
+            cx.run_until_parked();
+            handle
+                .update(cx, |w, _, cx| {
+                    assert_eq!(w.tabs[w.active.unwrap()].path, path);
+                    assert_eq!(
+                        w.current_pane()
+                            .unwrap()
+                            .read(cx)
+                            .editor
+                            .read(cx)
+                            .selected_range()
+                            .start,
+                        0
+                    );
+                })
+                .unwrap();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn markdown_percent_encoded_heading_is_decoded_once(cx: &mut TestAppContext) {
