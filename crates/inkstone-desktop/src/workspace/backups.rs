@@ -43,7 +43,11 @@ impl Workspace {
         cx.notify();
     }
     pub(super) fn request_backup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.vault.is_none() || self.ui.backup.busy || self.ui.backup.pending.is_some() {
+        if self.loading
+            || self.vault.is_none()
+            || self.ui.backup.busy
+            || self.ui.backup.pending.is_some()
+        {
             return;
         }
         if let Some(parent) = &self.ui.prefs.backup.directory {
@@ -63,7 +67,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.ui.backup.busy || self.ui.backup.picker_open {
+        if self.loading || self.ui.backup.busy || self.ui.backup.picker_open {
             return;
         }
         self.ui.backup.picker_open = true;
@@ -206,7 +210,7 @@ impl Workspace {
         .detach();
     }
     pub(super) fn choose_backup_restore(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.backup.busy || self.ui.backup.picker_open {
+        if self.loading || self.ui.backup.busy || self.ui.backup.picker_open {
             return;
         }
         self.ui.backup.picker_open = true;
@@ -382,6 +386,53 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn failed_switch_releases_backup_directory_picker(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(backup_name());
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("vault"), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.choose_backup_directory(false, window, cx);
+                assert!(w.ui.backup.picker_open);
+                w.load_vault(root.join("missing"), window, cx);
+                w.choose_backup_directory(false, window, cx);
+                w.choose_backup_restore(window, cx);
+                assert!(!w.ui.backup.picker_open);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.simulate_path_prompt_response(|_| None);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.loading);
+                assert!(!w.ui.backup.picker_open);
+                assert!(w.ui.prefs.backup.directory.is_none());
+                w.choose_backup_restore(window, cx);
+                assert!(w.ui.backup.picker_open);
+            })
+            .unwrap();
+        cx.simulate_path_prompt_response(|_| None);
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(!w.ui.backup.picker_open);
+                assert_eq!(w.file_writes.pending(), 0);
+                w.watcher = None;
+                w.watch_events = None;
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn backup_waits_for_saves_restores_to_new_vault_and_records_success(cx: &mut TestAppContext) {
