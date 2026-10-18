@@ -2,11 +2,8 @@ use gpui::Corners;
 use gpui::InteractiveElement;
 use gpui::ParentElement;
 use gpui::{App, Axis, Edges, ElementId, IntoElement, Window};
-use gpui::{
-    RenderOnce, StatefulInteractiveElement as _, StyleRefinement, Styled, div,
-    prelude::FluentBuilder as _,
-};
-use std::{cell::Cell, rc::Rc};
+use gpui::{RenderOnce, StyleRefinement, Styled, div, prelude::FluentBuilder as _};
+use std::rc::Rc;
 
 use crate::{
     Disableable, Sizable, Size, StyledExt,
@@ -29,7 +26,7 @@ pub struct ButtonGroup {
     pub(super) variant: Option<ButtonVariant>,
     pub(super) size: Option<Size>,
 
-    on_click: Option<Box<dyn Fn(&Vec<usize>, &mut Window, &mut App) + 'static>>,
+    on_click: Option<Rc<dyn Fn(&Vec<usize>, &mut Window, &mut App) + 'static>>,
 }
 
 impl Disableable for ButtonGroup {
@@ -124,7 +121,7 @@ impl ButtonGroup {
         mut self,
         handler: impl Fn(&Vec<usize>, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_click = Some(Box::new(handler));
+        self.on_click = Some(Rc::new(handler));
         self
     }
 }
@@ -153,7 +150,6 @@ impl RenderOnce for ButtonGroup {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         let children_len = self.children.len();
         let mut selected_ixs: Vec<usize> = Vec::new();
-        let state = Rc::new(Cell::new(None));
 
         for (ix, child) in self.children.iter().enumerate() {
             if child.selected {
@@ -161,6 +157,7 @@ impl RenderOnce for ButtonGroup {
             }
         }
 
+        let selected_ixs = Rc::new(selected_ixs);
         let vertical = self.layout == Axis::Vertical;
 
         div()
@@ -174,7 +171,7 @@ impl RenderOnce for ButtonGroup {
                     .into_iter()
                     .enumerate()
                     .map(|(child_index, child)| {
-                        let state = Rc::clone(&state);
+                        let selected_ixs = Rc::clone(&selected_ixs);
                         // The group as a whole is a toggle control, so every
                         // child advertises its pressed state.
                         let selected = child.selected;
@@ -232,36 +229,30 @@ impl RenderOnce for ButtonGroup {
                         .when_some(self.variant, |this, variant| this.with_variant(variant))
                         .when(self.compact, |this| this.compact())
                         .when(self.outline, |this| this.outline())
-                        .when(self.on_click.is_some(), |this| {
-                            this.on_click(move |_, _, _| {
-                                state.set(Some(child_index));
-                            })
-                        });
+                        .when_some(
+                            self.on_click.clone(),
+                            |this, on_click| {
+                                this.on_click(move |_, window, cx| {
+                                    let mut next = selected_ixs.as_ref().clone();
+                                    if self.multiple {
+                                        if let Some(pos) =
+                                            next.iter().position(|&i| i == child_index)
+                                        {
+                                            next.remove(pos);
+                                        } else {
+                                            next.push(child_index);
+                                        }
+                                    } else {
+                                        next.clear();
+                                        next.push(child_index);
+                                    }
+                                    on_click(&next, window, cx);
+                                })
+                            },
+                        );
 
                         child
                     }),
-            )
-            .when_some(
-                self.on_click.filter(|_| !self.disabled),
-                move |this, on_click| {
-                    this.on_click(move |_, window, cx| {
-                        let mut selected_ixs = selected_ixs.clone();
-                        if let Some(ix) = state.get() {
-                            if self.multiple {
-                                if let Some(pos) = selected_ixs.iter().position(|&i| i == ix) {
-                                    selected_ixs.remove(pos);
-                                } else {
-                                    selected_ixs.push(ix);
-                                }
-                            } else {
-                                selected_ixs.clear();
-                                selected_ixs.push(ix);
-                            }
-                        }
-
-                        on_click(&selected_ixs, window, cx);
-                    })
-                },
             )
     }
 }
@@ -371,11 +362,27 @@ mod tests {
     }
 
     #[gpui::test]
-    fn legacy_keyboard_click_does_not_reach_the_group_callback(cx: &mut TestAppContext) {
+    fn keyboard_activation_reports_single_and_multiple_selection_once(cx: &mut TestAppContext) {
+        for multiple in [false, true] {
+            let (cx, child_clicks, changes) = group_harness(cx, multiple, true);
+            cx.update(|window, cx| window.focus_next(cx));
+            activate_key(cx, "enter");
+            activate_key(cx, "space");
+            let expected = if multiple { vec![1, 0] } else { vec![0] };
+            assert_eq!(changes.borrow().as_slice(), &[expected.clone(), expected]);
+            assert_eq!(child_clicks.get(), 0);
+        }
+    }
+
+    #[gpui::test]
+    fn group_background_clicks_do_not_replay_child_selection(cx: &mut TestAppContext) {
         let (cx, _, changes) = group_harness(cx, false, true);
-        cx.update(|window, cx| window.focus_next(cx));
-        activate_key(cx, "enter");
+        cx.simulate_click(point(px(110.), px(10.)), Modifiers::default());
         assert!(changes.borrow().is_empty());
+        click_first(cx);
+        assert_eq!(changes.borrow().as_slice(), &[vec![0]]);
+        cx.simulate_click(point(px(110.), px(10.)), Modifiers::default());
+        assert_eq!(changes.borrow().as_slice(), &[vec![0]]);
     }
 
     #[gpui::test]
