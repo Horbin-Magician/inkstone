@@ -125,8 +125,9 @@ pub fn toggle(source: &str, selections: &[Range<usize>]) -> Option<(String, Vec<
         return None;
     }
     let comments = editing_ranges(source);
-    let graphemes: Vec<_> = source.grapheme_indices(true).collect();
+    let graphemes = std::cell::OnceCell::new();
     let word = |offset: usize| {
+        let graphemes = graphemes.get_or_init(|| source.grapheme_indices(true).collect::<Vec<_>>());
         let is_word = |index: usize| {
             graphemes[index]
                 .1
