@@ -39,6 +39,19 @@ def metrics(stdout):
     return result
 
 
+def summarize(runs):
+    summary = {}
+    for count in (1000, 10000):
+        group = [run for run in runs if run['count'] == count]
+        names = set(group[0]['metrics'])
+        if not names or any(set(run['metrics']) != names for run in group):
+            raise ValueError(f'inconsistent or empty timing metrics for {count} notes')
+        summary[count] = {key: statistics.median(run['metrics'][key] for run in group)
+                          for key in group[0]['metrics']}
+        summary[count]['process_peak_rss_bytes'] = statistics.median(run['process_peak_rss_bytes'] for run in group)
+    return summary
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, default=Path('target/release/examples/benchmark'))
@@ -91,12 +104,7 @@ def main():
             (root / 'runs.json').write_text(json.dumps(runs, indent=2))
     if digest(binary) != metadata['binary_sha256']:
         raise ValueError('binary changed during measurement')
-    summary = {}
-    for count in (1000, 10000):
-        group = [run for run in runs if run['count'] == count]
-        summary[count] = {key: statistics.median(run['metrics'][key] for run in group)
-                          for key in group[0]['metrics']}
-        summary[count]['process_peak_rss_bytes'] = statistics.median(run['process_peak_rss_bytes'] for run in group)
+    summary = summarize(runs)
     (root / 'results.json').write_text(json.dumps({'schema_version': 1, 'runs': runs, 'medians': summary}, indent=2))
     print(root)
     print(json.dumps(summary, indent=2))
