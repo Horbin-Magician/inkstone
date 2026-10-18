@@ -1312,6 +1312,28 @@ mod tests {
     }
 
     #[gpui::test]
+    fn a_sequence_settled_by_reduced_motion_stays_finished_when_motion_resumes(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(|cx| cx.set_reduce_motion(true));
+        let fixture = SequenceFixture::open(
+            cx,
+            vec![SequenceStep::new(20.0, SequenceFixture::linear(100))],
+        );
+        assert_sample(fixture.last(), 20.0, 0, MotionStatus::Finished);
+        assert_eq!(fixture.pending_frame(cx), 0);
+
+        cx.update(|cx| cx.set_reduce_motion(false));
+        assert_sample(fixture.render(cx), 20.0, 0, MotionStatus::Finished);
+        assert_eq!(fixture.pending_frame(cx), 0);
+
+        *fixture.steps.borrow_mut() = vec![SequenceStep::new(30.0, SequenceFixture::linear(100))];
+        assert_sample(fixture.render(cx), 20.0, 0, MotionStatus::Running);
+        assert_sample(fixture.advance(cx, 50), 25.0, 0, MotionStatus::Running);
+        assert_sample(fixture.advance(cx, 50), 30.0, 0, MotionStatus::Finished);
+    }
+
+    #[gpui::test]
     fn a_changed_step_target_restarts_the_sequence_from_the_sampled_value(cx: &mut TestAppContext) {
         let fixture = SequenceFixture::open(
             cx,
