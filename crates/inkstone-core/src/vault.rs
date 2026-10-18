@@ -176,6 +176,17 @@ fn write_new_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.sync_all()
 }
 
+/// Clean up only a temporary file this operation successfully created.
+fn with_save_temp<T>(
+    path: &Path,
+    operation: impl FnOnce(fs::File) -> Result<T, VaultError>,
+) -> Result<T, VaultError> {
+    let file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let result = operation(file);
+    let _ = fs::remove_file(path);
+    result
+}
+
 impl Vault {
     /// Duplicate the supplied editor snapshot beside its source without replacing any file.
     pub fn duplicate_note(
@@ -809,8 +820,10 @@ impl Vault {
         };
         let parent = path.parent().ok_or(VaultError::InvalidPath)?;
         let temp = parent.join(format!(".inkstone-{}.tmp", unique_id()));
-        write_new_synced(&temp, draft.as_bytes())?;
-        let result = (|| {
+        let result = with_save_temp(&temp, |mut file| {
+            file.write_all(draft.as_bytes())?;
+            file.sync_all()?;
+            drop(file);
             // Preserve Unix access permissions when replacing the inode.
             #[cfg(unix)]
             if let Some(guard) = &guard {
@@ -872,9 +885,7 @@ impl Vault {
                 text: draft.into(),
                 recovery,
             })
-        })();
-        // Best-effort removal only of our unique temporary file. Never touch a note on failure.
-        let _ = fs::remove_file(&temp);
+        });
         if result.is_ok() {
             self.cleanup_history_if_due();
         }
@@ -1083,6 +1094,45 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+    #[test]
+    fn save_temp_cleans_partial_writes_but_preserves_collisions_and_publication() {
+        let s = Sandbox::new();
+        let temp = s.1.root.join(".inkstone-test.tmp");
+        let journal =
+            s.1.journal(Path::new("note.md"), None, "full draft")
+                .unwrap();
+        let failure = with_save_temp(&temp, |mut file| -> Result<(), VaultError> {
+            file.write_all(b"partial")?;
+            Err(io::Error::other("injected write/sync failure").into())
+        });
+        assert!(failure.unwrap_err().to_string().contains("injected"));
+        assert!(!temp.exists());
+        assert!(journal.exists());
+        assert_eq!(s.1.recoveries().unwrap()[0].record.draft, "full draft");
+
+        fs::write(&temp, "unrelated").unwrap();
+        assert!(
+            with_save_temp(&temp, |_| -> Result<(), VaultError> {
+                panic!("must not open an existing file")
+            })
+            .is_err()
+        );
+        assert_eq!(fs::read_to_string(&temp).unwrap(), "unrelated");
+        fs::remove_file(&temp).unwrap();
+
+        let published = s.1.root.join("note.md");
+        let result = with_save_temp(&temp, |mut file| {
+            file.write_all(b"full draft")?;
+            file.sync_all()?;
+            drop(file);
+            fs::hard_link(&temp, &published)?;
+            Ok(42)
+        })
+        .unwrap();
+        assert_eq!(result, 42);
+        assert!(!temp.exists());
+        assert_eq!(fs::read_to_string(published).unwrap(), "full draft");
     }
     #[test]
     fn safe_save_reopen_preserves_exact_markdown() {
