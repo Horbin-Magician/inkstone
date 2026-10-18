@@ -170,6 +170,7 @@ impl Workspace {
             m.loading = true;
         }
         let generation = self.generation;
+        let request = self.ui.recovery_refresh;
         let task = cx
             .background_executor()
             .spawn(async move { attachments::trash_unused(&vault, &entry, &drafts) });
@@ -189,7 +190,9 @@ impl Workspace {
                     }
                     Err(error) => {
                         this.notifications.publish(format!("附件未清理：{error}"));
-                        if let Some(m) = &mut this.ui.attachment_manager {
+                        if this.ui.recovery_refresh == request
+                            && let Some(m) = &mut this.ui.attachment_manager
+                        {
                             m.loading = false;
                             m.message = this.notifications.text().to_owned();
                         }
@@ -307,6 +310,11 @@ mod tests {
                     .editor
                     .update(cx, |s, cx| s.replace_all("![[image.png]]", window, cx));
                 w.cleanup_attachment(image.clone(), window, cx);
+                // A newer inspection owns the panel before cleanup finishes.
+                w.ui.recovery_refresh = w.ui.recovery_refresh.wrapping_add(1);
+                let manager = w.ui.attachment_manager.as_mut().unwrap();
+                manager.message = "new inspection".into();
+                manager.loading = true;
                 image
             })
             .unwrap();
@@ -315,6 +323,18 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 assert!(w.notifications.text().contains("已被笔记引用"));
+                let manager = w.ui.attachment_manager.as_ref().unwrap();
+                assert_eq!(manager.message, "new inspection");
+                assert!(manager.loading);
+                w.cleanup_attachment(image.clone(), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let manager = w.ui.attachment_manager.as_ref().unwrap();
+                assert!(!manager.loading);
+                assert!(manager.message.contains("已被笔记引用"));
                 w.tabs[0]
                     .save
                     .editor
