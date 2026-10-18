@@ -211,6 +211,9 @@ pub struct InlineFootnote {
 }
 
 fn inline_footnotes(source: &str, ast: Option<&Node>) -> Vec<InlineFootnote> {
+    if !source.contains("^[") {
+        return Vec::new();
+    }
     fn excluded(node: &Node, out: &mut Vec<std::ops::Range<usize>>) {
         if matches!(
             node,
@@ -240,60 +243,71 @@ fn inline_footnotes(source: &str, ast: Option<&Node>) -> Vec<InlineFootnote> {
         excluded(ast, &mut blocked);
     }
     blocked.sort_by_key(|r| r.start);
-    let mut notes = vec![];
+    let mut candidates = Vec::new();
+    let mut tokens = Vec::new();
+    let mut blocked_index = 0;
     let mut cursor = 0;
-    while let Some(offset) = source[cursor..].find("^[") {
-        let start = cursor + offset;
-        cursor = start + 2;
-        if source[..start]
-            .bytes()
-            .rev()
-            .take_while(|b| *b == b'\\')
-            .count()
-            % 2
-            == 1
-            || blocked.iter().any(|r| r.contains(&start))
-        {
+    while cursor < source.len() {
+        while blocked.get(blocked_index).is_some_and(|r| r.end <= cursor) {
+            blocked_index += 1;
+        }
+        if let Some(range) = blocked.get(blocked_index).filter(|r| r.contains(&cursor)) {
+            cursor = range.end;
             continue;
         }
-        let mut depth = 1;
-        let mut i = cursor;
-        while i < source.len() {
-            if let Some(range) = blocked
-                .get(blocked.partition_point(|r| r.end <= i))
-                .filter(|r| r.contains(&i))
-            {
-                i = range.end;
-                continue;
+        let ch = source[cursor..].chars().next().unwrap();
+        if ch == '\\' {
+            cursor += 1;
+            if let Some(next) = source[cursor..].chars().next() {
+                cursor += next.len_utf8();
             }
-            let ch = source[i..].chars().next().unwrap();
-            if ch == '\\' {
-                i += 1;
-                if let Some(next) = source[i..].chars().next() {
-                    i += next.len_utf8();
-                }
-                continue;
+            continue;
+        }
+        if source[cursor..].starts_with("^[") {
+            candidates.push(cursor);
+        }
+        if matches!(ch, '[' | ']')
+            || (ch == '\n'
+                && source[cursor + 1..]
+                    .trim_start_matches('\r')
+                    .starts_with('\n'))
+        {
+            tokens.push((cursor, ch));
+        }
+        cursor += ch.len_utf8();
+    }
+    // For each suffix, remember its first unmatched closing bracket. Each
+    // footnote starts with a virtual opener, even when its '[' lies in an
+    // excluded Markdown node. This also recovers nested notes after an
+    // unmatched outer opener without scanning the suffix again.
+    let mut closes = Vec::new();
+    let mut closing_at = vec![None; tokens.len() + 1];
+    for (index, &(offset, token)) in tokens.iter().enumerate().rev() {
+        match token {
+            ']' => closes.push(offset),
+            '[' => {
+                closes.pop();
             }
-            if ch == '[' {
-                depth += 1;
+            _ => closes.clear(),
+        }
+        closing_at[index] = closes.last().copied();
+    }
+    let mut notes = Vec::new();
+    let mut previous_end = 0;
+    for start in candidates {
+        if start < previous_end {
+            continue;
+        }
+        let content = start + 2;
+        let index = tokens.partition_point(|(offset, _)| *offset < content);
+        if let Some(end) = closing_at[index] {
+            previous_end = end + 1;
+            if end > content {
+                notes.push(InlineFootnote {
+                    range: start..end + 1,
+                    content: content..end,
+                });
             }
-            if ch == ']' {
-                depth -= 1;
-                if depth == 0 {
-                    if i > cursor {
-                        notes.push(InlineFootnote {
-                            range: start..i + 1,
-                            content: cursor..i,
-                        });
-                    }
-                    cursor = i + 1;
-                    break;
-                }
-            }
-            if ch == '\n' && source[i + 1..].trim_start_matches('\r').starts_with('\n') {
-                break;
-            }
-            i += ch.len_utf8();
         }
     }
     notes
@@ -650,6 +664,50 @@ mod tests {
     }
 
     use super::*;
+    #[test]
+    fn inline_footnotes_recover_nested_openers_and_keep_excluded_boundaries() {
+        for (source, expected) in [
+            ("^[outer ^[inner] tail]", vec!["outer ^[inner] tail"]),
+            ("^[unclosed ^[inner]", vec!["inner"]),
+            ("^[no\n\n^[yes]", vec!["yes"]),
+            (r"\^[skip] \\^[keep]", vec!["keep"]),
+            ("^[link](note.md) tail]", vec!["link](note.md) tail"]),
+            ("^[] ^[中文😀] `^[code]`", vec!["中文😀"]),
+        ] {
+            let snapshot = Snapshot::new(source);
+            assert_eq!(
+                snapshot
+                    .inline_footnotes
+                    .iter()
+                    .map(|note| &source[note.content.clone()])
+                    .collect::<Vec<_>>(),
+                expected,
+                "{source:?}",
+            );
+        }
+        let source = format!("{}^[有效]", "^[未闭合 ".repeat(4000));
+        let notes = inline_footnotes(&source, None);
+        assert_eq!(notes.len(), 1);
+        assert_eq!(&source[notes[0].content.clone()], "有效");
+    }
+
+    #[test]
+    #[ignore = "manual same-host inline-footnote scanner timing"]
+    fn inline_footnote_scan_scaling() {
+        for count in [1000, 2000, 4000] {
+            let source = "^[未闭合 ".repeat(count);
+            let start = std::time::Instant::now();
+            for _ in 0..3 {
+                assert!(inline_footnotes(std::hint::black_box(&source), None).is_empty());
+            }
+            eprintln!(
+                "unclosed={count} bytes={} three_scans={:?}",
+                source.len(),
+                start.elapsed()
+            );
+        }
+    }
+
     #[test]
     fn currency_remains_prose_with_real_links_comments_and_footnotes() {
         let source = "spent $5 [link][r] %%hide%% and $10; formula $x^2$ and [^n]\n\n[r]: target.md\n[^n]: body";
