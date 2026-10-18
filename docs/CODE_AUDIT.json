@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "367779f3b016d1283594cf6e9950701c3e74f16d",
+  "snapshot_revision": "0e141dcc1570808a92656925aad3d94cd1b145cf",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1462,6 +1462,21 @@
       "path": "vendor/gpui-base/src/dock/dock_placement.rs",
       "checks": "Complete read: Pointer-to-size arithmetic, opposite dock limits, runtime open/resize state and minimum-size consistency. Fixed constructor bypass of minimum floor used by set_size.",
       "result": "Batch 267: Base dock module default suite passes 151 tests after initial-size floor fix; workspace all-targets Clippy passes. Old constructor failed added negative/zero/sub-minimum size assertions. Native dock drag/restore acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/layout/builder.rs",
+      "checks": "Complete read: Split/tab builder restrictions, panel-view identity collection, size slots, active-index handoff, root wrapping and normalization.",
+      "result": "Base dock default suite passes 151 tests after both optimizations; workspace all-targets Clippy passes. Traversal/cloning work removed by code inspection; no measured native UI speedup claimed."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/layout/tree.rs",
+      "checks": "Complete read: Global stable node identity, panel/node traversal, mutable path boundaries and test constructors. Replaced path construction plus second traversal with direct node lookup; delegated duplicate test builder.",
+      "result": "Base dock default suite passes 151 tests after both optimizations; workspace all-targets Clippy passes. Traversal/cloning work removed by code inspection; no measured native UI speedup claimed."
+    },
+    {
+      "path": "vendor/gpui-base/src/dock/layout/normalize.rs",
+      "checks": "Complete read: Bottom-up empty/single-child/same-axis rules, slot redistribution, active-index clamp, bounded convergence and idempotence. Root collapse now moves the surviving subtree instead of cloning it.",
+      "result": "Base dock default suite passes 151 tests after both optimizations; workspace all-targets Clippy passes. Traversal/cloning work removed by code inspection; no measured native UI speedup claimed."
     }
   ],
   "pending_reconciliation": [
@@ -1469,10 +1484,7 @@
     "vendor/gpui-base/src/color_picker.rs",
     "vendor/gpui-base/src/dock/dock_area.rs",
     "vendor/gpui-base/src/dock/drag.rs",
-    "vendor/gpui-base/src/dock/layout/builder.rs",
     "vendor/gpui-base/src/dock/layout/edit.rs",
-    "vendor/gpui-base/src/dock/layout/normalize.rs",
-    "vendor/gpui-base/src/dock/layout/tree.rs",
     "vendor/gpui-base/src/dock/mod.rs",
     "vendor/gpui-base/src/dock/panel.rs",
     "vendor/gpui-base/src/dock/state.rs",
