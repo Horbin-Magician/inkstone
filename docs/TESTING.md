@@ -3151,6 +3151,13 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - Component 默认/观察全量分别 582/590 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、修改文件 rustfmt 和 diff 检查通过，日志 `target/audit-20261019/menu-navigation-{prepare,tests,observed-tests,clippy}.log`。保留既有 block 0.1.6 提示。
 - 本批未完整读取 PopupMenu 全部构建/渲染实现，不新增整文件审核计数，仍为 308 已核对、420 待核对；未进行原生菜单、读屏或 Windows 验收。
 
+第二百七十八批审核与验证：
+
+- 核对子菜单查询、绘制及方向键焦点路径。旧 active_submenu 只看选中索引，不看 disabled，子菜单绘制同样只看 selected。回归先 Down 选中子菜单，将条目禁用，再按 Right；旧实现父菜单失去焦点（`submenu-disabled-red.log`）。
+- 提交 `ee0be1a` 在活动子菜单查询及显示入口增加禁用约束。回归确认禁用后父菜单保持焦点且没有活动子菜单；重新启用后 Right 可以进入，并选择子菜单中跳过标题/禁用项后的第 2 号条目。
+- Component 默认/观察全量分别 583/591 项通过，无忽略；工作区 all-targets Clippy（-D warnings）、修改文件 rustfmt 和 diff 检查通过。日志 `target/audit-20261019/submenu-disabled-{prepare,tests,observed-tests,clippy}.log`，保留既有 block 0.1.6 提示。未进行原生子菜单、读屏或 Windows 验收。
+- 本次仍是 PopupMenu 特定路径核对，不将局部读取记为整文件完成；台账保持 308 已核对、420 待核对。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
