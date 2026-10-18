@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "649c930c8fe3dce8e7f9b7cf43cdc3186aca463f",
+  "snapshot_revision": "2765675ac0fb003f4d1f852cc0b2b9231bba84d2",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -1377,6 +1377,16 @@
       "path": "vendor/gpui-component/src/button/button_group.rs",
       "checks": "Complete read: builders, disabled inheritance, group styling/corners, rendered selection, callback ownership and pointer/keyboard activation. Batches 256–257 fix disabled composition and dispatch changes directly from child activation instead of a parent listener and shared last-click Cell.",
       "result": "Two regressions failed on previous code: keyboard activation omitted callback and background clicks emitted a selection. Default and test-support group suites each pass 7 tests after the fix; workspace all-targets Clippy passes. Native UI acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-component/src/button/toggle.rs",
+      "checks": "Complete read: controlled toggle styles and Base delegation, tooltip naming, group disabled composition, segmented borders, callback ownership and activation. Replaced parent click relay/shared index with direct item state reporting; preserve child callbacks when no group callback exists.",
+      "result": "Two regressions fail before fix; default and test-support suites each pass 10 tests after fix, including group/item disabled combinations. Workspace all-targets Clippy passes; native accessibility and visual acceptance remains pending."
+    },
+    {
+      "path": "vendor/gpui-base/src/toggle_group.rs",
+      "checks": "Complete read: unstyled container, child/style/interactivity forwarding, toolbar role and axis orientation.",
+      "result": "No newly confirmed defect in this read. Component group regressions exercise the container; native toolbar semantics remain pending."
     }
   ],
   "pending_reconciliation": [
@@ -1528,7 +1538,6 @@
     "vendor/gpui-base/src/time_field.rs",
     "vendor/gpui-base/src/toast.rs",
     "vendor/gpui-base/src/toggle.rs",
-    "vendor/gpui-base/src/toggle_group.rs",
     "vendor/gpui-base/src/toolbar.rs",
     "vendor/gpui-base/src/touch_selection.rs",
     "vendor/gpui-base/src/tree.rs",
@@ -1544,7 +1553,6 @@
     "vendor/gpui-component/src/breadcrumb.rs",
     "vendor/gpui-component/src/bubble.rs",
     "vendor/gpui-component/src/button/dropdown_button.rs",
-    "vendor/gpui-component/src/button/toggle.rs",
     "vendor/gpui-component/src/carousel/carousel.rs",
     "vendor/gpui-component/src/carousel/mod.rs",
     "vendor/gpui-component/src/carousel/scroll_mask.rs",
