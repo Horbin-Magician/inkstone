@@ -703,21 +703,18 @@ impl Workspace {
                     )
                 },
             )
-            .when(
-                items.is_empty() && options.show_filter && !options.query.is_empty(),
-                |s| {
-                    s.child(
-                        div()
-                            .text_size(px(MIN_UI_FONT_SIZE))
-                            .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                            .child(if options.show_filter && !options.query.is_empty() {
-                                "未找到匹配标签"
-                            } else {
-                                "没有标签"
-                            }),
-                    )
-                },
-            )
+            .when(items.is_empty(), |s| {
+                s.child(
+                    div()
+                        .text_size(px(MIN_UI_FONT_SIZE))
+                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                        .child(if options.show_filter && !options.query.trim().is_empty() {
+                            "未找到匹配标签"
+                        } else {
+                            "没有标签"
+                        }),
+                )
+            })
             .child(
                 div()
                     .id("tag-rows")
