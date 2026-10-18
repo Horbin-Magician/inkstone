@@ -615,26 +615,24 @@ impl Workspace {
                     let path = std::path::Path::new(item.id.as_ref());
                     let folder = item.is_folder() || folders.contains(path);
                     let open = expanded.contains(path);
+                    let times = if by == SortBy::Name || folder {
+                        Default::default()
+                    } else {
+                        index.notes.get(path).map(|n| n.times).unwrap_or_default()
+                    };
                     item.children = apply(item.children, folders, expanded, index, by, descending);
-                    item.folder(folder).expanded(open)
+                    (item.folder(folder).expanded(open), times)
                 })
                 .collect();
-            items.sort_by(|a, b| {
-                let times = |item: &TreeItem| {
-                    index
-                        .notes
-                        .get(std::path::Path::new(item.id.as_ref()))
-                        .map(|n| n.times)
-                        .unwrap_or_default()
-                };
+            items.sort_by(|(a, a_times), (b, b_times)| {
                 inkstone_core::file_order::compare(
-                    (&a.label, a.is_folder(), times(a)),
-                    (&b.label, b.is_folder(), times(b)),
+                    (&a.label, a.is_folder(), *a_times),
+                    (&b.label, b.is_folder(), *b_times),
                     by,
                     descending,
                 )
             });
-            items
+            items.into_iter().map(|(item, _)| item).collect()
         }
         if let Some(edit) = &self.ui.tree_name
             && edit.creating
