@@ -1419,6 +1419,21 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
 - 备份及容量管理合计 10 项通过（77.08 秒），全目标 Clippy、格式及差异检查
   通过；日志 `target/audit-20261018/backup-read-switch-{red,tests,clippy}.log`。
 
+第一百二十五批异步状态修复后的固定版本完整检查：
+
+- 在 `b7ed1c009a7726a52f980baf63471585ee505872` 固定版本完成格式检查、完整
+  workspace 测试、全目标 Clippy 和 release 构建；执行期间不修改源码，前后
+  HEAD 一致且工作区干净。核心 389、桌面 435、集成 8 项通过，8 项既有测试
+  忽略；桌面 93.60 秒，release 构建 31.24 秒。
+- 相比第 115 批完整检查，变化涉及 8 个自有源码文件；tools、packaging、vendor
+  和工作流的 Git 差异为空，本批不把旧工具测试或 vendor 验证记为新运行。
+- 日志 `target/audit-20261018/lifecycle-{workspace-tests,workspace-clippy,release}.log`；
+  release 二进制 SHA-256 为
+  `635a572d257ca0eb7128250d76e0510cceadd08f054b51ccd38a3dceedb204a9`。
+  既有 `block 0.1.6` future-compatibility 提示仍存在，不是本批编译失败。
+- 此结果验证近期附件、批量编辑、导出、备份和切库改动的组合回归；不等于所有
+  源码已逐行审完，也不替代原生 IME/读屏/多 DPI、Windows 或性能预算验收。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
