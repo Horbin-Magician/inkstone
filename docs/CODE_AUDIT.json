@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "c45eea985168d8c81949375afac7902fbac98bb1",
+  "snapshot_revision": "da48d242d795fe6589879b8b5473e7a6ee88bc75",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -977,6 +977,11 @@
       "path": "crates/inkstone-desktop/src/workspace/session.rs",
       "checks": "Complete read: startup lookup, vault picker/load, watcher/index preparation, restored tab/view mapping, settings/cache maintenance and stale recovery result handling.",
       "result": "Old-vault navigation fixed in f3c0030. Picker errors and stale success/error callbacks handled by shared generation guard (c45eea9). Session tests 6 passed, welcome tests 9 passed; workspace all-targets Clippy and formatting passed. No native/platform acceptance claimed."
+    },
+    {
+      "path": "crates/inkstone-desktop/src/workspace/backups.rs",
+      "checks": "Complete read: manual/scheduled backup waiting and throttling, picker generation, inspection and restore flow, no-clobber destinations, write ticket release, success timestamps and settings UI.",
+      "result": "Fixed silent errors in directory/source/destination pickers with shared completion handling (da48d24). Cancellation preserves messages, stale results preserve current picker state. Backup tests 4 passed; workspace all-targets Clippy and formatting passed. Native picker faults and Windows execution remain unverified."
     }
   ],
   "pending_reconciliation": [
@@ -988,7 +993,6 @@
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity/partial.rs",
-    "crates/inkstone-desktop/src/workspace/backups.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
     "crates/inkstone-desktop/src/workspace/commands.rs",
     "crates/inkstone-desktop/src/workspace/extras.rs",
