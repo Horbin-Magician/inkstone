@@ -1725,6 +1725,22 @@ VoiceOver 使用流程，也没有把其他菜单动作的代码修复写成逐�
   原生准备、验证与 editing/reading AX/PNG 位于 `native-gutter-fixed/`。
   release SHA-256 为 `dbc5a32fc30db218470d631ec2d54f186f13b60c4e6b9894920a436b5b5cdb34`。
 
+第一百四十四批直接依赖和模块入口清理核对：
+
+- 核对两个 crate 的 Cargo 清单、核心 `lib.rs` 模块入口、桌面 `build.rs` 平台
+  分支和三个集成测试入口。Windows 图标嵌入与 macOS plist 链接仍有实际入口，
+  不因本机未运行 Windows 就删除条件代码。
+- 两个 crate 共 47 个依赖声明（含开发、构建和平台条件声明）均找到限定命名空间
+  引用；逐项证据保存文件与行号。桌面 unicode-segmentation 的引用位于通过
+  `#[path]` 引入的 vendor grapheme_cursor 回归源码，初次仅扫描 crate 目录时
+  会漏报；确认后保留。`cargo tree --locked` 核对当前平台直接依赖树。
+- 对 185 个第一方 Rust 文件做模块名与显式 path 引用候选扫描，排除独立入口、
+  examples、tests 后没有发现游离模块候选。这只是定位工具，不证明全部公开
+  函数都被使用，也不替代逐文件语义审核；本轮没有确认可安全删除的依赖或入口。
+- 证据位于 `target/audit-20261018/`：`direct-dependency-references.json`、
+  `direct-dependency-tree.log`、`dependency-module-audit.json`，对应 `00719b8`。
+  本轮不改应用或构建代码，不为文档记录重复运行应用回归；差异检查通过。
+
 原生抽查使用隔离 bundle 与生成笔记库 `target/audit-20261018/native-ordinary/`，
 应用来自 `e8476fc` 对应 release 构建。普通笔记实时预览与阅读视图切换后均能显示正文、
 任务列表、内部链接及大纲；16 篇夹具笔记 SHA-256 与生成记录一致。此抽查没有测量
