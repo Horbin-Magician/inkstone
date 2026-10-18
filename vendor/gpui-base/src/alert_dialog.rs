@@ -1,13 +1,12 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    App, ClickEvent, FocusHandle, InteractiveElement as _, IntoElement, MouseButton, ParentElement,
-    Pixels, RenderOnce, Role, StatefulInteractiveElement as _, StyleRefinement, Styled, Window,
-    div,
+    App, ClickEvent, FocusHandle, InteractiveElement as _, IntoElement, ParentElement, Pixels,
+    RenderOnce, Role, StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div,
 };
 use smallvec::SmallVec;
 
 use crate::StyledExt as _;
-use crate::{Dialog, DialogChangeReason, DialogHandle};
+use crate::{Dialog, DialogChangeReason, DialogHandle, DialogTrigger};
 
 macro_rules! alert_part {
     ($name:ident, $id:literal) => {
@@ -62,38 +61,26 @@ alert_part!(AlertDialogDescription, "alert-dialog-description");
 
 #[derive(IntoElement)]
 pub struct AlertDialogTrigger {
-    trigger: gpui::AnyElement,
-    open: std::rc::Rc<dyn Fn(&mut Window, &mut App)>,
-    handle: Option<DialogHandle>,
+    trigger: DialogTrigger,
 }
 impl AlertDialogTrigger {
     pub fn new(trigger: impl IntoElement) -> Self {
         Self {
-            trigger: trigger.into_any_element(),
-            open: std::rc::Rc::new(|_, _| {}),
-            handle: None,
+            trigger: DialogTrigger::new(trigger),
         }
     }
     pub fn on_open(mut self, open: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        self.open = std::rc::Rc::new(open);
+        self.trigger = self.trigger.on_open(open);
         self
     }
     pub fn handle(mut self, handle: DialogHandle) -> Self {
-        self.handle = Some(handle);
+        self.trigger = self.trigger.handle(handle);
         self
     }
 }
 impl RenderOnce for AlertDialogTrigger {
-    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        div()
-            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                if let Some(handle) = self.handle.as_ref() {
-                    handle.set_open(true, DialogChangeReason::TriggerPress, window, cx);
-                }
-                (self.open)(window, cx);
-                cx.stop_propagation();
-            })
-            .child(self.trigger)
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.trigger.render(window, cx)
     }
 }
 
