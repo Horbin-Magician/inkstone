@@ -311,7 +311,7 @@ impl Workspace {
                 .when(r.tags,|s|s.child(Button::new("bulk-descendants").label("包含子标签").when(r.descendants,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.descendants = !r.descendants;}this.invalidate_bulk_preview(w,cx);}))))
                 .child(Button::new("bulk-preview").label("生成预览").disabled(r.loading||self.file_writes.operation_active()).on_click(cx.listener(|this,_,w,cx|this.preview_bulk_edit(w,cx))))
                 .child(Button::new("bulk-apply").primary().label(format!("应用选中 {} 篇",r.selected.len())).disabled(r.loading||r.selected.is_empty()||self.file_writes.operation_active()).on_click(cx.listener(|this,_,w,cx|this.apply_bulk_edit(w,cx)))))
-            .child(label("bulk-message", r.message.clone()))
+            .when(!r.message.is_empty(), |s| s.child(label("bulk-message", r.message.clone())))
             .child(uniform_list("bulk-files",count,cx.processor(|this,range:std::ops::Range<usize>,_,cx|{
                 let Some(r)=&this.ui.bulk_edit else{return vec![];};let Some(p)=&r.plan else{return vec![];};range.filter_map(|i|{let edit=p.edits.get(i)?;Some(div().flex().gap_1().child(Button::new(("bulk-check",i)).label(if r.selected.contains(&i){"☑"}else{"☐"}).accessibility_label(format!("选择 {}",edit.path.display())).on_click(cx.listener(move|this,_,_,cx|{if let Some(r)=&mut this.ui.bulk_edit && !r.selected.remove(&i){r.selected.insert(i);}cx.notify();})))
                     .child(Button::new(("bulk-file",i)).ghost().label(format!("{} · {} 处",edit.path.display(),edit.count)).on_click(cx.listener(move|this,_,w,cx|this.select_bulk_preview(i,w,cx)))).into_any_element())}).collect()
