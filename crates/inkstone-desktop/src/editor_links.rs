@@ -362,6 +362,7 @@ impl CompletionProvider for WikiCompletions {
                                         .add(b')')
                                         .add(b'[')
                                         .add(b']')
+                                        .add(b'\\')
                                         .add(b'<')
                                         .add(b'>');
                                 let mut destination =
@@ -668,6 +669,7 @@ mod provider_tests {
             ("计划", "项目/计划", false),
             ("项目/", "../项目/计 划#1.md", true),
             ("项目/", "../项目/image #1.png", true),
+            ("项目/", r"../项目/literal\[name].png", true),
         ] {
             let embed = if target.ends_with(".png") { "!" } else { "" };
             let source = format!("中文😀 {embed}[[{typed}]]");

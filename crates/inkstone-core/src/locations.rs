@@ -178,6 +178,7 @@ pub fn attachment_link(
         .add(b')')
         .add(b'[')
         .add(b']')
+        .add(b'\\')
         .add(b'<')
         .add(b'>');
     let label = name
@@ -216,16 +217,21 @@ pub fn attachment_destination(
     let mut target = match format {
         LinkFormat::Shortest if unique || local => name.to_string(),
         LinkFormat::Relative => {
-            let target = relative_path(from, to).to_string_lossy().replace('\\', "/");
+            let target = relative_path(from, to)
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
             if target.contains('/') && !target.starts_with("../") {
                 format!("./{target}")
             } else {
                 target
             }
         }
-        _ => format!("/{}", to.to_string_lossy().replace('\\', "/")),
+        _ => format!(
+            "/{}",
+            to.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/")
+        ),
     };
-    let markdown = markdown || requires_markdown_link(&target);
+    let markdown = markdown || requires_markdown_link(&target) || target.contains('\\');
     if !markdown && target.starts_with('/') && target[1..].contains('/') {
         target.remove(0);
     }
@@ -243,7 +249,11 @@ mod tests {
             "<image>.png",
             "less<than.png",
             "greater>than.png",
-        ] {
+        ]
+        .into_iter()
+        .chain(cfg!(unix).then_some(r"literal\name.png"))
+        .chain(cfg!(unix).then_some(r"literal\[name].png"))
+        {
             let target = PathBuf::from(format!("assets/{name}"));
             let files = vec![target.clone()];
             for format in [
