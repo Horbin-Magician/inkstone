@@ -250,8 +250,8 @@ fn collapse_root(tree: &mut PaneTree, changed: &mut bool) {
         return;
     }
 
-    let replacement = match tree.root().kind_ref() {
-        NodeKind::Split { children, .. } if children.len() == 1 => Some(children[0].clone()),
+    let replacement = match tree.root_mut().kind_mut() {
+        NodeKind::Split { children, .. } if children.len() == 1 => children.pop(),
         _ => None,
     };
 
