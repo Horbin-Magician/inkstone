@@ -22,8 +22,12 @@ for name in ("Cargo.toml", "Cargo.lock"):
     shutil.copyfile(source / name, staging / name)
 shutil.copytree(source / "fixtures", staging, dirs_exist_ok=True)
 if not args.prepare_only:
-    for package in ("gpui-base", "gpui-component"):
+    # Observation wraps native elements only in the feature-enabled build.
+    # Keep both Base configurations: neither can stand in for the other.
+    for package, features in (("gpui-base", []),
+                              ("gpui-base", ["--features", "test-support"]),
+                              ("gpui-component", [])):
         subprocess.run(["cargo", "test", "--locked", "--manifest-path",
                         str(staging / "Cargo.toml"), "--target-dir", str(root / "target"),
-                        "-p", package, "--lib", "--", "--test-threads=1"],
+                        "-p", package, "--lib", *features, "--", "--test-threads=1"],
                        cwd=root, check=True)
