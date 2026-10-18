@@ -256,6 +256,13 @@ impl<E: Element> Observed<E> {
         }
     }
 
+    pub(crate) fn map_inner<T: Element>(self, map: impl FnOnce(E) -> T) -> Observed<T> {
+        Observed {
+            inner: map(self.inner),
+            focus: self.focus,
+        }
+    }
+
     pub(crate) fn new(inner: E) -> Self {
         assert!(
             Element::id(&inner).is_some(),
