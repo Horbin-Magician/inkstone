@@ -49,7 +49,8 @@ fn rename_tag(value: &str, old: &str, new: &str, descendants: bool) -> Option<St
         replacement
     })
 }
-fn tag_edit(source: &str, spec: &Spec) -> Result<(String, usize), String> {
+fn tag_edit(note: &crate::index::IndexedNote, spec: &Spec) -> Result<(String, usize), String> {
+    let source = note.text.as_str();
     let old = spec.find.trim().trim_start_matches('#');
     let new = spec.replacement.trim().trim_start_matches('#');
     let valid = |s: &str| {
@@ -64,11 +65,11 @@ fn tag_edit(source: &str, spec: &Spec) -> Result<(String, usize), String> {
     }
     let mut edits = vec![];
     let mut count = 0;
-    for (range, tag) in crate::index::parse(source).inline_tags {
-        if let Some(new) = rename_tag(&tag, old, new, spec.descendants)
-            && new != tag
+    for (range, tag) in &note.parsed.inline_tags {
+        if let Some(new) = rename_tag(tag, old, new, spec.descendants)
+            && new != *tag
         {
-            edits.push((range, new));
+            edits.push((range.clone(), new));
             count += 1;
         }
     }
@@ -182,7 +183,7 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
             continue;
         }
         let transformed = if spec.tags {
-            tag_edit(&note.text, spec)
+            tag_edit(note, spec)
         } else {
             let regex = regex.as_ref().unwrap();
             let count = regex
