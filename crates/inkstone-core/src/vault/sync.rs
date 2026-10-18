@@ -173,6 +173,17 @@ fn validate_path(path: &str) -> Result<()> {
     }
     Ok(())
 }
+// Normalize actual separators, not literal backslashes in Unix filenames.
+// Both scans and watcher checks must use the same validated manifest key.
+fn local_sync_path(path: &Path) -> Result<String> {
+    let name = path
+        .iter()
+        .map(|part| part.to_str().context("同步路径不是 UTF-8"))
+        .collect::<Result<Vec<_>>>()?
+        .join("/");
+    validate_path(&name)?;
+    Ok(name)
+}
 fn validate_manifest(manifest: &Manifest) -> Result<()> {
     ensure!(matches!(manifest.version, 1 | 2), "不支持的云端同步格式");
     ensure!(
@@ -282,11 +293,7 @@ fn snapshot_cancellable(
                     let Some(path) = paths.get(index) else { break };
                     let result = (|| -> Result<_> {
                         cancellation.check()?;
-                        let name = path
-                            .to_str()
-                            .context("同步文件名必须是 UTF-8")?
-                            .replace('\\', "/");
-                        validate_path(&name)?;
+                        let name = local_sync_path(path)?;
                         let (digest, bytes) =
                             fingerprint(&vault.regular_file_path(path)?, cancellation)?
                                 .context("扫描期间文件被删除，请重试")?;
@@ -485,11 +492,7 @@ pub fn changed_since_sync(
             return Ok(snapshot_with_progress(vault, Phase::Scanning, &|_| {})? != base.files);
         }
         let path = vault.regular_file_path(relative)?;
-        let name = relative
-            .to_str()
-            .context("同步路径不是 UTF-8")?
-            .replace('\\', "/");
-        validate_path(&name)?;
+        let name = local_sync_path(relative)?;
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => Some(metadata),
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,

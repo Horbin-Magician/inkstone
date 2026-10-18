@@ -67,6 +67,36 @@ impl Drop for Fixture {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn local_backslash_filenames_cannot_alias_sync_directories() -> Result<()> {
+    let f = Fixture::new();
+    let r = Memory::default();
+    fs::create_dir(f.a.root.join("folder"))?;
+    fs::write(f.a.root.join("folder/note.md"), "same content")?;
+    synchronize(&f.a, &r, "server")?;
+    let revision = r.revision.load(Ordering::Relaxed);
+    let uploads = r.uploads.load(Ordering::Relaxed);
+    // Backslash is a literal filename character on Unix, not a separator.
+    // Equal bytes make accidental aliasing especially easy to miss.
+    let alias = PathBuf::from("folder\\note.md");
+    fs::write(f.a.root.join(&alias), "same content")?;
+    assert!(
+        snapshot(&f.a).is_err(),
+        "scan silently merged distinct local files"
+    );
+    assert!(changed_since_sync(&f.a, "server", &[alias.clone()].into()).is_err());
+    assert!(synchronize(&f.a, &r, "server").is_err());
+    assert_eq!(r.revision.load(Ordering::Relaxed), revision);
+    assert_eq!(r.uploads.load(Ordering::Relaxed), uploads);
+    assert_eq!(fs::read_to_string(f.a.root.join(alias))?, "same content");
+    assert_eq!(
+        fs::read_to_string(f.a.root.join("folder/note.md"))?,
+        "same content"
+    );
+    Ok(())
+}
+
 #[test]
 fn two_devices_sync_notes_binary_edits_deletions_and_renames() -> Result<()> {
     let f = Fixture::new();
