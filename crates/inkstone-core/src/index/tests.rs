@@ -1092,6 +1092,45 @@ fn wiki_reference_relocation_preserves_special_filenames_and_labels() {
 }
 
 #[test]
+fn relocated_markdown_destinations_preserve_escapes_and_titles() {
+    for (name, source) in [
+        ("a(b).md", "[label](a\\(b\\).md \"keep\")"),
+        ("a&b.md", "![label](a&amp;b.md \"keep\")"),
+        ("a&b.md", "[label][ref]\n\n[ref]: <a&amp;b.md> \"keep\""),
+        ("a(b).md", "[label][ref]\n\n[ref]: a\\(b\\).md \"keep\""),
+        ("a(b).md", "[label](a(b).md \"title ](keep)\")"),
+        ("a&b.md", "[a `]` b](a&amp;b.md \"keep\")"),
+        ("a&b.md", "![a [nested] b](a&amp;b.md \"keep\")"),
+        ("a&b.md", "[a \\] b](a&amp;b.md \"keep\")"),
+        (
+            "a&b.md",
+            "[label][ref]\n\n   [ref]:\n  <a&amp;b.md> \"keep\"",
+        ),
+    ] {
+        let mut index = Index::default();
+        let from = Path::new("source.md");
+        index.update(from.into(), source.into());
+        index.update(name.into(), "body".into());
+        let parsed = parse(source);
+        assert_eq!(parsed.destinations.len(), 1, "{source}");
+        assert_eq!(parsed.destinations[0].1, name);
+        let edits = index.relocation_edits(Path::new(name), Path::new("new.md"), false, None);
+        let after = &edits
+            .iter()
+            .find(|(p, _, _)| p == from)
+            .expect("reference should move")
+            .2;
+        assert!(after.contains("keep"), "{after}");
+        let expected = source
+            .replace("a\\(b\\).md", "new.md")
+            .replace("a&amp;b.md", "new.md")
+            .replace("a(b).md", "new.md");
+        assert_eq!(after, &expected);
+        assert_eq!(parse(after).destinations[0].1, "new.md");
+    }
+}
+
+#[test]
 fn html_image_relocation_keeps_dimensions_and_ignores_literal_examples() {
     let root =
         std::env::temp_dir().join(format!("inkstone-html-relocation-{}", std::process::id()));
