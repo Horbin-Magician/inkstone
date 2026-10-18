@@ -601,6 +601,32 @@ mod tests {
         assert!(!cached.matches(path, &source.replace("status: done", "status: draft"), &[]));
     }
     #[test]
+    fn property_comparisons_retain_type_specific_ordering() {
+        let path = Path::new("note.md");
+        let source = "---\nnumber: 12\ntext: '12'\nyes: true\nno: false\n---\nbody";
+        for (input, matches) in [
+            ("[number: >2]", true),
+            ("[text: >2]", false),
+            ("[text: <2]", true),
+            ("[number: >1e1 <1.3e1]", true),
+            ("[number: >12 OR <12]", false),
+            ("[number: >\"2\"]", true),
+            ("[number: >invalid]", false),
+            ("[number: >NaN OR <NaN]", false),
+            ("[number: <inf]", true),
+            ("[yes: >0]", true),
+            ("[no: <1]", true),
+            ("[yes: >1]", false),
+            ("[no: >invalid]", false),
+        ] {
+            assert_eq!(
+                Query::parse(input).unwrap().matches(path, source, &[]),
+                matches,
+                "{input}"
+            );
+        }
+    }
+    #[test]
     fn section_queries_handle_headingless_setext_and_code_content() {
         let path = Path::new("note.md");
         let query = Query::parse("section:(alpha beta)").unwrap();

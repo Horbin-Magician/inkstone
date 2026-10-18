@@ -13,7 +13,11 @@ pub(super) enum Expected {
     All(Vec<Expected>),
     Any(Vec<Expected>),
     Not(Box<Expected>),
-    Compare(bool, String),
+    Compare {
+        less: bool,
+        text: String,
+        number: Option<f64>,
+    },
 }
 impl Expected {
     pub(super) fn parse(input: &str, case_sensitive: bool) -> Result<Self, String> {
@@ -37,17 +41,16 @@ impl Expected {
             Self::All(items) => items.iter().all(|item| item.matches(value)),
             Self::Any(items) => items.iter().any(|item| item.matches(value)),
             Self::Not(item) => !item.matches(value),
-            Self::Compare(less, expected) => {
+            Self::Compare { less, text, number } => {
                 let ordering = match value {
-                    Value::String(value) => Some(value.cmp(expected)),
+                    Value::String(value) => Some(value.cmp(text)),
                     Value::Number(value) => value
                         .as_f64()
-                        .zip(expected.parse::<f64>().ok())
+                        .zip(*number)
                         .and_then(|(a, b)| a.partial_cmp(&b)),
-                    Value::Bool(value) => expected
-                        .parse::<f64>()
-                        .ok()
-                        .and_then(|b| (u8::from(*value) as f64).partial_cmp(&b)),
+                    Value::Bool(value) => {
+                        number.and_then(|b| (u8::from(*value) as f64).partial_cmp(&b))
+                    }
                     _ => None,
                 };
                 ordering
@@ -133,7 +136,11 @@ impl Parser {
                             value.clone()
                         };
                         let operand = serde_json::from_str::<String>(&operand).unwrap_or(operand);
-                        Expected::Compare(less, operand)
+                        Expected::Compare {
+                            less,
+                            number: operand.parse().ok(),
+                            text: operand,
+                        }
                     }
                     _ => Expected::Query(Query::parse_with_case(word, self.case_sensitive)?),
                 };
