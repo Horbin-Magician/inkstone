@@ -678,6 +678,29 @@ fn search_excerpts_include_late_matches_and_metadata_hits_are_not_repeated() {
     assert_eq!(index.search("file:note").len(), 1);
 }
 #[test]
+fn search_excerpt_context_is_bounded_in_unicode_characters() {
+    let mut index = Index::default();
+    for count in [0, 1, 39, 40, 41, 10_000] {
+        let prefix: String = "前😀e\u{301}".chars().cycle().take(count).collect();
+        let line = format!("{prefix}目标{}", "后🌟".repeat(100));
+        let source = format!("previous line\n{line}\nnext line");
+        index.update("note.md".into(), source.clone());
+        let hits = index.search("目标");
+        assert_eq!(hits.len(), 1);
+        let hit = &hits[0];
+        let expected: String = line
+            .chars()
+            .skip(count.saturating_sub(40))
+            .take(120)
+            .collect();
+        assert_eq!(hit.excerpt, expected, "prefix length {count}");
+        assert_eq!(hit.line, 2);
+        assert_eq!(hit.offset, "previous line\n".len() + prefix.len());
+        assert_eq!(hit.highlights.len(), 1);
+        assert_eq!(&hit.excerpt[hit.highlights[0].clone()], "目标");
+    }
+}
+#[test]
 fn tag_index_keeps_occurrences_separate_from_search_tags() {
     let parsed =
         parse("---\ntags: [work, work]\nAliases: ['Case Alias']\n---\n#work #work `#work` \\#work");
