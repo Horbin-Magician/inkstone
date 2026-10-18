@@ -28,7 +28,12 @@ impl AnchorBookmark {
                 if *occurrence == 0 {
                     format!("{} # {}", self.path.display(), title)
                 } else {
-                    format!("{} # {} ({})", self.path.display(), title, occurrence + 1)
+                    format!(
+                        "{} # {} ({})",
+                        self.path.display(),
+                        title,
+                        *occurrence as u128 + 1
+                    )
                 }
             }
             BookmarkAnchor::Block { id } => format!("{} # ^{}", self.path.display(), id),
@@ -751,6 +756,21 @@ mod tests {
 #[cfg(test)]
 mod anchor_bookmark_tests {
     use super::*;
+
+    #[test]
+    fn oversized_saved_heading_occurrence_does_not_overflow_its_label() {
+        let json = serde_json::json!({
+            "anchor_bookmarks": [{
+                "path": "a.md",
+                "anchor": {"Heading": {"title": "标题", "occurrence": usize::MAX}}
+            }]
+        });
+        let prefs: Preferences = serde_json::from_value(json).unwrap();
+        let bookmark = &prefs.anchor_bookmarks[0];
+        assert!(bookmark.label().starts_with("a.md # 标题 ("));
+        assert!(!bookmark.label().ends_with("(0)"));
+        assert_eq!(bookmark.offset(&crate::index::parse("# 标题")), None);
+    }
 
     #[test]
     fn old_preferences_and_semantic_destinations_roundtrip() {
