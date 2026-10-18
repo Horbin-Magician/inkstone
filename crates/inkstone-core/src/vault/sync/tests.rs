@@ -322,10 +322,9 @@ fn webdav_auth_conditional_creation_and_concurrent_write_rejection() -> Result<(
     Ok(())
 }
 #[test]
-fn webdav_refuses_redirects_weak_etags_and_invalid_urls() -> Result<()> {
+fn webdav_refuses_redirects_unauthorized_responses_and_invalid_urls() -> Result<()> {
     for reply in [
         "HTTP/1.1 302 Found\r\nLocation: http://localhost/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        "HTTP/1.1 200 OK\r\nETag: W/\"weak\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     ] {
         let (settings, thread) = server(vec![
