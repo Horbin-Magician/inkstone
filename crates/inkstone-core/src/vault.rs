@@ -776,9 +776,7 @@ impl Vault {
         let journal = self.journal(relative, None, draft)?;
         let path = self.path(relative)?;
         fs::create_dir_all(path.parent().ok_or(VaultError::InvalidPath)?)?;
-        let receipt = self.save(relative, None, draft)?;
-        let _ = fs::rename(&journal, journal.with_extension("saved"));
-        Ok(receipt)
+        self.save_journaled(relative, None, draft, journal, || {})
     }
     fn save_with_hook(
         &self,
@@ -788,6 +786,17 @@ impl Vault {
         before_replace: impl FnOnce(),
     ) -> Result<SaveReceipt, VaultError> {
         let recovery = self.journal(relative, baseline, draft)?;
+        self.save_journaled(relative, baseline, draft, recovery, before_replace)
+    }
+    /// Reuse the durable record when creation has already journaled before mkdir.
+    fn save_journaled(
+        &self,
+        relative: &Path,
+        baseline: Option<&str>,
+        draft: &str,
+        recovery: PathBuf,
+        before_replace: impl FnOnce(),
+    ) -> Result<SaveReceipt, VaultError> {
         let path = self.path(relative)?;
         if read_optional(&path)?.as_deref() != baseline {
             return Err(VaultError::Conflict { recovery });
@@ -1089,10 +1098,34 @@ mod tests {
     fn nested_note_creation_is_no_clobber() {
         let s = Sandbox::new();
         let note = Path::new("目录/子目录/笔记.md");
-        s.1.create(note, "新内容").unwrap();
+        let receipt = s.1.create(note, "新内容").unwrap();
         assert_eq!(s.1.read(note).unwrap().unwrap(), "新内容");
+        let history = s.1.history(note).unwrap();
+        assert_eq!(history.len(), 1, "one creation must publish one version");
+        assert_eq!(history[0].journal, receipt.recovery);
+        assert!(history[0].saved);
+        assert!(s.1.recoveries().unwrap().is_empty());
         assert!(s.1.create(note, "不能覆盖").is_err());
         assert_eq!(s.1.read(note).unwrap().unwrap(), "新内容");
+        let recoveries = s.1.recoveries().unwrap();
+        assert_eq!(recoveries.len(), 1);
+        assert_eq!(recoveries[0].record.draft, "不能覆盖");
+    }
+    #[test]
+    fn failed_creation_keeps_the_draft_before_parent_preparation() {
+        let s = Sandbox::new();
+        fs::write(s.1.root.join("blocked"), "keep").unwrap();
+        assert!(
+            s.1.create(Path::new("blocked/note.md"), "recover me")
+                .is_err()
+        );
+        let recoveries = s.1.recoveries().unwrap();
+        assert_eq!(recoveries.len(), 1);
+        assert_eq!(recoveries[0].record.draft, "recover me");
+        assert_eq!(
+            fs::read_to_string(s.1.root.join("blocked")).unwrap(),
+            "keep"
+        );
     }
     #[test]
     fn attachments_can_use_root_or_nested_folder_without_clobbering() {
