@@ -276,7 +276,14 @@ impl WebDav {
                 "已有云端对象校验失败"
             );
         } else {
-            Self::status(response)?;
+            let response = Self::status(response)?;
+            ensure!(
+                matches!(
+                    response.status(),
+                    StatusCode::OK | StatusCode::CREATED | StatusCode::NO_CONTENT
+                ),
+                "服务器未确认对象上传完成"
+            );
         }
         Ok(())
     }
@@ -328,6 +335,35 @@ impl Write for DigestSink {
 #[cfg(test)]
 mod stream_tests {
     use super::*;
+    #[test]
+    fn object_upload_requires_confirmed_completion() -> Result<()> {
+        for code in [200, 201, 204, 202, 206, 207] {
+            for from_file in [false, true] {
+                let (remote, task) = test_support::server(vec![test_support::reply(code)]);
+                let bytes = b"uploaded content";
+                let digest = hash(bytes);
+                let result = if from_file {
+                    let mut file = tempfile::tempfile()?;
+                    file.write_all(bytes)?;
+                    remote.upload_file(&digest, file)
+                } else {
+                    remote.upload(&digest, bytes)
+                };
+                assert_eq!(
+                    result.is_ok(),
+                    matches!(code, 200 | 201 | 204),
+                    "status {code}, from_file {from_file}: {result:?}"
+                );
+                let requests = task.join().unwrap();
+                assert_eq!(requests.len(), 1);
+                assert!(requests[0].starts_with(&format!("PUT /dav/inkstone/objects/{digest} ")));
+                assert!(requests[0].ends_with("uploaded content"));
+                assert!(requests[0].contains("if-none-match: *"));
+            }
+        }
+        Ok(())
+    }
+
     #[test]
     fn bounded_stream_handles_short_writes_limits_and_destination_failure() -> Result<()> {
         struct Interrupted<'a> {
