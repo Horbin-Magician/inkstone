@@ -16,6 +16,17 @@ pub(super) struct State {
     output: Option<PathBuf>,
     message: String,
 }
+impl State {
+    /// Called after a vault generation changes, with active writes already excluded.
+    pub(super) fn cancel_pending_reads(&mut self) {
+        if self.busy {
+            self.busy = false;
+            self.message.clear();
+        }
+        self.picker_open = false;
+        self.capacity.cancel_pending_reads();
+    }
+}
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

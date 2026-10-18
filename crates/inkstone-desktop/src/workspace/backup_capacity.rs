@@ -27,6 +27,12 @@ pub(super) struct State {
     interrupted_page: usize,
     pager_focus: [std::cell::OnceCell<FocusHandle>; 2],
 }
+impl State {
+    pub(super) fn cancel_pending_reads(&mut self) {
+        self.loading = false;
+        self.partial.cancel_pending_read();
+    }
+}
 impl Workspace {
     pub(super) fn refresh_backup_capacity(&mut self, cx: &mut Context<Self>) {
         let directory = self.ui.prefs.backup.directory.clone();
@@ -356,6 +362,63 @@ fn decision_label(decision: Decision) -> &'static str {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn failed_switch_cancels_backup_reads_but_not_active_writes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = std::env::temp_dir().join(format!(
+            "inkstone-backup-read-switch-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("vault")).unwrap();
+        std::fs::create_dir_all(root.join("backups")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.join("vault"), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                w.ui.prefs.backup.directory = Some(root.join("backups"));
+                w.ui.backup.busy = true;
+                let ticket = w.file_writes.begin();
+                let generation = w.generation;
+                w.load_vault(root.join("missing"), window, cx);
+                assert_eq!(w.generation, generation);
+                assert!(w.ui.backup.busy);
+                assert!(w.file_writes.finish(ticket));
+                w.refresh_backup_capacity(cx);
+                assert!(w.ui.backup.capacity.loading);
+                w.load_vault(root.join("missing"), window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert!(!w.loading);
+                assert!(!w.ui.backup.busy);
+                assert!(!w.ui.backup.capacity.loading);
+                assert_eq!(
+                    w.ui.prefs.backup.directory.as_ref(),
+                    Some(&root.join("backups"))
+                );
+                w.refresh_backup_capacity(cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, _| {
+                assert!(!w.ui.backup.capacity.loading);
+                assert!(w.ui.backup.capacity.inventory.is_some());
+                assert_eq!(w.file_writes.pending(), 0);
+                w.watcher = None;
+                w.watch_events = None;
+            })
+            .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[gpui::test]
     fn capacity_refresh_reports_backups_and_rejects_previous_directory(cx: &mut TestAppContext) {

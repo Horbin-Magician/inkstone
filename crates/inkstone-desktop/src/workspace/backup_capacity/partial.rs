@@ -13,6 +13,14 @@ pub(super) struct State {
     pager_focus: std::cell::OnceCell<FocusHandle>,
 }
 
+impl State {
+    pub(super) fn cancel_pending_read(&mut self) {
+        if self.loading {
+            *self = Self::default();
+        }
+    }
+}
+
 // Text rows need an explicit role: GPUI's painted strings alone do not expose
 // the recovery verdict to native accessibility clients.
 fn labelled_text(id: impl Into<ElementId>, text: String) -> gpui::Stateful<gpui::Div> {

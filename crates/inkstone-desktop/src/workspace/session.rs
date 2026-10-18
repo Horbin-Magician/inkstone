@@ -232,7 +232,7 @@ impl Workspace {
         self.generation += 1;
         // The old picker callback is now stale, even if loading this vault fails.
         self.ui.exporting = false;
-        self.ui.backup.picker_open = false;
+        self.ui.backup.cancel_pending_reads();
         let generation = self.generation;
         let task = cx.background_executor().spawn(async move {
             inkstone_core::startup_trace::mark("background_started");
