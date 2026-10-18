@@ -1,3 +1,4 @@
+use super::accessible_text::label;
 use super::*;
 use gpui_component::{
     Disableable,
@@ -219,23 +220,23 @@ impl Workspace {
                 .child(Button::new("attachment-large").label("至少 1 MiB").when(m.large,|b|b.primary()).on_click(cx.listener(|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.large = !m.large;}cx.notify();})))
                 .child(Button::new("attachment-unused").label("疑似未引用").when(m.unused,|b|b.primary()).on_click(cx.listener(|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.unused = !m.unused;}cx.notify();})))
                 .child(Button::new("attachment-refresh").label("刷新").disabled(m.loading).on_click(cx.listener(|this,_,w,cx|this.refresh_attachments(w,cx)))))
-            .child(format!("显示 {} / {} 个附件 · 按大小排序 · 引用包含打开笔记的编辑快照",filtered.len(),m.inventory.entries.len()))
-            .when(m.loading,|s|s.child("正在扫描或处理……"))
-            .when(!m.message.is_empty(),|s|s.child(m.message.clone()))
+            .child(label("attachment-summary", format!("显示 {} / {} 个附件 · 按大小排序 · 引用包含打开笔记的编辑快照",filtered.len(),m.inventory.entries.len())))
+            .when(m.loading,|s|s.child(label("attachment-loading", "正在扫描或处理……")))
+            .when(!m.message.is_empty(),|s|s.child(label("attachment-message", m.message.clone())))
             .child(uniform_list("attachment-list",filtered.len(),cx.processor(move |this,range:std::ops::Range<usize>,_,cx| {
                 let Some(m)=&this.ui.attachment_manager else{return vec![];};
                 range.filter_map(|i|{let entry=m.inventory.entries.get(*filtered.get(i)?)?;let path=entry.path.clone();Some(Button::new(("attachment",i)).ghost().when(m.selected.as_ref()==Some(&path),|b|b.primary()).label(format!("{} · {:.1} KiB · {} 篇引用 · {}",entry.kind.label(),entry.bytes as f64/1024.,entry.references.len(),path.display())).on_click(cx.listener(move|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.selected=Some(path.clone());}cx.notify();})).into_any_element())}).collect()
             })).h(px(200.)).w_full())
             .when_some(selected,|s,e| {
                 let path=e.path.clone();let reveal=path.clone();let open=path.clone();let cleanup=e.clone();
-                s.child(path.to_string_lossy().to_string()).child(div().flex().gap_2()
+                s.child(label("attachment-selected-path", path.to_string_lossy().to_string())).child(div().flex().gap_2()
                     .child(Button::new("attachment-preview").label("系统打开 / 预览").on_click(cx.listener(move|this,_,_,cx|{if let Some(v)=&this.vault{cx.open_with_system(&v.root.join(&open));}})))
                     .child(Button::new("attachment-reveal").label("显示文件位置").on_click(cx.listener(move|this,_,_,cx|{if let Some(v)=&this.vault{cx.reveal_path(&v.root.join(&reveal));}})))
                     .child(Button::new("attachment-trash").label("移入回收站").disabled(m.loading||m.inventory.unreadable>0||!e.references.is_empty()||self.file_writes.pending()>0).on_click(cx.listener(move|this,_,w,cx|this.request_attachment_cleanup(cleanup.clone(),w,cx)))))
-                    .child("引用来源（点击打开）：")
+                    .child(label("attachment-reference-heading", "引用来源（点击打开）："))
                     .child(div().id("attachment-references").max_h(px(140.)).overflow_y_scroll().children(e.references.iter().cloned().enumerate().map(|(i,path)|Button::new(("attachment-source",i)).ghost().label(path.to_string_lossy().to_string()).on_click(cx.listener(move|this,_,w,cx|{this.close_overlays(w,cx);this.open_note(path.clone(),w,cx);})))) )
             })
-            .child(div().text_sm().child("疑似未引用不等于无用。仅检查笔记中的双链、Markdown 与 HTML 直接引用；不分析脚本、其他附件内容或库外引用。清理前会重新扫描，文件仍可从回收站恢复。"))
+            .child(label("attachment-cleanup-description", "疑似未引用不等于无用。仅检查笔记中的双链、Markdown 与 HTML 直接引用；不分析脚本、其他附件内容或库外引用。清理前会重新扫描，文件仍可从回收站恢复。").text_sm())
             .into_any_element()
     }
 }
