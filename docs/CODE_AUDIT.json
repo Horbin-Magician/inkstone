@@ -1,5 +1,5 @@
 {
-  "snapshot_revision": "bb4858751d2b4aa6fd09a0125c45f333eefc18a8",
+  "snapshot_revision": "d5d88e138a1b10e62bb6da2aef59fa35793089c0",
   "date": "2026-10-19",
   "scope": "Tracked files with suffixes .js, .nsi, .plist, .ps1, .py, .rc, .rs, .sh, .toml, .ts, .tsx, .yaml, .yml; assets, prose, lockfiles and other extensions are not included. This is a source-review ledger, not runtime acceptance.",
   "reviewed": [
@@ -992,6 +992,36 @@
       "path": "crates/inkstone-desktop/src/workspace/extras.rs",
       "checks": "Complete read: duplication, reference routing and task toggles, folder relocation, property editing, attachment selection/import, view identity and asynchronous write tickets.",
       "result": "Bound attachment picker to generation, tab and pane identity and surfaced picker errors (bb48587). Real dialog regression fails on old implementation by inserting into the wrong note; fixed attachment tests 5 passed. Workspace all-targets Clippy, formatting and diff checks passed. Native picker and Windows validation remain outstanding."
+    },
+    {
+      "path": "crates/inkstone-desktop/Cargo.toml",
+      "checks": "Complete manifest read with workspace dependency definitions, platform gates, test feature and build script usage.",
+      "result": "Retained unicode-segmentation: removing it fails compilation of vendor modules included by integration tests. Added rationale in d5d88e1. Other direct dependencies have source references; no dependency removal justified."
+    },
+    {
+      "path": "crates/inkstone-desktop/tests/grapheme_cursor.rs",
+      "checks": "Complete read of path-based integration test entry and referenced vendor helper.",
+      "result": "Compiles production helper directly; requires ropey and unicode-segmentation. One cross-chunk Unicode regression passed."
+    },
+    {
+      "path": "crates/inkstone-desktop/tests/grapheme_wrap.rs",
+      "checks": "Complete read of path-based integration test entry and referenced vendor helper.",
+      "result": "Compiles production helper directly; two grapheme wrap regressions passed."
+    },
+    {
+      "path": "crates/inkstone-desktop/tests/display_objects.rs",
+      "checks": "Complete read of five tests: CRLF projection, row height merging, wrapped anchors, ID replacement, viewport bounds, scroll-anchor restoration and undo/source preservation.",
+      "result": "Five tests passed. Evidence covers headless GPUI layout and state, not native rendering performance."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/base/grapheme_cursor.rs",
+      "checks": "Complete read: rope chunk context, boundary fallback, directional snapping and full-segmentation oracle; inspected cursor caller scalar clipping.",
+      "result": "One regression passed across rope chunks, regional indicators, combining marks, emoji and CRLF. No new change; pathological-sequence cost and native IME validation remain separate gates."
+    },
+    {
+      "path": "vendor/gpui-base/src/input/editor/display_map/grapheme_wrap.rs",
+      "checks": "Complete read: grapheme boundary construction, flooring, duplicate/end suppression and text-wrapper invocation.",
+      "result": "Two regressions passed for emoji/combining sequences and a grapheme wider than the row. No new change; no native performance claim."
     }
   ],
   "pending_reconciliation": [
@@ -999,7 +1029,6 @@
     "crates/inkstone-core/src/vault/sync/tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/stateful_tests.rs",
     "crates/inkstone-core/src/vault/sync/webdav/cleanup/tests.rs",
-    "crates/inkstone-desktop/Cargo.toml",
     "crates/inkstone-desktop/src/editor/tests.rs",
     "crates/inkstone-desktop/src/workspace/backup_capacity.rs",
     "crates/inkstone-desktop/src/workspace/cloud_sync.rs",
@@ -1014,9 +1043,6 @@
     "crates/inkstone-desktop/src/workspace/tests.rs",
     "crates/inkstone-desktop/src/workspace/ui.rs",
     "crates/inkstone-desktop/src/workspace/views.rs",
-    "crates/inkstone-desktop/tests/display_objects.rs",
-    "crates/inkstone-desktop/tests/grapheme_cursor.rs",
-    "crates/inkstone-desktop/tests/grapheme_wrap.rs",
     "vendor/gpui-base/Cargo.toml",
     "vendor/gpui-base/benches/motion.rs",
     "vendor/gpui-base/benches/text_view_scroll.rs",
@@ -1065,7 +1091,6 @@
     "vendor/gpui-base/src/input/base/change.rs",
     "vendor/gpui-base/src/input/base/cursor.rs",
     "vendor/gpui-base/src/input/base/element.rs",
-    "vendor/gpui-base/src/input/base/grapheme_cursor.rs",
     "vendor/gpui-base/src/input/base/inline_tokens.rs",
     "vendor/gpui-base/src/input/base/kind.rs",
     "vendor/gpui-base/src/input/base/layout.rs",
@@ -1088,7 +1113,6 @@
     "vendor/gpui-base/src/input/editor/display_map/display_map.rs",
     "vendor/gpui-base/src/input/editor/display_map/fold_map.rs",
     "vendor/gpui-base/src/input/editor/display_map/folding.rs",
-    "vendor/gpui-base/src/input/editor/display_map/grapheme_wrap.rs",
     "vendor/gpui-base/src/input/editor/display_map/inline_line.rs",
     "vendor/gpui-base/src/input/editor/display_map/mod.rs",
     "vendor/gpui-base/src/input/editor/display_map/text_wrapper.rs",
