@@ -23,6 +23,7 @@ def main():
     if not binary.is_file():
         raise SystemExit("Build the release history_read_benchmark example first.")
     root = Path(tempfile.mkdtemp(prefix="history-read-", dir=project / "target"))
+    print(root, flush=True)
     unit = '中文 😀 é "quoted" \\ path\r\n'
     body = unit * (32 * 1024 * 1024 // len(unit.encode()))
     fixture = root / "legacy.json"
@@ -50,9 +51,10 @@ def main():
         for mode in modes:
             result = subprocess.run(
                 ["/usr/bin/time", "-l", str(binary), mode, str(fixture)],
-                capture_output=True, text=True, check=True,
+                capture_output=True, text=True,
             )
             (root / f"{mode}-{iteration}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
+            result.check_returncode()
             if mode == "metadata":
                 assert "root=/synthetic/vault relative=中文.md" in result.stdout
             else:
@@ -69,7 +71,6 @@ def main():
         for mode in ["whole", "buffered", "metadata"]
     }
     (root / "results.json").write_text(json.dumps({"runs": runs, "summary": summary}, indent=2), encoding="utf-8")
-    print(root)
     print(json.dumps(summary, indent=2))
 
 
