@@ -125,7 +125,11 @@ pub fn copy_lines(
     selections: &[Range<usize>],
     down: bool,
 ) -> Option<(String, Vec<Range<usize>>)> {
-    let SelectedLines { lines, groups, .. } = selected_lines(text, selections)?;
+    let SelectedLines {
+        lines,
+        spans,
+        groups,
+    } = selected_lines(text, selections)?;
     let default_newline = lines
         .iter()
         .find(|line| !line.1.is_empty())
@@ -142,19 +146,19 @@ pub fn copy_lines(
         };
         let body = &text[start..end];
         insertions.push(if down {
-            (start, format!("{body}{newline}"))
+            (start, format!("{body}{newline}"), newline.len())
         } else {
-            (end, format!("{newline}{body}"))
+            (end, format!("{newline}{body}"), newline.len())
         });
     }
     let added: usize = insertions
         .iter()
-        .map(|(_, insertion)| insertion.len())
+        .map(|(_, insertion, _)| insertion.len())
         .sum();
     let mut result = String::with_capacity(text.len() + added);
     let mut prefix_lengths = vec![0];
     let mut previous = 0;
-    for (offset, insertion) in &insertions {
+    for (offset, insertion, _) in &insertions {
         result.push_str(&text[previous..*offset]);
         result.push_str(insertion);
         prefix_lengths.push(prefix_lengths.last().copied().unwrap() + insertion.len());
@@ -164,11 +168,26 @@ pub fn copy_lines(
     let map_offset = |offset| {
         offset
             + prefix_lengths
-                [insertions.partition_point(|(at, _)| *at < offset || (down && *at == offset))]
+                [insertions.partition_point(|(at, _, _)| *at < offset || (down && *at == offset))]
     };
     let mapped = selections
         .iter()
-        .map(|range| map_offset(range.start)..map_offset(range.end))
+        .zip(spans)
+        .map(|(range, (_, last, through_newline))| {
+            let mut end = map_offset(range.end);
+            if !down && through_newline {
+                let body_end = lines[last].2 + lines[last].0.len();
+                let index = insertions.partition_point(|(at, _, _)| *at < body_end);
+                if let Some((at, _, separator_len)) = insertions.get(index)
+                    && *at == body_end
+                {
+                    // The upper block now ends with the inserted separator; the original
+                    // separator follows the lower copy and must not extend this selection.
+                    end = map_offset(body_end) + separator_len;
+                }
+            }
+            map_offset(range.start)..end
+        })
         .collect();
     Some((result, mapped))
 }
@@ -194,6 +213,32 @@ mod tests {
         assert_eq!(
             copy_lines("", &[0..0], true).unwrap(),
             ("\n".into(), vec![1..1])
+        );
+    }
+
+    #[test]
+    fn copying_up_keeps_full_line_selection_on_the_original_side() {
+        for (text, selection, expected, expected_end) in [
+            ("a\nb", 0..2, "a\na\nb", 2),
+            ("甲\r\n乙", 0..5, "甲\r\n甲\r\n乙", 5),
+            ("a\nb\r\nc", 0..5, "a\nb\na\nb\r\nc", 4),
+        ] {
+            let (result, selections) =
+                copy_lines(text, std::slice::from_ref(&selection), false).unwrap();
+            assert_eq!(result, expected);
+            assert_eq!(selections, vec![0..expected_end]);
+        }
+    }
+
+    #[test]
+    fn copying_up_maps_disjoint_and_merged_full_line_selections() {
+        assert_eq!(
+            copy_lines("a\nb\nc\nd", &[0..2, 4..6], false).unwrap(),
+            ("a\na\nb\nc\nc\nd".into(), vec![0..2, 6..8])
+        );
+        assert_eq!(
+            copy_lines("a\nb\nc", &[0..2, 2..4], false).unwrap(),
+            ("a\nb\na\nb\nc".into(), vec![0..2, 2..4])
         );
     }
 
