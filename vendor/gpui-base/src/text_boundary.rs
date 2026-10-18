@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharacterKind {
     Word,
     Whitespace,
@@ -8,6 +8,8 @@ enum CharacterKind {
     Other,
 }
 
+// Character grouping follows the original Zed line-wrapper policy:
+// https://github.com/zed-industries/zed/blob/main/crates/gpui/src/text_system/line_wrapper.rs
 impl From<char> for CharacterKind {
     fn from(character: char) -> Self {
         if character == '_'
@@ -79,4 +81,46 @@ fn clip_offset_left(text: &str, offset: usize) -> usize {
         offset -= 1;
     }
     offset
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_char_type_from_char() {
+        assert_eq!(CharacterKind::from('a'), CharacterKind::Word);
+        assert_eq!(CharacterKind::from('Z'), CharacterKind::Word);
+        assert_eq!(CharacterKind::from('0'), CharacterKind::Word);
+        assert_eq!(CharacterKind::from('_'), CharacterKind::Word);
+        assert_eq!(CharacterKind::from('.'), CharacterKind::Other);
+        assert_eq!(CharacterKind::from(','), CharacterKind::Other);
+        assert_eq!(CharacterKind::from(';'), CharacterKind::Other);
+        assert_eq!(CharacterKind::from('!'), CharacterKind::Other);
+        assert_eq!(CharacterKind::from('?'), CharacterKind::Other);
+        assert_eq!(CharacterKind::from('['), CharacterKind::Other);
+        assert_eq!(CharacterKind::from('{'), CharacterKind::Other);
+        assert_eq!(CharacterKind::from(' '), CharacterKind::Whitespace);
+        assert_eq!(CharacterKind::from('\t'), CharacterKind::Whitespace);
+        assert_eq!(CharacterKind::from('\u{00A0}'), CharacterKind::Whitespace);
+        assert_eq!(CharacterKind::from('\n'), CharacterKind::Newline);
+        assert_eq!(CharacterKind::from('\r'), CharacterKind::Newline);
+        assert_eq!(CharacterKind::from('汉'), CharacterKind::Other);
+        assert_eq!(CharacterKind::from('é'), CharacterKind::Word);
+        assert_eq!(CharacterKind::from('ä'), CharacterKind::Word);
+        assert_eq!(CharacterKind::from('ö'), CharacterKind::Word);
+        assert_eq!(CharacterKind::from('ü'), CharacterKind::Word);
+        assert_eq!(CharacterKind::from('д'), CharacterKind::Word);
+    }
+
+    #[test]
+    fn word_range_handles_utf8_and_end_offsets() {
+        assert_eq!(word_range_at("", 0), None);
+        assert_eq!(word_range_at("a中é", 2), Some(1..4));
+        assert_eq!(word_range_at("a中é", 5), Some(4..6));
+        assert_eq!(word_range_at("a中é", 6), None);
+        assert_eq!(word_range_at("a中é", usize::MAX), None);
+        let long_word = "é".repeat(300);
+        assert_eq!(word_range_at(&long_word, 300), Some(44..558));
+    }
 }
