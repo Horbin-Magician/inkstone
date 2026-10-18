@@ -161,14 +161,17 @@ fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
     let source = "砚".repeat(400);
     let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
     let mut visual = VisualTestContext::from_window(handle.into(), cx);
-    for (width, readable, line_numbers) in [
-        (900., true, false),
-        (900., false, false),
-        (520., true, true),
+    for (width, readable, line_numbers, font_size) in [
+        (900., true, false, 16.),
+        (900., false, false, 16.),
+        (520., true, true, 16.),
+        (290., true, true, 16.),
+        (290., false, true, 30.),
     ] {
         handle
             .update(&mut visual, |pane, window, cx| {
                 pane.readable_width = readable;
+                pane.font_size = font_size;
                 pane.reading = false;
                 pane.fold_headings = false;
                 pane.set_fold_options(true, false, window, cx);
@@ -214,6 +217,10 @@ fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
         assert!(
             (editing_wrap - reading_wrap).abs() <= px(1.),
             "text wraps differently at {width}px, readable {readable}, line numbers {line_numbers}: editing {editing_wrap:?}, reading {reading_wrap:?}"
+        );
+        assert!(
+            editing_bounds.left() >= px(0.) && editing_bounds.right() <= px(width),
+            "editor/gutter escapes the pane at {width}px, font {font_size}: {editing_bounds:?}"
         );
         let gutter = editing_bounds.left() + (editing_bounds.size.width - editing_wrap);
         assert!(

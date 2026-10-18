@@ -278,6 +278,10 @@ impl Render for EditorPane {
                 state.external_scrollbar(cx).into_any_element()
             })
         };
+        let gutter = self
+            .editor
+            .read(cx)
+            .gutter_width(px(self.font_size), _window);
         div()
             .id("editor-pane")
             .relative()
@@ -345,9 +349,10 @@ impl Render for EditorPane {
             .min_h_0()
             .bg(crate::theme::palette(self.light).background)
             .text_color(crate::theme::palette(self.light).foreground)
-            // Both modes share this inset, so the text column keeps the same
-            // width when switching between editing and reading.
-            .px(px(32.))
+            // Both modes share the text column. Keep the entire gutter inside
+            // the pane even when line numbers, folding or larger fonts widen it.
+            .pl(px(32.).max(gutter))
+            .pr(px(32.))
             .pt(px(12.))
             .children(self.footnote_panel(_window, cx))
             .child(
@@ -369,10 +374,6 @@ impl Render for EditorPane {
                                 // the gutter and shift it left, so the text column
                                 // starts and wraps where the reading view's does,
                                 // while the gutter sits in the pane inset.
-                                let gutter = self
-                                    .editor
-                                    .read(cx)
-                                    .gutter_width(px(self.font_size), _window);
                                 s.relative().child(div().size_full()).child(
                                     div()
                                         .absolute()
