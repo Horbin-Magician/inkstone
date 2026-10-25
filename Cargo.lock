@@ -3457,6 +3457,7 @@ dependencies = [
  "gpui-component",
  "gpui-kit",
  "gpui-pre",
+ "image",
  "inkstone-core",
  "lsp-types",
  "markdown",
