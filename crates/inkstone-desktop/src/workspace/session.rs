@@ -304,6 +304,9 @@ impl Workspace {
                     if path.as_os_str().is_empty() {
                         return Some((saved_index, path.clone(), String::new()));
                     }
+                    if image_preview::source(Some(&vault), path).is_some() {
+                        return Some((saved_index, path.clone(), String::new()));
+                    }
                     vault
                         .read(path)
                         .ok()

@@ -169,7 +169,10 @@ impl Workspace {
                 cx.notify();
             }
         });
+        let image = image_preview::source(self.vault.as_ref(), &path)
+            .map(|source| cx.new(|cx| image_preview::Preview::new(source, cx)));
         self.tabs.push(Tab {
+            image,
             id,
             pinned: self.loading && self.ui.prefs.pinned_paths.contains(&path),
             path,
@@ -221,6 +224,9 @@ impl Workspace {
             self.pending_navigation = None;
         }
         let id = self.tabs[index].id;
+        if self.tabs[index].image.is_some() {
+            self.views.secondary_focused = false;
+        }
         if !self.views.secondary_focused
             && !self.tabs[index].path.as_os_str().is_empty()
             && let Some(i) = self.active.filter(|i| {
@@ -253,9 +259,14 @@ impl Workspace {
             }
         } else {
             self.views.main = Some(self.tabs[index].id);
-            self.tabs[index]
-                .pane
-                .update(cx, |p, cx| p.focus_view(window, cx));
+            if let Some(image) = &self.tabs[index].image {
+                let focus = image.read(cx).focus.clone();
+                window.focus(&focus, cx);
+            } else {
+                self.tabs[index]
+                    .pane
+                    .update(cx, |p, cx| p.focus_view(window, cx));
+            }
         }
         self.run_search(cx);
         if let Some((path, command)) = self.ui.pending_command.take()
@@ -340,6 +351,10 @@ impl Workspace {
             tab.pinned = false;
             self.persist_workspace(cx);
             cx.notify();
+            return;
+        }
+        if tab.image.is_some() {
+            self.remove_tab_view(index, window, cx);
             return;
         }
         let document = tab.save.clone();

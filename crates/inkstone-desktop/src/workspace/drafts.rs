@@ -31,7 +31,7 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        for tab in &self.tabs {
+        for tab in self.tabs.iter().filter(|tab| tab.image.is_none()) {
             let document = tab.save.clone();
             if document.persistence.is_saving() || document.editor.read(cx).is_composing() {
                 continue;

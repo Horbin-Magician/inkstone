@@ -73,6 +73,7 @@ impl Workspace {
         let requests: Vec<_> = self
             .tabs
             .iter()
+            .filter(|t| t.image.is_none())
             .map(|t| (t.id, t.path.clone(), t.save.persistence.baseline().clone()))
             .collect();
         let task = cx.background_executor().spawn(async move {

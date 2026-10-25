@@ -33,6 +33,9 @@ pub(super) fn normalize_clipboard_image(
 
 impl Workspace {
     pub(super) fn duplicate_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.current_pane().is_none() {
+            return;
+        }
         if self.file_writes.operation_active() {
             return;
         }

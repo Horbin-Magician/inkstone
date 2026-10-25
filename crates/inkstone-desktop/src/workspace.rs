@@ -104,6 +104,7 @@ actions!(
 );
 
 struct Tab {
+    image: Option<Entity<image_preview::Preview>>,
     id: usize,
     pinned: bool,
     path: PathBuf,

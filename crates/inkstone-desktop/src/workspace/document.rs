@@ -69,7 +69,7 @@ impl Workspace {
         let mut seen = std::collections::HashSet::new();
         self.tabs
             .iter()
-            .filter(|tab| !tab.path.as_os_str().is_empty())
+            .filter(|tab| tab.image.is_none() && !tab.path.as_os_str().is_empty())
             .filter(|tab| seen.insert(tab.save.editor.entity_id()))
             .map(|tab| (tab.path.clone(), tab.save.text_snapshot(cx)))
             .collect()
@@ -108,7 +108,7 @@ impl Workspace {
         let Some(document) = self
             .tabs
             .iter()
-            .find(|tab| tab.save.editor.entity_id() == owner.entity_id())
+            .find(|tab| tab.image.is_none() && tab.save.editor.entity_id() == owner.entity_id())
             .map(|tab| tab.save.clone())
         else {
             return;
@@ -174,7 +174,11 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab) = self.tabs.iter().find(|tab| tab.id == id) else {
+        let Some(tab) = self
+            .tabs
+            .iter()
+            .find(|tab| tab.id == id && tab.image.is_none())
+        else {
             return;
         };
         let editor = tab.pane.read(cx).editor.clone();
