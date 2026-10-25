@@ -565,38 +565,23 @@ impl Workspace {
                     div()
                         .id("tree-root-drop")
                         .debug_selector(|| "tree-root-drop".into())
-                        .mx_3()
-                        .px_2()
-                        .py_1()
-                        .rounded(px(4.))
-                        .text_size(px(MIN_UI_FONT_SIZE))
-                        .text_color(tree_foreground)
-                        .child("笔记库根目录")
-                        .drag_over::<DraggedFile>(move |style, drag, _, _| {
-                            if drag.generation == generation
-                                && drag.destination(std::path::Path::new("")).is_some()
-                            {
-                                style.bg(tree_guide)
-                            } else {
-                                style
-                            }
-                        })
+                        .flex_1()
+                        .min_h_0()
+                        .px_3()
                         .on_drop(cx.listener(|this, drag: &DraggedFile, window, cx| {
                             cx.stop_propagation();
                             this.drop_tree_file(drag, std::path::Path::new(""), window, cx);
-                        })),
-                )
-                .child(
-                    div().flex_1().min_h_0().px_3().child(
-                        // Guides are positioned in this box, not the padded one.
-                        // An absolute child of the padded div aligns to the padding
-                        // edge, 12px left of the rows.
-                        div()
-                            .size_full()
-                            .relative()
-                            .child(file_tree)
-                            .child(file_tree_guides(guide_depths, guide_scroll, tree_guide)),
-                    ),
+                        }))
+                        .child(
+                            // Guides are positioned in this box, not the padded one.
+                            // An absolute child of the padded div aligns to the padding
+                            // edge, 12px left of the rows.
+                            div()
+                                .size_full()
+                                .relative()
+                                .child(file_tree)
+                                .child(file_tree_guides(guide_depths, guide_scroll, tree_guide)),
+                        ),
                 )
             })
             .when(self.ui.left_mode == 1, |s| {
