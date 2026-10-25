@@ -91,6 +91,7 @@ impl Workspace {
                     // Tool buttons occlude this area to keep their normal click behavior.
                     .window_control_area(gpui::WindowControlArea::Drag)
                     .child(header),
+                8.,
             )
         } else {
             self.workspace_header(div().flex().child(header), false, false)
@@ -171,10 +172,11 @@ impl Workspace {
                 bar.child(
                     div()
                         .debug_selector(|| "right-mode-more".into())
+                        // Shield the title-bar drag area without blocking the popover trigger.
+                        .occlude()
                         .flex_shrink_0()
                         .child(
                             tool("right-mode-more", "ellipsis-vertical", "更多侧栏功能")
-                                .occlude()
                                 .flex_shrink_0()
                                 .dropdown_menu(move |mut menu, _, _| {
                                     for (i, ico, label) in MODES {
@@ -1022,6 +1024,55 @@ mod outline_tests {
                 assert!(more.is_none());
             }
         }
+    }
+
+    #[gpui::test]
+    fn right_header_more_menu_opens_and_switches_view(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.ui.prefs.right_open = true;
+                w.ui.prefs.right_width = 208.;
+                w.ui.right_mode = 4;
+                w.add_tab(
+                    "header.md".into(),
+                    Some("# Header".into()),
+                    false,
+                    window,
+                    cx,
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1200.), px(820.)));
+        for _ in 0..2 {
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let more = visual.debug_bounds("right-mode-more").unwrap();
+        visual.simulate_click(more.center(), Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            assert!(
+                gpui_base::GlobalState::is_in_deferred_context(cx),
+                "more menu should open on click"
+            );
+        });
+        for key in ["down", "enter"] {
+            let keystroke = Keystroke::parse(key).unwrap();
+            visual.simulate_event(KeyDownEvent {
+                keystroke: keystroke.clone(),
+                is_held: false,
+                prefer_character_input: false,
+            });
+            visual.simulate_event(KeyUpEvent { keystroke });
+        }
+        handle
+            .update(&mut visual, |w, _, _| assert_eq!(w.ui.right_mode, 0))
+            .unwrap();
     }
 
     #[gpui::test]
