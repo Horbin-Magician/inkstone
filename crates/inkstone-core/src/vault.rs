@@ -250,7 +250,8 @@ impl Vault {
     pub fn trash_file(&self, relative: &Path) -> Result<PathBuf, VaultError> {
         let source = self.file_path(relative)?;
         let entry = self.create_trash_entry(relative)?;
-        let dest = entry.join(relative.file_name().ok_or(VaultError::InvalidPath)?);
+        write_new_synced(&entry.join("payload-name.json"), b"\"content\"")?;
+        let dest = entry.join("content");
         move_no_replace(&source, &dest)?;
         Ok(dest)
     }
@@ -1197,7 +1198,15 @@ mod tests {
     fn arbitrary_files_move_and_restore_without_changing_bytes() {
         let s = Sandbox::new();
         let bytes = [0, 255, 128, 13, 10];
-        for name in ["image.png", "document.pdf", "LICENSE", ".env"] {
+        for name in [
+            "image.png",
+            "document.pdf",
+            "LICENSE",
+            ".env",
+            "original-path.json",
+            "payload-name.json",
+            "content",
+        ] {
             let old = Path::new(name);
             let new = Path::new("nested").join(name);
             fs::write(s.1.root.join(old), bytes).unwrap();
