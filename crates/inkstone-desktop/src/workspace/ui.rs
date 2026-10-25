@@ -1291,6 +1291,33 @@ impl Workspace {
         }
     }
 
+    pub(super) fn windows_workspace_header(&self, content: impl IntoElement) -> AnyElement {
+        TitleBar::new()
+            .h(crate::TITLE_BAR_HEIGHT)
+            .pl_0()
+            .bg(self.side())
+            .border_color(self.border())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .occlude()
+                    // The wrapper occludes the TitleBar drag hitbox, so it must provide
+                    // its own hitbox across the entire remaining title-bar area.
+                    .window_control_area(gpui::WindowControlArea::Drag)
+                    .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                        if window.default_prevented() {
+                            cx.stop_propagation();
+                        }
+                    })
+                    .child(content),
+            )
+            // Keep a native window-drag target beside the toolbar buttons.
+            .child(div().w(px(24.)).h_full().flex_shrink_0())
+            .into_any_element()
+    }
+
     pub(super) fn sidebar_toggle(&self, right: bool, open: bool, cx: &mut Context<Self>) -> Button {
         let (id, symbol, label, command) = match (right, open) {
             (false, false) => ("toggle-left", "panel-left", "展开左侧栏", 12),
@@ -1299,6 +1326,7 @@ impl Workspace {
             (true, true) => ("toggle-right", "panel-right-filled", "收起右侧栏", 13),
         };
         tool(id, symbol, label)
+            .occlude()
             .on_click(cx.listener(move |this, _, w, cx| this.execute_command(command, w, cx)))
     }
 
@@ -1338,6 +1366,11 @@ impl Workspace {
             .w_full()
             .min_w_0()
             .h(px(40.))
+            // Register inside the integrated title bar's occluding wrapper.
+            // Only buttons and tabs occlude this native drag hitbox.
+            .when(cfg!(target_os = "windows"), |bar| {
+                bar.window_control_area(gpui::WindowControlArea::Drag)
+            })
             .items_center()
             .bg(self.side())
             .relative()
@@ -1586,11 +1619,13 @@ impl Workspace {
                     "plus",
                     format!("新建标签页 {}", self.hotkey_label(34)),
                 )
+                .occlude()
                 .on_click(cx.listener(|this, _, w, cx| this.new_blank(w, cx))),
             )
             .child(
-                tool("list-tabs", "chevron-down", "显示所有标签页").dropdown_menu(
-                    move |mut menu, _, _| {
+                tool("list-tabs", "chevron-down", "显示所有标签页")
+                    .occlude()
+                    .dropdown_menu(move |mut menu, _, _| {
                         for (id, label, pinned) in &menu_tabs {
                             let id = *id;
                             let weak = weak.clone();
@@ -1610,13 +1645,17 @@ impl Workspace {
                             );
                         }
                         menu
-                    },
-                ),
+                    }),
             )
-            .when(!self.ui.prefs.right_open, |bar| {
-                bar.child(self.sidebar_toggle(true, false, cx))
-            });
-        self.workspace_header(header, !self.ui.prefs.left_open, true)
+            .when(
+                cfg!(target_os = "windows") || !self.ui.prefs.right_open,
+                |bar| bar.child(self.sidebar_toggle(true, self.ui.prefs.right_open, cx)),
+            );
+        if cfg!(target_os = "windows") && !self.ui.prefs.right_open {
+            self.windows_workspace_header(header)
+        } else {
+            self.workspace_header(header, !self.ui.prefs.left_open, true)
+        }
     }
     fn editor_group(
         &self,
@@ -2088,7 +2127,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &Italic, w, cx| this.execute_command(25, w, cx)))
             .on_action(cx.listener(|this, _: &InsertLink, w, cx| this.execute_command(59, w, cx)))
             .when(
-                !cfg!(target_os = "macos") || !has_workspace || self.ui.focus_mode,
+                !(cfg!(target_os = "macos") || cfg!(target_os = "windows"))
+                    || !has_workspace
+                    || self.ui.focus_mode,
                 |s| s.child(TitleBar::new().h(crate::TITLE_BAR_HEIGHT).bg(self.side())),
             )
             .when(!has_workspace, |s| {

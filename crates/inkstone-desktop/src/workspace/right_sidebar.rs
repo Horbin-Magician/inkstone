@@ -65,49 +65,148 @@ impl OutlineState {
 
 impl Workspace {
     fn right_header(&self, cx: &mut Context<Self>) -> AnyElement {
-        let header = div()
-            .w_full()
-            .min_w_0()
+        let weak = cx.entity().downgrade();
+        // Use the actual remaining title-bar width, including during a resize.
+        // Window controls and the drag spacer have already claimed their space.
+        let header = gpui::canvas(
+            move |bounds, window, cx| {
+                let mut header = weak
+                    .update(cx, |this, cx| {
+                        this.right_header_tools(bounds.size.width, !cfg!(target_os = "windows"), cx)
+                    })
+                    .unwrap_or_else(|_| div().into_any_element());
+                header.prepaint_as_root(bounds.origin, bounds.size.into(), window, cx);
+                header
+            },
+            |_, mut header, window, cx| header.paint(window, cx),
+        )
+        .w_full()
+        .h(px(40.));
+        if cfg!(target_os = "windows") {
+            self.windows_workspace_header(
+                div()
+                    .flex()
+                    .w_full()
+                    // Keep the space around the responsive toolbar draggable.
+                    // Tool buttons occlude this area to keep their normal click behavior.
+                    .window_control_area(gpui::WindowControlArea::Drag)
+                    .child(header),
+            )
+        } else {
+            self.workspace_header(div().flex().child(header), false, false)
+        }
+    }
+    fn right_header_tools(
+        &self,
+        width: Pixels,
+        show_toggle: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        const MODES: [(usize, &str, &str); 5] = [
+            (0, "list", "大纲"),
+            (1, "links", "反向链接"),
+            (2, "link", "出链"),
+            (3, "tags", "标签"),
+            (4, "inbox", "属性"),
+        ];
+        let toggle_width = if show_toggle { 32. } else { 0. };
+        let slots = ((f32::from(width) - 8. - toggle_width).max(0.) / 32.) as usize;
+        let collapsed = slots < MODES.len();
+        let visible_count = if collapsed {
+            slots.saturating_sub(1)
+        } else {
+            MODES.len()
+        };
+        // Retain the active view first when space is limited.
+        let visible: Vec<_> = if collapsed {
+            std::iter::once(self.ui.right_mode)
+                .chain((0..MODES.len()).filter(|&i| i != self.ui.right_mode))
+                .take(visible_count)
+                .collect()
+        } else {
+            (0..MODES.len()).collect()
+        };
+        let weak = cx.entity().downgrade();
+        let selected = self.ui.right_mode;
+        div()
+            .id("right-header-tools")
+            .debug_selector(|| "right-header-tools".into())
+            .w(width)
             .flex()
             .items_center()
             .h(px(40.))
+            .when(cfg!(target_os = "windows"), |bar| {
+                bar.window_control_area(gpui::WindowControlArea::Drag)
+            })
             .px_1()
             .gap_0()
-            .border_b_1()
-            .border_color(self.border())
-            .children(
-                [
-                    (0, "list", "大纲"),
-                    (1, "links", "反向链接"),
-                    (2, "link", "出链"),
-                    (3, "tags", "标签"),
-                    (4, "inbox", "属性"),
-                ]
-                .iter()
-                .map(|&(i, ico, label)| {
-                    Button::new(("right-mode", i))
-                        .accessibility_id(format!("right-mode-{i}"))
-                        .accessibility_label(label)
-                        .selected(self.ui.right_mode == i)
-                        .toggled(self.ui.right_mode == i)
-                        .ghost()
-                        .compact()
-                        .icon(icon(ico))
-                        .tooltip(label)
-                        .w(px(32.))
-                        .h(px(28.))
-                        .on_click(cx.listener(move |this, _, w, cx| {
-                            this.ui.right_mode = i;
-                            if i == 3 {
-                                w.focus(&this.ui.tags_focus, cx);
-                            }
-                            cx.notify();
-                        }))
-                }),
-            )
-            .child(div().flex_1().min_w_0())
-            .child(self.sidebar_toggle(true, true, cx));
-        self.workspace_header(header, false, false)
+            .children(visible.iter().map(|&index| {
+                let (i, ico, label) = MODES[index];
+                div()
+                    .debug_selector(move || format!("right-mode-{i}"))
+                    .flex_shrink_0()
+                    .child(
+                        Button::new(("right-mode", i))
+                            .occlude()
+                            .accessibility_id(format!("right-mode-{i}"))
+                            .accessibility_label(label)
+                            .selected(self.ui.right_mode == i)
+                            .toggled(self.ui.right_mode == i)
+                            .ghost()
+                            .compact()
+                            .icon(icon(ico))
+                            .tooltip(label)
+                            .w(px(32.))
+                            .h(px(28.))
+                            .on_click(cx.listener(move |this, _, w, cx| {
+                                this.ui.right_mode = i;
+                                if i == 3 {
+                                    w.focus(&this.ui.tags_focus, cx);
+                                }
+                                cx.notify();
+                            })),
+                    )
+            }))
+            .when(collapsed, |bar| {
+                bar.child(
+                    div()
+                        .debug_selector(|| "right-mode-more".into())
+                        .flex_shrink_0()
+                        .child(
+                            tool("right-mode-more", "ellipsis-vertical", "更多侧栏功能")
+                                .occlude()
+                                .flex_shrink_0()
+                                .dropdown_menu(move |mut menu, _, _| {
+                                    for (i, ico, label) in MODES {
+                                        if visible.contains(&i) {
+                                            continue;
+                                        }
+                                        let weak = weak.clone();
+                                        menu = menu.item(
+                                            PopupMenuItem::new(label)
+                                                .icon(icon(ico))
+                                                .checked(selected == i)
+                                                .on_click(move |_, window, cx| {
+                                                    let _ = weak.update(cx, |this, cx| {
+                                                        this.ui.right_mode = i;
+                                                        if i == 3 {
+                                                            window.focus(&this.ui.tags_focus, cx);
+                                                        }
+                                                        cx.notify();
+                                                    });
+                                                }),
+                                        );
+                                    }
+                                    menu
+                                }),
+                        ),
+                )
+            })
+            .when(show_toggle, |bar| {
+                bar.child(div().flex_1().min_w_0())
+                    .child(self.sidebar_toggle(true, true, cx))
+            })
+            .into_any_element()
     }
     pub(super) fn right_panel(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let pane = self.current_pane();
@@ -856,6 +955,74 @@ impl Workspace {
 mod outline_tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn right_header_collapses_without_overlap_and_restores_on_resize(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.ui.prefs.right_open = true;
+                w.ui.right_mode = 4;
+                w.add_tab(
+                    "header.md".into(),
+                    Some("# Header".into()),
+                    false,
+                    window,
+                    cx,
+                );
+                cx.notify();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1200.), px(820.)));
+        for width in [208., 250., 300., 345., 500., 208.] {
+            handle
+                .update(&mut visual, |w, _, cx| {
+                    w.ui.prefs.right_width = width;
+                    cx.notify();
+                })
+                .unwrap();
+            for _ in 0..2 {
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            let toolbar = visual.debug_bounds("right-header-tools").unwrap();
+            let mut buttons: Vec<_> = (0..5)
+                .filter_map(|i| {
+                    visual.debug_bounds(
+                        [
+                            "right-mode-0",
+                            "right-mode-1",
+                            "right-mode-2",
+                            "right-mode-3",
+                            "right-mode-4",
+                        ][i],
+                    )
+                })
+                .collect();
+            let more = visual.debug_bounds("right-mode-more");
+            assert_eq!(more.is_some(), buttons.len() < 5);
+            if !buttons.is_empty() {
+                assert!(visual.debug_bounds("right-mode-4").is_some());
+            }
+            buttons.extend(more);
+            buttons.sort_by(|a, b| a.left().partial_cmp(&b.left()).unwrap());
+            for button in &buttons {
+                assert!(button.left() >= toolbar.left());
+                assert!(button.right() <= toolbar.right());
+                assert_eq!(button.size.width, px(32.));
+            }
+            for pair in buttons.windows(2) {
+                assert!(pair[0].right() <= pair[1].left());
+            }
+            if width == 500. {
+                assert_eq!(buttons.len(), 5);
+                assert!(more.is_none());
+            }
+        }
+    }
 
     #[gpui::test]
     fn large_outline_virtualizes_rows_and_reconciles_scroll_after_filter_and_fold(

@@ -25,3 +25,5 @@ Completion placement uses window coordinates with an 8px edge margin. It chooses
 `src/text/mod.rs` resolves fenced code-block language names through the editor's existing normalization before looking up or caching a syntax highlighter. Reading and live previews accept `Python`, `PYTHON`, `PY`, and other case/alias variants without modifying the fence label or code. Exact custom grammar registrations retain precedence, and unknown/unlabelled blocks remain plain text. Verify `text::tests::code_block_highlighter` with `tree-sitter-python` enabled; the Python regression uses an incomplete user snippet in both themes.
 
 `src/input/input.rs` marks the fold-icon renderer as presentational. The Base editor owns the fold control's accessible name, expanded state and activation, avoiding a second unnamed button inside that control.
+
+`src/title_bar.rs` renders Windows window controls with 46px-wide hit targets and 18px icons, making minimize, maximize/restore, and close easier to see and click in the integrated workspace toolbar. Other platforms retain their existing sizes.
