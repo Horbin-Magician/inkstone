@@ -110,8 +110,10 @@ impl Workspace {
             })
             .px_2()
             .gap_1()
-            .border_b_1()
-            .border_color(self.border())
+            // On macOS the enclosing TitleBar already draws this divider.
+            .when(!cfg!(target_os = "macos"), |bar| {
+                bar.border_b_1().border_color(self.border())
+            })
             .child(
                 tool("files", "folder-closed", "文件列表")
                     .occlude()
