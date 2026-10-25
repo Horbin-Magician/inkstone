@@ -44,6 +44,28 @@ impl DraggedFile {
 }
 
 impl Workspace {
+    pub(super) fn open_tree_file(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
+            self.open_note(path, window, cx);
+        } else if let Some(vault) = &self.vault {
+            match vault.file_path(&path) {
+                Ok(path) => cx.open_with_system(&path),
+                Err(error) => {
+                    self.notifications.publish(error.to_string());
+                    cx.notify();
+                }
+            }
+        }
+    }
+
     pub(super) fn open_dropped_file(
         &mut self,
         drag: &DraggedFile,
@@ -57,7 +79,15 @@ impl Workspace {
         {
             return;
         }
-        self.open_note_target(drag.path.clone(), None, true, window, cx);
+        if drag
+            .path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
+            self.open_note_target(drag.path.clone(), None, true, window, cx);
+        } else {
+            self.open_tree_file(drag.path.clone(), window, cx);
+        }
     }
 
     pub(super) fn drop_tree_file(
@@ -310,7 +340,11 @@ impl Workspace {
                                             tree.set_selected_index(Some(i), cx)
                                         });
                                         if selected {
-                                            if this.tabs.iter().any(|tab| tab.path == label_path) {
+                                            if this.tabs.iter().any(|tab| tab.path == label_path)
+                                                || label_path.extension().is_none_or(|ext| {
+                                                    !ext.eq_ignore_ascii_case("md")
+                                                })
+                                            {
                                                 this.begin_tree_name(
                                                     NameMode::Rename,
                                                     label_path.clone(),
@@ -321,7 +355,7 @@ impl Workspace {
                                         } else {
                                             this.ui.tree_active = Some(label_path.clone());
                                             if !folder {
-                                                this.open_note(label_path.clone(), window, cx);
+                                                this.open_tree_file(label_path.clone(), window, cx);
                                             }
                                             cx.notify();
                                         }
@@ -334,7 +368,7 @@ impl Workspace {
                         let _ = weak.update(cx, |this, cx| {
                             this.ui.tree_active = Some(path.clone());
                             if !folder {
-                                this.open_note(path.clone(), window, cx);
+                                this.open_tree_file(path.clone(), window, cx);
                             }
                             cx.notify();
                         });
@@ -376,6 +410,58 @@ impl Workspace {
                             .update(cx, |this, cx| this.manage_folder(path.clone(), None, w, cx));
                     },
                 ));
+            }
+
+            let path = PathBuf::from(entry.item().id.as_ref());
+            if path
+                .extension()
+                .is_none_or(|ext| !ext.eq_ignore_ascii_case("md"))
+            {
+                for (action, label) in [
+                    (0, "使用默认应用打开"),
+                    (1, "重命名文件"),
+                    (5, "复制文件"),
+                    (2, "在文件管理器中显示"),
+                    (3, "复制文件路径"),
+                    (4, "将文件移入回收站"),
+                ] {
+                    let path = path.clone();
+                    let weak = menu_weak.clone();
+                    menu = menu.item(PopupMenuItem::new(label).on_click(move |_, w, cx| {
+                        let _ = weak.update(cx, |this, cx| match action {
+                            0 => this.open_tree_file(path.clone(), w, cx),
+                            1 => this.begin_tree_name(NameMode::Rename, path.clone(), w, cx),
+                            5 => {
+                                if let Some(vault) = &this.vault {
+                                    let source = vault.root.join(&path);
+                                    let parent = path
+                                        .parent()
+                                        .unwrap_or(std::path::Path::new(""))
+                                        .to_path_buf();
+                                    this.import_tree_files(vec![source], parent, w, cx);
+                                }
+                            }
+                            4 => this.manage_tree_path(path.clone(), None, false, w, cx),
+                            _ => {
+                                if let Some(vault) = &this.vault {
+                                    match vault.file_path(&path) {
+                                        Ok(full) if action == 2 => cx.reveal_path(&full),
+                                        Ok(full) => {
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                full.to_string_lossy().to_string(),
+                                            ))
+                                        }
+                                        Err(error) => {
+                                            this.notifications.publish(error.to_string());
+                                            cx.notify();
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }));
+                }
+                return menu;
             }
 
             for &(id, label, _) in [8, 42, 15, 27, 11, 18, 19, 10]
