@@ -196,6 +196,9 @@ pub(super) struct UiState {
     _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub trash_open: bool,
+    pub recovery_source: super::recovery_ui::Source,
+    pub recovery_filter: Entity<InputState>,
+    _recovery_filter_subscription: Subscription,
     pub sync_recovery: super::sync_recovery::State,
     pub history: Option<super::recovery::Browser>,
     pub history_catalog: super::history_catalog::State,
@@ -340,6 +343,15 @@ impl UiState {
             InputState::new(window, cx).placeholder("属性值；列表用逗号分隔，项目内含逗号时加引号")
         });
         let command = cx.new(|cx| InputState::new(window, cx).placeholder("选择命令…"));
+        let recovery_filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder("搜索文件名或原路径…"));
+        let recovery_filter_subscription =
+            cx.subscribe_in(&recovery_filter, window, |this, _, event, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.ui.recovery_scroll.set_offset(point(px(0.), px(0.)));
+                    cx.notify();
+                }
+            });
         let tags_filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛选标签…"));
         let outline_filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛选大纲…"));
         let outline_filter_subscription =
@@ -534,6 +546,9 @@ impl UiState {
             _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             trash_open: false,
+            recovery_source: Default::default(),
+            recovery_filter,
+            _recovery_filter_subscription: recovery_filter_subscription,
             sync_recovery: Default::default(),
             history: None,
             history_catalog: Default::default(),
