@@ -2329,6 +2329,14 @@ impl Render for Workspace {
                                 }))
                         })
                         .child(
+                            tool("status-trash", "trash", "回收站管理")
+                                .w(px(28.))
+                                .h(px(28.))
+                                .on_click(
+                                    cx.listener(|this, _, w, cx| this.execute_command(16, w, cx)),
+                                ),
+                        )
+                        .child(
                             tool("status-settings", "settings", "设置")
                                 .w(px(28.))
                                 .h(px(28.))
