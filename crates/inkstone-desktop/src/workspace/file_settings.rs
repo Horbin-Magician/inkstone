@@ -314,6 +314,7 @@ impl Workspace {
                                         "attachment-folder-picker-focus",
                                         &self.ui.settings_scroll,
                                         Button::new("attachment-folder-picker")
+                                            .debug_selector(|| "attachment-folder-picker".into())
                                             .label("选择文件夹")
                                             .accessibility_label("选择附件文件夹")
                                             .disabled(folders.is_empty())
@@ -323,6 +324,7 @@ impl Workspace {
                                                 "从已有文件夹中选择"
                                             })
                                             .dropdown_menu(move |mut menu, _, _| {
+                                                menu = menu.scrollable(true);
                                                 for folder in &folders {
                                                     let folder = folder.clone();
                                                     let weak = weak.clone();
@@ -507,6 +509,65 @@ mod tests {
     use core::prelude::v1::test;
     use gpui_component::input::{CompletionProvider, Rope};
     use inkstone_core::locations::LinkFormat;
+
+    #[gpui::test]
+    fn attachment_picker_many_folders_stays_in_window_and_scrolls(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(800.), px(500.)));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.settings = true;
+                w.ui.settings_tab = 2;
+                w.ui.prefs.locations.attachments = Location::Folder;
+                w.ui.folders = (0..200)
+                    .map(|i| PathBuf::from(format!("folder-{i:03}")))
+                    .collect();
+                w.prepare_file_settings(window, cx);
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let trigger = visual.debug_bounds("attachment-folder-picker").unwrap();
+        visual.simulate_click(trigger.center(), Modifiers::default());
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let menu = visual.update(|window, _| {
+            gpui_base::test_support::snapshots(window)
+                .into_iter()
+                .find(|node| node.role() == Some(gpui::Role::Menu))
+                .expect("folder menu should be open")
+                .bounds()
+        });
+        assert!(
+            menu.top() >= px(0.) && menu.bottom() <= px(500.),
+            "menu must fit in the window: {menu:?}"
+        );
+        assert!(
+            menu.size.height <= px(260.),
+            "menu should use at most half the window plus its border"
+        );
+        visual.simulate_event(ScrollWheelEvent {
+            position: menu.center(),
+            delta: ScrollDelta::Pixels(point(px(0.), px(-100000.))),
+            modifiers: Modifiers::default(),
+            touch_phase: TouchPhase::Moved,
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.simulate_click(
+            point(menu.center().x, menu.bottom() - px(16.)),
+            Modifiers::default(),
+        );
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert_eq!(w.ui.prefs.locations.attachment_folder, "folder-199");
+                assert_eq!(
+                    w.ui.attachment_folder_input.read(cx).value().as_ref(),
+                    "folder-199"
+                );
+            })
+            .unwrap();
+    }
 
     #[test]
     fn attachment_picker_respects_location_base_and_valid_paths() {
