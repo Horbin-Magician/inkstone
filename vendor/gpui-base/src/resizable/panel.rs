@@ -6,7 +6,7 @@ use std::{
 use gpui::{
     Along, AnyElement, App, AppContext, Axis, Bounds, Context, Element, ElementId, Empty, Entity,
     EventEmitter, InteractiveElement as _, IntoElement, IsZero as _, MouseMoveEvent, MouseUpEvent,
-    ParentElement, Pixels, Render, RenderOnce, Style, StyleRefinement, Styled, Window, div,
+    ParentElement, Pixels, Point, Render, RenderOnce, Style, StyleRefinement, Styled, Window, div,
     prelude::FluentBuilder,
 };
 
@@ -35,6 +35,8 @@ pub struct ResizablePanelGroup {
     size: Option<Pixels>,
     children: Vec<ResizablePanel>,
     on_resize: Rc<dyn Fn(&Entity<ResizableState>, &mut Window, &mut App)>,
+    on_resize_end:
+        Option<Rc<dyn Fn(&Entity<ResizableState>, usize, Point<Pixels>, &mut Window, &mut App)>>,
     handle_appearance: Option<ResizeHandleRenderer>,
 }
 
@@ -48,6 +50,7 @@ impl ResizablePanelGroup {
             state: None,
             size: None,
             on_resize: Rc::new(|_, _, _| {}),
+            on_resize_end: None,
             handle_appearance: None,
         }
     }
@@ -66,6 +69,17 @@ impl ResizablePanelGroup {
     /// If not provided, it will handle its own state internally.
     pub fn with_state(mut self, state: &Entity<ResizableState>) -> Self {
         self.state = Some(state.clone());
+        self
+    }
+
+    /// Called after a divider drag ends, with its index and unclamped pointer position.
+    /// This lets callers implement edge gestures while keeping panel size limits.
+    pub fn on_resize_end(
+        mut self,
+        callback: impl Fn(&Entity<ResizableState>, usize, Point<Pixels>, &mut Window, &mut App)
+        + 'static,
+    ) -> Self {
+        self.on_resize_end = Some(Rc::new(callback));
         self
     }
 
@@ -203,6 +217,7 @@ impl RenderOnce for ResizablePanelGroup {
                 state: state.clone(),
                 axis: self.axis,
                 on_resize: self.on_resize.clone(),
+                on_resize_end: self.on_resize_end.clone(),
             })
     }
 }
@@ -383,6 +398,8 @@ impl RenderOnce for ResizablePanel {
 struct ResizePanelGroupElement {
     state: Entity<ResizableState>,
     on_resize: Rc<dyn Fn(&Entity<ResizableState>, &mut Window, &mut App)>,
+    on_resize_end:
+        Option<Rc<dyn Fn(&Entity<ResizableState>, usize, Point<Pixels>, &mut Window, &mut App)>>,
     axis: Axis,
 }
 
@@ -475,13 +492,15 @@ impl Element for ResizePanelGroupElement {
             let state = self.state.clone();
             let current_ix = state.read(cx).resizing_panel_ix;
             let on_resize = self.on_resize.clone();
-            move |_: &MouseUpEvent, phase, window, cx| {
-                if current_ix.is_none() {
-                    return;
-                }
+            let on_resize_end = self.on_resize_end.clone();
+            move |event: &MouseUpEvent, phase, window, cx| {
+                let Some(ix) = current_ix else { return };
                 if phase.bubble() {
                     state.update(cx, |state, cx| state.done_resizing(cx));
                     on_resize(&state, window, cx);
+                    if let Some(callback) = &on_resize_end {
+                        callback(&state, ix, event.position, window, cx);
+                    }
                 }
             }
         })
