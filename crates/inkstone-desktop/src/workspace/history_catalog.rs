@@ -362,6 +362,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 w.vault = Some(vault.clone());
                 w.ui.trash_open = true;
+                w.ui.recovery_source = super::super::recovery_ui::Source::History;
                 w.ui.history_catalog.notes = (0..12)
                     .map(|i| HistoryNote {
                         relative: PathBuf::from(format!(

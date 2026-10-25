@@ -1,5 +1,4 @@
 //! Modal container, keyboard navigation, pickers and property controls.
-use super::focus_reveal::FocusReveal;
 use super::ui::{icon, tool};
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
@@ -50,8 +49,9 @@ impl Workspace {
     }
 
     pub(super) fn modal(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let recovery = self.recovery_hub_is_open() || self.ui.history.is_some();
         let picker = self.command_open || self.ui.quick_open;
-        let top = px(100.)
+        let top = px(if recovery { 48. } else { 100. })
             .min(window.viewport_size().height * if picker { 0.12 } else { 0.15 })
             .max(px(16.));
         let available_height = (window.viewport_size().height - top - px(16.)).max(px(100.));
@@ -109,16 +109,19 @@ impl Workspace {
             .flex()
             .flex_col()
             .w(px(if self.ui.settings { 900. } else { 580. }))
-            .when(self.ui.trash_open, |s| s.w(px(760.)))
-            .when(self.ui.history.is_some(), |s| s.w(px(900.)))
+            .when(self.recovery_hub_is_open(), |s| s.w(px(1000.)))
+            .when(self.ui.history.is_some(), |s| s.w(px(1080.)))
             .when(self.ui.conflict_review.is_some(), |s| s.w(px(900.)))
             .when(picker, |s| s.w(px(700.)))
             .max_w((window.viewport_size().width - px(32.)).max(px(280.)))
             .max_h(px(if self.ui.settings { 700. } else { 650. }).min(available_height))
             .when(self.ui.settings, |s| s.h(px(700.).min(available_height)))
+            .when(recovery, |s| {
+                s.h(px(700.).min(available_height)).max_h(available_height)
+            })
             .p_3()
             .gap_2()
-            .when(picker || self.ui.settings, |s| {
+            .when(picker || self.ui.settings || recovery, |s| {
                 s.p_0().gap_0().overflow_hidden()
             })
             .rounded(px(12.))
@@ -172,6 +175,14 @@ impl Workspace {
                     .justify_between()
                     .pb_1()
                     .when(picker, |s| s.hidden())
+                    .when(recovery, |s| {
+                        s.px(px(24.))
+                            .py(px(12.))
+                            .flex_shrink_0()
+                            .border_b_1()
+                            .border_color(self.border())
+                            .font_weight(FontWeight::SEMIBOLD)
+                    })
                     .when(self.ui.settings, |s| {
                         s.h(px(48.))
                             .flex_shrink_0()
@@ -204,7 +215,7 @@ impl Workspace {
                             "笔记版本历史"
                         }
                     } else if self.ui.trash_open {
-                        "文件恢复"
+                        "文件恢复中心"
                     } else {
                         "操作"
                     })
@@ -367,214 +378,10 @@ impl Workspace {
             .when(self.ui.conflict_review.is_some(), |s| {
                 s.child(self.conflict_panel(cx))
             })
-            .when(
-                self.ui.trash_open
-                    && self.ui.bulk_edit.is_none()
-                    && self.ui.table_editor.is_none()
-                    && self.ui.link_health.is_none()
-                    && self.ui.attachment_manager.is_none()
-                    && self.ui.history.is_none()
-                    && self.ui.conflict_review.is_none(),
-                |s| {
-                    s.child(
-                        div()
-                            .id("trash-items")
-                            .track_scroll(&self.ui.recovery_scroll)
-                            .max_h(px(520.))
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_wrap()
-                                    .gap_2()
-                                    .p_2()
-                                    .child(FocusReveal::new(
-                                        "recovery-refresh-focus",
-                                        &self.ui.recovery_scroll,
-                                        Button::new("recovery-refresh")
-                                            .label("刷新恢复记录")
-                                            .on_click(
-                                                cx.listener(|this, _, _, cx| {
-                                                    this.refresh_trash(cx)
-                                                }),
-                                            ),
-                                    ))
-                                    .child(FocusReveal::new(
-                                        "recovery-history-focus",
-                                        &self.ui.recovery_scroll,
-                                        Button::new("recovery-history")
-                                            .label("当前笔记版本历史")
-                                            .disabled(self.active.is_none())
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.open_history(window, cx)
-                                            })),
-                                    )),
-                            )
-                            .child(self.recovery_section(
-                                "回收站",
-                                &format!(
-                                    "{} 项 · 恢复到原位置，同名文件不会被覆盖 · 不自动清理",
-                                    self.ui.trash.len()
-                                ),
-                            ))
-                            .when(self.ui.trash.is_empty(), |s| {
-                                s.child(self.empty_state(
-                                    "trash",
-                                    "回收站为空",
-                                    "删除的文件会显示在这里，需要时可恢复到原位置。",
-                                ))
-                            })
-                            .children(self.ui.trash.iter().enumerate().map(|(i, e)| {
-                                div()
-                                    .debug_selector(move || format!("recovery-trash-{i}"))
-                                    .border_1()
-                                    .border_color(self.border())
-                                    .rounded(px(8.))
-                                    .bg(crate::theme::palette(self.ui.prefs.light).surface)
-                                    .flex()
-                                    .items_center()
-                                    .p_3()
-                                    .gap_3()
-                                    .child(icon(if e.directory { "folder" } else { "file" }))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .flex()
-                                            .flex_col()
-                                            .gap_1()
-                                            .child(
-                                                div()
-                                                    .font_weight(FontWeight::SEMIBOLD)
-                                                    .whitespace_normal()
-                                                    .child(
-                                                        e.original
-                                                            .file_name()
-                                                            .unwrap_or(e.original.as_os_str())
-                                                            .to_string_lossy()
-                                                            .to_string(),
-                                                    ),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_sm()
-                                                    .text_color(
-                                                        crate::theme::palette(self.ui.prefs.light)
-                                                            .muted,
-                                                    )
-                                                    .whitespace_normal()
-                                                    .child(
-                                                        e.original.to_string_lossy().to_string(),
-                                                    ),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_sm()
-                                                    .text_color(
-                                                        crate::theme::palette(self.ui.prefs.light)
-                                                            .muted,
-                                                    )
-                                                    .whitespace_normal()
-                                                    .child(super::recovery::trash_details(
-                                                        self.ui.trash_metadata.get(&e.stored),
-                                                    )),
-                                            ),
-                                    )
-                                    .child(FocusReveal::new(
-                                        (ElementId::from(("restore-trash", i)), "focus"),
-                                        &self.ui.recovery_scroll,
-                                        Button::new(("restore-trash", i))
-                                            .accessibility_label(format!(
-                                                "从回收站恢复：{}",
-                                                e.original.display()
-                                            ))
-                                            .label("恢复到原位置")
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.restore_deleted(i, cx)
-                                            })),
-                                    ))
-                            }))
-                            .child(self.recovery_section(
-                                "未保存草稿",
-                                if self.recoveries_loading {
-                                    "正在读取未保存草稿……"
-                                } else {
-                                    "先比较内容，再选择恢复或放弃；操作前草稿会一直保留。"
-                                },
-                            ))
-                            .when(
-                                self.recoveries.is_empty() && !self.recoveries_loading,
-                                |s| {
-                                    s.child(
-                                        div()
-                                            .px_3()
-                                            .pb_2()
-                                            .text_sm()
-                                            .text_color(
-                                                crate::theme::palette(self.ui.prefs.light).muted,
-                                            )
-                                            .child("暂无未保存草稿"),
-                                    )
-                                },
-                            )
-                            .children(self.recoveries.iter().enumerate().map(|(i, e)| {
-                                let time: chrono::DateTime<chrono::Local> = e.modified.into();
-                                div()
-                                    .debug_selector(move || format!("recovery-draft-{i}"))
-                                    .border_1()
-                                    .border_color(self.border())
-                                    .rounded(px(8.))
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .p_2()
-                                    .child(
-                                        div()
-                                            .whitespace_normal()
-                                            .child(e.relative.to_string_lossy().to_string()),
-                                    )
-                                    .child(div().text_sm().whitespace_normal().child(format!(
-                                        "{} · 恢复或放弃前保留",
-                                        super::recovery_metadata::Metadata {
-                                            source: super::recovery_metadata::Source::Draft,
-                                            modified: Some(e.modified),
-                                            bytes: Some(e.bytes),
-                                        }.label()
-                                    )))
-                                    .child(FocusReveal::new(
-                                        (ElementId::from(("restore-draft", i)), "focus"),
-                                        &self.ui.recovery_scroll,
-                                        Button::new(("restore-draft", i))
-                                            .accessibility_label(format!(
-                                                "比较、恢复或放弃草稿：{} · {}",
-                                                e.relative.display(),
-                                                time.format("%Y-%m-%d %H:%M:%S")
-                                            ))
-                                            .ghost()
-                                            .label("比较、恢复或放弃")
-                                            .tooltip(e.relative.to_string_lossy().to_string())
-                                            .on_click(cx.listener(move |this, _, w, cx| {
-                                                this.ui.trash_open = false;
-                                                this.review_draft(i, w, cx);
-                                            })),
-                                    ))
-                            }))
-                            .child(
-                                div()
-                                    .mt_3()
-                                    .border_t_1()
-                                    .border_color(self.border())
-                                    .pt_3()
-                                    .child(self.history_catalog_panel(cx)),
-                            )
-                            .child(self.sync_recovery_panel(cx)),
-                    )
-                },
-            );
+            .when(self.recovery_hub_is_open(), |s| {
+                s.child(self.recovery_hub_panel(window, cx))
+            });
+
         div()
             .absolute()
             .inset_0()
@@ -835,70 +642,80 @@ mod tests {
         ];
         for rem in [16., 24.] {
             visual.update(|w, _| w.set_rem_size(px(rem)));
-            for key in ["tab", "shift-tab"] {
+            for source in [
+                super::super::recovery_ui::Source::Trash,
+                super::super::recovery_ui::Source::Drafts,
+            ] {
                 handle
-                    .update(&mut visual, |w, window, cx| {
-                        window.focus(&w.ui.modal_focus, cx)
+                    .update(&mut visual, |w, _, _| {
+                        w.ui.recovery_source = source;
                     })
                     .unwrap();
-                let mut reached = std::collections::BTreeSet::new();
-                let mut focused_controls = Vec::new();
-                for _ in 0..40 {
-                    let keystroke = Keystroke::parse(key).unwrap();
-                    visual.simulate_event(KeyDownEvent {
-                        keystroke: keystroke.clone(),
-                        is_held: false,
-                        prefer_character_input: false,
-                    });
-                    visual.simulate_event(KeyUpEvent { keystroke });
-                    for _ in 0..2 {
-                        visual.update(|w, cx| w.draw(cx).clear(cx));
-                    }
-                    if let Some(target) = visual.debug_bounds("focus-revealed-control") {
-                        handle
-                            .update(&mut visual, |w, window, cx| {
-                                let viewport = w.ui.recovery_scroll.bounds();
-                                assert!(
-                                    viewport.top() >= px(0.)
-                                        && viewport.bottom() <= window.viewport_size().height
-                                );
-                                assert!(
-                                    target.top() >= viewport.top()
-                                        && target.bottom() <= viewport.bottom(),
-                                    "{key}, rem={rem}: {target:?} outside {viewport:?}"
-                                );
-                                let focus = window.focused(cx).unwrap();
-                                if !focused_controls.contains(&focus) {
-                                    focused_controls.push(focus);
+                for key in ["tab", "shift-tab"] {
+                    handle
+                        .update(&mut visual, |w, window, cx| {
+                            window.focus(&w.ui.modal_focus, cx)
+                        })
+                        .unwrap();
+                    let mut reached = std::collections::BTreeSet::new();
+                    let mut focused_controls = Vec::new();
+                    for _ in 0..40 {
+                        let keystroke = Keystroke::parse(key).unwrap();
+                        visual.simulate_event(KeyDownEvent {
+                            keystroke: keystroke.clone(),
+                            is_held: false,
+                            prefer_character_input: false,
+                        });
+                        visual.simulate_event(KeyUpEvent { keystroke });
+                        for _ in 0..2 {
+                            visual.update(|w, cx| w.draw(cx).clear(cx));
+                        }
+                        if let Some(target) = visual.debug_bounds("focus-revealed-control") {
+                            handle
+                                .update(&mut visual, |w, window, cx| {
+                                    let viewport = w.ui.recovery_scroll.bounds();
+                                    assert!(
+                                        viewport.top() >= px(0.)
+                                            && viewport.bottom() <= window.viewport_size().height
+                                    );
+                                    assert!(
+                                        target.top() >= viewport.top()
+                                            && target.bottom() <= viewport.bottom(),
+                                        "{key}, rem={rem}: {target:?} outside {viewport:?}"
+                                    );
+                                    let focus = window.focused(cx).unwrap();
+                                    if !focused_controls.contains(&focus) {
+                                        focused_controls.push(focus);
+                                    }
+                                })
+                                .unwrap();
+                            for (i, selector) in selectors.iter().enumerate() {
+                                if let Some(row) = visual.debug_bounds(selector)
+                                    && target.top() >= row.top()
+                                    && target.bottom() <= row.bottom()
+                                {
+                                    reached.insert(i);
                                 }
-                            })
-                            .unwrap();
-                        for (i, selector) in selectors.iter().enumerate() {
-                            if let Some(row) = visual.debug_bounds(selector)
-                                && target.top() >= row.top()
-                                && target.bottom() <= row.bottom()
-                            {
-                                reached.insert(i);
                             }
                         }
                     }
+                    assert_eq!(reached.len(), 12, "{key}, rem={rem}: {reached:?}");
+                    assert_eq!(
+                        focused_controls.len(),
+                        12,
+                        "all controls in the selected source"
+                    );
+                    handle
+                        .update(&mut visual, |w, _, _| {
+                            assert_eq!(w.ui.trash.len(), 12);
+                            assert_eq!(w.recoveries.len(), 12);
+                            assert_eq!(w.file_writes.pending(), 0);
+                            assert!(!w.file_writes.operation_active());
+                            assert!(w.ui.history.is_none());
+                            assert!(w.recoveries.iter().all(|e| e.bytes == 123));
+                        })
+                        .unwrap();
                 }
-                assert_eq!(reached.len(), 24, "{key}, rem={rem}: {reached:?}");
-                assert_eq!(
-                    focused_controls.len(),
-                    selectors.len() + 3,
-                    "all record controls plus refresh/history/sync retention preview"
-                );
-                handle
-                    .update(&mut visual, |w, _, _| {
-                        assert_eq!(w.ui.trash.len(), 12);
-                        assert_eq!(w.recoveries.len(), 12);
-                        assert_eq!(w.file_writes.pending(), 0);
-                        assert!(!w.file_writes.operation_active());
-                        assert!(w.ui.history.is_none());
-                        assert!(w.recoveries.iter().all(|e| e.bytes == 123));
-                    })
-                    .unwrap();
             }
         }
     }

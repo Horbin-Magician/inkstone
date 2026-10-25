@@ -493,6 +493,7 @@ mod tests {
             workspace.update(cx, |w, cx| {
                 w.vault = Some(vault.clone());
                 w.ui.trash_open = true;
+                w.ui.recovery_source = super::super::recovery_ui::Source::Sync;
                 w.ui.sync_recovery.generation = w.generation;
                 w.ui.sync_recovery.inventory = recovery::inventory(&vault).unwrap();
                 w.ui.sync_recovery.preview = Some(
@@ -565,6 +566,7 @@ mod tests {
             workspace.update(cx, |w, cx| {
                 w.vault = Some(vault.clone());
                 w.ui.trash_open = true;
+                w.ui.recovery_source = super::super::recovery_ui::Source::Sync;
                 w.ui.sync_recovery.generation = w.generation;
                 w.ui.sync_recovery.inventory = recovery::inventory(&vault).unwrap();
                 w.request_sync_residue_retention(0, cx);
@@ -901,6 +903,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 w.vault = Some(vault.clone());
                 w.ui.trash_open = true;
+                w.ui.recovery_source = super::super::recovery_ui::Source::Sync;
                 w.ui.sync_recovery.inventory.entries = (0..12)
                     .map(|i| {
                         let mut entry = entry.clone();
@@ -1068,6 +1071,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 w.vault = Some(vault.clone());
                 w.ui.trash_open = true;
+                w.ui.recovery_source = super::super::recovery_ui::Source::Sync;
                 w.ui.sync_recovery.inventory = inventory.clone();
                 window.focus(&w.ui.modal_focus, cx);
             })
@@ -1217,6 +1221,7 @@ mod tests {
             .update(cx, |w, window, cx| {
                 w.vault = Some(vault.clone());
                 w.ui.trash_open = true;
+                w.ui.recovery_source = super::super::recovery_ui::Source::Sync;
                 w.ui.sync_recovery.inventory = recovery::inventory(&vault).unwrap();
                 assert_eq!(w.ui.sync_recovery.inventory.missing_payloads.len(), 12);
                 window.focus(&w.ui.modal_focus, cx);

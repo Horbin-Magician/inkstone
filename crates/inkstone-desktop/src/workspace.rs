@@ -48,6 +48,7 @@ mod navigation;
 mod recent_vault;
 mod recovery;
 mod recovery_metadata;
+mod recovery_ui;
 mod remote_check;
 mod search_tools;
 mod sync_recovery;
