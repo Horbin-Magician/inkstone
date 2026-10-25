@@ -109,6 +109,7 @@ impl Workspace {
             .flex()
             .flex_col()
             .w(px(if self.ui.settings { 900. } else { 580. }))
+            .when(self.ui.trash_open, |s| s.w(px(760.)))
             .when(self.ui.history.is_some(), |s| s.w(px(900.)))
             .when(self.ui.conflict_review.is_some(), |s| s.w(px(900.)))
             .when(picker, |s| s.w(px(700.)))
@@ -379,8 +380,12 @@ impl Workspace {
                         div()
                             .id("trash-items")
                             .track_scroll(&self.ui.recovery_scroll)
-                            .max_h(px(450.))
+                            .max_h(px(520.))
+                            .min_h_0()
                             .overflow_y_scroll()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
                             .child(
                                 div()
                                     .flex()
@@ -409,40 +414,75 @@ impl Workspace {
                                             })),
                                     )),
                             )
-                            .child(self.history_catalog_panel(cx))
-                            .child(self.sync_recovery_panel(cx))
-                            .child(
-                                div()
-                                    .p_2()
-                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                    .child("回收站 · 不自动清理 · 原路径存在时拒绝覆盖"),
-                            )
+                            .child(self.recovery_section(
+                                "回收站",
+                                &format!(
+                                    "{} 项 · 恢复到原位置，同名文件不会被覆盖 · 不自动清理",
+                                    self.ui.trash.len()
+                                ),
+                            ))
                             .when(self.ui.trash.is_empty(), |s| {
-                                s.child(div().p_2().child("回收站为空"))
+                                s.child(self.empty_state(
+                                    "trash",
+                                    "回收站为空",
+                                    "删除的文件会显示在这里，需要时可恢复到原位置。",
+                                ))
                             })
                             .children(self.ui.trash.iter().enumerate().map(|(i, e)| {
                                 div()
                                     .debug_selector(move || format!("recovery-trash-{i}"))
+                                    .border_1()
+                                    .border_color(self.border())
+                                    .rounded(px(8.))
+                                    .bg(crate::theme::palette(self.ui.prefs.light).surface)
                                     .flex()
                                     .items_center()
-                                    .p_2()
-                                    .gap_2()
+                                    .p_3()
+                                    .gap_3()
+                                    .child(icon(if e.directory { "folder" } else { "file" }))
                                     .child(
                                         div()
                                             .flex_1()
                                             .min_w_0()
                                             .flex()
                                             .flex_col()
+                                            .gap_1()
                                             .child(
-                                                div().whitespace_normal().child(
-                                                    e.original.to_string_lossy().to_string(),
-                                                ),
+                                                div()
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .whitespace_normal()
+                                                    .child(
+                                                        e.original
+                                                            .file_name()
+                                                            .unwrap_or(e.original.as_os_str())
+                                                            .to_string_lossy()
+                                                            .to_string(),
+                                                    ),
                                             )
-                                            .child(div().text_sm().whitespace_normal().child(
-                                                super::recovery::trash_details(
-                                                    self.ui.trash_metadata.get(&e.stored),
-                                                ),
-                                            )),
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(
+                                                        crate::theme::palette(self.ui.prefs.light)
+                                                            .muted,
+                                                    )
+                                                    .whitespace_normal()
+                                                    .child(
+                                                        e.original.to_string_lossy().to_string(),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(
+                                                        crate::theme::palette(self.ui.prefs.light)
+                                                            .muted,
+                                                    )
+                                                    .whitespace_normal()
+                                                    .child(super::recovery::trash_details(
+                                                        self.ui.trash_metadata.get(&e.stored),
+                                                    )),
+                                            ),
                                     )
                                     .child(FocusReveal::new(
                                         (ElementId::from(("restore-trash", i)), "focus"),
@@ -452,27 +492,42 @@ impl Workspace {
                                                 "从回收站恢复：{}",
                                                 e.original.display()
                                             ))
-                                            .compact()
-                                            .label("恢复")
+                                            .label("恢复到原位置")
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.restore_deleted(i, cx)
                                             })),
                                     ))
                             }))
-                            .child(
-                                div()
-                                    .p_2()
-                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                    .child(if self.recoveries_loading {
-                                        "正在读取未保存草稿……"
-                                    } else {
-                                        "未保存草稿 · 点击比较、恢复或放弃"
-                                    }),
+                            .child(self.recovery_section(
+                                "未保存草稿",
+                                if self.recoveries_loading {
+                                    "正在读取未保存草稿……"
+                                } else {
+                                    "先比较内容，再选择恢复或放弃；操作前草稿会一直保留。"
+                                },
+                            ))
+                            .when(
+                                self.recoveries.is_empty() && !self.recoveries_loading,
+                                |s| {
+                                    s.child(
+                                        div()
+                                            .px_3()
+                                            .pb_2()
+                                            .text_sm()
+                                            .text_color(
+                                                crate::theme::palette(self.ui.prefs.light).muted,
+                                            )
+                                            .child("暂无未保存草稿"),
+                                    )
+                                },
                             )
                             .children(self.recoveries.iter().enumerate().map(|(i, e)| {
                                 let time: chrono::DateTime<chrono::Local> = e.modified.into();
                                 div()
                                     .debug_selector(move || format!("recovery-draft-{i}"))
+                                    .border_1()
+                                    .border_color(self.border())
+                                    .rounded(px(8.))
                                     .flex()
                                     .flex_col()
                                     .gap_1()
@@ -507,7 +562,16 @@ impl Workspace {
                                                 this.review_draft(i, w, cx);
                                             })),
                                     ))
-                            })),
+                            }))
+                            .child(
+                                div()
+                                    .mt_3()
+                                    .border_t_1()
+                                    .border_color(self.border())
+                                    .pt_3()
+                                    .child(self.history_catalog_panel(cx)),
+                            )
+                            .child(self.sync_recovery_panel(cx)),
                     )
                 },
             );
@@ -523,6 +587,29 @@ impl Workspace {
             .child(content.focus_trap("workspace-modal-focus-trap", &self.ui.modal_focus))
             .into_any_element()
     }
+    pub(super) fn recovery_section(&self, title: &str, description: &str) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .px_1()
+            .pt_3()
+            .pb_1()
+            .child(
+                div()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title.to_owned()),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                    .whitespace_normal()
+                    .child(description.to_owned()),
+            )
+            .into_any_element()
+    }
+
     fn picker_search(&self, command: bool, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex()
