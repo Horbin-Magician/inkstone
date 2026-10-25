@@ -1266,12 +1266,25 @@ impl Workspace {
     ) -> AnyElement {
         if cfg!(target_os = "macos") {
             TitleBar::new()
+                .relative()
                 .h(crate::TITLE_BAR_HEIGHT)
                 .pl(px(if leading { 80. } else { 0. }))
                 .bg(self.side())
                 .border_color(self.border())
                 // The tab strip paints its own divider, interrupted by the active tab.
                 .when(merged_tab, |bar| bar.border_b_0())
+                .when(merged_tab && leading, |bar| {
+                    // The tab strip starts after the native traffic-light inset.
+                    bar.child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .bottom_0()
+                            .w(px(80.))
+                            .h(px(1.))
+                            .bg(self.border()),
+                    )
+                })
                 .child(
                     div()
                         .flex_1()
