@@ -227,7 +227,12 @@ impl Workspace {
                 self.views.secondary_focused = false;
             }
         }
-        let files: Vec<_> = self.index.note_paths();
+        // The disk inventory includes attachments; freshly indexed notes can
+        // precede the next disk scan and must remain visible as well.
+        let mut files = self.index.files.clone();
+        files.extend(self.index.note_paths());
+        files.sort();
+        files.dedup();
         if self.tree_files != files
             || self.ui.tree_folders != self.ui.folders
             || self.ui.prefs.sort_by != inkstone_core::file_order::SortBy::Name

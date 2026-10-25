@@ -386,13 +386,18 @@ mod tests {
         std::fs::create_dir_all(&source).unwrap();
         std::fs::create_dir_all(target.join("folder")).unwrap();
         std::fs::write(source.join("note.md"), "imported").unwrap();
+        std::fs::write(source.join("binary.png"), [0, 255, 128]).unwrap();
         std::fs::write(target.join("folder/note.md"), "existing").unwrap();
         let handle = cx.add_window(Workspace::new);
         handle
             .update(cx, |w, window, cx| {
                 w.vault = Some(Vault::open(&target, root.join("recovery")).unwrap());
                 w.import_tree_files(
-                    vec![source.join("note.md"), source.join("missing.md")],
+                    vec![
+                        source.join("note.md"),
+                        source.join("missing.md"),
+                        source.join("binary.png"),
+                    ],
                     "folder".into(),
                     window,
                     cx,
@@ -417,6 +422,12 @@ mod tests {
                 assert!(w.tabs.is_empty());
                 assert_eq!(w.file_writes.pending(), 0);
                 assert!(w.files.contains(&PathBuf::from("folder/note 1.md")));
+                assert!(w.tree_files.contains(&PathBuf::from("folder/binary.png")));
+                assert!(!w.files.contains(&PathBuf::from("folder/binary.png")));
+                assert_eq!(
+                    std::fs::read(target.join("folder/binary.png")).unwrap(),
+                    [0, 255, 128]
+                );
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();

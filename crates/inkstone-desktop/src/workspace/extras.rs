@@ -244,13 +244,23 @@ impl Workspace {
                 let edits = index.relocation_edits(&from, to, folder, Some(&vault.root));
                 if folder {
                     vault.rename_folder(&from, to)?;
-                } else {
+                } else if from
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                {
                     let baseline = vault.read(&from)?.ok_or(VaultError::InvalidPath)?;
                     vault.rename_note(&from, to, &baseline)?;
+                } else {
+                    vault.rename_file(&from, to)?;
                 }
                 Ok(edits)
             } else {
-                vault.trash_folder(&from).map(|_| vec![])
+                if folder {
+                    vault.trash_folder(&from)
+                } else {
+                    vault.trash_file(&from)
+                }
+                .map(|_| vec![])
             }?;
             let prepared = super::file_sync::PreparedRelocation::new(
                 previous_index,
@@ -332,8 +342,10 @@ impl Workspace {
                         this.remove_missing_views();
                         this.notifications.publish(if new.is_some() {
                             "已移动。".into()
-                        } else {
+                        } else if folder {
                             "文件夹已移入可恢复回收站。".into()
+                        } else {
+                            "文件已移入可恢复回收站。".into()
                         });
                         this.schedule_auto_sync(true);
                         // The move is a rename. Reuse parsed notes instead of rebuilding the vault index.

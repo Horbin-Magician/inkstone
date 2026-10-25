@@ -6443,3 +6443,101 @@ fn application_icon_dimensions_survive_component_size_overrides(cx: &mut TestApp
     let mut visual = VisualTestContext::from_window(handle.into(), cx);
     visual.update(|window, cx| window.draw(cx).clear(cx));
 }
+
+#[gpui::test]
+fn tree_arbitrary_files_rename_move_trash_and_restore(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-all-files-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("folder")).unwrap();
+    let bytes = [0, 255, 128, 10];
+    for name in ["image.png", "report.pdf", "LICENSE", ".env"] {
+        std::fs::write(root.join(name), bytes).unwrap();
+    }
+    std::fs::write(root.join("note.md"), "note").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, _, cx| {
+            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+            w.index = Arc::new(Index::build(&vault).unwrap());
+            w.files = w.index.note_paths();
+            w.ui.folders = vault.folders().unwrap();
+            w.vault = Some(vault);
+            w.sync_index_ui(cx);
+            assert_eq!(w.tree_files.len(), 5);
+            assert_eq!(w.files, vec![PathBuf::from("note.md")]);
+            assert_eq!(w.tree.read(cx).depths().len(), 6);
+        })
+        .unwrap();
+    for (source, renamed) in [
+        ("image.png", "new.png"),
+        ("report.pdf", "new.pdf"),
+        ("LICENSE", "NOTICE"),
+        (".env", ".env.local"),
+    ] {
+        handle
+            .update(cx, |w, window, cx| {
+                w.begin_tree_name(ui::NameMode::Rename, source.into(), window, cx);
+                assert_eq!(w.name.read(cx).value(), source);
+                w.name
+                    .update(cx, |input, cx| input.set_value(renamed, window, cx));
+                w.submit_name(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(!root.join(source).exists());
+        assert_eq!(std::fs::read(root.join(renamed)).unwrap(), bytes);
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.tree_files.contains(&PathBuf::from(renamed)));
+                assert!(w.tabs.is_empty());
+                w.drop_tree_file(
+                    &left_sidebar::DraggedFile {
+                        path: renamed.into(),
+                        folder: false,
+                        generation: w.generation,
+                    },
+                    std::path::Path::new("folder"),
+                    window,
+                    cx,
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let moved = PathBuf::from("folder").join(renamed);
+        assert!(!root.join(renamed).exists());
+        assert_eq!(std::fs::read(root.join(&moved)).unwrap(), bytes);
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(w.tree_files.contains(&moved));
+                w.manage_tree_path(moved.clone(), None, false, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert!(!root.join(&moved).exists());
+        handle
+            .update(cx, |w, window, cx| {
+                assert!(!w.tree_files.contains(&moved));
+                let vault = w.vault.as_ref().unwrap();
+                let entry = vault
+                    .trash_entries()
+                    .unwrap()
+                    .into_iter()
+                    .find(|e| e.original == moved)
+                    .unwrap();
+                vault.restore_trash(&entry).unwrap();
+                w.structure_changed = true;
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(root.join(&moved)).unwrap(), bytes);
+        handle
+            .update(cx, |w, _, _| assert!(w.tree_files.contains(&moved)))
+            .unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.join("note.md")).unwrap(),
+        "note"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

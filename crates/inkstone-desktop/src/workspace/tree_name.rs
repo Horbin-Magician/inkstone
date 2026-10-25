@@ -46,7 +46,11 @@ impl Workspace {
         };
         let value = if creating {
             String::new()
-        } else if folder {
+        } else if folder
+            || path
+                .extension()
+                .is_none_or(|ext| !ext.eq_ignore_ascii_case("md"))
+        {
             path.file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
@@ -166,7 +170,12 @@ impl Workspace {
             return false;
         }
         let edit = self.ui.tree_name.as_ref().unwrap();
-        let filename = if !edit.folder && !name.to_lowercase().ends_with(".md") {
+        let markdown = edit.creating
+            || edit
+                .row
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
+        let filename = if !edit.folder && markdown && !name.to_lowercase().ends_with(".md") {
             format!("{name}.md")
         } else {
             name
@@ -200,6 +209,7 @@ impl Workspace {
             return false;
         }
         let note_id = edit.note_id;
+        let original = edit.row.clone();
         if !edit.creating && !self.file_writes.can_start_exclusive_operation() {
             self.notifications
                 .publish("正在保存文件，请稍后重新确认名称。".into());
@@ -232,6 +242,8 @@ impl Workspace {
                     window,
                     cx,
                 );
+            } else {
+                self.manage_tree_path(original, Some(destination), false, window, cx);
             }
             return false;
         }
