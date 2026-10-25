@@ -169,7 +169,11 @@ impl Workspace {
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .child(ui::icon("square-pen").size(px(28.)).text_color(colors.accent)),
+                                    .child(
+                                        ui::icon("square-pen")
+                                            .size(px(28.))
+                                            .text_color(colors.accent),
+                                    ),
                             )
                             .child(
                                 div()
@@ -191,98 +195,113 @@ impl Workspace {
                             ),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .children([
-                                ("empty-new", "创建新笔记", "从一个想法开始，慢慢写成篇章", "file-plus", 0),
-                                ("empty-open", "查找笔记", "找回记录，让思绪继续生长", "search", 2),
-                            ].into_iter().map(|(id, label, description, symbol, command)| {
-                                let shortcut = self.hotkey_label(command);
-                                Button::new(id)
-                                    .custom(ButtonCustomVariant::new(cx)
-                                        .color(colors.surface.into())
-                                        .foreground(colors.foreground.into())
-                                        .hover(colors.hover.into())
-                                        .active(colors.selected.into()))
-                                    .w_full()
-                                    .h_auto()
-                                    .p_4()
-                                    .rounded(px(14.))
-                                    .border_1()
-                                    .border_color(colors.border)
-                                    .accessibility_label(label)
-                                    .child(
-                                        div()
-                                            .w_full()
-                                            .min_w_0()
-                                            .flex()
-                                            .flex_wrap()
-                                            .items_center()
-                                            .gap_3()
-                                            .child(
-                                                div()
-                                                    .size(px(42.))
-                                                    .flex_shrink_0()
-                                                    .rounded(px(12.))
-                                                    .bg(if command == 0 { colors.selected } else { colors.background })
-                                                    .flex()
-                                                    .items_center()
-                                                    .justify_center()
-                                                    .child(ui::icon(symbol).text_color(colors.accent)),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .flex()
-                                                    .flex_col()
-                                                    .gap_1()
-                                                    .text_left()
-                                                    .whitespace_normal()
-                                                    .child(div().text_size(px(16.)).font_weight(FontWeight::MEDIUM).child(label))
-                                                    .child(div().text_size(px(MIN_UI_FONT_SIZE)).line_height(relative(1.5)).text_color(colors.muted).child(description)),
-                                            )
-                                            .when(!shortcut.is_empty(), |s| s.child(
-                                                div()
-                                                    .flex_shrink_0()
-                                                    .px_2()
-                                                    .py_1()
-                                                    .rounded(px(6.))
-                                                    .border_1()
-                                                    .border_color(colors.border)
-                                                    .bg(colors.background)
-                                                    .text_size(px(MIN_UI_FONT_SIZE))
-                                                    .text_color(colors.muted)
-                                                    .child(shortcut),
-                                            )),
-                                    )
-                                    .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.execute_command(command, w, cx)
-                                    }))
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("first-note-guide")
-                            .debug_selector(|| "first-note-guide".into())
-                            .border_t_1()
-                            .border_color(colors.border)
-                            .pt_5()
-                            .text_size(px(MIN_UI_FONT_SIZE))
-                            .line_height(relative(1.7))
-                            .text_color(colors.muted)
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(div().font_weight(FontWeight::MEDIUM).text_color(colors.foreground).child("写作小提示"))
-                            .child(if self.hotkey_label(4).is_empty() {
-                                "通过文件菜单中的“保存当前更改”保存 Markdown 文件。".to_owned()
-                            } else {
-                                format!("按 {} 保存，让每一个想法落在本地。", self.hotkey_label(4))
-                            })
-                            .child("在顶部模式菜单中切换实时预览、源码与阅读视图，选择适合你的写作方式。"),
+                        div().flex().flex_col().gap_3().children(
+                            [
+                                (
+                                    "empty-new",
+                                    "创建新笔记",
+                                    "从一个想法开始，慢慢写成篇章",
+                                    "file-plus",
+                                    0,
+                                ),
+                                (
+                                    "empty-open",
+                                    "查找笔记",
+                                    "找回记录，让思绪继续生长",
+                                    "search",
+                                    2,
+                                ),
+                            ]
+                            .into_iter()
+                            .map(
+                                |(id, label, description, symbol, command)| {
+                                    let shortcut = self.hotkey_label(command);
+                                    Button::new(id)
+                                        .custom(
+                                            ButtonCustomVariant::new(cx)
+                                                .color(colors.surface.into())
+                                                .foreground(colors.foreground.into())
+                                                .hover(colors.hover.into())
+                                                .active(colors.selected.into()),
+                                        )
+                                        .w_full()
+                                        .h_auto()
+                                        .p_4()
+                                        .rounded(px(14.))
+                                        .border_1()
+                                        .border_color(colors.border)
+                                        .accessibility_label(label)
+                                        .child(
+                                            div()
+                                                .w_full()
+                                                .min_w_0()
+                                                .flex()
+                                                .flex_wrap()
+                                                .items_center()
+                                                .gap_3()
+                                                .child(
+                                                    div()
+                                                        .size(px(42.))
+                                                        .flex_shrink_0()
+                                                        .rounded(px(12.))
+                                                        .bg(if command == 0 {
+                                                            colors.selected
+                                                        } else {
+                                                            colors.background
+                                                        })
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .child(
+                                                            ui::icon(symbol)
+                                                                .text_color(colors.accent),
+                                                        ),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .flex()
+                                                        .flex_col()
+                                                        .gap_1()
+                                                        .text_left()
+                                                        .whitespace_normal()
+                                                        .child(
+                                                            div()
+                                                                .text_size(px(16.))
+                                                                .font_weight(FontWeight::MEDIUM)
+                                                                .child(label),
+                                                        )
+                                                        .child(
+                                                            div()
+                                                                .text_size(px(MIN_UI_FONT_SIZE))
+                                                                .line_height(relative(1.5))
+                                                                .text_color(colors.muted)
+                                                                .child(description),
+                                                        ),
+                                                )
+                                                .when(!shortcut.is_empty(), |s| {
+                                                    s.child(
+                                                        div()
+                                                            .flex_shrink_0()
+                                                            .px_2()
+                                                            .py_1()
+                                                            .rounded(px(6.))
+                                                            .border_1()
+                                                            .border_color(colors.border)
+                                                            .bg(colors.background)
+                                                            .text_size(px(MIN_UI_FONT_SIZE))
+                                                            .text_color(colors.muted)
+                                                            .child(shortcut),
+                                                    )
+                                                }),
+                                        )
+                                        .on_click(cx.listener(move |this, _, w, cx| {
+                                            this.execute_command(command, w, cx)
+                                        }))
+                                },
+                            ),
+                        ),
                     ),
             )
             .into_any_element()
