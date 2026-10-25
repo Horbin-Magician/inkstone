@@ -464,7 +464,7 @@ mod tests {
             .update(&mut visual, |w, _, _| {
                 w.ui.trash
                     .iter()
-                    .position(|e| e.original == PathBuf::from("乙.md"))
+                    .position(|e| e.original == std::path::Path::new("乙.md"))
                     .unwrap()
             })
             .unwrap();
