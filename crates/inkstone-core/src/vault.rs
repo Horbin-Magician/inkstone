@@ -231,6 +231,29 @@ impl Vault {
         }
         Err(VaultError::InvalidPath)
     }
+    /// Resolve a regular vault file of any format without following symlinks.
+    pub fn file_path(&self, relative: &Path) -> Result<PathBuf, VaultError> {
+        let path = self.regular_file_path(relative)?;
+        if !fs::metadata(&path)?.is_file() {
+            return Err(VaultError::InvalidPath);
+        }
+        Ok(path)
+    }
+    /// Move opaque file bytes without decoding them or replacing another file.
+    pub fn rename_file(&self, old: &Path, new: &Path) -> Result<(), VaultError> {
+        let source = self.file_path(old)?;
+        let dest = self.regular_file_path(new)?;
+        fs::create_dir_all(dest.parent().ok_or(VaultError::InvalidPath)?)?;
+        move_no_replace(&source, &dest)?;
+        Ok(())
+    }
+    pub fn trash_file(&self, relative: &Path) -> Result<PathBuf, VaultError> {
+        let source = self.file_path(relative)?;
+        let entry = self.create_trash_entry(relative)?;
+        let dest = entry.join(relative.file_name().ok_or(VaultError::InvalidPath)?);
+        move_no_replace(&source, &dest)?;
+        Ok(dest)
+    }
     pub fn rename_folder(&self, old: &Path, new: &Path) -> Result<(), VaultError> {
         if new.starts_with(old) {
             return Err(VaultError::InvalidPath);
@@ -1170,6 +1193,39 @@ mod tests {
             assert_eq!(s.1.read(note).unwrap().as_deref(), Some(text));
         }
     }
+    #[test]
+    fn arbitrary_files_move_and_restore_without_changing_bytes() {
+        let s = Sandbox::new();
+        let bytes = [0, 255, 128, 13, 10];
+        for name in ["image.png", "document.pdf", "LICENSE", ".env"] {
+            let old = Path::new(name);
+            let new = Path::new("nested").join(name);
+            fs::write(s.1.root.join(old), bytes).unwrap();
+            s.1.rename_file(old, &new).unwrap();
+            assert!(!s.1.root.join(old).exists());
+            assert_eq!(fs::read(s.1.file_path(&new).unwrap()).unwrap(), bytes);
+            fs::write(s.1.root.join(old), b"existing").unwrap();
+            assert!(s.1.rename_file(&new, old).is_err());
+            assert_eq!(fs::read(s.1.root.join(old)).unwrap(), b"existing");
+            s.1.trash_file(&new).unwrap();
+            assert!(!s.1.root.join(&new).exists());
+            let entry =
+                s.1.trash_entries()
+                    .unwrap()
+                    .into_iter()
+                    .find(|e| e.original == new)
+                    .unwrap();
+            s.1.restore_trash(&entry).unwrap();
+            assert_eq!(fs::read(s.1.root.join(&new)).unwrap(), bytes);
+        }
+        assert!(s.1.file_path(Path::new("nested")).is_err());
+        assert!(
+            s.1.rename_file(Path::new("LICENSE"), Path::new("../escape"))
+                .is_err()
+        );
+        assert!(s.1.trash_file(Path::new("../escape")).is_err());
+    }
+
     #[test]
     fn safe_save_reopen_preserves_exact_markdown() {
         let s = Sandbox::new();
