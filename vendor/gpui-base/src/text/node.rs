@@ -2045,6 +2045,7 @@ pub(crate) struct NodeContext {
     pub(crate) code_block_highlighter: Option<Arc<CodeBlockHighlighterFn>>,
     pub(crate) table_actions: Option<Arc<TableActionsFn>>,
     pub(crate) image_source: Option<Arc<super::text_view::ImageSourceFn>>,
+    pub(crate) image_link: Option<Arc<super::text_view::ImageLinkFn>>,
     pub(crate) task_toggle_handler: Option<Arc<super::text_view::TaskToggleHandlerFn>>,
     pub(crate) link_click_handler: Option<Arc<LinkClickHandlerFn>>,
     pub(crate) markdown_extensions: Arc<MarkdownExtensions>,
@@ -2057,6 +2058,13 @@ pub(crate) struct NodeContext {
 }
 
 impl NodeContext {
+    fn image_link(&self, image: &ImageNode) -> Option<LinkMark> {
+        image.link.clone().or_else(|| {
+            let url = self.image_link.as_ref()?(&image.url)?;
+            Some(LinkMark { url, ..Default::default() })
+        })
+    }
+
     fn image_source(&self, image: &ImageNode) -> ImageSource {
         match &self.image_source {
             Some(resolve) => resolve(&image.url),
@@ -2266,7 +2274,7 @@ impl Paragraph {
                         .object_fit(ObjectFit::Contain)
                         .max_w(relative(1.))
                         .when_some(image.width, |this, width| this.w(width))
-                        .when_some(image.link.clone(), |this, link| {
+                        .when_some(node_cx.image_link(image), |this, link| {
                             let link_click_handler = link_click_handler.clone();
                             let aux_link = link.clone();
                             let aux_link_click_handler = link_click_handler.clone();
@@ -2439,6 +2447,7 @@ impl Paragraph {
                 let extensions = node_cx.markdown_extensions.clone();
                 let handler = node_cx.link_click_handler.clone();
                 let image_source = node_cx.image_source.clone();
+                let image_link = node_cx.image_link.clone();
                 items.push(InlineFlowItem::Object {
                     text: node.shared_text(),
                     accessibility_label: node.shared_accessibility_name(),
@@ -2447,6 +2456,7 @@ impl Paragraph {
                         let mut inherited = context.clone();
                         inherited.link_click_handler = handler.clone();
                         inherited.image_source = image_source.clone();
+                        inherited.image_link = image_link.clone();
                         extensions.render_inline(&rendered_node, &inherited, window, cx)
                     }),
                     selected: inline_node.custom_selection.clone(),
@@ -2484,7 +2494,7 @@ impl Paragraph {
 
                 items.push(InlineFlowItem::Image {
                     source: node_cx.image_source(image),
-                    link: image.link.clone(),
+                    link: node_cx.image_link(image),
                     title: image.title(),
                     width: image.width,
                     height: image.height,
@@ -4553,6 +4563,17 @@ mod tests {
 
         // No rows at all (a table still streaming in): an empty snapshot.
         assert_eq!(Table::default().table_data(), TableData::default());
+    }
+
+    #[test]
+    fn image_click_targets_are_opt_in_and_preserve_explicit_links() {
+        let mut image = ImageNode { url: "picture.png".into(), ..Default::default() };
+        let mut context = NodeContext::default();
+        assert!(context.image_link(&image).is_none());
+        context.image_link = Some(Arc::new(|uri| Some(format!("preview:{uri}").into())));
+        assert_eq!(context.image_link(&image).unwrap().url, "preview:picture.png");
+        image.link = Some(LinkMark { url: "https://example.com".into(), ..Default::default() });
+        assert_eq!(context.image_link(&image).unwrap().url, "https://example.com");
     }
 
     #[test]

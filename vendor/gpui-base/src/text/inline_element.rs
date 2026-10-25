@@ -33,6 +33,7 @@ impl InlineElement {
 pub struct InlineRenderContext {
     pub(crate) link_click_handler: Option<std::sync::Arc<super::text_view::LinkClickHandlerFn>>,
     pub(crate) image_source: Option<std::sync::Arc<super::text_view::ImageSourceFn>>,
+    pub(crate) image_link: Option<std::sync::Arc<super::text_view::ImageLinkFn>>,
     text_style: TextStyle,
     font_size: Pixels,
     line_height: Pixels,
@@ -49,6 +50,7 @@ impl InlineRenderContext {
         Self {
             link_click_handler: None,
             image_source: None,
+            image_link: None,
             text_style,
             font_size,
             line_height,

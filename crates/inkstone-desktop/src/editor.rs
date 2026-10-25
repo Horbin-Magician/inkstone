@@ -27,6 +27,7 @@ mod live_rules;
 mod live_tasks;
 
 pub enum EditorEvent {
+    PreviewImage(inkstone_core::rendering::Reference),
     CountsChanged,
     FontSizeDelta(i8),
     FollowLink(String),

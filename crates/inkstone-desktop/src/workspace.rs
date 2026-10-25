@@ -41,6 +41,7 @@ mod exports;
 mod extras;
 mod file_settings;
 mod hotkeys;
+mod image_preview;
 mod link_health;
 mod link_updates;
 mod navigation;

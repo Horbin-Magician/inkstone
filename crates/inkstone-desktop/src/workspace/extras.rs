@@ -117,7 +117,7 @@ impl Workspace {
                 && let Some(path) =
                     inkstone_core::rendering::asset_path(&vault.root, &reference, &self.index.files)
             {
-                cx.open_with_system(&path);
+                self.open_attachment(path, window, cx);
                 return;
             }
             if !note_exists && inkstone_core::rendering::attachment_target(&reference.target) {

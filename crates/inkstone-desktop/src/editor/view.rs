@@ -191,6 +191,7 @@ impl Render for EditorPane {
                     }
                 });
             })
+            .image_link(|uri| Some(format!("inkstone-image:{uri}").into()))
             .image_source(move |uri| {
                 let raw = uri.to_string();
                 if let Some(id) = raw
@@ -226,6 +227,20 @@ impl Render for EditorPane {
             })
             .on_link_click(move |url, event, _, cx| {
                 if event.is_right_click() {
+                    return;
+                }
+                if let Some(target) = url.strip_prefix("inkstone-image:") {
+                    cx.stop_propagation();
+                    let _ = weak.update(cx, |this, cx| {
+                        let reference = target
+                            .strip_prefix("inkstone-reference:")
+                            .and_then(|id| id.parse::<usize>().ok())
+                            .and_then(|id| this.rendered.references.get(id))
+                            .cloned();
+                        if let Some(reference) = reference {
+                            cx.emit(EditorEvent::PreviewImage(reference));
+                        }
+                    });
                     return;
                 }
                 let new_tab = event.modifiers().secondary();

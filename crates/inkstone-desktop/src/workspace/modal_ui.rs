@@ -10,7 +10,8 @@ use gpui_component::{Disableable, button::*};
 
 impl Workspace {
     pub(super) fn modal_is_open(&self) -> bool {
-        self.command_open
+        self.ui.image_preview.is_some()
+            || self.command_open
             || self.ui.quick_open
             || self.ui.property_open
             || self.ui.settings
@@ -50,6 +51,9 @@ impl Workspace {
     }
 
     pub(super) fn modal(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.ui.image_preview.is_some() {
+            return self.image_preview_panel(window, cx);
+        }
         let picker = self.command_open || self.ui.quick_open;
         let top = px(100.)
             .min(window.viewport_size().height * if picker { 0.12 } else { 0.15 })

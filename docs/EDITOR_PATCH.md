@@ -240,3 +240,7 @@ Base `unchanged_font_preserves_projection_and_font_resize_rebuilds_it` 覆盖长
 `vendor/gpui-component/src/input/{input,state}.rs`：TextInputState 转发只读正文修订号，Input 将辅助功能正文保存在按输入实体区分的窗口状态中。相同修订号复用 SharedString，编辑、静默赋值、撤销及 IME 正文替换后重新读取；无辅助功能客户端或密码/遮罩不允许暴露时清空缓存且不读取正文。保留原有可访问值和编辑动作，仅辅助功能启用时为当前正文保留一份字符串快照，不积累历史版本。
 
 入口：`accessibility_value_cache_tests::unchanged_revision_reuses_text_and_hiding_drops_it` 检查重复绘制不读取全文、等长度变化失效及隐藏后清理；`editable_input_offers_accessibility_write_action` 检查实际 AX 输出在编辑、撤销及密码遮罩后正确。底层修订号契约仍由 `test_text_revision_tracks_silent_history_and_composition_edits` 覆盖。执行 `python3 tools/vendor-regression/run.py`。
+
+### 图片点击预览
+
+`gpui-base::text::TextView::image_link` 为未包含显式链接的图片提供可选点击目标，复用现有链接事件与选择结束逻辑。映射贯穿 TextViewState、块图片、行内图片和上下标嵌套渲染；默认关闭，显式图片链接优先。桌面端将目标映射为图片预览事件，并沿用笔记库附件路径解析。回归覆盖默认行为、显式链接优先、实时预览点击和弹层焦点恢复。

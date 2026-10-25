@@ -57,7 +57,7 @@ impl Workspace {
             self.open_note(path, window, cx);
         } else if let Some(vault) = &self.vault {
             match vault.file_path(&path) {
-                Ok(path) => cx.open_with_system(&path),
+                Ok(path) => self.open_attachment(path, window, cx),
                 Err(error) => {
                     self.notifications.publish(error.to_string());
                     cx.notify();

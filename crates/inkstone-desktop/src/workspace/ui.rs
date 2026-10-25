@@ -203,6 +203,7 @@ pub(super) struct UiState {
     pub backup: super::backups::State,
     pub cloud_sync: super::cloud_sync::State,
     pub exporting: bool,
+    pub image_preview: Option<super::image_preview::Preview>,
     pub attachment_manager: Option<super::attachments::Manager>,
     pub link_health: Option<super::link_health::Review>,
     pub bulk_edit: Option<super::bulk_edit::Review>,
@@ -541,6 +542,7 @@ impl UiState {
             backup: Default::default(),
             cloud_sync: super::cloud_sync::State::new(window, cx),
             exporting: false,
+            image_preview: None,
             attachment_manager: None,
             link_health: None,
             bulk_edit: None,
@@ -1214,6 +1216,10 @@ impl Workspace {
         .detach();
     }
     pub(super) fn close_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ui.image_preview.is_some() {
+            self.close_image_preview(window, cx);
+            return;
+        }
         if self.ui.link_update.take().is_some() {
             self.notifications
                 .publish("文件已移动，链接保持原样。".into());
@@ -1239,6 +1245,7 @@ impl Workspace {
         self.ui.history = None;
         self.ui.history_catalog = Default::default();
         self.ui.attachment_manager = None;
+        self.ui.image_preview = None;
         self.ui.link_health = None;
         self.ui.bulk_edit = None;
         self.ui.table_editor = None;
