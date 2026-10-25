@@ -361,7 +361,11 @@ impl Workspace {
                             slider.set_value(this.ui.prefs.tab_size as f32, window, cx);
                         });
                         this.ui.left_mode = this.ui.prefs.left_panel;
-                        this.ui.right_mode = this.ui.prefs.right_panel;
+                        // Legacy outgoing links now share the links panel.
+                        this.ui.right_mode = match this.ui.prefs.right_panel {
+                            2 => 1,
+                            mode => mode,
+                        };
                         this.ui.tags_selected = None;
                         this.ui.search_collapsed.clear();
                         this.ui.search_signature = None;

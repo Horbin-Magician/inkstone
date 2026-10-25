@@ -5120,7 +5120,7 @@ fn session_restores_open_tabs_active_note_and_empty_folders(cx: &mut TestAppCont
         light: true,
         font_size: 20.,
         left_panel: 1,
-        right_panel: 4,
+        right_panel: 2, // Legacy outgoing links restore to the combined links panel.
         search_query: "tag:work".into(),
         tags: inkstone_core::tags::Options {
             show_filter: true,
@@ -5142,7 +5142,7 @@ fn session_restores_open_tabs_active_note_and_empty_folders(cx: &mut TestAppCont
             assert_eq!(w.tabs[0].pane.read(cx).font_size, 20.);
             assert!(w.ui.prefs.light);
             assert_eq!(w.ui.left_mode, 1);
-            assert_eq!(w.ui.right_mode, 4);
+            assert_eq!(w.ui.right_mode, 1);
             assert_eq!(w.ui.tags_filter.read(cx).value().as_ref(), "work");
             assert!(w.fulltext);
             assert_eq!(w.search.read(cx).value().as_ref(), "tag:work");
