@@ -1051,10 +1051,11 @@ mod outline_tests {
         for _ in 0..2 {
             visual.update(|window, cx| window.draw(cx).clear(cx));
         }
-        let Some(more) = visual.debug_bounds("right-mode-more") else {
+        let more = visual.debug_bounds("right-mode-more");
+        assert!(more.is_some() || !cfg!(target_os = "windows"));
+        let Some(more) = more else {
             // macOS fits all five modes at the minimum sidebar width; Windows
             // reserves room for window controls and must use the overflow menu.
-            assert!(!cfg!(target_os = "windows"));
             for selector in [
                 "right-mode-0",
                 "right-mode-1",
