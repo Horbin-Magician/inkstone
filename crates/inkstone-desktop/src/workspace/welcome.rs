@@ -170,7 +170,6 @@ impl Workspace {
                         [
                             ("empty-new", "创建新笔记", "file-plus", 0),
                             ("empty-open", "查找笔记", "search", 2),
-                            ("empty-recovery", "文件恢复", "history", 16),
                         ]
                         .into_iter()
                         .map(|(id, label, symbol, command)| {
@@ -207,8 +206,7 @@ impl Workspace {
                         .child(format!("创建笔记后即可写作。{}", if self.hotkey_label(4).is_empty() {
                             "通过文件菜单中的“保存当前更改”保存 Markdown 文件。".to_owned()
                         } else { format!("按 {} 保存 Markdown 文件。", self.hotkey_label(4)) }))
-                        .child("顶部模式菜单：实时预览可边写边看排版；源码模式显示 Markdown 标记；阅读视图用于浏览，不修改正文。")
-                        .child("未保存的编辑会另存为恢复草稿，不会定时改写原文件。意外退出后，可从“文件恢复”比较草稿并恢复为副本；最近尚未持久化的输入仍可能丢失。")),
+                        .child("顶部模式菜单：实时预览可边写边看排版；源码模式显示 Markdown 标记；阅读视图用于浏览，不修改正文。")),
             )
             .into_any_element()
     }
