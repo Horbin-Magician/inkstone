@@ -1507,7 +1507,6 @@ impl Render for PopupMenu {
 
         v_flex()
             .id("popup-menu")
-            .test_support()
             .role(Role::Menu)
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
@@ -1548,6 +1547,7 @@ impl Render for PopupMenu {
             .when(self.scrollable, |this| {
                 this.vertical_scrollbar(&self.scroll_handle)
             })
+            .test_support()
     }
 }
 

@@ -35,6 +35,7 @@ objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
 
 [dev-dependencies]
+gpui-base = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 ropey.workspace = true
 # Integration tests compile the vendor grapheme helpers directly via #[path].
