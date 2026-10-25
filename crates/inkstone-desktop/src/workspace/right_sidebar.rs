@@ -103,10 +103,9 @@ impl Workspace {
         show_toggle: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        const MODES: [(usize, &str, &str); 5] = [
+        const MODES: [(usize, &str, &str); 4] = [
             (0, "list", "大纲"),
-            (1, "links", "反向链接"),
-            (2, "link", "出链"),
+            (1, "links", "链接"),
             (3, "tags", "标签"),
             (4, "inbox", "属性"),
         ];
@@ -121,11 +120,16 @@ impl Workspace {
         // Retain the active view first when space is limited.
         let visible: Vec<_> = if collapsed {
             std::iter::once(self.ui.right_mode)
-                .chain((0..MODES.len()).filter(|&i| i != self.ui.right_mode))
+                .chain(
+                    MODES
+                        .iter()
+                        .map(|&(i, _, _)| i)
+                        .filter(|&i| i != self.ui.right_mode),
+                )
                 .take(visible_count)
                 .collect()
         } else {
-            (0..MODES.len()).collect()
+            MODES.iter().map(|&(i, _, _)| i).collect()
         };
         let weak = cx.entity().downgrade();
         let selected = self.ui.right_mode;
@@ -141,8 +145,8 @@ impl Workspace {
             })
             .px_1()
             .gap_0()
-            .children(visible.iter().map(|&index| {
-                let (i, ico, label) = MODES[index];
+            .children(visible.iter().map(|&mode| {
+                let (i, ico, label) = MODES.iter().copied().find(|&(i, _, _)| i == mode).unwrap();
                 div()
                     .debug_selector(move || format!("right-mode-{i}"))
                     .flex_shrink_0()
@@ -238,7 +242,7 @@ impl Workspace {
         };
         let links = pane
             .as_ref()
-            .filter(|_| self.ui.right_mode == 2)
+            .filter(|_| self.ui.right_mode == 1)
             .map(|p| p.read(cx).parsed.links.clone())
             .unwrap_or_default();
         let properties = pane
@@ -467,7 +471,7 @@ impl Workspace {
                             .w_full(),
                         )
                     })
-                    .when(self.ui.right_mode == 2, |s| {
+                    .when(self.ui.right_mode == 1, |s| {
                         s.child(
                             div()
                                 .flex()
@@ -991,13 +995,13 @@ mod outline_tests {
                 visual.update(|window, cx| window.draw(cx).clear(cx));
             }
             let toolbar = visual.debug_bounds("right-header-tools").unwrap();
-            let mut buttons: Vec<_> = (0..5)
+            assert!(visual.debug_bounds("right-mode-2").is_none());
+            let mut buttons: Vec<_> = (0..4)
                 .filter_map(|i| {
                     visual.debug_bounds(
                         [
                             "right-mode-0",
                             "right-mode-1",
-                            "right-mode-2",
                             "right-mode-3",
                             "right-mode-4",
                         ][i],
@@ -1005,7 +1009,7 @@ mod outline_tests {
                 })
                 .collect();
             let more = visual.debug_bounds("right-mode-more");
-            assert_eq!(more.is_some(), buttons.len() < 5);
+            assert_eq!(more.is_some(), buttons.len() < 4);
             if !buttons.is_empty() {
                 assert!(visual.debug_bounds("right-mode-4").is_some());
             }
@@ -1020,7 +1024,7 @@ mod outline_tests {
                 assert!(pair[0].right() <= pair[1].left());
             }
             if width == 500. {
-                assert_eq!(buttons.len(), 5);
+                assert_eq!(buttons.len(), 4);
                 assert!(more.is_none());
             }
         }
@@ -1054,12 +1058,11 @@ mod outline_tests {
         let more = visual.debug_bounds("right-mode-more");
         assert!(more.is_some() || !cfg!(target_os = "windows"));
         let Some(more) = more else {
-            // macOS fits all five modes at the minimum sidebar width; Windows
+            // macOS fits all four modes at the minimum sidebar width; Windows
             // reserves room for window controls and must use the overflow menu.
             for selector in [
                 "right-mode-0",
                 "right-mode-1",
-                "right-mode-2",
                 "right-mode-3",
                 "right-mode-4",
             ] {
