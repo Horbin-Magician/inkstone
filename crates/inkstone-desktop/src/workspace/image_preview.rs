@@ -1,6 +1,6 @@
 //! Read-only image tabs, with cursor-anchored wheel zoom and drag panning.
+use super::ui::tool;
 use super::*;
-use gpui_component::button::{Button, ButtonVariants};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -79,16 +79,23 @@ impl Render for Preview {
                     .px_3()
                     .h(px(40.))
                     .flex_shrink_0()
-                    .child(format!("{:.0}%", self.zoom * 100.))
+                    .child(
+                        div()
+                            .w(rems(4.5))
+                            .flex_shrink_0()
+                            .text_right()
+                            .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
+                            .child(format!("{:.0}%", self.zoom * 100.)),
+                    )
                     .children(
                         [
-                            ("image-zoom-out", "缩小", 0.8),
-                            ("image-fit", "适应窗口", 0.),
-                            ("image-zoom-in", "放大", 1.25),
+                            ("image-zoom-out", "zoom-out", "缩小", 0.8),
+                            ("image-fit", "scan", "适应窗口", 0.),
+                            ("image-zoom-in", "zoom-in", "放大", 1.25),
                         ]
                         .into_iter()
-                        .map(|(id, label, factor)| {
-                            Button::new(id).ghost().label(label).on_click(cx.listener(
+                        .map(|(id, icon, label, factor)| {
+                            tool(id, icon, label).flex_shrink_0().on_click(cx.listener(
                                 move |this, _, _, cx| {
                                     if factor == 0. {
                                         this.fit();

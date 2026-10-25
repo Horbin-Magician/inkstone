@@ -700,6 +700,11 @@ pub(super) fn icon(name: &str) -> Icon {
             Some("M9 7V5a2 2 0 1 0-2 2h10a2 2 0 1 0-2-2v14a2 2 0 1 0 2-2H7a2 2 0 1 0 2 2V7")
         }
         "chevrons-up-down" => Some("m8 9 4-4 4 4m-8 6 4 4 4-4"),
+        "zoom-out" => Some("M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0M6 10h8"),
+        "zoom-in" => Some("M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0M6 10h8M10 6v8"),
+        "scan" => Some(
+            "M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3",
+        ),
         "x" => Some("M6 6l12 12M18 6 6 18"),
         "file-plus" => Some(
             "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 11v7M8.5 14.5h7",
