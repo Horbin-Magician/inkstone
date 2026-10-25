@@ -203,7 +203,6 @@ pub(super) struct UiState {
     pub backup: super::backups::State,
     pub cloud_sync: super::cloud_sync::State,
     pub exporting: bool,
-    pub image_preview: Option<super::image_preview::Preview>,
     pub attachment_manager: Option<super::attachments::Manager>,
     pub link_health: Option<super::link_health::Review>,
     pub bulk_edit: Option<super::bulk_edit::Review>,
@@ -542,7 +541,6 @@ impl UiState {
             backup: Default::default(),
             cloud_sync: super::cloud_sync::State::new(window, cx),
             exporting: false,
-            image_preview: None,
             attachment_manager: None,
             link_health: None,
             bulk_edit: None,
@@ -1216,10 +1214,6 @@ impl Workspace {
         .detach();
     }
     pub(super) fn close_overlays(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ui.image_preview.is_some() {
-            self.close_image_preview(window, cx);
-            return;
-        }
         if self.ui.link_update.take().is_some() {
             self.notifications
                 .publish("文件已移动，链接保持原样。".into());
@@ -1245,7 +1239,6 @@ impl Workspace {
         self.ui.history = None;
         self.ui.history_catalog = Default::default();
         self.ui.attachment_manager = None;
-        self.ui.image_preview = None;
         self.ui.link_health = None;
         self.ui.bulk_edit = None;
         self.ui.table_editor = None;
@@ -1537,6 +1530,8 @@ impl Workspace {
                                         "{}{}",
                                         if t.path.as_os_str().is_empty() {
                                             "新标签页".into()
+                                        } else if t.image.is_some() {
+                                            t.path.file_name().unwrap_or_default().to_string_lossy()
                                         } else {
                                             t.path.file_stem().unwrap_or_default().to_string_lossy()
                                         },
@@ -1692,6 +1687,33 @@ impl Workspace {
         secondary: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        if let Some(image) = index
+            .and_then(|i| self.tabs.get(i))
+            .and_then(|t| t.image.clone())
+        {
+            if let Some(source) =
+                index.and_then(|i| image_preview::source(self.vault.as_ref(), &self.tabs[i].path))
+            {
+                image.update(cx, |preview, _| preview.source = source);
+            }
+            return div()
+                .size_full()
+                .bg(self.bg())
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        if let Some(index) = index {
+                            this.views.secondary_focused = false;
+                            this.views.main = Some(this.tabs[index].id);
+                            this.active = Some(index);
+                            this.run_search(cx);
+                            cx.notify();
+                        }
+                    }),
+                )
+                .child(image)
+                .into_any_element();
+        }
         let colors = crate::theme::palette(self.ui.prefs.light);
         let active = index
             .and_then(|i| self.tabs.get(i))

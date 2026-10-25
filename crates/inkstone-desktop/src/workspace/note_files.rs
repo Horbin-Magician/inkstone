@@ -40,6 +40,21 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(path) = self
+            .tabs
+            .iter()
+            .find(|tab| tab.id == id && tab.image.is_some())
+            .map(|tab| tab.path.clone())
+        {
+            self.manage_tree_path(
+                path,
+                (!trash).then(|| PathBuf::from(requested_name)),
+                false,
+                window,
+                cx,
+            );
+            return;
+        }
         if !self.file_writes.can_start_exclusive_operation() || self.ui.link_update.is_some() {
             return;
         }

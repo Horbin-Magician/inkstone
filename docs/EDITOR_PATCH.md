@@ -243,4 +243,4 @@ Base `unchanged_font_preserves_projection_and_font_resize_rebuilds_it` 覆盖长
 
 ### 图片点击预览
 
-`gpui-base::text::TextView::image_link` 为未包含显式链接的图片提供可选点击目标，复用现有链接事件与选择结束逻辑。映射贯穿 TextViewState、块图片、行内图片和上下标嵌套渲染；默认关闭，显式图片链接优先。桌面端将目标映射为图片预览事件，并沿用笔记库附件路径解析。回归覆盖默认行为、显式链接优先、实时预览点击和弹层焦点恢复。
+`gpui-base::text::TextView::image_link` 为未包含显式链接的图片提供可选点击目标，复用现有链接事件与选择结束逻辑。映射贯穿 TextViewState、块图片、行内图片和上下标嵌套渲染；默认关闭，显式图片链接优先。桌面端将目标映射为图片预览事件，并沿用笔记库附件路径解析。回归覆盖默认行为、显式链接优先、实时预览点击、图片标签生命周期和滚轮缩放。
