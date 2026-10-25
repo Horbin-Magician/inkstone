@@ -2006,6 +2006,12 @@ impl Render for Workspace {
         let weak = cx.entity().downgrade();
         let left_open = self.ui.prefs.left_open && !self.ui.focus_mode;
         let right_open = self.ui.prefs.right_open && !self.ui.focus_mode;
+        let left_min = if cfg!(target_os = "macos") {
+            240.
+        } else {
+            180.
+        };
+        let right_min = 208.;
         let panels = h_resizable((
             SharedString::from(format!(
                 "workspace-panels-{}-{}-{}-{}",
@@ -2021,13 +2027,7 @@ impl Render for Workspace {
                 resizable_panel()
                     .size(px(self.ui.prefs.left_width))
                     .flex_none()
-                    .size_range(
-                        px(if cfg!(target_os = "macos") {
-                            240.
-                        } else {
-                            180.
-                        })..px(500.),
-                    )
+                    .size_range(px(left_min)..px(500.))
                     .child(self.left_panel(cx)),
             )
         })
@@ -2041,20 +2041,31 @@ impl Render for Workspace {
                 resizable_panel()
                     .size(px(self.ui.prefs.right_width))
                     .flex_none()
-                    .size_range(px(208.)..px(500.))
+                    .size_range(px(right_min)..px(500.))
                     .child(self.right_panel(_window, cx)),
             )
         })
-        .on_resize(move |state, _, cx| {
+        .on_resize_end(move |state, divider, position, window, cx| {
             let sizes = state.read(cx).sizes().clone();
+            // Require a deliberate drag beyond the minimum width. Only the
+            // sidebar adjacent to the dragged divider may collapse.
+            let hide_left = left_open && divider == 0 && position.x < px(left_min - 48.);
+            let hide_right = right_open
+                && divider == usize::from(left_open)
+                && window.viewport_size().width - position.x < px(right_min - 48.);
             let _ = weak.update(cx, |this, cx| {
-                if left_open && let Some(size) = sizes.first() {
+                if hide_left {
+                    this.ui.prefs.left_open = false;
+                } else if left_open && let Some(size) = sizes.first() {
                     this.ui.prefs.left_width = f32::from(*size);
                 }
-                if right_open && let Some(size) = sizes.last() {
+                if hide_right {
+                    this.ui.prefs.right_open = false;
+                } else if right_open && let Some(size) = sizes.last() {
                     this.ui.prefs.right_width = f32::from(*size);
                 }
                 this.persist_workspace(cx);
+                cx.notify();
             });
         });
         div()

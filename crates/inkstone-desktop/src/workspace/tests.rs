@@ -4436,6 +4436,133 @@ fn sidebars_follow_restored_widths_and_keep_them_after_window_resize(cx: &mut Te
 }
 
 #[gpui::test]
+fn sidebars_drag_to_hide_and_restore_width(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1200.), px(820.)));
+    handle
+        .update(&mut visual, |workspace, _, cx| {
+            let root =
+                std::env::temp_dir().join(format!("inkstone-sidebar-drag-{}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            workspace.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+            workspace.ui.prefs.left_open = true;
+            workspace.ui.prefs.right_open = true;
+            workspace.ui.prefs.left_width = 280.;
+            workspace.ui.prefs.right_width = 320.;
+            cx.notify();
+        })
+        .unwrap();
+    // Exercise each divider both with and without the opposite sidebar.
+    for (right, opposite_open, collapse) in [
+        (false, true, false),
+        (false, true, true),
+        (true, false, true),
+        (true, true, false),
+        (true, true, true),
+        (false, false, true),
+    ] {
+        handle
+            .update(&mut visual, |w, _, cx| {
+                w.ui.prefs.left_open = !right || opposite_open;
+                w.ui.prefs.right_open = right || opposite_open;
+                w.ui.prefs.left_width = 280.;
+                w.ui.prefs.right_width = 320.;
+                cx.notify();
+            })
+            .unwrap();
+        for _ in 0..3 {
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let bounds = visual
+            .debug_bounds(if right {
+                "workspace-right-panel"
+            } else {
+                "workspace-left-panel"
+            })
+            .unwrap();
+        let boundary = if right { bounds.left() } else { bounds.right() };
+        let target = if collapse {
+            if right { px(1150.) } else { px(50.) }
+        } else if right {
+            px(940.)
+        } else {
+            px(260.)
+        };
+        visual.simulate_mouse_down(
+            point(boundary, px(200.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        visual.simulate_mouse_move(
+            point(boundary + px(10.), px(200.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        visual.simulate_mouse_move(
+            point(target, px(200.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        visual.simulate_mouse_up(
+            point(target, px(200.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                assert_eq!(
+                    w.ui.prefs.left_open,
+                    if right { opposite_open } else { !collapse }
+                );
+                assert_eq!(
+                    w.ui.prefs.right_open,
+                    if right { !collapse } else { opposite_open }
+                );
+                let width = if right {
+                    w.ui.prefs.right_width
+                } else {
+                    w.ui.prefs.left_width
+                };
+                let expected = if collapse {
+                    if right { 320. } else { 280. }
+                } else {
+                    260.
+                };
+                assert!((width - expected).abs() < 0.01, "{width} != {expected}");
+                if collapse {
+                    w.execute_command(if right { 13 } else { 12 }, window, cx);
+                }
+            })
+            .unwrap();
+        for _ in 0..3 {
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let width = f32::from(
+            visual
+                .debug_bounds(if right {
+                    "workspace-right-panel"
+                } else {
+                    "workspace-left-panel"
+                })
+                .unwrap()
+                .size
+                .width,
+        );
+        let expected = if collapse {
+            if right { 320. } else { 280. }
+        } else {
+            260.
+        };
+        assert!((width - expected).abs() < 0.01, "{width} != {expected}");
+    }
+}
+
+#[gpui::test]
 fn completion_cache_reuses_body_edits_and_invalidates_target_changes(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(Workspace::new);
