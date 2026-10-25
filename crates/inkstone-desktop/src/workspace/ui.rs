@@ -1265,26 +1265,13 @@ impl Workspace {
         merged_tab: bool,
     ) -> AnyElement {
         if cfg!(target_os = "macos") {
-            TitleBar::new()
-                .relative()
+            let header = TitleBar::new()
                 .h(crate::TITLE_BAR_HEIGHT)
                 .pl(px(if leading { 80. } else { 0. }))
                 .bg(self.side())
                 .border_color(self.border())
                 // The tab strip paints its own divider, interrupted by the active tab.
                 .when(merged_tab, |bar| bar.border_b_0())
-                .when(merged_tab && leading, |bar| {
-                    // The tab strip starts after the native traffic-light inset.
-                    bar.child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .bottom_0()
-                            .w(px(80.))
-                            .h(px(1.))
-                            .bg(self.border()),
-                    )
-                })
                 .child(
                     div()
                         .flex_1()
@@ -1297,7 +1284,24 @@ impl Workspace {
                             }
                         })
                         .child(content),
-                )
+                );
+            div()
+                .relative()
+                .flex_shrink_0()
+                .child(header)
+                .when(merged_tab && leading, |bar| {
+                    // TitleBar nests its children after the traffic-light padding.
+                    // Anchor this segment to the full header, outside that inset.
+                    bar.child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .bottom_0()
+                            .w(px(80.))
+                            .h(px(1.))
+                            .bg(self.border()),
+                    )
+                })
                 .into_any_element()
         } else {
             content.into_any_element()
