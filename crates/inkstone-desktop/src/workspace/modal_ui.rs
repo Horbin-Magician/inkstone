@@ -174,7 +174,7 @@ impl Workspace {
                     .items_center()
                     .justify_between()
                     .pb_1()
-                    .when(picker, |s| s.hidden())
+                    .when(picker || self.ui.history.is_some(), |s| s.hidden())
                     .when(recovery, |s| {
                         s.px(px(24.))
                             .py(px(12.))
@@ -373,7 +373,7 @@ impl Workspace {
                 s.child(self.attachments_panel(cx))
             })
             .when(self.ui.history.is_some(), |s| {
-                s.child(self.history_panel(cx))
+                s.child(self.history_panel(window, cx))
             })
             .when(self.ui.conflict_review.is_some(), |s| {
                 s.child(self.conflict_panel(cx))
@@ -394,29 +394,6 @@ impl Workspace {
             .child(content.focus_trap("workspace-modal-focus-trap", &self.ui.modal_focus))
             .into_any_element()
     }
-    pub(super) fn recovery_section(&self, title: &str, description: &str) -> AnyElement {
-        div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .px_1()
-            .pt_3()
-            .pb_1()
-            .child(
-                div()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title.to_owned()),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                    .whitespace_normal()
-                    .child(description.to_owned()),
-            )
-            .into_any_element()
-    }
-
     fn picker_search(&self, command: bool, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex()

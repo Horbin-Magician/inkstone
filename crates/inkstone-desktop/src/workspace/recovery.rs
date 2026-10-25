@@ -558,191 +558,150 @@ impl Workspace {
         self.restore_text_as_copy(&path, text, window, cx);
     }
 
-    pub(super) fn history_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn history_panel(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        use super::ui::{icon, tool};
         let Some(browser) = &self.ui.history else {
             return div().into_any_element();
         };
         let palette = crate::theme::palette(self.ui.prefs.light);
         let bytes: u64 = browser.entries.iter().map(|e| e.bytes).sum();
-        div()
-            .id("history-content")
-            .track_scroll(&browser.scroll)
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .px_1()
-            .min_h_0()
-            .child(FocusReveal::new(
-                "history-back-focus",
-                &browser.scroll,
-                Button::new("history-back-to-recovery")
-                    .ghost()
-                    .label("← 返回文件恢复")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.show_recovery_hub(window, cx);
-                    })),
-            ))
-            .child(
-                div().flex().flex_col().gap_1().p_3().rounded(px(8.)).bg(palette.surface)
-                    .child(history_text("history-note-name", browser.path.file_name().unwrap_or(browser.path.as_os_str()).to_string_lossy().to_string())
-                        .text_lg().font_weight(FontWeight::SEMIBOLD))
-                    .child(history_text("history-owner-path", browser.path.to_string_lossy().to_string()).text_sm().text_color(palette.muted)),
-            )
-            .when_some(browser.record.as_ref(), |s, record| {
-                s.child(
-                    history_text("history-original-path", format!("记录原路径：{}", record.relative.display())).text_sm(),
-                )
+        let pages = browser.entries.len().div_ceil(VERSIONS_PER_PAGE);
+        let selected = browser.selected.and_then(|i| browser.entries.get(i));
+        let note_name = browser
+            .path
+            .file_name()
+            .unwrap_or(browser.path.as_os_str())
+            .to_string_lossy()
+            .to_string();
+        let metadata = selected
+            .map(|entry| {
+                super::recovery_metadata::Metadata {
+                    source: if entry.saved {
+                        super::recovery_metadata::Source::History
+                    } else {
+                        super::recovery_metadata::Source::Draft
+                    },
+                    modified: Some(entry.modified),
+                    bytes: Some(entry.bytes),
+                }
+                .label()
             })
-            .child(history_text("history-retention", if browser.draft_review {
-                format!(
-                    "未保存恢复记录 · {:.1} KiB · 恢复或放弃前保留",
-                    bytes as f64 / 1024.
-                )
-            } else {
-                format!(
-                    "{} 条记录 · {:.1} MiB · {}",
-                    browser.entries.len(),
-                    bytes as f64 / 1048576.,
-                    retention_label(self.ui.prefs.history)
-                )
-            }).text_sm().text_color(palette.muted))
-            .when(!browser.current_available && !browser.loading, |s| s.child(history_text("history-missing-current", "原路径没有可读取的当前正文；可查看历史并恢复为副本。")))
-            .when(browser.loading, |s| s.child(history_text("history-loading", "正在读取版本……")))
-            .when(!browser.message.is_empty(), |s| {
-                s.child(history_text("history-message", browser.message.clone()))
-            })
-            .when(browser.entries.is_empty() && !browser.loading, |s| {
-                s.child(self.empty_state("history", "暂无版本记录", "修改并保存这篇笔记后，历史版本会显示在这里。"))
-            })
-            .when(!browser.entries.is_empty(), |panel| {
-                let pages = browser.entries.len().div_ceil(VERSIONS_PER_PAGE);
-                panel.child(self.recovery_section("选择版本", "按时间查看记录，选择后可预览内容或与当前正文比较。"))
-                    .child(div().track_focus(&browser.pager_focus).flex().items_center().flex_wrap().gap_2()
-                    .child(history_text("history-page-status", format!("第 {} / {pages} 页 · 共 {} 条", browser.page + 1, browser.entries.len())).text_sm().text_color(palette.muted))
-                    .children([false, true].into_iter().map(|next| {
-                        let id = ("history-page", usize::from(next));
-                        div().debug_selector(move || format!("history-page-{next}"))
-                            .child(FocusReveal::new((ElementId::from(id), "focus"), &browser.scroll,
-                                Button::new(id).ghost().compact().label(if next { "下一页 →" } else { "← 上一页" })
-                                    .accessibility_label(if next { "历史下一页" } else { "历史上一页" })
-                                    .disabled(if next { browser.page + 1 >= pages } else { browser.page == 0 })
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        let Some(browser) = &mut this.ui.history else { return; };
-                                        let last = browser.entries.len().saturating_sub(1) / VERSIONS_PER_PAGE;
-                                        browser.page = if next { browser.page.saturating_add(1).min(last) } else { browser.page.saturating_sub(1) };
-                                        // Paging does not select/read another version or cancel its preview.
-                                        window.focus(&browser.pager_focus, cx);
-                                        cx.notify();
-                                    }))))
-                    })))
-                    .children(browser.entries.iter().enumerate()
-                        .skip(browser.page * VERSIONS_PER_PAGE).take(VERSIONS_PER_PAGE)
-                        .map(|(i, entry)| {
+            .unwrap_or_else(|| "选择左侧记录，查看此版本的内容".into());
+        let policy = if browser.draft_review {
+            "未保存草稿会保留到恢复或放弃为止。".to_owned()
+        } else {
+            retention_label(self.ui.prefs.history)
+        };
+        let help = format!(
+            "{policy}\n\n共 {} 条记录，{:.1} KiB。容量按记录文件长度统计，包含正文、元数据及可能的保存前正文，不等于当前笔记大小或磁盘实际分配空间。",
+            browser.entries.len(),
+            bytes as f64 / 1024.
+        );
+        div().debug_selector(|| "history-shell".into()).flex().flex_col().flex_1().min_h_0().overflow_hidden()
+            .child(div().flex_shrink_0().px(px(24.)).py(px(16.)).flex().items_center().gap_3()
+                .border_b_1().border_color(palette.border)
+                .child(div().size(px(40.)).flex_shrink_0().rounded(px(12.)).bg(palette.surface)
+                    .flex().items_center().justify_center().text_color(palette.accent).child(icon("history").size(px(22.))))
+                .child(div().flex_1().min_w_0().flex().flex_col().gap_1()
+                    .child(history_text("history-note-name", note_name).font_weight(FontWeight::SEMIBOLD).truncate())
+                    .child(history_text("history-owner-path", format!("{} · {}", if browser.draft_review { "草稿恢复" } else { "版本历史" }, browser.path.display()))
+                        .text_sm().text_color(palette.muted).truncate()))
+                .child(Button::new("history-back-to-recovery").ghost().compact().label("文件恢复中心")
+                    .on_click(cx.listener(|this, _, w, cx| this.show_recovery_hub(w, cx))))
+                .child(tool("close-history", "x", "关闭 Esc").on_click(cx.listener(|this, _, w, cx| this.close_overlays(w, cx)))))
+            .child(div().debug_selector(|| "history-columns".into()).flex().items_stretch().flex_1().min_h_0()
+                .child(div().w(px(if window.viewport_size().width < px(1000.) { 224. } else { 264. }))
+                    .flex_shrink_0().flex().flex_col().bg(palette.surface).border_r_1().border_color(palette.border)
+                    .child(div().flex_shrink_0().px(px(16.)).py(px(12.)).flex().items_center().justify_between()
+                        .child(history_text("history-list-title", format!("版本记录 · {}", browser.entries.len())).text_sm().font_weight(FontWeight::MEDIUM))
+                        .child(tool("history-policy", "info", help)))
+                    .child(div().id("history-content").flex_1().min_h_0().track_scroll(&browser.scroll).overflow_y_scroll()
+                        .px(px(10.)).pb(px(12.)).flex().flex_col().gap_2()
+                        .when(browser.entries.is_empty(), |s| s.child(history_text("history-empty", if browser.loading { "正在读取版本……" } else { "暂无历史版本\n修改并保存后，版本会显示在这里。" }).p_3().text_sm().text_color(palette.muted)))
+                        .children(browser.entries.iter().enumerate().skip(browser.page * VERSIONS_PER_PAGE).take(VERSIONS_PER_PAGE).map(|(i, entry)| {
                             let date: chrono::DateTime<chrono::Local> = entry.modified.into();
+                            let active = browser.selected == Some(i);
                             div().debug_selector(move || format!("history-version-{i}"))
                                 .child(FocusReveal::new((ElementId::from(("history-version", i)), "focus"), &browser.scroll,
-                                    Button::new(("history-version", i)).ghost()
-                                        .w_full().h_auto().min_h(px(44.)).px_3().py_2()
-                                        .border_1().border_color(palette.border).rounded(px(8.))
-                                        .when(browser.selected == Some(i), |b| b.bg(palette.selected).border_color(palette.accent))
-                                        .selected(browser.selected == Some(i))
-                                        .accessibility_label(format!("版本 {} · {} · {}", i + 1, date.format("%Y-%m-%d %H:%M:%S%.3f"), if entry.saved { "已保存" } else { "恢复草稿" }))
-                                        .child(div().flex().flex_wrap().items_center().gap_2().w_full()
-                                            .child(div().text_sm().text_color(palette.muted).child(format!("{:02}", i + 1)))
-                                            .child(div().flex_1().min_w_0().whitespace_normal().child(date.format("%Y-%m-%d %H:%M:%S").to_string()))
-                                            .child(div().text_sm().px_2().py_1().rounded(px(4.)).bg(palette.surface).child(if entry.saved { "已保存" } else { "恢复草稿" }))
-                                            .child(div().text_sm().text_color(palette.accent).child(if browser.selected == Some(i) { "已选中" } else { "查看" })))
-                                        .on_click(cx.listener(move |this, _, window, cx| this.select_history(i, window, cx)))))
+                                    Button::new(("history-version", i)).ghost().w_full().h_auto().p(px(12.))
+                                        .rounded(px(8.)).border_l_2().border_color(if active { palette.accent } else { palette.surface })
+                                        .when(active, |s| s.bg(palette.selected)).selected(active)
+                                        .accessibility_label(format!("版本 {} · {} · {}", i + 1, date.format("%Y-%m-%d %H:%M:%S%.3f"), if entry.saved { "已保存" } else { "未保存草稿" }))
+                                        .child(div().w_full().min_w_0().flex().flex_col().gap_2()
+                                            .child(div().flex().items_center().justify_between().gap_2()
+                                                .child(div().font_weight(FontWeight::SEMIBOLD).child(date.format("%H:%M:%S").to_string()))
+                                                .child(div().text_sm().text_color(palette.muted).child(format!("#{:02}", i + 1))))
+                                            .child(div().flex().flex_wrap().items_center().justify_between().gap_1().text_size(px(14.)).text_color(palette.muted)
+                                                .child(date.format("%Y-%m-%d").to_string())
+                                                .child(div().when(!entry.saved, |s| s.text_color(palette.accent)).child(if entry.saved { "已保存" } else { "草稿" }))))
+                                        .on_click(cx.listener(move |this, _, w, cx| this.select_history(i, w, cx)))))
                         }))
-            })
-            .child(self.recovery_section("内容预览", if browser.difference { "正在显示差异 · 与打开比较时的正文对照" } else if browser.baseline { "正在显示所选版本的保存前内容" } else { "正在显示所选版本的记录内容" }))
-            .when_some(browser.selected.and_then(|i| browser.entries.get(i)), |s, entry| {
-                s.child(history_text("history-selected-metadata", format!(
-                    "所选记录 {} · {}",
-                    browser.selected.unwrap_or_default() + 1,
-                    super::recovery_metadata::Metadata {
-                        source: if entry.saved { super::recovery_metadata::Source::History } else { super::recovery_metadata::Source::Draft },
-                        modified: Some(entry.modified),
-                        bytes: Some(entry.bytes),
-                    }.label()
-                )).text_sm().text_color(palette.muted))
-            })
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .child(FocusReveal::new("history-before-focus", &browser.scroll, Button::new("history-before")
-                            .label("保存前内容")
-                            .when(browser.baseline, |b| b.primary())
-                            .selected(browser.baseline)
-                            .disabled(browser.record.as_ref().is_none_or(|r| r.baseline.is_none()))
+                        .when(pages > 1, |s| s.child(div().track_focus(&browser.pager_focus).flex().flex_wrap().items_center().justify_between().gap_1().pt_2()
+                            .children([false, true].into_iter().map(|next| {
+                                let id = ("history-page", usize::from(next));
+                                div().debug_selector(move || format!("history-page-{next}"))
+                                    .child(FocusReveal::new((ElementId::from(id), "focus"), &browser.scroll,
+                                        Button::new(id).ghost().compact().label(if next { "下一页 →" } else { "← 上一页" })
+                                            .accessibility_label(if next { "历史下一页" } else { "历史上一页" })
+                                            .disabled(if next { browser.page + 1 >= pages } else { browser.page == 0 })
+                                            .on_click(cx.listener(move |this, _, w, cx| {
+                                                let Some(browser) = &mut this.ui.history else { return; };
+                                                let last = browser.entries.len().saturating_sub(1) / VERSIONS_PER_PAGE;
+                                                browser.page = if next { browser.page.saturating_add(1).min(last) } else { browser.page.saturating_sub(1) };
+                                                browser.scroll.set_offset(point(px(0.), px(0.)));
+                                                w.focus(&browser.pager_focus, cx);
+                                                cx.notify();
+                                            }))))
+                            }))
+                            .child(history_text("history-page-status", format!("{} / {pages}", browser.page + 1)).w_full().text_center().text_sm().text_color(palette.muted))))))
+                .child(div().debug_selector(|| "history-detail".into()).flex_1().h_full().min_w_0().min_h_0().flex().flex_col()
+                    .child(div().flex_shrink_0().px(px(20.)).py(px(12.)).flex().flex_wrap().items_center().justify_between().gap_2()
+                        .child(div().flex().items_center().gap_1().p_1().rounded(px(8.)).bg(palette.surface)
+                            .children([false, true].into_iter().map(|baseline| {
+                                Button::new(if baseline { "history-before" } else { "history-draft" }).ghost().compact()
+                                    .label(if baseline { "保存前" } else { "记录内容" })
+                                    .selected(browser.baseline == baseline)
+                                    .when(browser.baseline == baseline, |s| s.bg(palette.selected).text_color(palette.accent))
+                                    .disabled(browser.record.is_none() || browser.loading || (baseline && browser.record.as_ref().is_none_or(|r| r.baseline.is_none())))
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        if let Some(browser) = &mut this.ui.history { browser.baseline = baseline; }
+                                        this.update_history_preview(w, cx);
+                                    }))
+                            })))
+                        .child(Button::new("history-diff").ghost().compact().icon(icon("split-horizontal"))
+                            .label(if browser.draft_review { "对比磁盘正文" } else { "对比当前正文" })
+                            .selected(browser.difference).when(browser.difference, |s| s.bg(palette.selected).text_color(palette.accent))
+                            .tooltip("差异以打开比较时的正文为准")
+                            .disabled(browser.record.is_none() || !browser.current_available || browser.loading)
                             .on_click(cx.listener(|this, _, w, cx| {
-                                if let Some(browser) = &mut this.ui.history {
-                                    browser.baseline = true;
-                                }
+                                if let Some(browser) = &mut this.ui.history { browser.difference = !browser.difference; }
                                 this.update_history_preview(w, cx);
-                            }))),)
-                    .child(FocusReveal::new("history-draft-focus", &browser.scroll, Button::new("history-draft")
-                            .label("记录内容")
-                            .when(!browser.baseline, |b| b.primary())
-                            .selected(!browser.baseline)
-                            .disabled(browser.record.is_none())
-                            .on_click(cx.listener(|this, _, w, cx| {
-                                if let Some(browser) = &mut this.ui.history {
-                                    browser.baseline = false;
-                                }
-                                this.update_history_preview(w, cx);
-                            }))),)
-                    .child(FocusReveal::new("history-diff-focus", &browser.scroll, Button::new("history-diff")
-                            .label(if browser.draft_review {
-                                "与磁盘正文比较"
-                            } else {
-                                "与当前正文比较"
-                            })
-                            .when(browser.difference, |b| b.primary())
-                            .selected(browser.difference)
-                            .disabled(browser.record.is_none() || !browser.current_available)
-                            .on_click(cx.listener(|this, _, w, cx| {
-                                if let Some(browser) = &mut this.ui.history {
-                                    browser.difference = !browser.difference;
-                                }
-                                this.update_history_preview(w, cx);
-                            }))),),
-            )
-            .child(div().border_1().border_color(palette.border).rounded(px(8.)).overflow_hidden()
-                .child(Textarea::new(&browser.preview).readonly(true).h(px(280.))))
-            .child(self.recovery_section("恢复内容", "恢复为新笔记，保留当前文件。"))
-            .child(history_text("history-restore-help", if browser.draft_review {
-                "差异以打开比较时的磁盘正文为准；恢复草稿会新建副本，成功后清理所选草稿。"
-            } else {
-                "差异以打开历史时的正文为准；恢复会新建笔记并保留原文件。"
-            }).text_sm())
-            .child(FocusReveal::new("history-restore-focus", &browser.scroll, Button::new("history-restore")
-                    .primary()
-                    .label(if browser.draft_review {
-                        "恢复草稿为副本"
-                    } else {
-                        "恢复所选内容为新笔记"
-                    })
-                    .disabled(browser.record.is_none() || browser.loading)
-                    .on_click(cx.listener(|this, _, w, cx| this.restore_history(w, cx)))),)
-            .when(browser.draft_review, |s| {
-                s.child(FocusReveal::new("draft-discard-focus", &browser.scroll, Button::new("draft-discard")
-                        .label(if browser.confirm_discard {
-                            "确认放弃这一条草稿"
-                        } else {
-                            "放弃恢复"
-                        })
-                        .disabled(browser.loading || browser.record.is_none())
-                        .on_click(
-                            cx.listener(|this, _, w, cx| this.finish_draft_review(true, w, cx)),
-                        )),)
-            })
-            .child(history_text("history-size-help",
-                "容量按记录文件长度统计，包含正文、元数据及可能的保存前正文，不等于当前笔记大小或磁盘实际分配空间。"
-            ).text_sm().text_color(palette.muted))
+                            }))))
+                    .child(div().flex_shrink_0().px(px(24.)).pb(px(12.)).flex().flex_col().gap_1()
+                        .child(history_text("history-selected-metadata", if browser.difference { format!("− 所选版本　 + {}", if browser.draft_review { "打开比较时的磁盘正文" } else { "打开历史时的当前正文" }) } else { metadata }).text_sm().text_color(palette.muted).truncate())
+                        .when_some(browser.record.as_ref().filter(|r| r.relative != browser.path), |s, r| s.child(history_text("history-original-path", format!("记录原路径：{}", r.relative.display())).text_sm().text_color(palette.muted).truncate())))
+                    .child(div().id("history-preview-pane").debug_selector(|| "history-preview-pane".into()).flex_1().min_h_0().min_w_0().mx(px(20.)).mb(px(16.))
+                        .border_1().border_color(palette.border).rounded(px(10.)).overflow_hidden().flex().flex_col()
+                        .when(browser.record.is_some() && !browser.loading, |s| s.child(Textarea::new(&browser.preview)
+                            .readonly(true).appearance(false).bordered(false).h(relative(1.)).flex_1().min_h_0()
+                            .aria_label(if browser.difference { "版本差异预览" } else { "版本内容预览" })))
+                        .when(browser.record.is_none() || browser.loading, |s| s.child(div().flex_1().flex().flex_col().items_center().justify_center().gap_3().p_4().text_color(palette.muted)
+                            .child(icon("history").size(px(28.)))
+                            .child(history_text("history-preview-placeholder", if browser.loading { "正在读取版本……" } else { "选择一个版本，内容将在这里显示" }).text_sm()))))
+                    .when(!browser.message.is_empty(), |s| s.child(history_text("history-message", browser.message.clone()).flex_shrink_0().px(px(24.)).pb_2().text_sm()))
+                    .when(!browser.current_available && !browser.loading, |s| s.child(history_text("history-missing-current", "原路径没有当前正文，仍可恢复为副本。").flex_shrink_0().px(px(24.)).pb_2().text_sm().text_color(palette.muted)))
+                    .child(div().debug_selector(|| "history-restore-footer".into()).flex_shrink_0().border_t_1().border_color(palette.border)
+                        .px(px(20.)).py(px(12.)).flex().flex_wrap().items_center().justify_between().gap_2()
+                        .child(history_text("history-restore-help", if browser.draft_review { "恢复为副本后，清理所选草稿" } else if browser.baseline { "恢复保存前内容，保留原笔记" } else { "创建独立副本，保留原笔记" }).text_sm().text_color(palette.muted))
+                        .child(div().flex().items_center().gap_2()
+                            .when(browser.draft_review, |s| s.child(Button::new("draft-discard").ghost().compact()
+                                .label(if browser.confirm_discard { "确认放弃草稿" } else { "放弃草稿" })
+                                .disabled(browser.loading || browser.record.is_none())
+                                .on_click(cx.listener(|this, _, w, cx| this.finish_draft_review(true, w, cx)))))
+                            .child(Button::new("history-restore").primary().icon(icon("undo"))
+                                .label(if browser.draft_review { "恢复草稿为副本" } else { "恢复为新笔记" })
+                                .disabled(browser.record.is_none() || browser.loading)
+                                .on_click(cx.listener(|this, _, w, cx| this.restore_history(w, cx))))))))
             .into_any_element()
     }
 }
@@ -1160,6 +1119,30 @@ mod tests {
                     window.focus(&w.ui.modal_focus, cx);
                 })
                 .unwrap();
+            for draft_review in [true, false] {
+                handle
+                    .update(&mut visual, |w, _, _| {
+                        let browser = w.ui.history.as_mut().unwrap();
+                        browser.draft_review = draft_review;
+                        browser.confirm_discard = draft_review;
+                    })
+                    .unwrap();
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+                let preview = visual.debug_bounds("history-preview-pane").unwrap();
+                let footer = visual.debug_bounds("history-restore-footer").unwrap();
+                assert!(
+                    preview.size.height >= px(80.),
+                    "rem={rem}: preview too small: {preview:?}"
+                );
+                assert!(
+                    preview.bottom() <= footer.top(),
+                    "preview must not overlap restore actions"
+                );
+                assert!(
+                    footer.bottom() <= px(500.),
+                    "restore actions must stay visible: {footer:?}"
+                );
+            }
             for (step, page) in [0, 1, 2, 1, 0].into_iter().enumerate() {
                 let navigation = if step < 2 { "tab" } else { "shift-tab" };
                 let mut reached = std::collections::BTreeSet::new();
