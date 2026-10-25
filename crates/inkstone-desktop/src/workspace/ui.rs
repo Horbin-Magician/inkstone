@@ -1291,7 +1291,11 @@ impl Workspace {
         }
     }
 
-    pub(super) fn windows_workspace_header(&self, content: impl IntoElement) -> AnyElement {
+    pub(super) fn windows_workspace_header(
+        &self,
+        content: impl IntoElement,
+        drag_width: f32,
+    ) -> AnyElement {
         TitleBar::new()
             .h(crate::TITLE_BAR_HEIGHT)
             .pl_0()
@@ -1314,7 +1318,7 @@ impl Workspace {
                     .child(content),
             )
             // Keep a native window-drag target beside the toolbar buttons.
-            .child(div().w(px(24.)).h_full().flex_shrink_0())
+            .child(div().w(px(drag_width)).h_full().flex_shrink_0())
             .into_any_element()
     }
 
@@ -1652,7 +1656,7 @@ impl Workspace {
                 |bar| bar.child(self.sidebar_toggle(true, self.ui.prefs.right_open, cx)),
             );
         if cfg!(target_os = "windows") && !self.ui.prefs.right_open {
-            self.windows_workspace_header(header)
+            self.windows_workspace_header(header, 24.)
         } else {
             self.workspace_header(header, !self.ui.prefs.left_open, true)
         }
