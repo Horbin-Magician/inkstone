@@ -78,7 +78,7 @@ impl Workspace {
                     &self.index.files,
                 ) {
                     Some(path) => {
-                        cx.open_with_system(&path);
+                        self.open_attachment(path, window, cx);
                         return;
                     }
                     _ => {

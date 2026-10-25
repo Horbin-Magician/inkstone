@@ -75,6 +75,8 @@ impl TextViewDefaults {
 pub(crate) type TableActionsFn =
     dyn Fn(&TableData, &mut Window, &mut App) -> AnyElement + Send + Sync;
 
+pub(crate) type ImageLinkFn = dyn Fn(&gpui::SharedUri) -> Option<SharedString> + Send + Sync;
+
 pub(crate) type ImageSourceFn = dyn Fn(&gpui::SharedUri) -> gpui::ImageSource + Send + Sync;
 
 pub(crate) type LinkClickHandlerFn =
@@ -141,6 +143,7 @@ pub struct TextView {
     link_click_handler: Option<Arc<LinkClickHandlerFn>>,
     task_toggle_handler: Option<Arc<TaskToggleHandlerFn>>,
     image_source: Option<Arc<ImageSourceFn>>,
+    image_link: Option<Arc<ImageLinkFn>>,
     reveal_handler: Option<Rc<RevealHandlerFn>>,
     markdown_extensions: Arc<MarkdownExtensions>,
     motion: Option<TextViewMotion>,
@@ -190,6 +193,7 @@ impl TextView {
             link_click_handler: None,
             task_toggle_handler: None,
             image_source: None,
+            image_link: None,
             reveal_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
@@ -216,6 +220,7 @@ impl TextView {
             link_click_handler: None,
             task_toggle_handler: None,
             image_source: None,
+            image_link: None,
             reveal_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
@@ -242,10 +247,20 @@ impl TextView {
             link_click_handler: None,
             task_toggle_handler: None,
             image_source: None,
+            image_link: None,
             reveal_handler: None,
             markdown_extensions: Arc::default(),
             motion: None,
         }
+    }
+
+    /// Give unlinked images an application-defined click target. Explicit links take precedence.
+    pub fn image_link<F>(mut self, resolver: F) -> Self
+    where
+        F: Fn(&gpui::SharedUri) -> Option<SharedString> + Send + Sync + 'static,
+    {
+        self.image_link = Some(Arc::new(resolver));
+        self
     }
 
     /// Overrides the source of every document image, including embedded data URLs.
@@ -668,6 +683,7 @@ impl Element for TextView {
             state.link_click_handler = self.link_click_handler.clone();
             state.task_toggle_handler = self.task_toggle_handler.clone();
             state.image_source = self.image_source.clone();
+            state.image_link = self.image_link.clone();
             state.set_markdown_extensions(self.markdown_extensions.clone(), cx);
             if let Some(motion) = &self.motion {
                 state.set_motion(motion.clone());

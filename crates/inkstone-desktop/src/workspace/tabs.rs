@@ -80,6 +80,9 @@ impl Workspace {
                     this.focus_primary(index, window, cx);
                 }
                 match event {
+                    EditorEvent::PreviewImage(reference) => {
+                        this.preview_image_reference(reference, window, cx)
+                    }
                     EditorEvent::CountsChanged => cx.notify(),
                     EditorEvent::FontSizeDelta(delta) => this.adjust_font_size(*delta, window, cx),
                     EditorEvent::FollowLink(target) | EditorEvent::FollowLinkInNewTab(target) => {

@@ -234,7 +234,7 @@ impl Workspace {
             .when_some(selected,|s,e| {
                 let path=e.path.clone();let reveal=path.clone();let open=path.clone();let cleanup=e.clone();
                 s.child(label("attachment-selected-path", path.to_string_lossy().to_string())).child(div().flex().gap_2()
-                    .child(Button::new("attachment-preview").label("系统打开 / 预览").on_click(cx.listener(move|this,_,_,cx|{if let Some(v)=&this.vault{cx.open_with_system(&v.root.join(&open));}})))
+                    .child(Button::new("attachment-preview").label("打开 / 预览").on_click(cx.listener(move|this,_,w,cx|{if let Some(v)=&this.vault{let path=v.root.join(&open);this.open_attachment(path,w,cx);}})))
                     .child(Button::new("attachment-reveal").label("显示文件位置").on_click(cx.listener(move|this,_,_,cx|{if let Some(v)=&this.vault{cx.reveal_path(&v.root.join(&reveal));}})))
                     .child(Button::new("attachment-trash").label("移入回收站").disabled(m.loading||m.inventory.unreadable>0||!e.references.is_empty()||self.file_writes.pending()>0).on_click(cx.listener(move|this,_,w,cx|this.request_attachment_cleanup(cleanup.clone(),w,cx)))))
                     .child(label("attachment-reference-heading", "引用来源（点击打开）："))

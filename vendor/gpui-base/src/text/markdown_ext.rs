@@ -513,6 +513,7 @@ impl MarkdownExtensions {
             };
             let handler = context.link_click_handler.clone();
             let source = context.image_source.clone();
+            let image_link = context.image_link.clone();
             return Some(
                 InlineElement::new(
                     gpui::div().h(font).child(
@@ -534,6 +535,7 @@ impl MarkdownExtensions {
                                     cx,
                                 )
                             })
+                            .image_link(move |uri| image_link.as_ref().and_then(|resolve| resolve(uri)))
                             .image_source(move |uri| {
                                 source
                                     .as_ref()

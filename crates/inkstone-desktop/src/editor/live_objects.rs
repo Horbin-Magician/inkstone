@@ -700,6 +700,20 @@ fn element(
                         if event.is_right_click() {
                             return;
                         }
+                        if let Some(target) = url.strip_prefix("inkstone-image:") {
+                            cx.stop_propagation();
+                            let _ = link_pane.update(cx, |_, cx| {
+                                let reference = target
+                                    .strip_prefix("inkstone-reference:")
+                                    .and_then(|id| id.parse::<usize>().ok())
+                                    .and_then(|id| document.references.get(id))
+                                    .cloned();
+                                if let Some(reference) = reference {
+                                    cx.emit(EditorEvent::PreviewImage(reference));
+                                }
+                            });
+                            return;
+                        }
                         cx.stop_propagation();
                         let new_tab = event.modifiers().secondary();
                         let _ = link_pane.update(cx, |_, cx| {
@@ -725,6 +739,7 @@ fn element(
                             }
                         });
                     })
+                    .image_link(|uri| Some(format!("inkstone-image:{uri}").into()))
                     .image_source(move |uri| {
                         if let Some(reference) = uri
                             .to_string()
@@ -994,6 +1009,69 @@ mod tests {
                 assert_eq!(&source[range], "```rust\n> let 中文 = \"😀\";\n> ```");
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn clicking_note_images_requests_preview_without_editing_source(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-image-click-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        std::fs::write(root.join("preview.svg"), r#"<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect width="160" height="80" fill="red"/></svg>"#).unwrap();
+        for reading in [false, true] {
+            for image in ["![[preview.svg]]", "![preview](preview.svg)"] {
+                let source = format!("before\n\n{image}\n\nafter");
+                let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+                let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+                let events = received.clone();
+                handle
+                    .update(cx, |pane, _, cx| {
+                        pane.vault_root = root.clone();
+                        pane.set_paths(Arc::new(vec!["preview.svg".into()]));
+                        pane.reading = reading;
+                        cx.subscribe(&cx.entity(), move |_, _, event: &EditorEvent, _| {
+                            if let EditorEvent::PreviewImage(reference) = event {
+                                events.lock().unwrap().push(reference.target.clone());
+                            }
+                        })
+                        .detach();
+                        cx.notify();
+                    })
+                    .unwrap();
+                let mut visual = VisualTestContext::from_window(handle.into(), cx);
+                for _ in 0..12 {
+                    visual.run_until_parked();
+                    visual.update(|w, cx| w.draw(cx).clear(cx));
+                }
+                let position = handle
+                    .update(&mut visual, |pane, _, cx| {
+                        let bounds = if reading {
+                            let offset = pane.rendered.markdown.find("![").unwrap();
+                            pane.preview
+                                .read(cx)
+                                .bounds_for_source_offset(offset)
+                                .unwrap()
+                        } else {
+                            pane.live_objects[0].view.read(cx).bounds()
+                        };
+                        point(bounds.left() + px(40.), bounds.top() + px(40.))
+                    })
+                    .unwrap();
+                visual.simulate_click(position, Modifiers::default());
+                assert_eq!(
+                    *received.lock().unwrap(),
+                    vec!["preview.svg"],
+                    "reading={reading}, {image}"
+                );
+                handle
+                    .update(&mut visual, |pane, _, cx| {
+                        assert_eq!(pane.editor.read(cx).value().as_ref(), source)
+                    })
+                    .unwrap();
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[gpui::test]
