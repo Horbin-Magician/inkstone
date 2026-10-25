@@ -2,6 +2,7 @@ use super::focus_reveal::FocusReveal;
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
+    Disableable,
     button::*,
     menu::{DropdownMenu, PopupMenuItem},
 };
@@ -156,6 +157,15 @@ impl Workspace {
             input.set_value(settings.attachment_folder.clone(), window, cx)
         });
     }
+    fn attachment_folder_choices(&self) -> Vec<String> {
+        attachment_folder_choices(
+            &self.ui.folders,
+            self.ui.prefs.locations.attachments,
+            self.active
+                .and_then(|i| self.tabs.get(i))
+                .map(|tab| tab.path.as_path()),
+        )
+    }
     pub(super) fn file_settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         use inkstone_core::locations::LinkFormat;
         let formats = [
@@ -295,7 +305,52 @@ impl Workspace {
                                     } else {
                                         &self.ui.note_folder_input
                                     })),
-                                )),
+                                ))
+                                .when(attachment, |row| {
+                                    let folders = self.attachment_folder_choices();
+                                    let generation = self.generation;
+                                    let weak = cx.entity().downgrade();
+                                    row.child(FocusReveal::new(
+                                        "attachment-folder-picker-focus",
+                                        &self.ui.settings_scroll,
+                                        Button::new("attachment-folder-picker")
+                                            .label("选择文件夹")
+                                            .accessibility_label("选择附件文件夹")
+                                            .disabled(folders.is_empty())
+                                            .tooltip(if folders.is_empty() {
+                                                "暂无可选文件夹，可手动输入新目录"
+                                            } else {
+                                                "从已有文件夹中选择"
+                                            })
+                                            .dropdown_menu(move |mut menu, _, _| {
+                                                for folder in &folders {
+                                                    let folder = folder.clone();
+                                                    let weak = weak.clone();
+                                                    menu = menu.item(
+                                                        PopupMenuItem::new(folder.clone()).on_click(
+                                                            move |_, window, cx| {
+                                                                let _ = weak.update(cx, |this, cx| {
+                                                                    if this.generation != generation
+                                                                        || this.ui.prefs.locations.attachments != mode
+                                                                        || !this.attachment_folder_choices().contains(&folder)
+                                                                    {
+                                                                        return;
+                                                                    }
+                                                                    this.ui.prefs.locations.attachment_folder = folder.clone();
+                                                                    this.ui.attachment_folder_input.update(cx, |input, cx| {
+                                                                        input.set_value(folder.clone(), window, cx);
+                                                                    });
+                                                                    this.persist_workspace(cx);
+                                                                    cx.notify();
+                                                                });
+                                                            },
+                                                        ),
+                                                    );
+                                                }
+                                                menu
+                                            }),
+                                    ))
+                                }),
                         )
                     },
                 )
@@ -390,6 +445,37 @@ impl Workspace {
     }
 }
 
+/// Match the same relative base and validation rules used when importing attachments.
+fn attachment_folder_choices(
+    folders: &[PathBuf],
+    mode: Location,
+    current: Option<&std::path::Path>,
+) -> Vec<String> {
+    let base = if mode == Location::Subfolder {
+        current
+            .and_then(std::path::Path::parent)
+            .unwrap_or(std::path::Path::new(""))
+    } else {
+        std::path::Path::new("")
+    };
+    let mut choices: Vec<_> = folders
+        .iter()
+        .filter_map(|folder| {
+            let relative = folder.strip_prefix(base).ok()?;
+            let value = relative.to_str()?.replace(std::path::MAIN_SEPARATOR, "/");
+            let settings = inkstone_core::locations::Locations {
+                attachments: Location::Folder,
+                attachment_folder: value.clone(),
+                ..Default::default()
+            };
+            settings.directory(None, true).ok().map(|_| value)
+        })
+        .collect();
+    choices.sort();
+    choices.dedup();
+    choices
+}
+
 /// Completion entries use paths, aliases and anchor names, not body positions.
 fn same_completion_targets(previous: &Index, next: &Index) -> bool {
     previous.files == next.files
@@ -421,6 +507,44 @@ mod tests {
     use core::prelude::v1::test;
     use gpui_component::input::{CompletionProvider, Rope};
     use inkstone_core::locations::LinkFormat;
+
+    #[test]
+    fn attachment_picker_respects_location_base_and_valid_paths() {
+        let folders = [
+            "",
+            "附件",
+            "notes",
+            "notes/assets",
+            "notes/assets/images",
+            "other/assets",
+            ".hidden",
+            "notes/../outside",
+            "notes/assets",
+        ]
+        .map(PathBuf::from);
+        assert_eq!(
+            attachment_folder_choices(&folders, Location::Folder, None),
+            [
+                "notes",
+                "notes/assets",
+                "notes/assets/images",
+                "other/assets",
+                "附件"
+            ]
+        );
+        assert_eq!(
+            attachment_folder_choices(
+                &folders,
+                Location::Subfolder,
+                Some(std::path::Path::new("notes/note.md"))
+            ),
+            ["assets", "assets/images"]
+        );
+        assert_eq!(
+            attachment_folder_choices(&folders, Location::Subfolder, None),
+            attachment_folder_choices(&folders, Location::Folder, None)
+        );
+    }
 
     #[gpui::test]
     async fn note_completions_escape_filenames_that_conflict_with_wiki_syntax(
