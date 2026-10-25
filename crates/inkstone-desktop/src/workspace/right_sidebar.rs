@@ -1027,7 +1027,7 @@ mod outline_tests {
     }
 
     #[gpui::test]
-    fn right_header_more_menu_opens_and_switches_view(cx: &mut TestAppContext) {
+    fn right_header_controls_switch_view_with_or_without_overflow(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let handle = cx.add_window(Workspace::new);
         handle
@@ -1051,7 +1051,27 @@ mod outline_tests {
         for _ in 0..2 {
             visual.update(|window, cx| window.draw(cx).clear(cx));
         }
-        let more = visual.debug_bounds("right-mode-more").unwrap();
+        let Some(more) = visual.debug_bounds("right-mode-more") else {
+            // macOS fits all five modes at the minimum sidebar width; Windows
+            // reserves room for window controls and must use the overflow menu.
+            assert!(!cfg!(target_os = "windows"));
+            for selector in [
+                "right-mode-0",
+                "right-mode-1",
+                "right-mode-2",
+                "right-mode-3",
+                "right-mode-4",
+            ] {
+                assert!(visual.debug_bounds(selector).is_some());
+            }
+            let outline = visual.debug_bounds("right-mode-0").unwrap();
+            visual.simulate_click(outline.center(), Modifiers::default());
+            visual.run_until_parked();
+            handle
+                .update(&mut visual, |w, _, _| assert_eq!(w.ui.right_mode, 0))
+                .unwrap();
+            return;
+        };
         visual.simulate_click(more.center(), Modifiers::default());
         visual.run_until_parked();
         visual.update(|window, cx| {
