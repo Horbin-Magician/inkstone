@@ -107,8 +107,7 @@ impl Render for Preview {
                             ))
                         }),
                     )
-                    .child(div().flex_1())
-                    .child("滚轮缩放 · 拖动平移 · 双击适应窗口"),
+                    .child(div().flex_1()),
             )
             .child(
                 div()
