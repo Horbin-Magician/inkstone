@@ -105,12 +105,16 @@ impl Workspace {
             .flex()
             .items_center()
             .h(px(40.))
+            .when(cfg!(target_os = "windows"), |bar| {
+                bar.window_control_area(gpui::WindowControlArea::Drag)
+            })
             .px_2()
             .gap_1()
             .border_b_1()
             .border_color(self.border())
             .child(
                 tool("files", "folder-closed", "文件列表")
+                    .occlude()
                     .selected(self.ui.left_mode == 0)
                     .toggled(self.ui.left_mode == 0)
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -120,12 +124,14 @@ impl Workspace {
             )
             .child(
                 tool("search", "search", "搜索")
+                    .occlude()
                     .selected(self.ui.left_mode == 1)
                     .toggled(self.ui.left_mode == 1)
                     .on_click(cx.listener(|this, _, w, cx| this.focus_search(true, w, cx))),
             )
             .child(
                 tool("bookmarks", "bookmark", "书签")
+                    .occlude()
                     .selected(self.ui.left_mode == 2)
                     .toggled(self.ui.left_mode == 2)
                     .on_click(cx.listener(|this, _, _, cx| {

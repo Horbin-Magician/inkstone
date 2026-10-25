@@ -103,7 +103,7 @@ impl TitleBar {
     }
 }
 
-// The Windows control buttons have a fixed width of 35px.
+// Windows uses wider controls and larger icons for the integrated workspace toolbar.
 //
 // We don't need implementation the click event for the control buttons.
 // If user clicked in the bounds, the window event will be triggered.
@@ -208,7 +208,11 @@ impl RenderOnce for ControlIcon {
         div()
             .id(self.id())
             .flex()
-            .w(TITLE_BAR_HEIGHT)
+            .w(if is_windows {
+                px(46.)
+            } else {
+                TITLE_BAR_HEIGHT
+            })
             .h_full()
             .flex_shrink_0()
             .justify_center()
@@ -240,7 +244,11 @@ impl RenderOnce for ControlIcon {
                     }
                 })
             })
-            .child(Icon::new(self.icon()).small())
+            .child(
+                Icon::new(self.icon())
+                    .small()
+                    .when(is_windows, |icon| icon.size(px(18.))),
+            )
     }
 }
 
