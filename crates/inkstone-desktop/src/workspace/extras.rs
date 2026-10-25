@@ -1,5 +1,36 @@
 use super::*;
 
+// macOS clipboard images may be TIFF, which our Markdown attachment renderer
+// does not recognize. Convert the payload, not just its filename, before saving.
+pub(super) fn normalize_clipboard_image(
+    name: String,
+    bytes: Vec<u8>,
+) -> std::io::Result<(String, Vec<u8>)> {
+    let is_tiff = std::path::Path::new(&name)
+        .extension()
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_string_lossy().to_ascii_lowercase().as_str(),
+                "tif" | "tiff"
+            )
+        })
+        || image::guess_format(&bytes).ok() == Some(image::ImageFormat::Tiff);
+    if !is_tiff {
+        return Ok((name, bytes));
+    }
+    let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Tiff)
+        .map_err(std::io::Error::other)?;
+    let mut png = std::io::Cursor::new(Vec::new());
+    decoded
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(std::io::Error::other)?;
+    let name = std::path::Path::new(&name)
+        .with_extension("png")
+        .to_string_lossy()
+        .into_owned();
+    Ok((name, png.into_inner()))
+}
+
 impl Workspace {
     pub(super) fn duplicate_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.file_writes.operation_active() {
@@ -799,7 +830,10 @@ impl Workspace {
                 results.push(vault.import_attachment_to(&folder, &path));
             }
             if let Some((name, bytes)) = image {
-                results.push(vault.store_attachment_to(&folder, &name, &bytes));
+                results.push(match normalize_clipboard_image(name, bytes) {
+                    Ok((name, bytes)) => vault.store_attachment_to(&folder, &name, &bytes),
+                    Err(error) => Err(error.into()),
+                });
             }
             (results, vault.scan_files())
         });

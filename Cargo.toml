@@ -40,6 +40,7 @@ regex = "=1.13.1"
 chrono = "=0.4.45"
 similar = "=2.7.0"
 sha2 = "=0.10.9"
+image = { version = "=0.25.10", default-features = false, features = ["png", "tiff"] }
 ratex-parser = "=0.1.14"
 ratex-layout = "=0.1.14"
 ratex-types = "=0.1.14"

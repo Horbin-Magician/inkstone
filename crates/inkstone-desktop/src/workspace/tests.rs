@@ -6541,3 +6541,34 @@ fn tree_arbitrary_files_rename_move_trash_and_restore(cx: &mut TestAppContext) {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+#[test]
+fn clipboard_tiff_becomes_png_with_pixels_and_alpha_preserved() {
+    let pixels = image::RgbaImage::from_raw(2, 1, vec![255, 0, 0, 255, 0, 80, 200, 64]).unwrap();
+    let mut tiff = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(pixels.clone())
+        .write_to(&mut tiff, image::ImageFormat::Tiff)
+        .unwrap();
+    for filename in ["粘贴图片.tiff", "粘贴图片.TIF", "粘贴图片.bin"] {
+        let (name, bytes) =
+            super::extras::normalize_clipboard_image(filename.into(), tiff.get_ref().clone())
+                .unwrap();
+        assert_eq!(name, "粘贴图片.png");
+        assert_eq!(
+            image::guess_format(&bytes).unwrap(),
+            image::ImageFormat::Png
+        );
+        assert_eq!(image::load_from_memory(&bytes).unwrap().to_rgba8(), pixels);
+    }
+}
+
+#[test]
+fn clipboard_image_keeps_other_formats_and_rejects_broken_tiff() {
+    let bytes = b"unchanged clipboard payload".to_vec();
+    assert_eq!(
+        super::extras::normalize_clipboard_image("image.png".into(), bytes.clone()).unwrap(),
+        ("image.png".into(), bytes)
+    );
+    assert!(
+        super::extras::normalize_clipboard_image("image.tiff".into(), b"broken".to_vec()).is_err()
+    );
+}
