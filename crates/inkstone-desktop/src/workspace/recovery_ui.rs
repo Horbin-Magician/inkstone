@@ -114,7 +114,8 @@ impl Workspace {
                                 .label(name)
                                 .selected(source == tab)
                                 .when(source == tab, |b| {
-                                    b.text_color(palette.accent)
+                                    b.bg(palette.selected)
+                                        .text_color(palette.accent)
                                         .border_b_2()
                                         .border_color(palette.accent)
                                 })
@@ -173,10 +174,11 @@ impl Workspace {
                                 .items_center()
                                 .gap_3()
                                 .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .child(Input::new(&self.ui.recovery_filter)),
+                                    div().flex_1().min_w_0().child(
+                                        Input::new(&self.ui.recovery_filter)
+                                            .cleanable(true)
+                                            .aria_label("搜索恢复记录的文件名或原路径"),
+                                    ),
                                 )
                                 .child(
                                     label("recovery-count", format!("{count} 项"))
