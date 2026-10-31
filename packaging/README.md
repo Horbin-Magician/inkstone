@@ -13,11 +13,27 @@ Windows 需要 MSVC C++ Build Tools、Windows SDK 和 NSIS 3（可通过 `NSIS_M
 产物为 x64 便携 ZIP、当前用户安装器 EXE；使用静态 C 运行库，无需另装 Visual C++ 运行库。安装器无需管理员权限，卸载保留用户创建的文件及应用数据。
 Windows 程序内嵌多尺寸应用图标；安装器和卸载器使用同一图标。安装时创建当前用户的桌面与开始菜单快捷方式，卸载时移除这两个快捷方式。
 更新图标原稿后，安装 Pillow 并运行 `python packaging/windows/generate_icon.py`，重新生成并提交 `crates/inkstone-desktop/assets/inkstone.ico`。生成器去除原稿为 macOS Dock 预留的透明边距，保持图案比例，并输出 16–256 像素的 Windows 图标（含常见缩放比例需要的 20、40、96 像素）。正常构建使用已提交的 ICO，无需 Pillow。
-macOS 仅提供 Apple Silicon 构建，需要 Xcode Command Line Tools，输出 DMG 和 app.tar.gz；应用使用临时签名。
+macOS 仅提供 Apple Silicon 构建，需要 Xcode Command Line Tools，输出 DMG 和 app.tar.gz；未配置 Apple 凭据时应用使用临时签名。
 CI 使用 Apple Silicon runner 构建 macOS 发行包。
 DMG 按源文件逻辑大小额外预留 20% 和 64 MiB 的文件系统空间，避免自动估算容量不足。
 包内包含使用指南、许可和 `resources.json`。资源清单分别记录普通文件的 SHA-256 和符号链接的目标，链接不展开读取；包外 `.sha256` 校验下载完整性；校验和不等同于数字签名。
-当前没有 Windows 发行签名或 Apple Developer ID 公证。应用内支持检测、下载并校验更新，打开安装包后由用户完成安装；不会自动退出或替换正在运行的应用。
+当前没有 Windows 发行签名。macOS 支持以下 Developer ID 签名和公证流程。应用内支持检测、下载并校验更新，打开安装包后由用户完成安装；不会自动退出或替换正在运行的应用。
+
+## macOS 签名与公证
+
+沿用 Rotor 的 Keychain 凭据方式，先安装包含私钥的 Developer ID Application 证书，并通过 `xcrun notarytool store-credentials` 保存公证凭据。已有的同团队 profile 可以复用。
+
+```sh
+export APPLE_SIGNING_IDENTITY='Developer ID Application: YOUR NAME (TEAM_ID)'
+export APPLE_NOTARY_PROFILE=rotor-release
+python packaging/package.py target/package-signed --signed
+```
+
+`--signed` 要求完整凭据，缺失即失败；仅设置一个环境变量也会失败。可用 `APPLE_NOTARY_KEYCHAIN` 指定 profile 所在钥匙串。私钥和公证密码不写入仓库。
+
+流程依次完成 Hardened Runtime 与安全时间戳签名、应用 ZIP 公证、装订并验证票据、Gatekeeper 验证，然后生成包含已公证应用的归档和 DMG。DMG 再独立签名、公证、装订并通过 Gatekeeper 验证，最后生成下载校验和。资源清单在应用装订后生成。任一步失败时产物不可分发，重试需使用新输出目录。
+
+本地凭据不会自动配置 GitHub Actions；现有 CI 未设置凭据时仍生成临时签名包。
 
 ## 发布
 
