@@ -61,7 +61,7 @@ open target/debug/墨砚.app
 # 发布构建：bash packaging/macos/bundle.sh --release
 ```
 
-打包脚本从 `crates/inkstone-desktop/assets/inkstone-icon.png` 生成多尺寸 macOS 图标，并使用本机临时签名，尚未配置发行签名和公证。当前界面固定为中文；将来切换界面语言时，需同步更新 `packaging/macos/Info.plist` 中的系统显示名称。Linux 尚未构建或验收。
+打包脚本从 `crates/inkstone-desktop/assets/inkstone-icon.png` 生成多尺寸 macOS 图标，本地开发默认使用临时签名；正式 macOS 包使用 Developer ID 签名与 Apple 公证，配置见 [打包指南](packaging/README.md)。当前界面固定为中文；将来切换界面语言时，需同步更新 `packaging/macos/Info.plist` 中的系统显示名称。Linux 尚未构建或验收。
 
 ## 文档入口
 
