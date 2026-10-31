@@ -90,16 +90,21 @@ def prepare_dmg(stage, image):
     verify(image, manifest=".resources.json")
 
 
-def package(output):
+def package(output, signed=False):
     system = platform.system()
     host = subprocess.check_output(["rustc", "-vV"], text=True).split("host: ")[1].splitlines()[0]
     if system not in ("Windows", "Darwin") or host not in (
         "x86_64-pc-windows-msvc", "aarch64-apple-darwin"
     ):
         raise ValueError(f"Unsupported native host: {host}")
+    signing = None
     if system == "Darwin":
         # Fail before building if the DMG metadata dependencies are unavailable.
         from macos.dmg import build_dmg
+        from macos.signing import Signing
+        signing = Signing.from_env(required=signed)
+    elif signed:
+        raise ValueError("--signed requires macOS")
     version = metadata()["version"]
     compiler = None
     if system == "Windows":
@@ -129,6 +134,8 @@ def package(output):
                        cwd=ROOT, check=True,
                        env={**os.environ, "INKSTONE_BUNDLE_PATH": str(stage / "墨砚.app")})
         run("codesign", "--verify", "--deep", "--strict", stage / "墨砚.app")
+        if signing:
+            signing.app(stage / "墨砚.app")
     shutil.copy2(ROOT / "LICENSE", stage)
     shutil.copytree(ROOT / "licenses", stage / "licenses")
     shutil.copy2(ROOT / "docs/GUIDE.md", stage / "GUIDE.md")
@@ -149,6 +156,8 @@ def package(output):
         image = output / "dmg-root"
         prepare_dmg(stage, image)
         build_dmg(image, output / f"{stem}.dmg", dmg_size_mb(image))
+        if signing:
+            signing.dmg(output / f"{stem}.dmg")
     assets = sorted(p for p in output.iterdir() if p.is_file())
     (output / f"{stem}.sha256").write_text(
         "".join(f"{digest(p)}  {p.name}\n" for p in assets), encoding="utf-8")
@@ -158,5 +167,6 @@ def package(output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="New output directory; existing paths are rejected")
+    parser.add_argument("--signed", action="store_true", help="Require Developer ID signing and notarization")
     args = parser.parse_args()
-    package(args.output)
+    package(args.output, signed=args.signed)
