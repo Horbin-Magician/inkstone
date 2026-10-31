@@ -336,6 +336,7 @@ impl Workspace {
                     this.schedule_auto_sync(true);
                 }
                 this.refresh_requested = true;
+                this.refresh(window, cx);
                 cx.notify();
             });
         })
@@ -555,6 +556,7 @@ mod tests {
                     "typed while applying"
                 );
                 assert!(w.tabs[0].save.persistence.has_conflict());
+                assert_eq!(w.index.notes[std::path::Path::new("a.md")].text, "new 😀");
                 assert_eq!(w.file_writes.pending(), 0);
                 assert!(
                     w.ui.bulk_edit

@@ -161,7 +161,7 @@ impl Workspace {
             cx.notify();
         }
     }
-    fn restore_sync_backup(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn restore_sync_backup(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.generation != self.ui.sync_recovery.generation
             || self.file_writes.operation_active()
             || self.file_writes.pending() > 0
@@ -188,9 +188,9 @@ impl Workspace {
         let task = cx
             .background_executor()
             .spawn(async move { recovery::restore_copy(&vault, &entry, &reserved) });
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
@@ -199,6 +199,7 @@ impl Workspace {
                     Ok(restored) => {
                         this.changed_paths.insert(restored.relative.clone());
                         this.refresh_requested = true;
+                        this.refresh(window, cx);
                         this.schedule_auto_sync(true);
                         format!(
                             "已恢复副本：{}。原文件与备份均保留。{}",
@@ -412,8 +413,8 @@ impl Workspace {
                                                     || self.file_writes.pending() > 0
                                                     || state.loading,
                                             )
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.restore_sync_backup(i, cx)
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.restore_sync_backup(i, window, cx)
                                             })),
                                     ))
                             }),
@@ -662,11 +663,11 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         handle
-            .update(cx, |w, _, cx| {
+            .update(cx, |w, window, cx| {
                 w.request_sync_cleanup(cx);
                 w.execute_sync_cleanup(cx);
                 w.execute_sync_cleanup(cx);
-                w.restore_sync_backup(0, cx);
+                w.restore_sync_backup(0, window, cx);
                 assert_eq!(w.file_writes.pending(), 1);
                 assert!(w.file_writes.operation_active());
                 assert!(w.ui.sync_recovery.cleaning);
@@ -719,7 +720,7 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         handle
-            .update(cx, |w, _, cx| {
+            .update(cx, |w, window, cx| {
                 w.request_sync_cleanup(cx);
                 w.execute_sync_cleanup(cx);
                 let cancellation = w.ui.sync_recovery.cancellation.as_ref().unwrap().clone();
@@ -730,7 +731,7 @@ mod tests {
                 assert!(w.ui.sync_recovery.cleaning);
                 assert!(w.file_writes.operation_active());
                 assert_eq!(w.file_writes.pending(), 1);
-                w.restore_sync_backup(0, cx);
+                w.restore_sync_backup(0, window, cx);
                 w.execute_sync_cleanup(cx);
                 assert_eq!(w.file_writes.pending(), 1);
             })
@@ -853,16 +854,16 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         window
-            .update(cx, |w, _, cx| {
+            .update(cx, |w, window, cx| {
                 assert!(w.ui.trash_open);
                 assert_eq!(w.ui.sync_recovery.inventory.entries.len(), 1);
                 assert!(!w.ui.sync_recovery.loading);
                 let pending = w.file_writes.begin();
-                w.restore_sync_backup(0, cx);
+                w.restore_sync_backup(0, window, cx);
                 assert_eq!(w.file_writes.pending(), 1);
                 w.file_writes.finish(pending);
-                w.restore_sync_backup(0, cx);
-                w.restore_sync_backup(0, cx);
+                w.restore_sync_backup(0, window, cx);
+                w.restore_sync_backup(0, window, cx);
                 assert_eq!(w.file_writes.pending(), 1);
             })
             .unwrap();
@@ -878,6 +879,9 @@ mod tests {
                 assert_eq!(w.ui.trash.len(), 1);
                 assert_eq!(w.ui.trash_metadata[&w.ui.trash[0].stored].bytes, Some(7));
                 assert!(w.ui.sync_recovery.message.contains("与同步前基线不同"));
+                let restored = PathBuf::from("note 同步恢复.md");
+                assert!(w.tree_files.contains(&restored));
+                assert!(w.index.notes.contains_key(&restored));
             })
             .unwrap();
         assert_eq!(

@@ -2887,6 +2887,10 @@ fn file_location_settings_control_note_and_attachment_writes(cx: &mut TestAppCon
                 "attachment insertion must preserve committed input"
             );
             assert_eq!(w.file_writes.pending(), 0);
+            assert!(
+                w.tree_files
+                    .contains(&PathBuf::from("project/media/image.png"))
+            );
             w.save_all(window, cx);
             w.ui.prefs.locations.notes = Location::Folder;
             w.ui.prefs.locations.note_folder = "inbox".into();
@@ -6534,9 +6538,8 @@ fn tree_arbitrary_files_rename_move_trash_and_restore(cx: &mut TestAppContext) {
                     .into_iter()
                     .find(|e| e.original == moved)
                     .unwrap();
-                vault.restore_trash(&entry).unwrap();
-                w.structure_changed = true;
-                w.refresh(window, cx);
+                w.ui.trash = vec![entry];
+                w.restore_deleted(0, window, cx);
             })
             .unwrap();
         cx.run_until_parked();
