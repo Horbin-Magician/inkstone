@@ -929,6 +929,7 @@ impl Workspace {
                 }
                 this.structure_changed = true;
                 this.refresh_requested = true;
+                this.refresh(w, cx);
                 this.sync_reference_contexts(cx);
                 cx.notify();
             });

@@ -1191,7 +1191,12 @@ impl Workspace {
         })
         .detach();
     }
-    pub(super) fn restore_deleted(&mut self, i: usize, cx: &mut Context<Self>) {
+    pub(super) fn restore_deleted(
+        &mut self,
+        i: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.file_writes.operation_active() {
             return;
         }
@@ -1207,9 +1212,9 @@ impl Workspace {
         let task = cx
             .background_executor()
             .spawn(async move { vault.restore_trash(&restored) });
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
@@ -1219,14 +1224,13 @@ impl Workspace {
                     Err(e) => e.to_string(),
                 });
                 if result.is_ok() {
-                    if entry.directory {
-                        this.structure_changed = true;
-                    } else {
-                        this.changed_paths.insert(entry.original);
-                    }
+                    // Restored entries can be attachments as well as notes.
+                    this.structure_changed = true;
+                    this.changed_paths.insert(entry.original);
                     this.schedule_auto_sync(true);
                 }
                 this.refresh_requested = true;
+                this.refresh(window, cx);
                 this.refresh_trash(cx);
                 cx.notify();
             });

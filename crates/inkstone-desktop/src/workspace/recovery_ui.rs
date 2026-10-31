@@ -222,8 +222,8 @@ impl Workspace {
                                             "从回收站恢复：{}",
                                             e.original.display()
                                         ))
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.restore_deleted(i, cx)
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.restore_deleted(i, window, cx)
                                         })),
                                 ),
                             )
