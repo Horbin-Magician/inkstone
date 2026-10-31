@@ -74,7 +74,7 @@ impl Workspace {
                     Ok((path, receipt)) => {
                         this.notifications
                             .publish(format!("已创建副本：{}", path.display()));
-                        this.note_indexed_change(path.clone(), receipt.text.clone(), cx);
+                        this.note_indexed_change(path.clone(), receipt.text.clone(), window, cx);
                         this.add_tab(path, Some(receipt.text), false, window, cx);
                     }
                     Err(error) => this.notifications.publish(error.to_string()),

@@ -2954,6 +2954,8 @@ fn duplicate_opens_snapshot_without_retargeting_original_tab(cx: &mut TestAppCon
             );
             let copy = &w.tabs[w.active.unwrap()];
             assert_eq!(copy.path, PathBuf::from("folder/source 副本.md"));
+            assert!(w.tree_files.contains(&copy.path));
+            assert!(w.index.notes.contains_key(&copy.path));
             assert_eq!(
                 copy.save.persistence.baseline().as_deref(),
                 Some("original 新编辑😀")
@@ -6251,6 +6253,14 @@ fn tree_naming_creates_in_parent_and_keeps_invalid_input(cx: &mut TestAppContext
         .unwrap();
     cx.run_until_parked();
     assert!(root.join("parent/新笔记.md").is_file());
+    handle
+        .update(cx, |w, _, _| {
+            let path = PathBuf::from("parent/新笔记.md");
+            assert!(w.tree_files.contains(&path));
+            assert!(w.index.notes.contains_key(&path));
+            assert!(!w.refresh_requested);
+        })
+        .unwrap();
     assert_eq!(
         std::fs::read_to_string(root.join("parent/existing.md")).unwrap(),
         "original"
