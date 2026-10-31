@@ -33,7 +33,16 @@ python packaging/package.py target/package-signed --signed
 
 流程依次完成 Hardened Runtime 与安全时间戳签名、应用 ZIP 公证、装订并验证票据、Gatekeeper 验证，然后生成包含已公证应用的归档和 DMG。DMG 再独立签名、公证、装订并通过 Gatekeeper 验证，最后生成下载校验和。资源清单在应用装订后生成。任一步失败时产物不可分发，重试需使用新输出目录。
 
-本地凭据不会自动配置 GitHub Actions；现有 CI 未设置凭据时仍生成临时签名包。
+GitHub Actions 的候选打包和正式发布均要求 macOS 签名与公证成功，缺失凭据时失败，不回退到临时签名。发布工作流将 Secrets 传递给复用的打包工作流。
+
+仓库 Actions Secrets 需配置：
+
+- `APPLE_CERTIFICATE_P12_BASE64`：包含私钥的 Developer ID Application P12，Base64 编码。
+- `APPLE_CERTIFICATE_PASSWORD`：P12 导出密码。
+- `APPLE_SIGNING_IDENTITY`：完整 Developer ID Application 证书名称。
+- `APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD`：Apple 公证账号、团队和应用专用密码。
+
+Runner 将证书导入临时钥匙串并保存公证 profile；无论成功或失败都清理钥匙串和证书文件。不要将这些值写入仓库或日志。
 
 ## 发布
 

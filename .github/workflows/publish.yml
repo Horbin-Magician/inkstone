@@ -26,6 +26,7 @@ jobs:
   packages:
     needs: validate
     uses: ./.github/workflows/package.yml
+    secrets: inherit
   publish:
     needs: [validate, packages]
     runs-on: ubuntu-latest
