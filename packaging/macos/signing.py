@@ -4,10 +4,28 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 
 
 def run(*args):
     subprocess.run([str(arg) for arg in args], check=True)
+
+
+def staple_ticket(path):
+    """Retry ticket delivery network failures without relaxing verification."""
+    command = ["xcrun", "stapler", "staple", str(path)]
+    for attempt in range(5):
+        result = subprocess.run(command, text=True, capture_output=True)
+        output = result.stdout + result.stderr
+        print(output, end="", flush=True)
+        if result.returncode == 0:
+            return
+        # Error 68 can have non-network causes; retry only diagnosed URL errors.
+        if result.returncode != 68 or "NSURLErrorDomain" not in output or attempt == 4:
+            raise subprocess.CalledProcessError(result.returncode, command, output=output)
+        delay = min(10 * 2 ** attempt, 60)
+        print(f"Apple ticket network failure; retrying in {delay}s", flush=True)
+        time.sleep(delay)
 
 
 class Signing:
@@ -44,7 +62,7 @@ class Signing:
         print(json.dumps(response), flush=True)
         if response.get("status") != "Accepted":
             raise RuntimeError("Apple did not accept the upload; do not distribute this output")
-        run("xcrun", "stapler", "staple", staple)
+        staple_ticket(staple)
         run("xcrun", "stapler", "validate", staple)
 
     def app(self, app):
