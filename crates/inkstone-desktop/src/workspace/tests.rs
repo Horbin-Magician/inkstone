@@ -6585,3 +6585,86 @@ fn clipboard_image_keeps_other_formats_and_rejects_broken_tiff() {
         super::extras::normalize_clipboard_image("image.tiff".into(), b"broken".to_vec()).is_err()
     );
 }
+
+#[gpui::test]
+fn tree_blank_space_selects_root_for_new_notes_and_folders(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-tree-root-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("nested")).unwrap();
+    std::fs::write(root.join("nested/note.md"), "text").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
+            w.index = Arc::new(Index::build(&vault).unwrap());
+            w.files = w.index.note_paths();
+            w.vault = Some(vault);
+            w.ui.prefs.left_open = true;
+            w.ui.left_mode = 0;
+            w.add_tab(
+                "nested/note.md".into(),
+                Some("text".into()),
+                false,
+                window,
+                cx,
+            );
+            w.sync_index_ui(cx);
+            w.rebuild_sorted_tree(cx);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1100.), px(800.)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let row = visual.debug_bounds("tree-name-0").unwrap();
+    visual.simulate_click(row.center(), Modifiers::default());
+    handle
+        .update(&mut visual, |w, _, _| {
+            assert_eq!(w.ui.tree_active, Some(PathBuf::from("nested")));
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let bounds = visual.debug_bounds("tree-root-drop").unwrap();
+    let blank = point(bounds.center().x, bounds.bottom() - px(20.));
+    visual.simulate_click(blank, Modifiers::default());
+    handle
+        .update(&mut visual, |w, window, cx| {
+            assert_eq!(w.ui.tree_active, Some(PathBuf::new()));
+            assert_eq!(w.tree.read(cx).selected_index(), None);
+            w.focus_new(window, cx);
+            assert_eq!(w.ui.tree_name.as_ref().unwrap().parent, PathBuf::new());
+            w.cancel_tree_name(cx);
+            w.prompt_name(ui::NameMode::Folder, window, cx);
+            assert_eq!(w.ui.tree_name.as_ref().unwrap().parent, PathBuf::new());
+            w.cancel_tree_name(cx);
+            w.ui.tree_active = Some("nested".into());
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_mouse_down(blank, MouseButton::Right, Modifiers::default());
+    visual.simulate_mouse_up(blank, MouseButton::Right, Modifiers::default());
+    handle
+        .update(&mut visual, |w, _, _| {
+            assert_eq!(w.ui.tree_active, Some(PathBuf::new()));
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_keystrokes("down enter");
+    handle
+        .update(&mut visual, |w, _, cx| {
+            let edit = w.ui.tree_name.as_ref().expect("root menu starts naming");
+            assert_eq!(edit.parent, PathBuf::new());
+            w.cancel_tree_name(cx);
+            w.ui.tree_active = Some("nested".into());
+        })
+        .unwrap();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let row = visual.debug_bounds("tree-name-0").unwrap();
+    visual.simulate_mouse_down(row.center(), MouseButton::Right, Modifiers::default());
+    visual.simulate_mouse_up(row.center(), MouseButton::Right, Modifiers::default());
+    handle
+        .update(&mut visual, |w, _, _| {
+            assert_eq!(w.ui.tree_active, Some(PathBuf::from("nested")));
+        })
+        .unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}

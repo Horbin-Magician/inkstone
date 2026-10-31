@@ -3,7 +3,7 @@ use super::commands::command;
 use super::ui::{NameMode, icon, tool};
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
-use gpui_component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_component::{
     Disableable, Icon, Selectable, Sizable, button::*, list::ListItem, tree::Tree,
 };
@@ -44,6 +44,14 @@ impl DraggedFile {
 }
 
 impl Workspace {
+    fn activate_tree_root(&mut self, cx: &mut Context<Self>) {
+        // An explicit empty path distinguishes the root from no tree selection.
+        self.ui.tree_active = Some(PathBuf::new());
+        self.tree
+            .update(cx, |tree, cx| tree.set_selected_index(None, cx));
+        cx.notify();
+    }
+
     pub(super) fn open_tree_file(
         &mut self,
         path: PathBuf,
@@ -215,6 +223,10 @@ impl Workspace {
         let editing = self.ui.tree_name.as_ref().map(|edit| edit.row.clone());
         let name_input = self.name.clone();
         let selected_path = self.ui.tree_active.clone().or(active_path);
+        let root_bounds = std::rc::Rc::new(std::cell::Cell::new(Bounds::<Pixels>::default()));
+        let root_menu_bounds = root_bounds.clone();
+        let root_menu_scroll = guide_scroll.clone();
+        let root_row_count = guide_depths.len();
         let generation = self.generation;
         let file_tree = Tree::new(&self.tree, move |i, entry, _, _, _| {
             let path = PathBuf::from(entry.item().id.as_ref());
@@ -364,6 +376,7 @@ impl Workspace {
                         ),
                 )
                 .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
                     if !is_editing {
                         let _ = weak.update(cx, |this, cx| {
                             this.ui.tree_active = Some(path.clone());
@@ -565,12 +578,59 @@ impl Workspace {
                     div()
                         .id("tree-root-drop")
                         .debug_selector(|| "tree-root-drop".into())
+                        .on_click(cx.listener(|this, _, _, cx| this.activate_tree_root(cx)))
                         .flex_1()
                         .min_h_0()
                         .px_3()
                         .on_drop(cx.listener(|this, drag: &DraggedFile, window, cx| {
                             cx.stop_propagation();
                             this.drop_tree_file(drag, std::path::Path::new(""), window, cx);
+                        }))
+                        .relative()
+                        .child(
+                            canvas(move |bounds, _, _| root_bounds.set(bounds), |_, _, _, _| {})
+                                .absolute()
+                                .inset_0(),
+                        )
+                        .child(div().absolute().inset_0().context_menu({
+                            let weak = cx.entity().downgrade();
+                            move |mut menu, window, cx| {
+                                // Context menus build after mouse dispatch, so row handlers
+                                // cannot stop a background menu through event propagation.
+                                // Exclude visible rows, accounting for the live scroll offset.
+                                let bounds = root_menu_bounds.get();
+                                let position = window.mouse_position();
+                                let offset = root_menu_scroll.0.borrow().base_handle.offset().y;
+                                if position.x >= bounds.left() + px(12.)
+                                    && position.x < bounds.right() - px(12.)
+                                    && position.y
+                                        < bounds.top()
+                                            + offset
+                                            + TREE_ROW_HEIGHT * root_row_count as f32
+                                {
+                                    return menu;
+                                }
+                                let _ = weak.update(cx, |this, cx| this.activate_tree_root(cx));
+                                for (label, mode) in [
+                                    ("新建笔记", NameMode::New),
+                                    ("新建文件夹", NameMode::Folder),
+                                ] {
+                                    let weak = weak.clone();
+                                    menu = menu.item(PopupMenuItem::new(label).on_click(
+                                        move |_, window, cx| {
+                                            let _ = weak.update(cx, |this, cx| {
+                                                this.begin_tree_name(
+                                                    mode,
+                                                    PathBuf::new(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        },
+                                    ));
+                                }
+                                menu
+                            }
                         }))
                         .child(
                             // Guides are positioned in this box, not the padded one.

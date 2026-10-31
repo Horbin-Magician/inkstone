@@ -250,6 +250,15 @@ impl Workspace {
             return;
         }
         self.command_open = false;
+        if self
+            .ui
+            .tree_active
+            .as_ref()
+            .is_some_and(|path| path.as_os_str().is_empty())
+        {
+            self.begin_tree_name(super::ui::NameMode::New, PathBuf::new(), window, cx);
+            return;
+        }
         let current = self
             .active
             .and_then(|i| self.tabs.get(i))
