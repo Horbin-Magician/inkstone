@@ -264,7 +264,12 @@ impl Workspace {
                             this.close_overlays(window, cx);
                         }
                         if let Some((path, receipt)) = copy {
-                            this.note_indexed_change(path.clone(), receipt.text.clone(), cx);
+                            this.note_indexed_change(
+                                path.clone(),
+                                receipt.text.clone(),
+                                window,
+                                cx,
+                            );
                             if !this.files.contains(&path) {
                                 this.files.push(path.clone());
                                 this.files.sort();

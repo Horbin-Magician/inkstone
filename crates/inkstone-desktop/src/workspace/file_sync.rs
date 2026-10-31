@@ -133,6 +133,7 @@ impl Workspace {
                     this.rescan = true;
                     return;
                 }
+                let queued_refresh = this.refresh_requested;
                 match result {
                     Ok((files, documents, index, folders)) => {
                         if this.folder_revision == folder_revision {
@@ -175,6 +176,12 @@ impl Workspace {
                         }
                         if index_changed {
                             this.run_search(cx);
+                        }
+                        // Writes arriving during this pass must not wait for the
+                        // periodic watcher poll. Retry only after success so disk
+                        // errors cannot create a tight refresh loop.
+                        if queued_refresh {
+                            this.refresh(window, cx);
                         }
                     }
                     Err(error) => {
@@ -306,10 +313,12 @@ impl Workspace {
         &mut self,
         path: PathBuf,
         text: String,
-        _cx: &mut Context<Self>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) {
         self.known_writes.insert(path, text);
         self.refresh_requested = true;
+        self.refresh(window, cx);
     }
 }
 
@@ -471,7 +480,7 @@ mod tests {
                 assert!(w.refreshing);
                 std::fs::write(root.join("a.md"), "latest").unwrap();
                 std::fs::write(root.join("new.md"), "imported").unwrap();
-                w.note_indexed_change("a.md".into(), "latest".into(), cx);
+                w.note_indexed_change("a.md".into(), "latest".into(), window, cx);
                 w.changed_paths.insert("new.md".into());
                 w.rescan = true;
                 w.refresh(window, cx);
@@ -485,14 +494,6 @@ mod tests {
                 );
                 assert!(w.changed_paths.contains(Path::new("new.md")));
                 assert!(w.rescan);
-            })
-            .unwrap();
-        cx.run_until_parked();
-        handle
-            .update(cx, |w, window, cx| {
-                assert!(!w.refreshing);
-                assert!(w.refresh_requested);
-                w.refresh(window, cx);
             })
             .unwrap();
         cx.run_until_parked();

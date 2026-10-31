@@ -196,7 +196,7 @@ impl Workspace {
                         document
                             .persistence
                             .resolved(text.clone(), newer_input_error);
-                        this.note_indexed_change(changed.clone(), text.clone(), cx);
+                        this.note_indexed_change(changed.clone(), text.clone(), window, cx);
                         this.schedule_auto_sync(true);
                         if still_current {
                             document
