@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/inkstone-core", "crates/inkstone-desktop"]
-default-members = ["crates/inkstone-core", "crates/inkstone-desktop"]
+members = ["crates/inkstone-core", "crates/inkstone-desktop", "crates/inkstone-agent"]
+default-members = ["crates/inkstone-core", "crates/inkstone-desktop", "crates/inkstone-agent"]
 exclude = ["vendor/gpui-base", "vendor/gpui-component", "vendor/markdown"]
 
 [workspace.package]
@@ -11,6 +11,9 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
+inkstone-agent = { path = "crates/inkstone-agent" }
+tokio = { version = "=1.53.1", features = ["rt", "time", "sync", "macros"] }
+futures-util = "=0.3.34"
 semver = "=1.0.28"
 tempfile = "=3.27.0"
 roxmltree = "=0.20.0"
