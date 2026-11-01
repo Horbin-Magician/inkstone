@@ -5027,7 +5027,7 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 
 - 全工作区测试通过：Agent 14 项；core 416 项通过、4 项沿用忽略；desktop 477 项通过、5 项沿用忽略；三个桌面集成测试目标共 8 项通过。日志 `target/agent-final-tests.log`。core 的子进程测试另有一次子进程内单项通过记录，不重复计数。
 - 全量后补充聚焦分屏快照回归，再运行 Agent 14 项与桌面 Agent 3 项，均通过。日志 `target/agent-runtime-tests.log`、`target/agent-ui-tests.log`。桌面测试实际验证新输入不被旧提案覆盖、单次撤销、重复接受无效、原生 GPUI 布局构造及聚焦分屏的选区来源。
-- SSE 按每一种字节分片大小解析中文与 emoji，覆盖交错工具调用和截断参数拒绝；本地 HTTP 验证请求路径/认证、流式正文、429 错误脱敏及取消中断等待。合成能力测试核对请求中没有笔记内容；基础写作生成提案但不写文件。
+- SSE 按每一种字节分片大小解析中文与 emoji，覆盖交错工具调用和截断参数拒绝；本地 HTTP 验证请求路径/认证、流式正文、429 错误脱敏及取消中断等待。合成能力测试核对请求中没有笔记内容，并拒绝没有有效工具调用的响应；统一工具流程生成提案但不写文件。
 - 工具覆盖范围排除、路径穿越、符号链接、选区外正文隔离、只读提案、长笔记完整读取要求。运行循环覆盖读取→提案→等待审阅、压缩保留用户要求与工具配对。配置极大数值被拒绝，不因整数溢出崩溃。
 - 条件写入覆盖整批预检先于任一写入、创建重名、重复应用拒绝、取消保留已完成项、首个写失败后不执行余项。会话覆盖按库隔离、中断标记、不重放、后台写入合并与退出排空。
 - `cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo fmt --all --check`、`git diff --check` 通过；日志 `target/agent-final-clippy.log`、`target/agent-fmt.log`。保留依赖 `block v0.1.6` 的 future-incompat 提示及已有大型桌面测试链接器 unwind 提示，没有通过放宽 lint 隐藏新增问题。
