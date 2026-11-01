@@ -76,6 +76,15 @@ impl ToolHost {
         excluded: Vec<PathBuf>,
         snapshot: Option<(PathBuf, String, Range<usize>)>,
     ) -> Result<Self> {
+        match &scope {
+            Scope::Notes(paths) if paths.is_empty() || paths.iter().any(|p| !relative(p)) => {
+                bail!("请提供有效的库内笔记路径")
+            }
+            Scope::Folder(path) if !relative(path) => {
+                bail!("请提供库内文件夹路径；根目录请使用全库范围")
+            }
+            _ => (),
+        }
         let mut index = Index::default();
         let mut overrides = BTreeMap::new();
         if let Some((path, text, range)) = snapshot {
@@ -84,7 +93,11 @@ impl ToolHost {
             }
             overrides.insert(path, (text, range));
         }
-        for path in vault.scan_files()? {
+        let paths = match &scope {
+            Scope::Notes(paths) => paths.clone(),
+            _ => vault.scan_files()?,
+        };
+        for path in paths {
             if !scope.allows(&path, &excluded) {
                 continue;
             }
@@ -245,11 +258,27 @@ impl ToolHost {
                 if edits.is_empty() || edits.len() > 100 {
                     bail!("一次最多提出 100 篇修改");
                 }
+                if self
+                    .proposals
+                    .iter()
+                    .map(|s| s.changes.len())
+                    .sum::<usize>()
+                    + edits.len()
+                    > 100
+                {
+                    bail!("本次任务最多提出 100 篇修改，请拆分任务");
+                }
                 let mut set = ChangeSet::default();
                 let mut paths = BTreeSet::new();
                 for edit in edits {
                     let path = PathBuf::from(edit["path"].as_str().context("缺少 path")?);
                     self.check(&path)?;
+                    if self.proposals.iter().flat_map(|s| &s.changes).any(|c| {
+                        c.path.to_string_lossy().to_lowercase()
+                            == path.to_string_lossy().to_lowercase()
+                    }) {
+                        bail!("本轮已为该路径提出修改，请勿重复提案");
+                    }
                     if !paths.insert(path.to_string_lossy().to_lowercase()) {
                         bail!("方案中路径重复");
                     }

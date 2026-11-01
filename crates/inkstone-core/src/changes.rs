@@ -161,6 +161,24 @@ mod tests {
         assert!(set.validate(&vault).is_err());
     }
     #[test]
+    fn stops_on_write_failure_and_keeps_completed_history() {
+        let (_dir, vault) = fixture();
+        let set = ChangeSet {
+            changes: vec![create("a.md"), create("b.md"), create("c.md")],
+            ..Default::default()
+        };
+        let report = set.apply(&vault, || {
+            if vault.read("a.md".as_ref()).unwrap().is_some() {
+                std::fs::create_dir_all(vault.root.join("b.md")).unwrap();
+            }
+            false
+        });
+        assert!(matches!(report.files[0].1, ApplyStatus::Written { .. }));
+        assert!(matches!(report.files[1].1, ApplyStatus::Failed(_)));
+        assert!(matches!(report.files[2].1, ApplyStatus::NotExecuted));
+        assert!(vault.read("c.md".as_ref()).unwrap().is_none());
+    }
+    #[test]
     fn rejects_paths_and_case_collisions() {
         let (_dir, vault) = fixture();
         for changes in [
