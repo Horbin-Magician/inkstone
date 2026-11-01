@@ -1,10 +1,6 @@
 use super::*;
 use gpui_component::select::{SearchableVec, Select, SelectItem};
-use gpui_component::{
-    Selectable,
-    button::{Button, ButtonVariants},
-    slider::Slider,
-};
+use gpui_component::slider::Slider;
 use inkstone_core::preferences::ThemeMode;
 
 impl Workspace {
@@ -167,53 +163,23 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let selected = self.ui.prefs.theme;
-        let palette = crate::theme::palette(self.ui.prefs.light);
         // Segmented control: every option stays visible and switches in one click.
-        let theme = div()
-            .id("theme-setting")
-            .flex()
-            .gap(px(2.))
-            .p(px(2.))
-            .rounded(px(8.))
-            .bg(palette.sidebar)
-            .border_1()
-            .border_color(palette.border)
-            .children(
-                [
-                    (ThemeMode::System, "跟随系统", "monitor"),
-                    (ThemeMode::Light, "浅色", "sun"),
-                    (ThemeMode::Dark, "深色", "moon"),
-                ]
-                .into_iter()
-                .enumerate()
-                .map(|(i, (value, label, symbol))| {
-                    let active = value == selected;
-                    Button::new(("theme-option", i))
-                        .ghost()
-                        .h(px(28.))
-                        .px_3()
-                        .selected(active)
-                        .accessibility_label(label)
-                        .when(active, |button| button.bg(palette.background))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_1()
-                                .text_size(px(crate::theme::MIN_UI_FONT_SIZE))
-                                .text_color(if active {
-                                    palette.accent
-                                } else {
-                                    palette.muted
-                                })
-                                .child(ui::icon(symbol))
-                                .child(label),
-                        )
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.set_theme(value, window, cx);
-                        }))
-                }),
-            );
+        let theme = self.segmented(
+            "theme-setting",
+            [
+                (ThemeMode::System, "跟随系统", "monitor"),
+                (ThemeMode::Light, "浅色", "sun"),
+                (ThemeMode::Dark, "深色", "moon"),
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(i, (value, label, symbol))| {
+                self.segment(("theme-option", i), label, Some(symbol), value == selected)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.set_theme(value, window, cx);
+                    }))
+            }),
+        );
         let content = if interface {
             vec![self.settings_group(
                 "",

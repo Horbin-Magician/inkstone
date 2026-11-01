@@ -201,6 +201,57 @@ impl Workspace {
             .into_any_element()
     }
 
+    /// Container for a row of mutually exclusive [`Self::segment`] buttons.
+    pub(super) fn segmented(
+        &self,
+        id: impl Into<ElementId>,
+        segments: impl IntoIterator<Item = impl IntoElement>,
+    ) -> Stateful<Div> {
+        let palette = crate::theme::palette(self.ui.prefs.light);
+        div()
+            .id(id)
+            .flex()
+            .flex_wrap()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(px(8.))
+            .bg(palette.sidebar)
+            .border_1()
+            .border_color(palette.border)
+            .children(segments)
+    }
+
+    pub(super) fn segment(
+        &self,
+        id: impl Into<ElementId>,
+        label: &str,
+        symbol: Option<&str>,
+        active: bool,
+    ) -> Button {
+        let palette = crate::theme::palette(self.ui.prefs.light);
+        Button::new(id)
+            .ghost()
+            .h(px(28.))
+            .px_3()
+            .selected(active)
+            .accessibility_label(label.to_string())
+            .when(active, |button| button.bg(palette.background))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_size(px(MIN_UI_FONT_SIZE))
+                    .text_color(if active {
+                        palette.accent
+                    } else {
+                        palette.muted
+                    })
+                    .children(symbol.map(icon))
+                    .child(label.to_string()),
+            )
+    }
+
     /// Page heading shown at the top of each settings page.
     pub(super) fn settings_title(&self, title: &str) -> AnyElement {
         div()
