@@ -4,7 +4,7 @@ use gpui_component::{Disableable, button::Button};
 use inkstone_agent::{
     AgentEvent, AgentRun, RunState, Scope,
     provider::ModelConfig,
-    runtime::{Cancel, RunRequest},
+    runtime::{Cancel, RequestMode, RunRequest},
     storage::{self, Message, Proposal, Session, Settings},
     tools::{Source, hash},
 };
@@ -18,6 +18,7 @@ pub(super) struct State {
     prompt: Entity<InputState>,
     scope_input: Entity<InputState>,
     scope: usize,
+    mode: RequestMode,
     scope_key: String,
     sessions: Vec<Session>,
     selected: usize,
@@ -29,6 +30,8 @@ pub(super) struct State {
     show_tools: bool,
     error: String,
     persistence_error: bool,
+    writer: storage::SessionWriter,
+    last_checkpoint: std::time::Instant,
 }
 impl State {
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
@@ -66,6 +69,7 @@ impl State {
             scope_input: cx
                 .new(|cx| InputState::new(window, cx).placeholder("库内目录 / 笔记路径，逗号分隔")),
             scope: 0,
+            mode: RequestMode::Chat,
             scope_key: String::new(),
             sessions: vec![Session::default()],
             selected: 0,
@@ -75,6 +79,8 @@ impl State {
             applying: None,
             show_settings: false,
             show_tools: false,
+            writer: Default::default(),
+            last_checkpoint: std::time::Instant::now(),
             persistence_error: !error.is_empty(),
             error,
         };
@@ -115,11 +121,10 @@ impl State {
         if self.persistence_error {
             return;
         }
-        if let Some(root) = &self.root
-            && let Err(error) = storage::save_sessions(&app_dir(), root, &self.sessions)
-        {
-            self.error = format!("会话保存失败：{error}");
+        if let Some(root) = &self.root {
+            self.writer.queue(&app_dir(), root, self.sessions.clone());
         }
+        self.last_checkpoint = std::time::Instant::now();
     }
 }
 impl Workspace {
@@ -132,6 +137,11 @@ impl Workspace {
         self.ui.prefs.right_open = true;
         self.ui.focus_mode = false;
         self.ui.right_mode = 5;
+        self.agent.mode = if command == 113 {
+            RequestMode::WriteCurrent
+        } else {
+            RequestMode::Chat
+        };
         let prompt = match command {
             113 => "请润色当前选区或笔记，保留原意，提出修改供我审阅。",
             114 => "请总结当前选区或笔记，列出要点并引用来源。",
@@ -159,6 +169,9 @@ impl Workspace {
                 self.agent.session_mut().state = RunState::Interrupted;
             }
             self.agent.persist();
+            if let Err(error) = self.agent.writer.flush() {
+                self.agent.error = error.to_string();
+            }
             self.agent.root = root.clone();
             self.agent.selected = 0;
             self.agent.scope = 0;
@@ -179,6 +192,9 @@ impl Workspace {
                 self.agent.sessions.push(Session::default());
             }
             cx.notify();
+        }
+        for error in self.agent.writer.errors.try_iter() {
+            self.agent.error = error;
         }
         let mut events = vec![];
         let mut finished = false;
@@ -226,8 +242,9 @@ impl Workspace {
                         }
                     }
                 }
-                AgentEvent::Proposal(changes) => {
+                AgentEvent::Proposal(changes, previews) => {
                     self.agent.session_mut().proposals.push(Proposal {
+                        previews,
                         changes,
                         status: "等待审阅".into(),
                         report: None,
@@ -235,6 +252,28 @@ impl Workspace {
                 }
                 AgentEvent::Usage(usage) => self.agent.session_mut().usage = Some(usage),
                 AgentEvent::Error(error) => self.agent.error = error,
+                AgentEvent::Probe { model_id, tools } => {
+                    if let Some(model) = self
+                        .agent
+                        .settings
+                        .models
+                        .iter_mut()
+                        .find(|m| m.id == model_id)
+                    {
+                        model.tools = tools;
+                    }
+                    self.agent.error = if tools {
+                        "流式连接与工具参数测试通过"
+                    } else {
+                        "流式连接通过；未返回有效工具调用，已切换基础问答与写作"
+                    }
+                    .into();
+                    if let Err(error) =
+                        storage::write(&app_dir().join("agent-settings.json"), &self.agent.settings)
+                    {
+                        self.agent.error = error.to_string();
+                    }
+                }
                 AgentEvent::Finished => (),
             }
         }
@@ -243,6 +282,9 @@ impl Workspace {
             self.agent.persist();
         }
         if changed {
+            if self.agent.last_checkpoint.elapsed() >= Duration::from_secs(1) {
+                self.agent.persist();
+            }
             cx.notify();
         }
     }
@@ -339,7 +381,11 @@ impl Workspace {
             }
         }
         let input = self.agent.scope_input.read(cx).value();
-        let scope = match self.agent.scope {
+        let scope = match if self.agent.mode == RequestMode::Probe {
+            3
+        } else {
+            self.agent.scope
+        } {
             0 => match &snapshot {
                 Some((path, _, _)) => Scope::Notes(vec![path.clone()]),
                 None => {
@@ -403,6 +449,7 @@ impl Workspace {
             .cloned()
             .unwrap_or_default();
         self.agent.run = Some(AgentRun::spawn(RunRequest {
+            mode: self.agent.mode,
             id,
             generation: self.generation,
             vault,
@@ -486,6 +533,14 @@ impl Workspace {
         let generation = self.generation;
         let root = vault.root.clone();
         self.agent.persist();
+        if let Err(error) = self.agent.writer.flush() {
+            self.file_writes.finish(ticket);
+            self.agent.applying = None;
+            self.agent.session_mut().proposals[proposal_index].status = "等待审阅".into();
+            self.agent.error = error.to_string();
+            cx.notify();
+            return;
+        }
         let task = cx.background_executor().spawn(async move {
             let report = changes.apply(&vault, || cancel.cancelled());
             (changes, report)
@@ -577,7 +632,9 @@ impl Workspace {
             return;
         }
         self.agent.prompt.update(cx, |s, cx| s.set_value("连接测试：请回复‘连接成功’，如果提供工具，请调用 list_notes 一次，然后报告工具是否成功。不要修改笔记。", window, cx));
+        self.agent.mode = RequestMode::Probe;
         self.agent_send(window, cx);
+        self.agent.mode = RequestMode::Chat;
     }
     pub(super) fn agent_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.agent.busy();
@@ -724,6 +781,23 @@ impl Workspace {
         if matches!(self.agent.scope, 1 | 2) {
             panel = panel.child(Input::new(&self.agent.scope_input));
         }
+        panel = panel.child(
+            Button::new("agent-writing-mode")
+                .label(if self.agent.mode == RequestMode::WriteCurrent {
+                    "写作模式：生成可审阅修改"
+                } else {
+                    "问答 / 工具模式"
+                })
+                .disabled(busy)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.agent.mode = if this.agent.mode == RequestMode::WriteCurrent {
+                        RequestMode::Chat
+                    } else {
+                        RequestMode::WriteCurrent
+                    };
+                    cx.notify();
+                })),
+        );
         panel = panel.child("只发送所选范围内的必要内容至配置的模型服务。所有修改先审阅。");
         for (i, session) in self.agent.sessions.iter().enumerate() {
             panel = panel.child(
@@ -829,13 +903,11 @@ impl Workspace {
                 review = review.child("关联修改须整组接受，避免缺失链接目标。");
             }
             for (j, change) in proposal.changes.changes.iter().enumerate() {
-                let diff = similar::TextDiff::configure()
-                    .timeout(Duration::from_millis(30))
-                    .diff_lines(change.before.as_deref().unwrap_or_default(), &change.after)
-                    .unified_diff()
-                    .context_radius(2)
-                    .header("修改前", "修改后")
-                    .to_string();
+                let diff = proposal
+                    .previews
+                    .get(j)
+                    .cloned()
+                    .unwrap_or_else(|| "旧会话未保存差异预览，请重新生成提案。".into());
                 review = review
                     .child(format!(
                         "{}{}\n{}",
@@ -937,6 +1009,7 @@ mod tests {
     use inkstone_core::changes::{Change, ChangeSet};
     fn proposal(before: &str, after: &str) -> Proposal {
         Proposal {
+            previews: vec![],
             changes: ChangeSet {
                 changes: vec![Change {
                     path: "a.md".into(),

@@ -27,6 +27,31 @@ pub struct ApplyReport {
     pub files: Vec<(PathBuf, ApplyStatus)>,
 }
 impl ChangeSet {
+    /// Bounded display-only previews; application always uses the full reviewed text.
+    pub fn previews(&self) -> Vec<String> {
+        self.changes
+            .iter()
+            .map(|change| {
+                let diff = similar::TextDiff::configure()
+                    .timeout(std::time::Duration::from_millis(50))
+                    .diff_lines(change.before.as_deref().unwrap_or_default(), &change.after)
+                    .unified_diff()
+                    .context_radius(2)
+                    .header("修改前", "修改后")
+                    .to_string();
+                let mut end = diff.len().min(128 * 1024);
+                while !diff.is_char_boundary(end) {
+                    end -= 1;
+                }
+                if end < diff.len() {
+                    format!("{}\n……差异预览已截断，完整修改仍保留。", &diff[..end])
+                } else {
+                    diff
+                }
+            })
+            .collect()
+    }
+
     pub fn validate(&self, vault: &Vault) -> Result<(), String> {
         if self.changes.is_empty() || self.changes.len() > 100 {
             return Err("修改方案须包含 1–100 篇笔记".into());

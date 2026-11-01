@@ -116,7 +116,7 @@ impl ModelProvider for CompatibleProvider {
             let mut stream = response.bytes_stream();
             let mut decoder = SseDecoder::default();
             let mut completion = Collector::default();
-            loop {
+            'stream: loop {
                 let next = tokio::select! {
                     _ = cancel.wait() => bail!("已取消"),
                     next = tokio::time::timeout(Duration::from_secs(45), stream.next()) => next.context("模型响应等待超时")?,
@@ -128,6 +128,9 @@ impl ModelProvider for CompatibleProvider {
                 for event in decoder.push(&bytes)? {
                     if let Some(delta) = completion.event(&event)? {
                         emit(delta)?;
+                    }
+                    if event == "[DONE]" {
+                        break 'stream;
                     }
                 }
             }
@@ -290,5 +293,138 @@ mod tests {
         c.event(r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"read","arguments":"{"}}]},"finish_reason":"length"}]}"#).unwrap();
         c.event("[DONE]").unwrap();
         assert!(c.finish().is_err());
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod http_tests {
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+    };
+    pub(crate) fn server(status: &str, body: &str) -> (String, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = vec![];
+            let mut buffer = [0; 1024];
+            loop {
+                let n = stream.read(&mut buffer).unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..n]);
+                if let Some(end) = request.windows(4).position(|b| b == b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&request[..end]).to_lowercase();
+                    let size = head
+                        .lines()
+                        .find_map(|l| {
+                            l.strip_prefix("content-length:")
+                                .and_then(|n| n.trim().parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
+                    if request.len() >= end + 4 + size {
+                        break;
+                    }
+                }
+            }
+            let _ = stream.write_all(response.as_bytes());
+            String::from_utf8(request).unwrap()
+        });
+        (url, handle)
+    }
+    #[test]
+    fn real_http_stream_and_errors_are_redacted() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let body = "data: {\"choices\":[{\"delta\":{\"content\":\"你好\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+        let (url, server) = server("200 OK", body);
+        let provider = CompatibleProvider {
+            config: ModelConfig {
+                base_url: url,
+                model: "test".into(),
+                ..Default::default()
+            },
+            key: "test-secret".into(),
+        };
+        let mut deltas = String::new();
+        let result = runtime
+            .block_on(provider.complete(
+                &[json!({"role":"user","content":"hello"})],
+                &[],
+                &Cancel::default(),
+                &mut |text| {
+                    deltas.push_str(&text);
+                    Ok(())
+                },
+            ))
+            .unwrap();
+        assert_eq!(result.text, "你好");
+        assert_eq!(deltas, "你好");
+        let request = server.join().unwrap();
+        assert!(request.starts_with("POST /v1/chat/completions"));
+        assert!(request.contains("Bearer test-secret"));
+        let (url, server) = self::server(
+            "429 Too Many Requests",
+            "private-provider-error test-secret",
+        );
+        let provider = CompatibleProvider {
+            config: ModelConfig {
+                base_url: url,
+                model: "test".into(),
+                ..Default::default()
+            },
+            key: "test-secret".into(),
+        };
+        let error = runtime
+            .block_on(provider.complete(&[], &[], &Cancel::default(), &mut |_| Ok(())))
+            .unwrap_err()
+            .to_string();
+        server.join().unwrap();
+        assert!(error.contains("429"));
+        assert!(!error.contains("secret"));
+    }
+    #[test]
+    fn cancel_interrupts_pending_http_without_waiting_for_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_millis(500));
+        });
+        let provider = CompatibleProvider {
+            config: ModelConfig {
+                base_url: url,
+                model: "test".into(),
+                ..Default::default()
+            },
+            key: String::new(),
+        };
+        let cancel = Cancel::default();
+        let other = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            other.cancel();
+        });
+        let start = std::time::Instant::now();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = runtime.block_on(provider.complete(&[], &[], &cancel, &mut |_| Ok(())));
+        assert!(result.is_err());
+        assert!(start.elapsed() < Duration::from_secs(2));
+        server.join().unwrap();
     }
 }
