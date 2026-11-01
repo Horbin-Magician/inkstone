@@ -1292,6 +1292,9 @@ impl Workspace {
         };
         let mono = gpui_component::Theme::global(cx).mono_font_family.clone();
         let card = div()
+            .debug_selector(move || format!("agent-proposal-{i}"))
+            // Preserve the full card height inside the scrolling conversation.
+            .flex_shrink_0()
             .flex()
             .flex_col()
             .rounded(px(12.))
@@ -1447,6 +1450,7 @@ impl Workspace {
         if pending {
             body = body.child(
                 div()
+                    .debug_selector(move || format!("agent-proposal-actions-{i}"))
                     .flex()
                     .justify_end()
                     .gap_2()
@@ -2013,6 +2017,42 @@ mod tests {
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.simulate_resize(size(px(1100.), px(800.)));
         visual.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    #[gpui::test]
+    fn agent_proposal_actions_fit_inside_card_with_long_conversation(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.add_tab("a.md".into(), Some("old\n".into()), false, window, cx);
+                w.open_agent(0, window, cx);
+                let session = w.agent.session_mut();
+                session.messages.push(Message {
+                    role: "assistant".into(),
+                    text: "这是较长的修改说明。\n\n".repeat(50),
+                });
+                let mut pending = proposal("old\n", &"new\n".repeat(100));
+                pending.previews = pending.changes.previews();
+                session.proposals.push(pending);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1100.), px(600.)));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, _, cx| {
+                w.agent.scroll.scroll_to_bottom();
+                cx.notify();
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let card = visual.debug_bounds("agent-proposal-0").unwrap();
+        let actions = visual.debug_bounds("agent-proposal-actions-0").unwrap();
+        assert!(
+            actions.top() >= card.top() && actions.bottom() <= card.bottom(),
+            "proposal actions {actions:?} clipped by card {card:?}"
+        );
     }
     #[gpui::test]
     fn agent_composer_sends_on_enter_and_keeps_shift_enter_newline(cx: &mut TestAppContext) {
