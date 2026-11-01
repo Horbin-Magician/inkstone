@@ -744,6 +744,16 @@ pub(super) fn icon(name: &str) -> Icon {
         "info" => Some("M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"),
         "tags" => Some("M3 3h8l10 10-8 8L3 11zM7 7h.01"),
         "pencil" => Some("M16 3l5 5-13 13H3v-5zM13 6l5 5"),
+        "message-square-plus" => {
+            Some("M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM12 7v6M9 10h6")
+        }
+        "stop" => Some("M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"),
+        "library" => Some("M4 4h4v16H4zM10 4h4v16h-4zM16.5 4.5l3.8-1 3.2 15.5-3.8 1z"),
+        "wrench" => Some(
+            "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z",
+        ),
+        "quote" => Some("M3 20c3 0 7-1 7-8V5H3v7h4M14 20c3 0 7-1 7-8V5h-7v7h4"),
+        "list-checks" => Some("M3 7l2 2 4-4M3 17l2 2 4-4M13 6h8M13 12h8M13 18h8"),
         _ => None,
     };
     if let Some(shape) = shape {
