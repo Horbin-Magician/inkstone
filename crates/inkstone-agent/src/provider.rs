@@ -44,7 +44,8 @@ impl ModelConfig {
             bail!("请填写模型名称");
         }
         if self.output_tokens < 256
-            || self.context_tokens < self.output_tokens + 2048
+            || self.output_tokens > 131_072
+            || self.context_tokens < self.output_tokens.saturating_add(2048)
             || self.context_tokens > 2_000_000
         {
             bail!("上下文容量须比输出上限至少多 2048，最大 200 万 token");
@@ -286,6 +287,15 @@ mod tests {
             assert_eq!(result.calls[0].id, "a");
             assert_eq!(result.calls[1].arguments, "{}");
         }
+    }
+    #[test]
+    fn rejects_overflowing_configuration_without_panicking() {
+        let config = ModelConfig {
+            model: "test".into(),
+            output_tokens: usize::MAX,
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
     }
     #[test]
     fn truncated_call_never_finishes() {

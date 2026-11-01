@@ -318,6 +318,16 @@ impl ToolHost {
                 // One proposal is one dependency group: accepting it cannot omit a
                 // newly-created note referenced by another change in the same group.
                 set.sources = self.sources.iter().map(|s| s.id.clone()).collect();
+                let bytes: usize = self
+                    .proposals
+                    .iter()
+                    .chain(std::iter::once(&set))
+                    .flat_map(|s| &s.changes)
+                    .map(|c| c.after.len())
+                    .sum();
+                if bytes > 4 * 1024 * 1024 {
+                    bail!("本次修改超过 4 MiB，请拆分任务");
+                }
                 self.proposals.push(set);
                 Ok(json!({"proposal":self.proposals.len(),"status":"等待用户审阅，尚未修改文件"}))
             }
