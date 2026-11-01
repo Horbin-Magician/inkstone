@@ -366,45 +366,193 @@ impl Workspace {
                         .to_string()
                 })
                 .unwrap_or_else(|| "尚无成功备份".into());
-        div().flex().flex_1().min_h_0().child(self.settings_nav(cx)).child(
-            self.settings_content().gap_3()
-                .child(self.settings_label("backup-heading", "备份与恢复", "备份库内文件、附件、配置和空目录，不含库外恢复历史。使用普通目录与校验清单；遇到符号链接或复制期间文件变化会拒绝完成。"))
-                .child(format!("存放位置：{destination}"))
-                .child(FocusReveal::new((ElementId::from("backup-directory"), "focus"), &self.ui.settings_scroll, Button::new("backup-directory").label("选择备份位置").disabled(self.ui.backup.busy || self.vault.is_none())
-                    .on_click(cx.listener(|this, _, w, cx| this.choose_backup_directory(false, w, cx)))))
-                .child(format!("最近成功：{last}"))
-                .child(self.settings_label("backup-schedule-label", "备份频率", "自动备份仅在应用打开时运行；失败后至少间隔一小时重试。"))
-                .children([(0, "仅手动"), (24, "每天"), (168, "每周")].into_iter().map(|(hours, label)| {
-                    FocusReveal::new((ElementId::from(("backup-interval", hours as usize)), "focus"), &self.ui.settings_scroll, Button::new(("backup-interval", hours as usize)).label(label)
-                        .when(prefs.interval_hours == hours, |b| b.primary())
-                        .disabled(self.ui.backup.busy || prefs.directory.is_none() && hours > 0)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.ui.prefs.backup.interval_hours = hours;
-                            this.persist_workspace(cx);
-                            cx.notify();
-                        })))
+        let busy = self.ui.backup.busy;
+        let muted = crate::theme::palette(self.ui.prefs.light).muted;
+        let interval = self.segmented(
+            "backup-interval",
+            [(0, "仅手动"), (24, "每天"), (168, "每周")].map(|(hours, label)| {
+                self.segment(
+                    ("backup-interval", hours as usize),
+                    label,
+                    None,
+                    prefs.interval_hours == hours,
+                )
+                .disabled(busy || prefs.directory.is_none() && hours > 0)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.ui.prefs.backup.interval_hours = hours;
+                    this.persist_workspace(cx);
+                    cx.notify();
                 }))
-                .child(FocusReveal::new((ElementId::from("backup-now"), "focus"), &self.ui.settings_scroll, Button::new("backup-now").primary().label("立即备份并校验")
-                    .disabled(self.ui.backup.busy || self.ui.backup.pending.is_some() || self.vault.is_none())
-                    .on_click(cx.listener(|this, _, w, cx| this.request_backup(w, cx)))))
-                .child(FocusReveal::new((ElementId::from("backup-restore"), "focus"), &self.ui.settings_scroll, Button::new("backup-restore").label("从备份恢复为新笔记库").disabled(self.ui.backup.busy)
-                    .on_click(cx.listener(|this, _, w, cx| this.choose_backup_restore(w, cx)))))
-                .when(!self.ui.backup.message.is_empty(), |s| s.child(self.ui.backup.message.clone()))
-                .when_some(self.ui.backup.output.clone(), |s, path| s.child(FocusReveal::new((ElementId::from("backup-reveal"), "focus"), &self.ui.settings_scroll, Button::new("backup-reveal").label("在文件管理器中显示结果")
-                    .on_click(move |_, _, cx| cx.reveal_path(&path)))))
-                .child(self.backup_capacity_panel(cx))
-                .child(self.settings_label("history-retention-label", "版本历史保留", "与整库备份独立。仅清理成功保存的旧历史，保留每篇最新记录、未完成草稿和受保护的冲突记录；在后续笔记保存时生效。"))
-                .child(div().flex().flex_wrap().gap_2().children([(30, "30 天"), (90, "90 天"), (365, "一年"), (0, "不限时间")].into_iter().map(|(days, label)| {
-                    FocusReveal::new((ElementId::from(("history-retention-days", days as usize)), "focus"), &self.ui.settings_scroll, Button::new(("history-retention-days", days as usize)).label(label)
-                        .when(self.ui.prefs.history.days == days, |b| b.primary())
-                        .on_click(cx.listener(move |this, _, _, cx| { this.ui.prefs.history.days = days; this.persist_workspace(cx); cx.notify(); })))
-                })))
-                .child(div().flex().flex_wrap().gap_2().children([(128, "128 MiB"), (512, "512 MiB"), (2048, "2 GiB"), (0, "不限容量")].into_iter().map(|(max_mib, label)| {
-                    FocusReveal::new((ElementId::from(("history-retention-size", max_mib as usize)), "focus"), &self.ui.settings_scroll, Button::new(("history-retention-size", max_mib as usize)).label(label)
-                        .when(self.ui.prefs.history.max_mib == max_mib, |b| b.primary())
-                        .on_click(cx.listener(move |this, _, _, cx| { this.ui.prefs.history.max_mib = max_mib; this.persist_workspace(cx); cx.notify(); })))
-                })))
-        ).into_any_element()
+            }),
+        );
+        let days = self.segmented(
+            "history-retention-days",
+            [(30, "30 天"), (90, "90 天"), (365, "一年"), (0, "不限")].map(|(days, label)| {
+                self.segment(
+                    ("history-retention-days", days as usize),
+                    label,
+                    None,
+                    self.ui.prefs.history.days == days,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.ui.prefs.history.days = days;
+                    this.persist_workspace(cx);
+                    cx.notify();
+                }))
+            }),
+        );
+        let size = self.segmented(
+            "history-retention-size",
+            [
+                (128, "128 MiB"),
+                (512, "512 MiB"),
+                (2048, "2 GiB"),
+                (0, "不限"),
+            ]
+            .map(|(max_mib, label)| {
+                self.segment(
+                    ("history-retention-size", max_mib as usize),
+                    label,
+                    None,
+                    self.ui.prefs.history.max_mib == max_mib,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.ui.prefs.history.max_mib = max_mib;
+                    this.persist_workspace(cx);
+                    cx.notify();
+                }))
+            }),
+        );
+        let mut backup_rows = vec![
+            self.settings_row(
+                "backup-directory-row",
+                "存放位置",
+                &destination,
+                Button::new("backup-directory")
+                    .label("选择位置")
+                    .disabled(busy || self.vault.is_none())
+                    .on_click(
+                        cx.listener(|this, _, w, cx| this.choose_backup_directory(false, w, cx)),
+                    ),
+                false,
+                16.,
+            ),
+            self.settings_row(
+                "backup-schedule-label",
+                "备份频率",
+                "自动备份仅在应用打开时运行；失败后至少间隔一小时重试。",
+                interval,
+                true,
+                16.,
+            ),
+            self.settings_row(
+                "backup-now-row",
+                "立即备份",
+                &format!("最近成功：{last}"),
+                Button::new("backup-now")
+                    .primary()
+                    .label("立即备份并校验")
+                    .disabled(busy || self.ui.backup.pending.is_some() || self.vault.is_none())
+                    .on_click(cx.listener(|this, _, w, cx| this.request_backup(w, cx))),
+                true,
+                16.,
+            ),
+        ];
+        if !self.ui.backup.message.is_empty() || self.ui.backup.output.is_some() {
+            backup_rows.push(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .py_3()
+                    .border_t_1()
+                    .border_color(self.border())
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .whitespace_normal()
+                            .text_color(muted)
+                            .child(self.ui.backup.message.clone()),
+                    )
+                    .when_some(self.ui.backup.output.clone(), |s, path| {
+                        s.child(FocusReveal::new(
+                            (ElementId::from("backup-reveal"), "focus"),
+                            &self.ui.settings_scroll,
+                            Button::new("backup-reveal")
+                                .ghost()
+                                .label("在文件管理器中显示")
+                                .on_click(move |_, _, cx| cx.reveal_path(&path)),
+                        ))
+                    })
+                    .into_any_element(),
+            );
+        }
+        div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .child(self.settings_nav(cx))
+            .child(
+                self.settings_content()
+                    .gap_2()
+                    .child(self.settings_title("备份与恢复"))
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(px(700.))
+                            .mx_auto()
+                            .px_1()
+                            .whitespace_normal()
+                            .text_color(muted)
+                            .child(self.settings_label(
+                                "backup-heading",
+                                "备份库内文件、附件、配置和空目录，不含库外恢复历史。",
+                                "使用普通目录与校验清单；遇到符号链接或复制期间文件变化会拒绝完成。",
+                            )),
+                    )
+                    .child(self.settings_group("整库备份", backup_rows))
+                    .child(self.settings_group(
+                        "恢复",
+                        vec![self.settings_row(
+                            "backup-restore-row",
+                            "从备份恢复",
+                            "将备份还原为一个新的笔记库，现有笔记库保持不变。",
+                            Button::new("backup-restore")
+                                .label("恢复为新笔记库")
+                                .disabled(busy)
+                                .on_click(cx.listener(|this, _, w, cx| this.choose_backup_restore(w, cx))),
+                            false,
+                            16.,
+                        )],
+                    ))
+                    .child(self.settings_group(
+                        "备份容量与清理",
+                        vec![div()
+                            .py_4()
+                            .whitespace_normal()
+                            .child(self.backup_capacity_panel(cx))
+                            .into_any_element()],
+                    ))
+                    .child(self.settings_group(
+                        "版本历史保留",
+                        vec![
+                            div()
+                                .pt_4()
+                                .whitespace_normal()
+                                .text_color(muted)
+                                .child(self.settings_label(
+                                    "history-retention-label",
+                                    "与整库备份独立",
+                                    "仅清理成功保存的旧历史，保留每篇最新记录、未完成草稿和受保护的冲突记录；在后续笔记保存时生效。",
+                                ))
+                                .into_any_element(),
+                            self.settings_row("history-days-row", "保留时间", "", days, false, 16.),
+                            self.settings_row("history-size-row", "容量上限", "", size, true, 16.),
+                        ],
+                    )),
+            )
+            .into_any_element()
     }
 }
 

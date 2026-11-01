@@ -288,15 +288,14 @@ impl Workspace {
                 .disabled(self.ui.prefs.backup.directory.is_none() || current && state.loading)
                 .on_click(cx.listener(|this, _, _, cx| this.refresh_backup_capacity(cx)))))
             .child(self.settings_label("backup-cleanup-label", "清理预览", "按来源保留最新份数，同一截止时间的记录全部保留；来源不明或读取异常的记录受保护。预览不会删除备份，清理时另行确认并校验；备份不会自动清理。"))
-            .child(div().flex().flex_wrap().gap_2().children([1usize, 3, 5, 10].into_iter().map(|keep| {
-                FocusReveal::new((ElementId::from(("backup-retention-keep", keep)), "focus"), &self.ui.settings_scroll, Button::new(("backup-retention-keep", keep)).label(format!("每个来源保留 {keep} 份"))
-                    .when(state.keep == keep || state.keep == 0 && keep == 3, |b| b.primary())
+            .child(div().flex().items_center().gap_3().child("每个来源保留").child(FocusReveal::new("backup-retention-keep-focus", &self.ui.settings_scroll, self.segmented("backup-retention-keep", [1usize, 3, 5, 10].map(|keep| {
+                self.segment(("backup-retention-keep", keep), &format!("{keep} 份"), None, state.keep == keep || state.keep == 0 && keep == 3)
                     .disabled(!available || self.ui.prefs.backup.directory.is_none())
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.ui.backup.capacity.keep = keep;
                         this.refresh_backup_capacity(cx);
-                    })))
-            })))
+                    }))
+            })))))
             .when(!available, |s| s.child("备份或恢复任务进行中，清理预览暂停。"))
             .when_some(state.preview.as_ref().filter(|_| current && available), |s, preview| s.child(format!("{} 份候选 · 正文与清单估算 {:.2} MiB（不等于实际释放空间）", preview.candidates, preview.candidate_bytes as f64 / 1048576.)))
             .when(current && state.local_storage == Some(false), |s| s.child("此位置是网络存储或无法确认的文件系统，已禁止清理；仍可查看、校验和恢复备份。"))
