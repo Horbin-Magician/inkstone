@@ -24,6 +24,7 @@ pub(super) struct State {
     selected: usize,
     root: Option<PathBuf>,
     run: Option<AgentRun>,
+    stream_task: Option<Task<()>>,
     sequence: u64,
     applying: Option<Cancel>,
     pub(super) show_settings: bool,
@@ -75,13 +76,14 @@ impl State {
             selected: 0,
             root: None,
             run: None,
+            stream_task: None,
             sequence: 0,
             applying: None,
             show_settings: false,
             show_tools: false,
             writer: Default::default(),
             last_checkpoint: std::time::Instant::now(),
-            persistence_error: !error.is_empty(),
+            persistence_error: false,
             error,
         };
         state.fields[3].update(cx, |s, cx| s.set_masked(true, window, cx));
@@ -181,7 +183,10 @@ impl Workspace {
                 .map(|root| storage::load_sessions(&app_dir(), root))
                 .transpose()
             {
-                Ok(sessions) => self.agent.sessions = sessions.unwrap_or_default(),
+                Ok(sessions) => {
+                    self.agent.sessions = sessions.unwrap_or_default();
+                    self.agent.persistence_error = false;
+                }
                 Err(error) => {
                     self.agent.sessions.clear();
                     self.agent.error = error.to_string();
@@ -278,6 +283,13 @@ impl Workspace {
             }
         }
         if finished {
+            if matches!(
+                self.agent.session().state,
+                RunState::Preparing | RunState::Requesting | RunState::Reading
+            ) {
+                self.agent.session_mut().state = RunState::Interrupted;
+                self.agent.error = "执行已中断；保留现有输出，不自动重发请求".into();
+            }
             self.agent.run.take();
             self.agent.persist();
         }
@@ -461,6 +473,25 @@ impl Workspace {
             history,
             prompt,
         }));
+        self.agent.stream_task = Some(cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(50))
+                    .await;
+                let keep = this
+                    .update_in(cx, |this, w, cx| {
+                        if this.agent.run.as_ref().is_none_or(|run| run.id != id) {
+                            return false;
+                        }
+                        this.poll_agent(w, cx);
+                        this.agent.run.is_some()
+                    })
+                    .unwrap_or(false);
+                if !keep {
+                    break;
+                }
+            }
+        }));
         self.agent
             .prompt
             .update(cx, |s, cx| s.set_value("", window, cx));
@@ -469,6 +500,11 @@ impl Workspace {
     }
     fn agent_apply(&mut self, proposal_index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.agent.busy() {
+            return;
+        }
+        if self.agent.persistence_error {
+            self.agent.error = "会话文件损坏，无法记录应用结果；请先修复会话存储".into();
+            cx.notify();
             return;
         }
         let Some(proposal) = self.agent.session().proposals.get(proposal_index).cloned() else {
@@ -618,7 +654,9 @@ impl Workspace {
             self.agent.error = "引用来源已变化；打开当前版本，不再使用旧位置".into();
             self.open_note(source.path, window, cx);
         } else {
+            self.pending_jump = Some((source.path.clone(), source.range.start));
             self.open_note(source.path.clone(), window, cx);
+            self.apply_jump(window, cx);
             if let Some(tab) = self.tabs.iter().find(|t| t.path == source.path) {
                 tab.save
                     .editor
@@ -1052,6 +1090,8 @@ mod tests {
                 w.agent_apply(1, window, cx);
                 assert_eq!(editor.read(cx).value().as_ref(), "reviewed");
                 assert_eq!(vault.read("a.md".as_ref()).unwrap().as_deref(), Some("old"));
+                editor.update(cx, |s, cx| s.undo(&gpui_component::input::Undo, window, cx));
+                assert_eq!(editor.read(cx).value().as_ref(), "user typing");
                 // Duplicate acceptance is inert, even after additional edits.
                 editor.update(cx, |s, cx| s.replace_all("new user edit", window, cx));
                 w.agent_apply(1, window, cx);

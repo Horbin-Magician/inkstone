@@ -284,6 +284,7 @@ pub async fn execute(
             emit(AgentEvent::Usage(usage))?;
         }
         if result.calls.is_empty() {
+            emit_proposals(host, emit)?;
             emit(AgentEvent::State(if host.proposals.is_empty() {
                 RunState::Completed
             } else {
@@ -301,6 +302,7 @@ pub async fn execute(
                 bail!("已取消");
             }
             if calls >= 40 {
+                emit_proposals(host, emit)?;
                 emit(AgentEvent::State(RunState::Limited))?;
                 return Ok(());
             }
@@ -313,7 +315,6 @@ pub async fn execute(
                 bail!("重复调用未取得进展，已停止；可调整任务后继续");
             }
             emit(AgentEvent::State(RunState::Reading))?;
-            let proposals_before = host.proposals.len();
             let result = match host.call(&call.name, args) {
                 Ok(value) => value,
                 Err(error) => json!({"error":error.to_string()}),
@@ -323,14 +324,42 @@ pub async fn execute(
                 result: result.to_string(),
             })?;
             emit(AgentEvent::Sources(host.sources.clone()))?;
-            for proposal in host.proposals.iter().skip(proposals_before) {
-                emit(AgentEvent::Proposal(proposal.clone(), proposal.previews()))?;
-            }
             messages
                 .push(json!({"role":"tool","tool_call_id":call.id,"content":result.to_string()}));
         }
     }
+    emit_proposals(host, emit)?;
     emit(AgentEvent::State(RunState::Limited))?;
+    Ok(())
+}
+
+/// Creating a new note can introduce dependencies across tool calls. Conservatively
+/// review the entire turn together when it contains creations; existing-only
+/// independent proposals keep their individual acceptance controls.
+fn emit_proposals(
+    host: &ToolHost,
+    emit: &mut (dyn FnMut(AgentEvent) -> Result<()> + Send),
+) -> Result<()> {
+    if host
+        .proposals
+        .iter()
+        .flat_map(|s| &s.changes)
+        .any(|c| c.before.is_none())
+    {
+        let combined = ChangeSet {
+            changes: host
+                .proposals
+                .iter()
+                .flat_map(|s| s.changes.clone())
+                .collect(),
+            sources: host.sources.iter().map(|s| s.id.clone()).collect(),
+        };
+        emit(AgentEvent::Proposal(combined.clone(), combined.previews()))?;
+    } else {
+        for set in &host.proposals {
+            emit(AgentEvent::Proposal(set.clone(), set.previews()))?;
+        }
+    }
     Ok(())
 }
 
