@@ -2180,6 +2180,9 @@ impl Render for Workspace {
             .on_action(
                 cx.listener(|this, _: &ToggleTaskLine, w, cx| this.execute_command(35, w, cx)),
             )
+            .on_action(cx.listener(|this, _: &AgentAsk, w, cx| this.open_agent(112, w, cx)))
+            .on_action(cx.listener(|this, _: &AgentPolish, w, cx| this.open_agent(113, w, cx)))
+            .on_action(cx.listener(|this, _: &AgentSummary, w, cx| this.open_agent(114, w, cx)))
             .on_action(cx.listener(|this, _: &Save, w, cx| this.save_all(w, cx)))
             .on_action(cx.listener(|this, _: &OpenVault, w, cx| this.choose_vault(w, cx)))
             .on_action(cx.listener(|this, _: &QuickOpen, w, cx| this.focus_search(false, w, cx)))

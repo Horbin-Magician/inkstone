@@ -103,11 +103,12 @@ impl Workspace {
         show_toggle: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        const MODES: [(usize, &str, &str); 4] = [
+        const MODES: [(usize, &str, &str); 5] = [
             (0, "list", "大纲"),
             (1, "links", "链接"),
             (3, "tags", "标签"),
             (4, "inbox", "属性"),
+            (5, "sparkles", "Agent"),
         ];
         let toggle_width = if show_toggle { 32. } else { 0. };
         let slots = ((f32::from(width) - 8. - toggle_width).max(0.) / 32.) as usize;
@@ -215,6 +216,17 @@ impl Workspace {
             .into_any_element()
     }
     pub(super) fn right_panel(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.ui.right_mode == 5 {
+            return div()
+                .id("workspace-right-panel")
+                .flex()
+                .flex_col()
+                .size_full()
+                .bg(self.bg())
+                .child(self.right_header(cx))
+                .child(self.agent_panel(cx))
+                .into_any_element();
+        }
         let pane = self.current_pane();
         let outline_query = if self.ui.right_mode == 0 && self.ui.outline_filter_open {
             self.ui
@@ -996,7 +1008,7 @@ mod outline_tests {
             }
             let toolbar = visual.debug_bounds("right-header-tools").unwrap();
             assert!(visual.debug_bounds("right-mode-2").is_none());
-            let mut buttons: Vec<_> = (0..4)
+            let mut buttons: Vec<_> = (0..5)
                 .filter_map(|i| {
                     visual.debug_bounds(
                         [
@@ -1004,12 +1016,13 @@ mod outline_tests {
                             "right-mode-1",
                             "right-mode-3",
                             "right-mode-4",
+                            "right-mode-5",
                         ][i],
                     )
                 })
                 .collect();
             let more = visual.debug_bounds("right-mode-more");
-            assert_eq!(more.is_some(), buttons.len() < 4);
+            assert_eq!(more.is_some(), buttons.len() < 5);
             if !buttons.is_empty() {
                 assert!(visual.debug_bounds("right-mode-4").is_some());
             }
@@ -1024,7 +1037,7 @@ mod outline_tests {
                 assert!(pair[0].right() <= pair[1].left());
             }
             if width == 500. {
-                assert_eq!(buttons.len(), 4);
+                assert_eq!(buttons.len(), 5);
                 assert!(more.is_none());
             }
         }
