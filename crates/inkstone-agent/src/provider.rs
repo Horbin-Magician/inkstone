@@ -62,6 +62,8 @@ pub struct Completion {
     pub text: String,
     pub calls: Vec<ToolCall>,
     pub usage: Option<Value>,
+    /// Complete Responses items, including encrypted reasoning, for this run only.
+    pub output_items: Vec<Value>,
 }
 pub type CompletionFuture<'a> = Pin<Box<dyn Future<Output = Result<Completion>> + Send + 'a>>;
 pub trait ModelProvider: Send + Sync {
@@ -92,13 +94,23 @@ impl ModelProvider for CompatibleProvider {
                 .timeout(Duration::from_secs(180))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?;
+            let responses =
+                reqwest::Url::parse(&self.config.base_url)?.host_str() == Some("api.openai.com");
             let mut body = json!({"model":self.config.model,"messages":messages,"stream":true,"max_completion_tokens":self.config.output_tokens});
             if !tools.is_empty() {
                 body["tools"] = tools.into();
             }
+            if responses {
+                body = responses_body(&self.config, messages, tools)?;
+            }
+            let endpoint = if responses {
+                "responses"
+            } else {
+                "chat/completions"
+            };
             let mut request = client
                 .post(format!(
-                    "{}/chat/completions",
+                    "{}/{endpoint}",
                     self.config.base_url.trim_end_matches('/')
                 ))
                 .json(&body);
@@ -110,11 +122,29 @@ impl ModelProvider for CompatibleProvider {
                 response = request.send() => response.map_err(|_| anyhow::anyhow!("连接模型服务失败或超时"))?,
             };
             if !response.status().is_success() {
-                bail!("模型服务返回 HTTP {}", response.status().as_u16());
+                let status = response.status().as_u16();
+                let mut stream = response.bytes_stream();
+                let mut bytes = Vec::new();
+                let read = async {
+                    while let Some(chunk) = stream.next().await {
+                        let chunk = chunk?;
+                        if bytes.len() + chunk.len() > 16_384 {
+                            break;
+                        }
+                        bytes.extend_from_slice(&chunk);
+                    }
+                    Ok::<_, reqwest::Error>(())
+                };
+                tokio::select! {
+                    _ = cancel.wait() => bail!("已取消"),
+                    _ = tokio::time::timeout(Duration::from_secs(5), read) => (),
+                }
+                bail!("{}", service_error(status, &bytes, &self.key));
             }
             let mut stream = response.bytes_stream();
             let mut decoder = SseDecoder::default();
             let mut completion = Collector::default();
+            let mut response_completion = ResponsesCollector::default();
             'stream: loop {
                 let next = tokio::select! {
                     _ = cancel.wait() => bail!("已取消"),
@@ -125,17 +155,150 @@ impl ModelProvider for CompatibleProvider {
                 };
                 let bytes = bytes.map_err(|_| anyhow::anyhow!("模型响应中断"))?;
                 for event in decoder.push(&bytes)? {
-                    if let Some(delta) = completion.event(&event)? {
+                    let delta = if responses {
+                        response_completion.event(&event)?
+                    } else {
+                        completion.event(&event)?
+                    };
+                    if let Some(delta) = delta {
                         emit(delta)?;
                     }
-                    if event == "[DONE]" {
+                    if response_completion.done || event == "[DONE]" {
                         break 'stream;
                     }
                 }
             }
             decoder.finish()?;
-            completion.finish()
+            if responses {
+                response_completion.finish()
+            } else {
+                completion.finish()
+            }
         })
+    }
+}
+
+// Only structured diagnostic identifiers are displayed. Never echo arbitrary
+// provider error text, which may contain credentials or submitted note content.
+fn service_error(status: u16, bytes: &[u8], key: &str) -> String {
+    let mut message = format!("模型服务返回 HTTP {status}");
+    if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
+        for field in ["type", "code", "param"] {
+            if let Some(value) = value["error"][field].as_str()
+                && !value.is_empty()
+                && value.len() <= 80
+                && !value.contains("sk-")
+                && (key.is_empty() || !value.contains(key))
+                && value
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"_.[]".contains(&c))
+            {
+                message.push_str(&format!(" · {field}={value}"));
+            }
+        }
+    }
+    message
+}
+
+fn responses_body(config: &ModelConfig, messages: &[Value], tools: &[Value]) -> Result<Value> {
+    let mut input = vec![];
+    for message in messages {
+        if let Some(items) = message["response_items"].as_array() {
+            input.extend(items.iter().cloned());
+        } else if message["role"] == "tool" {
+            input.push(json!({"type":"function_call_output", "call_id":message["tool_call_id"], "output":message["content"]}));
+        } else {
+            input.push(json!({"role":message["role"], "content":message["content"]}));
+            if let Some(calls) = message["tool_calls"].as_array() {
+                for call in calls {
+                    input.push(json!({"type":"function_call", "call_id":call["id"], "name":call["function"]["name"], "arguments":call["function"]["arguments"]}));
+                }
+            }
+        }
+    }
+    let tools: Vec<_> = tools
+        .iter()
+        .map(|tool| {
+            let mut function = tool["function"].clone();
+            function["type"] = "function".into();
+            function["strict"] = false.into();
+            function
+        })
+        .collect();
+    Ok(
+        json!({"model":config.model,"input":input,"tools":tools,"stream":true,
+        "store":false,"include":["reasoning.encrypted_content"],"max_output_tokens":config.output_tokens}),
+    )
+}
+
+#[derive(Default)]
+struct ResponsesCollector {
+    result: Completion,
+    done: bool,
+    size: usize,
+}
+impl ResponsesCollector {
+    fn event(&mut self, event: &str) -> Result<Option<String>> {
+        self.size += event.len();
+        if self.size > 8 * 1024 * 1024 {
+            bail!("模型响应过大");
+        }
+        let value: Value = serde_json::from_str(event).context("流式响应不是有效 JSON")?;
+        match value["type"].as_str() {
+            Some("response.output_text.delta") => {
+                let text = value["delta"].as_str().context("响应缺少正文 delta")?;
+                self.result.text.push_str(text);
+                Ok(Some(text.into()))
+            }
+            Some("response.completed") => {
+                let response = &value["response"];
+                if response["status"] != "completed" {
+                    bail!("响应未正常完成，未执行工具");
+                }
+                self.result.output_items = response["output"]
+                    .as_array()
+                    .context("响应缺少 output")?
+                    .clone();
+                let mut ids = std::collections::BTreeSet::new();
+                for item in &self.result.output_items {
+                    if item["type"] != "function_call" {
+                        continue;
+                    }
+                    let id = item["call_id"].as_str().context("工具调用缺少 call_id")?;
+                    let name = item["name"].as_str().context("工具调用缺少 name")?;
+                    let arguments = item["arguments"]
+                        .as_str()
+                        .context("工具调用缺少 arguments")?;
+                    if id.is_empty() || name.is_empty() || !ids.insert(id) || ids.len() > 40 {
+                        bail!("工具调用身份无效或调用过多");
+                    }
+                    if !serde_json::from_str::<Value>(arguments)
+                        .context("工具参数不完整")?
+                        .is_object()
+                    {
+                        bail!("工具参数必须为对象");
+                    }
+                    self.result.calls.push(ToolCall {
+                        id: id.into(),
+                        name: name.into(),
+                        arguments: arguments.into(),
+                    });
+                }
+                self.result.usage = response.get("usage").filter(|v| !v.is_null()).cloned();
+                self.done = true;
+                Ok(None)
+            }
+            Some("response.failed" | "response.incomplete" | "error") => {
+                bail!("模型响应失败或被截断，未执行工具")
+            }
+            _ => Ok(None),
+        }
+    }
+    fn finish(self) -> Result<Completion> {
+        if !self.done {
+            bail!("响应被截断或未正常完成，未执行工具");
+        }
+        Ok(self.result)
     }
 }
 
@@ -263,6 +426,75 @@ impl Collector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn responses_stream_preserves_reasoning_and_tool_result_pairing() {
+        let items = json!([
+            {"type":"reasoning","id":"r1","summary":[],"encrypted_content":"opaque"},
+            {"type":"function_call","id":"fc1","call_id":"call1","name":"read_note","arguments":"{\"path\":\"a.md\"}"}
+        ]);
+        let wire = format!(
+            "data: {}\n\ndata: {}\n\n",
+            json!({"type":"response.output_text.delta","delta":"中文😀"}),
+            json!({"type":"response.completed","response":{"status":"completed","output":items,"usage":{"output_tokens":12}}})
+        );
+        for size in 1..wire.len() {
+            let mut decoder = SseDecoder::default();
+            let mut collector = ResponsesCollector::default();
+            for chunk in wire.as_bytes().chunks(size) {
+                for event in decoder.push(chunk).unwrap() {
+                    collector.event(&event).unwrap();
+                }
+            }
+            decoder.finish().unwrap();
+            let result = collector.finish().unwrap();
+            assert_eq!(result.text, "中文😀");
+            assert_eq!(result.calls[0].id, "call1");
+            assert_eq!(result.output_items, items.as_array().unwrap().clone());
+            let body = responses_body(
+                &ModelConfig::default(),
+                &[
+                    json!({"role":"user","content":"读取"}),
+                    json!({"role":"assistant","response_items":result.output_items}),
+                    json!({"role":"tool","tool_call_id":"call1","content":"synthetic result"}),
+                ],
+                &crate::tools::definitions(),
+            )
+            .unwrap();
+            assert_eq!(body["input"][1]["encrypted_content"], "opaque");
+            assert_eq!(body["input"][3]["type"], "function_call_output");
+            assert_eq!(body["input"][3]["call_id"], "call1");
+            assert_eq!(body["store"], false);
+            assert_eq!(body["tools"][0]["type"], "function");
+            assert_eq!(body["tools"][0]["strict"], false);
+            assert!(body.get("max_completion_tokens").is_none());
+        }
+    }
+    #[test]
+    fn responses_reject_incomplete_and_invalid_calls() {
+        let mut collector = ResponsesCollector::default();
+        collector.event(&json!({"type":"response.output_item.done","item":{"type":"function_call","call_id":"a","name":"read_note","arguments":"{}"}}).to_string()).unwrap();
+        assert!(collector.finish().is_err());
+        for event in [
+            json!({"type":"response.incomplete"}),
+            json!({"type":"response.failed"}),
+            json!({"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","call_id":"a","name":"read_note","arguments":"{"}]}}),
+        ] {
+            assert!(
+                ResponsesCollector::default()
+                    .event(&event.to_string())
+                    .is_err()
+            );
+        }
+    }
+    #[test]
+    fn error_diagnostics_do_not_echo_credentials_or_note_content() {
+        let body = json!({"error":{"message":"secret-key private note", "type":"invalid_request_error","param":"max_output_tokens","code":"secret-key"}}).to_string();
+        let error = service_error(400, body.as_bytes(), "secret-key");
+        assert!(error.contains("param=max_output_tokens"));
+        assert!(error.contains("invalid_request_error"));
+        assert!(!error.contains("secret-key"));
+        assert!(!error.contains("private note"));
+    }
     #[test]
     fn sse_every_byte_boundary_and_interleaved_calls() {
         let wire = concat!(

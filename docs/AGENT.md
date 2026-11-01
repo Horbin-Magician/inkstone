@@ -5,14 +5,14 @@ Agent 使用用户配置的模型服务检索、阅读笔记并提出修改。�
 ## 开始使用
 
 1. 从右侧栏的 Agent 图标、命令面板“发送当前笔记或选区给 Agent”，或编辑器右键菜单进入。
-2. 打开统一设置中的“Agent”页面（也可点击 Agent 侧栏的设置按钮跳转），填写配置名称、服务地址（默认 `https://api.openai.com/v1`）、模型名称和 API Key。默认配置为 OpenAI 的 `gpt-6-astra`，上下文容量 1,050,000 token，输出上限 128,000 token；使用官方服务需填写自己的 API Key。本地免认证服务可留空密钥。服务必须提供 Chat Completions SSE 流式接口。
-3. 按需调整上下文容量与输出上限，保存配置。输出上限包含推理 token，使用 `max_completion_tokens` 发送。默认值仅用于首次创建或新增配置，已有保存配置不覆盖。可新增多个配置，点击“模型”按钮轮换。
-4. “测试连接与工具”仅发送合成测试请求，不发送笔记内容。Agent 要求模型支持工具调用；未返回有效工具调用时会提示检查配置或更换模型。HTTP 错误会显示状态码，可修改配置后重试。
+2. 打开统一设置中的“Agent”页面（也可点击 Agent 侧栏的设置按钮跳转），填写配置名称、服务地址（默认 `https://api.openai.com/v1`）、模型名称和 API Key。默认配置为 OpenAI 的 `gpt-6-astra`，上下文容量 1,050,000 token，输出上限 128,000 token；使用官方服务需填写自己的 API Key。本地免认证服务可留空密钥。官方 OpenAI 地址使用 Responses SSE 流式接口；其他兼容服务使用 Chat Completions SSE 流式接口。
+3. 按需调整上下文容量与输出上限，保存配置。输出上限包含推理 token，官方接口使用 `max_output_tokens`，其他兼容接口使用 `max_completion_tokens` 发送。默认值仅用于首次创建或新增配置，已有保存配置不覆盖。可新增多个配置，点击“模型”按钮轮换。
+4. “测试连接与工具”仅发送合成测试请求，不发送笔记内容。Agent 要求模型支持工具调用；未返回有效工具调用时会提示检查配置或更换模型。HTTP 错误显示状态码及可安全展示的错误类型、代码和参数名，不显示服务端原始错误正文；可修改配置后重试。
 5. 输入任务并点击“发送 / 继续”。长任务随时可停止。进入新会话、切换模型和应用修改时不能有正在运行的任务。
 
 API Key 按用户选择以明文独立存放于应用数据目录的 `agent-secrets.json`，输入框默认遮挡。模型配置在 `agent-settings.json`；会话与修改记录在 `agent/`，按笔记库路径的哈希隔离。这些文件不进入笔记库或 WebDAV 同步。普通日志不记录认证头与服务错误正文。
 
-默认模型与容量依据 [OpenAI 模型文档](https://developers.openai.com/api/docs/models/gpt-6-astra)，请求参数依据 [Chat Completions 文档](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)。
+默认模型与容量依据 [OpenAI 模型文档](https://developers.openai.com/api/docs/models/gpt-6-astra)，请求适配依据 [Responses 迁移文档](https://developers.openai.com/api/docs/guides/migrate-to-responses)。官方请求使用 `store: false`，仅在当前任务内回传完整输出项和加密推理状态以继续工具调用。
 
 ## 上下文与引用
 
@@ -59,3 +59,5 @@ cargo run --locked -p inkstone-agent --example benchmark -- 1000
 ```
 
 不同供应商的“兼容 API”可能不支持相同的流式事件、工具调用或参数。已实现的是协议适配与本地契约测试，不代表所有供应商已认证。真实服务、Windows 原生操作、macOS 完整点击与读屏验收仍需补充；具体记录见 [验证指南](TESTING.md)。
+
+真实 OpenAI 合成冒烟可运行 `cargo run --locked -p inkstone-agent --example openai_probe`，通过标准输入传入测试密钥并结束输入。它会产生两次计费请求，仅验证合成工具调用、结果回传与最终回复，不读取笔记；请勿将密钥放入命令参数或提交文件。
