@@ -237,7 +237,12 @@ impl Workspace {
 }
 
 impl Workspace {
-    fn select_settings_tab(&mut self, tab: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn select_settings_tab(
+        &mut self,
+        tab: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.ui
             .settings_filter
             .update(cx, |input, cx| input.set_value("", window, cx));
@@ -266,15 +271,6 @@ impl Workspace {
             .flex_col()
             .gap_1()
             .child(Input::new(&self.ui.settings_filter).w_full())
-            .child(
-                Button::new("settings-agent")
-                    .label("Agent 模型与权限")
-                    .on_click(cx.listener(|this, _, w, cx| {
-                        this.ui.settings = false;
-                        this.agent.show_settings = true;
-                        this.open_agent(112, w, cx);
-                    })),
-            )
             .children(
                 [
                     (5, "外观", "palette"),
@@ -283,6 +279,7 @@ impl Workspace {
                     (2, "文件与链接", "folder"),
                     (7, "备份与恢复", "history"),
                     (8, "云同步", "folder"),
+                    (10, "Agent", "sparkles"),
                     (1, "快捷键", "command"),
                     (9, "关于与更新", "info"),
                 ]
@@ -325,6 +322,11 @@ impl Workspace {
             .to_lowercase();
         if !query.is_empty() {
             let entries = [
+                (
+                    10,
+                    "Agent · 模型与权限",
+                    "OpenAI GPT 模型 服务地址 URL API Key 密钥 上下文 输出 排除目录 连接测试",
+                ),
                 (5, "外观 · 基础颜色", "主题 深色 浅色 跟随系统 配色 theme"),
                 (5, "外观 · 字体", "界面字体 正文字体 等宽字体 代码 font"),
                 (5, "外观 · 字体大小", "字号 缩放 快速调整 Ctrl 滚轮 zoom"),
@@ -415,6 +417,9 @@ impl Workspace {
                         .children(rows),
                 )
                 .into_any_element();
+        }
+        if self.ui.settings_tab == 10 {
+            return self.agent_settings_panel(cx);
         }
         if self.ui.settings_tab == 9 {
             return self.update_settings_panel(cx);
