@@ -1,8 +1,9 @@
 //! Workspace adapter: the agent can stage proposals, only this layer applies them.
+use super::ui::{icon, tool};
 use super::*;
 use gpui_component::{
-    Disableable,
-    button::Button,
+    Disableable, Selectable,
+    button::{Button, ButtonVariants},
     input::{Textarea, TextareaState},
 };
 use inkstone_agent::{
@@ -36,6 +37,7 @@ pub(super) struct State {
     applying: Option<Cancel>,
     pub(super) show_settings: bool,
     show_tools: bool,
+    show_sessions: bool,
     error: String,
     persistence_error: bool,
     writer: storage::SessionWriter,
@@ -92,6 +94,7 @@ impl State {
             applying: None,
             show_settings: false,
             show_tools: false,
+            show_sessions: false,
             writer: Default::default(),
             last_checkpoint: std::time::Instant::now(),
             persistence_error: false,
@@ -723,6 +726,7 @@ impl Workspace {
     }
     pub(super) fn agent_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.agent.busy();
+        let colors = crate::theme::palette(self.ui.prefs.light);
         let mut panel = div()
             .id("agent-panel")
             .min_w_0()
@@ -735,48 +739,67 @@ impl Workspace {
             .p_3()
             .gap_2()
             .text_sm();
-        panel = panel.child(
-            div()
-                .flex()
-                .flex_wrap()
-                .gap_1()
-                .child(
-                    Button::new("agent-settings")
-                        .label("模型设置")
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.agent.show_settings = !this.agent.show_settings;
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("agent-new")
-                        .label("新会话")
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
+        let header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .flex_shrink_0()
+            .border_b_1()
+            .border_color(colors.border)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(icon("sparkles").text_color(colors.accent))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Agent")),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        tool("agent-sessions", "history", "会话历史")
+                            .selected(self.agent.show_sessions)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.agent.show_sessions = !this.agent.show_sessions;
+                                cx.notify();
+                            })),
+                    )
+                    .child(tool("agent-new", "plus", "新会话").disabled(busy).on_click(
+                        cx.listener(|this, _, w, cx| {
                             this.agent.sessions.push(Session::default());
                             this.agent.selected = this.agent.sessions.len() - 1;
                             this.agent.scope_key.clear();
+                            this.agent.show_sessions = false;
                             this.agent.persist();
+                            w.focus(&this.agent.prompt.focus_handle(cx), cx);
                             cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("agent-stop")
-                        .label("停止")
-                        .disabled(!busy)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(run) = &this.agent.run {
-                                run.cancel.cancel();
-                            }
-                            if let Some(cancel) = &this.agent.applying {
-                                cancel.cancel();
-                            }
-                            cx.notify();
-                        })),
-                ),
-        );
+                        }),
+                    ))
+                    .child(
+                        tool("agent-settings", "settings", "模型设置")
+                            .selected(self.agent.show_settings)
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.agent.show_settings = !this.agent.show_settings;
+                                cx.notify();
+                            })),
+                    ),
+            );
         if self.agent.show_settings {
+            let mut settings = div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .p_3()
+                .rounded(px(12.))
+                .bg(colors.surface)
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("模型设置"));
             for (i, title) in [
                 "名称",
                 "服务地址",
@@ -789,14 +812,15 @@ impl Workspace {
             .iter()
             .enumerate()
             {
-                panel = panel
-                    .child((*title).to_owned())
+                settings = settings
+                    .child(div().text_color(colors.muted).child((*title).to_owned()))
                     .child(Input::new(&self.agent.fields[i]));
             }
             let tools = self.agent.settings.models[self.agent.settings.selected].tools;
-            panel = panel
+            settings = settings
                 .child(
                     Button::new("agent-tools-toggle")
+                        .ghost()
                         .label(if tools {
                             "工具调用：启用"
                         } else {
@@ -814,11 +838,14 @@ impl Workspace {
                         .flex()
                         .flex_wrap()
                         .gap_1()
-                        .child(Button::new("agent-save-config").label("保存配置").on_click(
-                            cx.listener(|this, _, w, cx| {
-                                this.agent_save_settings(w, cx);
-                            }),
-                        ))
+                        .child(
+                            Button::new("agent-save-config")
+                                .primary()
+                                .label("保存配置")
+                                .on_click(cx.listener(|this, _, w, cx| {
+                                    this.agent_save_settings(w, cx);
+                                })),
+                        )
                         .child(
                             Button::new("agent-test-config")
                                 .label("测试连接与工具")
@@ -839,41 +866,44 @@ impl Workspace {
                             }),
                         )),
                 );
+            panel = panel.child(settings);
         }
-        let model_label = format!(
-            "模型：{}（点击切换）",
-            self.agent.settings.models[self.agent.settings.selected].name
-        );
-        panel = panel.child(
-            Button::new("agent-model")
-                .label(model_label)
-                .disabled(busy)
-                .on_click(cx.listener(|this, _, w, cx| {
-                    this.agent.settings.selected =
-                        (this.agent.settings.selected + 1) % this.agent.settings.models.len();
-                    this.agent.fill_fields(w, cx);
-                    cx.notify();
-                })),
-        );
+        let model_label = self.agent.settings.models[self.agent.settings.selected]
+            .name
+            .clone();
+        let model = Button::new("agent-model")
+            .ghost()
+            .tooltip("切换模型")
+            .icon(icon("chevrons-up-down"))
+            .label(model_label)
+            .disabled(busy)
+            .on_click(cx.listener(|this, _, w, cx| {
+                this.agent.settings.selected =
+                    (this.agent.settings.selected + 1) % this.agent.settings.models.len();
+                this.agent.fill_fields(w, cx);
+                cx.notify();
+            }));
         let scopes = ["当前笔记 / 选区", "指定文件夹", "指定笔记", "整个笔记库"];
-        panel = panel.child(
+        let mut context = div().flex().flex_wrap().items_center().gap_1().child(
             Button::new("agent-scope")
-                .label(format!("范围：{}", scopes[self.agent.scope]))
+                .ghost()
+                .tooltip("切换笔记范围")
+                .label(scopes[self.agent.scope])
                 .disabled(busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.agent.scope = (this.agent.scope + 1) % 4;
                     cx.notify();
                 })),
         );
-        if matches!(self.agent.scope, 1 | 2) {
-            panel = panel.child(Input::new(&self.agent.scope_input));
-        }
-        panel = panel.child(
+        context = context.child(
             Button::new("agent-writing-mode")
+                .ghost()
+                .selected(self.agent.mode == RequestMode::WriteCurrent)
+                .tooltip("切换问答 / 写作模式，写作修改先审阅")
                 .label(if self.agent.mode == RequestMode::WriteCurrent {
-                    "写作模式：生成可审阅修改"
+                    "写作模式"
                 } else {
-                    "问答 / 工具模式"
+                    "问答模式"
                 })
                 .disabled(busy)
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -885,42 +915,108 @@ impl Workspace {
                     cx.notify();
                 })),
         );
-        panel = panel.child("只发送所选范围内的必要内容至配置的模型服务。所有修改先审阅。");
-        for (i, session) in self.agent.sessions.iter().enumerate() {
-            panel = panel.child(
-                Button::new(("agent-session", i))
-                    .label(format!(
-                        "{}{}",
-                        if i == self.agent.selected { "• " } else { "" },
-                        session.title
-                    ))
+        if matches!(self.agent.scope, 1 | 2) {
+            context = context.child(div().w_full().child(Input::new(&self.agent.scope_input)));
+        }
+        if self.agent.show_sessions {
+            let mut history = div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .p_2()
+                .rounded(px(12.))
+                .bg(colors.surface)
+                .child(
+                    div()
+                        .px_2()
+                        .py_1()
+                        .text_color(colors.muted)
+                        .child("会话历史"),
+                );
+            for (i, session) in self.agent.sessions.iter().enumerate() {
+                history = history.child(
+                    Button::new(("agent-session", i))
+                        .ghost()
+                        .selected(i == self.agent.selected)
+                        .label(format!(
+                            "{}{}",
+                            if i == self.agent.selected { "• " } else { "" },
+                            session.title
+                        ))
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.agent.selected = i;
+                            this.agent.show_sessions = false;
+                            this.agent.scope_key.clear();
+                            cx.notify();
+                        })),
+                );
+            }
+            history = history.child(
+                Button::new("agent-delete-session")
+                    .ghost()
+                    .label("删除当前会话")
                     .disabled(busy)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.agent.selected = i;
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.agent.sessions.remove(this.agent.selected);
+                        if this.agent.sessions.is_empty() {
+                            this.agent.sessions.push(Session::default());
+                        }
+                        this.agent.selected = 0;
                         this.agent.scope_key.clear();
+                        this.agent.persist();
                         cx.notify();
                     })),
             );
+            panel = panel.child(history);
         }
-        panel = panel.child(
-            Button::new("agent-delete-session")
-                .label("删除当前会话")
-                .disabled(busy)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.agent.sessions.remove(this.agent.selected);
-                    if this.agent.sessions.is_empty() {
-                        this.agent.sessions.push(Session::default());
-                    }
-                    this.agent.selected = 0;
-                    this.agent.scope_key.clear();
-                    this.agent.persist();
-                    cx.notify();
-                })),
-        );
         let session = self.agent.session();
-        panel = panel.child(format!("状态：{}", state_label(&session.state)));
+        if session.messages.is_empty() {
+            panel = panel.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_3()
+                    .px_3()
+                    .py_6()
+                    .child(
+                        div()
+                            .p_3()
+                            .rounded(px(16.))
+                            .bg(colors.selected)
+                            .child(icon("sparkles").text_color(colors.accent)),
+                    )
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("从一个想法开始"),
+                    )
+                    .child(
+                        div()
+                            .text_center()
+                            .text_color(colors.muted)
+                            .child("梳理笔记、提炼要点，或一起打磨文字。"),
+                    ),
+            );
+        }
+        if !session.messages.is_empty() || busy {
+            panel = panel.child(
+                div()
+                    .text_color(colors.muted)
+                    .child(state_label(&session.state)),
+            );
+        }
         if !self.agent.error.is_empty() {
-            panel = panel.child(div().child(self.agent.error.clone()));
+            panel = panel.child(
+                div()
+                    .p_3()
+                    .rounded(px(10.))
+                    .bg(colors.surface)
+                    .border_l_2()
+                    .border_color(colors.accent)
+                    .child(self.agent.error.clone()),
+            );
         }
         for (i, message) in session.messages.iter().enumerate() {
             let copy = message.text.clone();
@@ -928,40 +1024,68 @@ impl Workspace {
                 div()
                     .flex()
                     .flex_col()
-                    .gap_1()
-                    .p_2()
-                    .border_1()
-                    .child(if message.role == "user" {
-                        "你"
+                    .gap_2()
+                    .p_3()
+                    .rounded(px(12.))
+                    .bg(if message.role == "user" {
+                        colors.selected
                     } else {
-                        "Agent"
+                        colors.surface
                     })
-                    .child(message.text.clone())
                     .child(
-                        Button::new(("agent-copy-message", i))
-                            .label("复制")
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                            }),
-                    ),
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_2()
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(
+                                if message.role == "user" {
+                                    "你"
+                                } else {
+                                    "Agent"
+                                },
+                            ))
+                            .child(
+                                Button::new(("agent-copy-message", i))
+                                    .ghost()
+                                    .compact()
+                                    .label("复制")
+                                    .on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            copy.clone(),
+                                        ))
+                                    }),
+                            ),
+                    )
+                    .child(message.text.clone()),
             );
         }
-        panel = panel.child(format!(
-            "最近一次请求用量（非累计）：{}",
-            session
-                .usage
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_else(|| "未知".into())
-        ));
-        panel = panel.child(
-            Button::new("agent-toggle-log")
-                .label(format!("工具记录（{}）", session.tools.len()))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.agent.show_tools = !this.agent.show_tools;
-                    cx.notify();
-                })),
-        );
+        if let Some(usage) = &session.usage {
+            panel = panel.child(
+                div()
+                    .text_color(colors.muted)
+                    .child(format!("本次用量 · {usage}")),
+            );
+        }
+        if !session.tools.is_empty() {
+            panel = panel.child(
+                Button::new("agent-toggle-log")
+                    .ghost()
+                    .label(format!(
+                        "{} 工具记录 · {}",
+                        if self.agent.show_tools {
+                            "收起"
+                        } else {
+                            "展开"
+                        },
+                        session.tools.len()
+                    ))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.agent.show_tools = !this.agent.show_tools;
+                        cx.notify();
+                    })),
+            );
+        }
         if self.agent.show_tools {
             for (name, result) in &session.tools {
                 panel = panel.child(format!("{name}\n{}", recovery::preview_text(result)));
@@ -992,7 +1116,10 @@ impl Workspace {
                 .flex_col()
                 .gap_2()
                 .border_1()
-                .p_2()
+                .border_color(colors.border)
+                .rounded(px(12.))
+                .bg(colors.surface)
+                .p_3()
                 .child(format!("修改组 {}：{}", i + 1, proposal.status));
             if proposal.changes.changes.len() > 1 {
                 review = review.child("关联修改须整组接受，避免缺失链接目标。");
@@ -1034,6 +1161,7 @@ impl Workspace {
                     .gap_1()
                     .child(
                         Button::new(("agent-accept", i))
+                            .primary()
                             .label("接受并应用")
                             .disabled(busy || proposal.status != "等待审阅")
                             .on_click(
@@ -1059,6 +1187,11 @@ impl Workspace {
             .flex_1()
             .min_h_0()
             .min_w_0()
+            .text_sm()
+            .whitespace_normal()
+            .text_color(colors.foreground)
+            .bg(colors.background)
+            .child(header)
             .child(panel)
             .child(
                 div()
@@ -1067,31 +1200,50 @@ impl Workspace {
                     .gap_2()
                     .p_3()
                     .flex_shrink_0()
+                    .border_t_1()
+                    .border_color(colors.border)
+                    .child(context)
                     .child(Textarea::new(&self.agent.prompt))
                     .child(
                         div()
                             .flex()
                             .gap_2()
-                            .child(
-                                Button::new("agent-send")
-                                    .label("发送 / 继续")
-                                    .disabled(busy)
-                                    .on_click(cx.listener(|this, _, w, cx| this.agent_send(w, cx))),
-                            )
-                            .child(
-                                Button::new("agent-composer-stop")
-                                    .label("停止")
-                                    .disabled(!busy)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        if let Some(run) = &this.agent.run {
-                                            run.cancel.cancel();
-                                        }
-                                        if let Some(cancel) = &this.agent.applying {
-                                            cancel.cancel();
-                                        }
-                                        cx.notify();
-                                    })),
-                            ),
+                            .items_center()
+                            .justify_between()
+                            .flex_wrap()
+                            .child(model)
+                            .when(!busy, |row| {
+                                row.child(
+                                    Button::new("agent-send")
+                                        .primary()
+                                        .label("发送")
+                                        .disabled(busy)
+                                        .on_click(
+                                            cx.listener(|this, _, w, cx| this.agent_send(w, cx)),
+                                        ),
+                                )
+                            })
+                            .when(busy, |row| {
+                                row.child(
+                                    Button::new("agent-composer-stop")
+                                        .label("停止")
+                                        .disabled(!busy)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            if let Some(run) = &this.agent.run {
+                                                run.cancel.cancel();
+                                            }
+                                            if let Some(cancel) = &this.agent.applying {
+                                                cancel.cancel();
+                                            }
+                                            cx.notify();
+                                        })),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_color(colors.muted)
+                            .child("仅发送所选范围内的必要内容，修改先审阅。"),
                     ),
             )
             .into_any_element()
