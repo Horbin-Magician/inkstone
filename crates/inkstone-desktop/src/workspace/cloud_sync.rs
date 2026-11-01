@@ -566,98 +566,328 @@ impl Workspace {
         }).detach();
     }
     pub(super) fn cloud_sync_settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        use super::focus_reveal::FocusReveal;
+        use gpui_component::menu::{DropdownMenu, PopupMenuItem};
         let state = &self.ui.cloud_sync;
         let disabled = self.cloud_settings_disabled();
-        div().flex().flex_1().min_h_0().child(self.settings_nav(cx)).child(
-            self.settings_content().gap_3().whitespace_normal()
-                .child("云同步 · WebDAV")
-                .when(self.vault.is_none(), |s| s.child("请先打开笔记库，再配置云同步。同步配置按笔记库分别保存。"))
-                .child(self.settings_label("webdav-url-label", "服务器目录地址", "各设备使用同一个已存在的 WebDAV 目录；不同笔记库使用不同目录。建议使用 HTTPS。"))
-                .child(super::focus_reveal::FocusReveal::new("webdav-url-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-url-field".into()).child(Input::new(&state.url).disabled(disabled))))
-                .child("用户名")
-                .child(super::focus_reveal::FocusReveal::new("webdav-username-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-username-field".into()).child(Input::new(&state.username).disabled(disabled))))
-                .child(self.settings_label("webdav-password-label", "密码 / 应用专用密码", "密码保存在本机应用数据中，不写入笔记库或上传；重启后自动填回。"))
-                .child(super::focus_reveal::FocusReveal::new("webdav-password-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-password-field".into()).child(Input::new(&state.password).disabled(disabled))))
-                .child("密码以明文保存在本机，建议使用应用专用密码。")
+        let palette = crate::theme::palette(self.ui.prefs.light);
+        let field = |id: &'static str,
+                     name: &str,
+                     description: &str,
+                     focus: &'static str,
+                     selector: &'static str,
+                     input: &Entity<InputState>,
+                     divider: bool| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .py_4()
+                .when(divider, |row| row.border_t_1().border_color(self.border()))
+                .child(self.settings_label(id, name, description))
+                .child(FocusReveal::new(
+                    focus,
+                    &self.ui.settings_scroll,
+                    div()
+                        .debug_selector(move || selector.into())
+                        .child(Input::new(input).disabled(disabled)),
+                ))
+                .into_any_element()
+        };
+        let status = div()
+            .w_full()
+            .max_w(px(700.))
+            .mx_auto()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .p_4()
+            .rounded(px(10.))
+            .bg(palette.surface)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_shrink_0()
+                            .items_center()
+                            .justify_center()
+                            .size(px(36.))
+                            .rounded_full()
+                            .bg(palette.selected)
+                            .child(super::ui::icon("cloud").text_color(palette.accent)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(state.scheduling_label().to_owned()),
+                            )
+                            .child(div().text_color(palette.muted).child(self.sync_success_label())),
+                    )
+                    .child(FocusReveal::new(
+                        "webdav-sync-focus",
+                        &self.ui.settings_scroll,
+                        div()
+                            .flex()
+                            .flex_shrink_0()
+                            .gap_2()
+                            .when(state.run.is_some(), |s| {
+                                s.child(
+                                    Button::new("webdav-cancel-running")
+                                        .ghost()
+                                        .label("取消")
+                                        .disabled(state.run.as_ref().is_some_and(Run::is_cancelled))
+                                        .on_click(cx.listener(|this, _, _, cx| this.cancel_running_sync(cx))),
+                                )
+                            })
+                            .when(
+                                !state.schedule.busy
+                                    && (state.schedule.pending
+                                        || state.schedule.again
+                                        || state.schedule.wait.is_some()
+                                        || state.watch.has_work()),
+                                |s| {
+                                    s.child(
+                                        Button::new("webdav-cancel-wait")
+                                            .ghost()
+                                            .label("取消等待")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.cancel_queued_sync();
+                                                this.cloud_message("已取消本次等待；开启自动同步时，后续变更或定期检查仍会触发同步。".into(), cx);
+                                            })),
+                                    )
+                                },
+                            )
+                            .child(
+                                Button::new("webdav-sync")
+                                    .primary()
+                                    .icon(super::ui::icon("refresh-cw"))
+                                    .label(if state.schedule.busy { "正在处理……" } else { "立即同步" })
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx))),
+                            ),
+                    )),
+            )
+            .when(state.run.is_some(), |s| {
+                let progress = state.progress.as_ref().filter(|p| p.total > 0);
+                s.child(
+                    gpui_component::progress::Progress::new("cloud-sync-progress")
+                        .w_full()
+                        .accessibility_label("当前同步阶段进度")
+                        .loading(progress.is_none())
+                        .value(progress.map_or(0., |p| p.completed as f32 * 100. / p.total as f32)),
+                )
+            })
+            .when(!state.message.is_empty(), |s| {
+                s.child(div().text_color(palette.muted).child(state.message.clone()))
+            });
+        let server = vec![
+            field(
+                "webdav-url-label",
+                "服务器目录地址",
+                "各设备使用同一个已存在的 WebDAV 目录；不同笔记库使用不同目录。建议使用 HTTPS。",
+                "webdav-url-focus",
+                "webdav-url-field",
+                &state.url,
+                false,
+            ),
+            field(
+                "webdav-username-label",
+                "用户名",
+                "",
+                "webdav-username-focus",
+                "webdav-username-field",
+                &state.username,
+                true,
+            ),
+            field(
+                "webdav-password-label",
+                "密码 / 应用专用密码",
+                "密码以明文保存在本机应用数据中，不写入笔记库或上传；建议使用应用专用密码。",
+                "webdav-password-focus",
+                "webdav-password-field",
+                &state.password,
+                true,
+            ),
+            div()
+                .flex()
+                .justify_end()
+                .py_3()
+                .border_t_1()
+                .border_color(self.border())
+                .child(FocusReveal::new(
+                    "webdav-actions-focus",
+                    &self.ui.settings_scroll,
+                    div()
+                        .debug_selector(|| "webdav-actions".into())
+                        .flex()
+                        .gap_2()
+                        .child(
+                            Button::new("webdav-test")
+                                .label("测试连接")
+                                .disabled(disabled)
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.test_cloud_connection(cx)),
+                                ),
+                        )
+                        .child(
+                            Button::new("webdav-save")
+                                .primary()
+                                .label("保存配置")
+                                .disabled(disabled)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if this.save_cloud_settings(cx) {
+                                        let message = if this
+                                            .ui
+                                            .cloud_sync
+                                            .password
+                                            .read(cx)
+                                            .value()
+                                            .is_empty()
+                                        {
+                                            "同步配置已更新，已清除保存的密码。"
+                                        } else {
+                                            "同步配置已更新，密码已保存在本机。"
+                                        };
+                                        this.cloud_message(message.into(), cx);
+                                    }
+                                })),
+                        ),
+                ))
+                .into_any_element(),
+        ];
+        let minutes = self.ui.prefs.webdav.poll_minutes.clamp(1, 1440);
+        let weak = cx.entity().downgrade();
+        let poll = div().debug_selector(|| "webdav-poll-control".into()).child(
+            Button::new("webdav-poll-interval")
+                .accessibility_label("远端检查间隔")
+                .disabled(disabled)
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .justify_between()
-                        .gap_3()
-                        .flex_shrink_0()
-                        .min_w_0()
-                        .child(
-                            self.settings_label("webdav-auto-label", "自动同步", "打开笔记库或文件变更后自动同步，连续修改会合并处理；关闭后需点击立即同步。未保存正文需先手动保存。").flex_1().min_w_0(),
-                        )
-                        .child(
-                            super::focus_reveal::FocusReveal::new("webdav-auto-focus", &self.ui.settings_scroll, div().id("webdav-auto-control").debug_selector(|| "webdav-auto-control".into()).flex_shrink_0().child(super::settings_ui::setting_switch("webdav-auto")
-                                .accessibility_label("自动同步")
-                                .checked(self.ui.prefs.webdav.auto)
-                                .disabled(disabled)
-                                .on_click(cx.listener(|this, enabled: &bool, window, cx| {
-                                    this.ui.prefs.webdav.auto = *enabled;
-                                    this.persist_workspace(cx);
-                                    if *enabled {
-                                        this.schedule_auto_sync(false);
-                                        this.tick_cloud_sync(window, cx);
-                                    } else {
-                                        this.ui.cloud_sync.schedule.disable_automatic();
-                                    }
-                                    cx.notify();
-                                })))),
-                        ),
+                        .gap_2()
+                        .child(format!("{minutes} 分钟"))
+                        .child(super::ui::icon("chevrons-up-down")),
                 )
-                .child(super::focus_reveal::FocusReveal::new("webdav-actions-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-actions".into()).flex().flex_wrap().flex_shrink_0().gap_2()
-                    .child(Button::new("webdav-save").label("保存配置").disabled(disabled).on_click(cx.listener(|this, _, _, cx| {
-                        if this.save_cloud_settings(cx) {
-                            let message = if this.ui.cloud_sync.password.read(cx).value().is_empty() {
-                                "同步配置已更新，已清除保存的密码。"
-                            } else {
-                                "同步配置已更新，密码已保存在本机。"
-                            };
-                            this.cloud_message(message.into(), cx);
-                        }
-                    })))
-                    .child(Button::new("webdav-test").label("测试连接").disabled(disabled).on_click(cx.listener(|this, _, _, cx| this.test_cloud_connection(cx))))
-                    .child(Button::new("webdav-sync").primary().label(if state.schedule.busy { "正在处理……" } else { "立即同步" }).disabled(disabled).on_click(cx.listener(|this, _, window, cx| this.request_cloud_sync(window, cx))))))
-                .when(state.run.is_some(), |s| s.child(
-                    super::focus_reveal::FocusReveal::new("webdav-cancel-running-focus", &self.ui.settings_scroll, Button::new("webdav-cancel-running").label("取消本次同步")
-                        .disabled(state.run.as_ref().is_some_and(Run::is_cancelled))
-                        .on_click(cx.listener(|this, _, _, cx| this.cancel_running_sync(cx))))
-                ))
-                .when(!state.schedule.busy && (state.schedule.pending || state.schedule.again || state.schedule.wait.is_some() || state.watch.has_work()), |s| s.child(
-                    super::focus_reveal::FocusReveal::new("webdav-cancel-wait-focus", &self.ui.settings_scroll, Button::new("webdav-cancel-wait").label("取消本次同步等待")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.cancel_queued_sync();
-                            this.cloud_message("已取消本次等待；开启自动同步时，后续变更或定期检查仍会触发同步。".into(), cx);
-                        })))
-                ))
-                .child(self.settings_label("webdav-scope-label", "双向同步笔记与附件，包括删除。", "首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。隐藏文件、空文件夹、工作区设置和历史不参与同步；单文件上限 128 MiB。中断后可复用已校验的下载。"))
-                .child(super::focus_reveal::FocusReveal::new("webdav-poll-focus", &self.ui.settings_scroll, div().debug_selector(|| "webdav-poll-control".into()).child(Button::new("webdav-poll-interval").tooltip("点击切换间隔。自动同步开启且应用打开时定期检查远端，重新激活窗口也会检查。")
-                    .label(format!("远端检查间隔：{} 分钟", self.ui.prefs.webdav.poll_minutes.clamp(1, 1440)))
-                    .disabled(disabled)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.ui.prefs.webdav.poll_minutes = match this.ui.prefs.webdav.poll_minutes {
-                            1 => 5, 5 => 15, 15 => 30, _ => 1,
-                        };
-                        this.persist_workspace(cx);
-                        cx.notify();
-                    })))))
-                .when(state.run.is_some(), |s| {
-                    let progress = state.progress.as_ref().filter(|p| p.total > 0);
-                    s.child(gpui_component::progress::Progress::new("cloud-sync-progress")
-                        .w_full()
-                        .accessibility_label("当前同步阶段进度")
-                        .loading(progress.is_none())
-                        .value(progress.map_or(0., |p| p.completed as f32 * 100. / p.total as f32)))
-                })
-                .child(state.scheduling_label())
-                .child(self.sync_success_label())
-                .child(self.cloud_capacity_panel(cx))
-                .child(self.cloud_cleanup_panel(cx))
-                .when(!state.message.is_empty(), |s| s.child(state.message.clone()))
-        ).into_any_element()
+                .dropdown_menu(move |mut menu, _, _| {
+                    for value in [1, 5, 15, 30] {
+                        let weak = weak.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(format!("{value} 分钟"))
+                                .checked(minutes == value)
+                                .on_click(move |_, _, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.ui.prefs.webdav.poll_minutes = value;
+                                        this.persist_workspace(cx);
+                                        cx.notify();
+                                    });
+                                }),
+                        );
+                    }
+                    menu
+                }),
+        );
+        let sync = vec![
+            self.settings_row(
+                "webdav-auto-label",
+                "自动同步",
+                "打开笔记库或文件变更后自动同步，连续修改会合并处理；关闭后需点击立即同步。未保存正文需先手动保存。",
+                div()
+                    .id("webdav-auto-control")
+                    .debug_selector(|| "webdav-auto-control".into())
+                    .flex_shrink_0()
+                    .child(
+                        super::settings_ui::setting_switch("webdav-auto")
+                            .accessibility_label("自动同步")
+                            .checked(self.ui.prefs.webdav.auto)
+                            .disabled(disabled)
+                            .on_click(cx.listener(|this, enabled: &bool, window, cx| {
+                                this.ui.prefs.webdav.auto = *enabled;
+                                this.persist_workspace(cx);
+                                if *enabled {
+                                    this.schedule_auto_sync(false);
+                                    this.tick_cloud_sync(window, cx);
+                                } else {
+                                    this.ui.cloud_sync.schedule.disable_automatic();
+                                }
+                                cx.notify();
+                            })),
+                    ),
+                false,
+                16.,
+            ),
+            self.settings_row(
+                "webdav-poll-label",
+                "远端检查间隔",
+                "自动同步开启且应用打开时定期检查远端，重新激活窗口也会检查。",
+                poll,
+                true,
+                16.,
+            ),
+        ];
+        div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .child(self.settings_nav(cx))
+            .child(
+                self.settings_content()
+                    .gap_2()
+                    .whitespace_normal()
+                    .child(self.settings_title("云同步"))
+                    .when(self.vault.is_none(), |s| {
+                        s.child(
+                            div()
+                                .w_full()
+                                .max_w(px(700.))
+                                .mx_auto()
+                                .px_1()
+                                .text_color(palette.muted)
+                                .child("请先打开笔记库，再配置云同步。同步配置按笔记库分别保存。"),
+                        )
+                    })
+                    .child(status)
+                    .child(self.settings_group("WebDAV 服务器", server))
+                    .child(self.settings_group("同步", sync))
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(px(700.))
+                            .mx_auto()
+                            .mt_2()
+                            .px_1()
+                            .text_color(palette.muted)
+                            .child(self.settings_label(
+                                "webdav-scope-label",
+                                "双向同步笔记与附件，包括删除。",
+                                "首次同步合并两端文件；同时修改时保留云端冲突副本，修改与删除冲突时保留修改。隐藏文件、空文件夹、工作区设置和历史不参与同步；单文件上限 128 MiB。中断后可复用已校验的下载。",
+                            )),
+                    )
+                    .child(self.settings_group(
+                        "存储空间",
+                        vec![div()
+                            .py_4()
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .child(self.cloud_capacity_panel(cx))
+                            .child(self.cloud_cleanup_panel(cx))
+                            .into_any_element()],
+                    )),
+            )
+            .into_any_element()
     }
 }
 
@@ -794,6 +1024,15 @@ mod tests {
             }
         }
         // The switch must remain clickable so a queued attempt can be cancelled.
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let switch = visual.debug_bounds("webdav-auto-control").unwrap().center();
+        handle
+            .update(&mut visual, |w, _, _| {
+                let scroll = &w.ui.settings_scroll;
+                let center = scroll.bounds().center().y;
+                scroll.set_offset(point(px(0.), scroll.offset().y + center - switch.y));
+            })
+            .unwrap();
         visual.update(|window, cx| window.draw(cx).clear(cx));
         let switch = visual.debug_bounds("webdav-auto-control").unwrap().center();
         visual.simulate_click(switch, Modifiers::default());
@@ -2144,19 +2383,17 @@ mod tests {
         for (key, selector) in [
             ("tab", "webdav-username-field"),
             ("tab", "webdav-password-field"),
+            ("tab", "webdav-actions"),
+            ("tab", "webdav-actions"),
             ("tab", "webdav-auto-control"),
-            ("tab", "webdav-actions"),
-            ("tab", "webdav-actions"),
-            ("tab", "webdav-actions"),
             ("tab", "webdav-poll-control"),
             ("tab", "cloud-capacity-control"),
             ("tab", "cloud-cleanup-preview-control"),
             ("shift-tab", "cloud-capacity-control"),
             ("shift-tab", "webdav-poll-control"),
-            ("shift-tab", "webdav-actions"),
-            ("shift-tab", "webdav-actions"),
-            ("shift-tab", "webdav-actions"),
             ("shift-tab", "webdav-auto-control"),
+            ("shift-tab", "webdav-actions"),
+            ("shift-tab", "webdav-actions"),
             ("shift-tab", "webdav-password-field"),
             ("shift-tab", "webdav-username-field"),
             ("shift-tab", "webdav-url-field"),
