@@ -2,9 +2,12 @@
 use super::ui::{icon, tool};
 use super::*;
 use gpui_component::{
-    Disableable, Selectable,
+    Disableable, Sizable,
     button::{Button, ButtonVariants},
-    input::{Textarea, TextareaState},
+    input::{Enter, Textarea, TextareaState},
+    menu::{DropdownMenu, PopupMenuItem},
+    spinner::Spinner,
+    text::TextView,
 };
 use inkstone_agent::{
     AgentEvent, AgentRun, RunState, Scope,
@@ -17,6 +20,30 @@ use inkstone_core::changes::{ApplyReport, ApplyStatus};
 use std::collections::BTreeMap;
 
 type AgentSnapshot = (PathBuf, String, std::ops::Range<usize>);
+
+const POLISH: &str = "请润色当前选区或笔记，保留原意，提出修改供我审阅。";
+const SUMMARY: &str = "请总结当前选区或笔记，列出要点并引用来源。";
+const PROBE_OK: &str = "流式连接与工具参数测试通过";
+const SCOPES: [(&str, &str); 4] = [
+    ("file-text", "当前笔记"),
+    ("folder", "指定文件夹"),
+    ("list", "指定笔记"),
+    ("library", "整个笔记库"),
+];
+const SUGGESTIONS: [(&str, &str, &str); 4] = [
+    ("file-text", "总结要点", SUMMARY),
+    ("pencil", "润色文字", POLISH),
+    (
+        "list-checks",
+        "提取待办",
+        "请从当前选区或笔记中提取待办事项，整理为任务列表。",
+    ),
+    (
+        "quote",
+        "解释概念",
+        "请解释当前选区或笔记中的关键概念，并引用相关来源。",
+    ),
+];
 
 pub(super) struct State {
     settings: Settings,
@@ -36,11 +63,11 @@ pub(super) struct State {
     sequence: u64,
     applying: Option<Cancel>,
     show_tools: bool,
-    show_sessions: bool,
     error: String,
     persistence_error: bool,
     writer: storage::SessionWriter,
     last_checkpoint: std::time::Instant,
+    scroll: ScrollHandle,
 }
 impl State {
     pub fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
@@ -69,15 +96,17 @@ impl State {
         .into_iter()
         .map(|label| cx.new(|cx| InputState::new(window, cx).placeholder(label)))
         .collect();
+        let prompt = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(2, 10)
+                .submit_on_enter(true)
+                .placeholder("向 Agent 提问或描述任务")
+        });
         let mut state = Self {
             settings,
             secrets: secrets.unwrap_or_default(),
             fields,
-            prompt: cx.new(|cx| {
-                TextareaState::new(window, cx)
-                    .rows(3)
-                    .placeholder("向 Agent 提问或描述修改任务")
-            }),
+            prompt,
             scope_input: cx
                 .new(|cx| InputState::new(window, cx).placeholder("库内目录 / 笔记路径，逗号分隔")),
             scope: 0,
@@ -92,11 +121,11 @@ impl State {
             sequence: 0,
             applying: None,
             show_tools: false,
-            show_sessions: false,
             writer: Default::default(),
             last_checkpoint: std::time::Instant::now(),
             persistence_error: false,
             error,
+            scroll: ScrollHandle::new(),
         };
         state.fields[3].update(cx, |s, cx| s.set_masked(true, window, cx));
         state.fill_fields(window, cx);
@@ -152,8 +181,8 @@ impl Workspace {
         self.ui.focus_mode = false;
         self.ui.right_mode = 5;
         let prompt = match command {
-            113 => "请润色当前选区或笔记，保留原意，提出修改供我审阅。",
-            114 => "请总结当前选区或笔记，列出要点并引用来源。",
+            113 => POLISH,
+            114 => SUMMARY,
             _ => "",
         };
         if !prompt.is_empty() {
@@ -270,9 +299,7 @@ impl Workspace {
                 }
                 AgentEvent::Usage(usage) => self.agent.session_mut().usage = Some(usage),
                 AgentEvent::Error(error) => self.agent.error = error,
-                AgentEvent::Probe => {
-                    self.agent.error = "流式连接与工具参数测试通过".into();
-                }
+                AgentEvent::Probe => self.agent.error = PROBE_OK.into(),
                 AgentEvent::Finished => (),
             }
         }
@@ -290,6 +317,11 @@ impl Workspace {
         if changed {
             if self.agent.last_checkpoint.elapsed() >= Duration::from_secs(1) {
                 self.agent.persist();
+            }
+            // Follow streamed output unless the reader has scrolled up.
+            let scroll = &self.agent.scroll;
+            if scroll.offset().y + scroll.max_offset().y <= px(48.) {
+                scroll.scroll_to_bottom();
             }
             cx.notify();
         }
@@ -511,7 +543,70 @@ impl Workspace {
         self.agent
             .prompt
             .update(cx, |s, cx| s.set_value("", window, cx));
+        self.agent.scroll.scroll_to_bottom();
         self.agent.persist();
+        cx.notify();
+    }
+    fn agent_stop(&mut self, cx: &mut Context<Self>) {
+        if let Some(run) = &self.agent.run {
+            run.cancel.cancel();
+        }
+        if let Some(cancel) = &self.agent.applying {
+            cancel.cancel();
+        }
+        cx.notify();
+    }
+    fn agent_new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.agent.busy() {
+            return;
+        }
+        // Reuse an untouched session instead of piling up empty entries.
+        if !self.agent.session().messages.is_empty() {
+            self.agent.sessions.push(Session::default());
+            self.agent.selected = self.agent.sessions.len() - 1;
+            self.agent.persist();
+        }
+        self.agent.scope_key.clear();
+        self.agent.error.clear();
+        window.focus(&self.agent.prompt.focus_handle(cx), cx);
+        cx.notify();
+    }
+    fn agent_select_session(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.agent.busy() || index >= self.agent.sessions.len() {
+            return;
+        }
+        self.agent.selected = index;
+        self.agent.scope_key.clear();
+        self.agent.error.clear();
+        self.agent.scroll.scroll_to_bottom();
+        cx.notify();
+    }
+    fn agent_delete_session(&mut self, cx: &mut Context<Self>) {
+        if self.agent.busy() {
+            return;
+        }
+        self.agent.sessions.remove(self.agent.selected);
+        if self.agent.sessions.is_empty() {
+            self.agent.sessions.push(Session::default());
+        }
+        self.agent.selected = self.agent.sessions.len() - 1;
+        self.agent.scope_key.clear();
+        self.agent.persist();
+        cx.notify();
+    }
+    fn agent_select_model(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.agent.busy() || index >= self.agent.settings.models.len() {
+            return;
+        }
+        self.agent.settings.selected = index;
+        self.agent.fill_fields(window, cx);
+        cx.notify();
+    }
+    fn agent_suggest(&mut self, prompt: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.agent
+            .prompt
+            .update(cx, |s, cx| s.set_value(prompt, window, cx));
+        window.focus(&self.agent.prompt.focus_handle(cx), cx);
         cx.notify();
     }
     fn agent_apply(&mut self, proposal_index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -709,19 +804,21 @@ impl Workspace {
                 "agent-current-config",
                 "当前配置",
                 "切换要编辑和使用的模型配置。",
-                Button::new("agent-settings-model")
-                    .label(
-                        self.agent.settings.models[self.agent.settings.selected]
-                            .name
-                            .clone(),
-                    )
-                    .disabled(busy)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.agent.settings.selected =
-                            (this.agent.settings.selected + 1) % this.agent.settings.models.len();
-                        this.agent.fill_fields(window, cx);
-                        cx.notify();
-                    })),
+                self.agent_model_menu(
+                    Button::new("agent-settings-model")
+                        .h(px(32.))
+                        .disabled(busy)
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(self.agent_model_name())
+                                .child(icon("chevrons-up-down")),
+                        ),
+                    false,
+                    cx,
+                ),
                 false,
                 16.,
             ),
@@ -825,11 +922,676 @@ impl Workspace {
             .into_any_element()
     }
 
-    pub(super) fn agent_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn agent_model_name(&self) -> String {
+        let name = &self.agent.settings.models[self.agent.settings.selected].name;
+        if name.trim().is_empty() {
+            "未命名配置".into()
+        } else {
+            name.clone()
+        }
+    }
+    fn agent_model_menu(&self, button: Button, manage: bool, cx: &mut Context<Self>) -> AnyElement {
+        let weak = cx.entity().downgrade();
+        let selected = self.agent.settings.selected;
+        let names: Vec<_> = self
+            .agent
+            .settings
+            .models
+            .iter()
+            .map(|m| m.name.clone())
+            .collect();
+        button
+            .dropdown_menu(move |mut menu, _, _| {
+                for (i, name) in names.iter().enumerate() {
+                    let weak = weak.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(if name.trim().is_empty() {
+                            "未命名配置".to_string()
+                        } else {
+                            name.clone()
+                        })
+                        .checked(i == selected)
+                        .on_click(move |_, window, cx| {
+                            let _ =
+                                weak.update(cx, |this, cx| this.agent_select_model(i, window, cx));
+                        }),
+                    );
+                }
+                if manage {
+                    let weak = weak.clone();
+                    menu = menu.separator().item(
+                        PopupMenuItem::new("管理模型配置…")
+                            .icon(icon("settings"))
+                            .on_click(move |_, window, cx| {
+                                let _ = weak
+                                    .update(cx, |this, cx| this.open_agent_settings(window, cx));
+                            }),
+                    );
+                }
+                menu
+            })
+            .into_any_element()
+    }
+    fn agent_header(&self, colors: crate::theme::Palette, cx: &mut Context<Self>) -> Div {
         let busy = self.agent.busy();
+        let session = self.agent.session();
+        let title = if session.title.trim().is_empty() {
+            "新对话".to_string()
+        } else {
+            session.title.clone()
+        };
+        let status = if busy {
+            Some(state_label(&session.state))
+        } else {
+            match session.state {
+                RunState::Failed
+                | RunState::Cancelled
+                | RunState::Interrupted
+                | RunState::Limited
+                | RunState::AwaitingReview
+                    if !session.messages.is_empty() =>
+                {
+                    Some(state_label(&session.state))
+                }
+                _ => None,
+            }
+        };
+        let weak = cx.entity().downgrade();
+        let selected = self.agent.selected;
+        let titles: Vec<_> = self
+            .agent
+            .sessions
+            .iter()
+            .map(|s| {
+                if s.title.trim().is_empty() {
+                    "新对话".to_string()
+                } else {
+                    s.title.clone()
+                }
+            })
+            .collect();
+        let history = tool("agent-sessions", "history", "会话历史")
+            .disabled(busy)
+            .dropdown_menu(move |mut menu, _, _| {
+                menu = menu.label("最近会话").max_h(px(360.)).scrollable(true);
+                // Newest first, matching how the sessions were created.
+                for (i, title) in titles.iter().enumerate().rev() {
+                    let weak = weak.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(title.clone())
+                            .checked(i == selected)
+                            .on_click(move |_, _, cx| {
+                                let _ =
+                                    weak.update(cx, |this, cx| this.agent_select_session(i, cx));
+                            }),
+                    );
+                }
+                let weak = weak.clone();
+                menu.separator().item(
+                    PopupMenuItem::new("删除当前会话")
+                        .icon(icon("trash"))
+                        .on_click(move |_, _, cx| {
+                            let _ = weak.update(cx, |this, cx| this.agent_delete_session(cx));
+                        }),
+                )
+            });
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .pl_3()
+            .pr_2()
+            .h(px(44.))
+            .flex_shrink_0()
+            .border_b_1()
+            .border_color(colors.border)
+            .child(icon("sparkles").text_color(colors.accent))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .truncate()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(title),
+                    )
+                    .when_some(status, |col, status| {
+                        col.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .text_xs()
+                                .text_color(colors.muted)
+                                .when(busy, |row| {
+                                    row.child(Spinner::new().xsmall().color(colors.accent.into()))
+                                })
+                                .child(status),
+                        )
+                    }),
+            )
+            .child(
+                tool("agent-new", "message-square-plus", "新对话")
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, w, cx| this.agent_new_session(w, cx))),
+            )
+            .child(history)
+            .child(
+                tool("agent-settings", "settings", "Agent 设置")
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_agent_settings(window, cx);
+                    })),
+            )
+    }
+    fn agent_empty(&self, colors: crate::theme::Palette, cx: &mut Context<Self>) -> Div {
+        let mut suggestions = div().flex().flex_col().gap_2().w_full().max_w(px(320.));
+        for (i, (ico, label, prompt)) in SUGGESTIONS.into_iter().enumerate() {
+            suggestions = suggestions.child(
+                div()
+                    .id(("agent-suggestion", i))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_color(colors.border)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(colors.hover))
+                    .child(icon(ico).text_color(colors.accent))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, w, cx| this.agent_suggest(prompt, w, cx))),
+            );
+        }
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .pt_8()
+            .pb_4()
+            .child(
+                div()
+                    .p_3()
+                    .rounded(px(16.))
+                    .bg(colors.selected)
+                    .child(icon("sparkles").text_color(colors.accent)),
+            )
+            .child(
+                div()
+                    .text_base()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("今天想处理什么？"),
+            )
+            .child(
+                div()
+                    .text_center()
+                    .text_color(colors.muted)
+                    .child("梳理笔记、提炼要点或打磨文字，修改都会先由你审阅"),
+            )
+            .child(suggestions)
+    }
+    fn agent_message(
+        &self,
+        i: usize,
+        message: &Message,
+        thinking: bool,
+        colors: crate::theme::Palette,
+    ) -> AnyElement {
+        let copy = message.text.clone();
+        let group: SharedString = format!("agent-message-{i}").into();
+        let copy_button = div()
+            .opacity(0.)
+            .group_hover(group.clone(), |s| s.opacity(1.))
+            .child(
+                Button::new(("agent-copy-message", i))
+                    .ghost()
+                    .xsmall()
+                    .icon(icon("copy"))
+                    .tooltip("复制")
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                    }),
+            );
+        if message.role == "user" {
+            return div()
+                .group(group)
+                .flex()
+                .flex_col()
+                .items_end()
+                .gap_1()
+                .child(
+                    div()
+                        .max_w(relative(0.88))
+                        .px_3()
+                        .py_2()
+                        .rounded(px(14.))
+                        .bg(colors.selected)
+                        .child(message.text.clone()),
+                )
+                .child(copy_button)
+                .into_any_element();
+        }
+        let body = if thinking {
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .py_1()
+                .text_color(colors.muted)
+                .child(Spinner::new().small().color(colors.accent.into()))
+                .child(format!("{}…", state_label(&self.agent.session().state)))
+                .into_any_element()
+        } else if message.text.is_empty() {
+            div()
+                .text_color(colors.muted)
+                .child("（没有文字回复）")
+                .into_any_element()
+        } else {
+            TextView::markdown(("agent-reply", i), message.text.clone())
+                .selectable(true)
+                .into_any_element()
+        };
+        div()
+            .group(group)
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(colors.muted)
+                    .child(icon("sparkles").text_color(colors.accent))
+                    .child("Agent"),
+            )
+            .child(body)
+            .when(!thinking && !message.text.is_empty(), |col| {
+                col.child(copy_button)
+            })
+            .into_any_element()
+    }
+    fn agent_proposal(
+        &self,
+        i: usize,
+        proposal: &Proposal,
+        colors: crate::theme::Palette,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let busy = self.agent.busy();
+        let pending = proposal.status == "等待审阅";
+        let light = self.ui.prefs.light;
+        let (added, removed) = if light {
+            (rgb(0x2f7d4a), rgb(0xb4413c))
+        } else {
+            (rgb(0x86d19c), rgb(0xf08a84))
+        };
+        let (added_bg, removed_bg) = if light {
+            (rgba(0x2f7d4a1a), rgba(0xb4413c17))
+        } else {
+            (rgba(0x86d19c1f), rgba(0xf08a841f))
+        };
+        let mono = gpui_component::Theme::global(cx).mono_font_family.clone();
+        let card = div()
+            .flex()
+            .flex_col()
+            .rounded(px(12.))
+            .border_1()
+            .border_color(if pending {
+                colors.accent
+            } else {
+                colors.border
+            })
+            .bg(colors.background)
+            .overflow_hidden()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .bg(colors.surface)
+                    .border_b_1()
+                    .border_color(colors.border)
+                    .child(icon("square-pen").text_color(colors.accent))
+                    .child(
+                        div()
+                            .flex_1()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(format!(
+                                "修改提案 {} · {} 篇",
+                                i + 1,
+                                proposal.changes.changes.len()
+                            )),
+                    )
+                    .child(pill(
+                        proposal.status.clone(),
+                        if pending { colors.accent } else { colors.muted },
+                        if pending {
+                            colors.selected
+                        } else {
+                            colors.hover
+                        },
+                    )),
+            );
+        let mut body = div().flex().flex_col().gap_3().p_3();
+        if proposal.changes.changes.len() > 1 {
+            body = body.child(
+                div()
+                    .text_xs()
+                    .text_color(colors.muted)
+                    .child("关联修改须整组接受，避免缺失链接目标。"),
+            );
+        }
+        for (j, change) in proposal.changes.changes.iter().enumerate() {
+            let diff = proposal
+                .previews
+                .get(j)
+                .cloned()
+                .unwrap_or_else(|| "旧会话未保存差异预览，请重新生成提案。".into());
+            let mut lines = div().flex().flex_col().min_w_0();
+            let total = diff.lines().count();
+            for line in diff.lines().take(DIFF_LINES) {
+                let (fg, bg) = match line.as_bytes().first() {
+                    _ if line.starts_with("+++") || line.starts_with("---") => (colors.muted, None),
+                    Some(b'+') => (added, Some(added_bg)),
+                    Some(b'-') => (removed, Some(removed_bg)),
+                    Some(b'@') => (colors.accent, None),
+                    _ => (colors.foreground, None),
+                };
+                lines = lines.child(
+                    div()
+                        .px_2()
+                        .text_color(fg)
+                        .when_some(bg, |row, bg| row.bg(bg))
+                        .child(if line.is_empty() {
+                            " ".to_string()
+                        } else {
+                            line.to_string()
+                        }),
+                );
+            }
+            if total > DIFF_LINES {
+                lines = lines.child(div().px_2().text_color(colors.muted).child(format!(
+                    "……还有 {} 行未显示，完整修改仍保留。",
+                    total - DIFF_LINES
+                )));
+            }
+            let path = change.path.clone();
+            body = body.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(icon("file-text").text_color(colors.muted))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(change.path.display().to_string()),
+                            )
+                            .when(change.before.is_none(), |row| {
+                                row.child(pill("新建", colors.accent, colors.selected))
+                            })
+                            .child(
+                                Button::new(("agent-history", i * 100 + j))
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(icon("history"))
+                                    .tooltip("查看版本历史 / 恢复")
+                                    .disabled(busy)
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.open_history_path(path.clone(), w, cx)
+                                    })),
+                            ),
+                    )
+                    .when(!change.reason.trim().is_empty(), |col| {
+                        col.child(
+                            div()
+                                .text_xs()
+                                .text_color(colors.muted)
+                                .child(change.reason.clone()),
+                        )
+                    })
+                    .child(
+                        div()
+                            .id(("agent-diff", i * 100 + j))
+                            .max_h(px(280.))
+                            .overflow_y_scroll()
+                            .py_1()
+                            .rounded(px(8.))
+                            .border_1()
+                            .border_color(colors.border)
+                            .bg(colors.surface)
+                            .font_family(mono.clone())
+                            .text_xs()
+                            .child(lines),
+                    ),
+            );
+        }
+        if let Some(report) = &proposal.report {
+            body = body.child(
+                div()
+                    .text_xs()
+                    .text_color(colors.muted)
+                    .child(report_text(report)),
+            );
+        }
+        if pending {
+            body = body.child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        Button::new(("agent-reject", i))
+                            .ghost()
+                            .small()
+                            .label("拒绝")
+                            .disabled(busy)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.agent.session_mut().proposals[i].status = "已拒绝".into();
+                                this.agent.persist();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(("agent-accept", i))
+                            .primary()
+                            .small()
+                            .icon(icon("check"))
+                            .label("接受并应用")
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(move |this, _, w, cx| this.agent_apply(i, w, cx)),
+                            ),
+                    ),
+            );
+        }
+        card.child(body)
+    }
+    fn agent_composer(&self, colors: crate::theme::Palette, cx: &mut Context<Self>) -> Div {
+        let busy = self.agent.busy();
+        let weak = cx.entity().downgrade();
+        let scope = self.agent.scope;
+        // Name what "current note" means right now so users know what will be sent.
+        let current = self.current_pane().map(|pane| {
+            let pane = pane.read(cx);
+            let name = pane
+                .current_path
+                .file_stem()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            (name, !pane.editor.read(cx).selected_range().is_empty())
+        });
+        let scope_label = match (scope, &current) {
+            (0, Some((name, true))) => format!("选区 · {name}"),
+            (0, Some((name, false))) if !name.is_empty() => name.clone(),
+            (0, _) => "未打开笔记".into(),
+            (i, _) => SCOPES[i].1.into(),
+        };
+        let scope_button = Button::new("agent-scope")
+            .ghost()
+            .small()
+            .tooltip("发送给 Agent 的笔记范围")
+            .disabled(busy)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .max_w(px(130.))
+                    .child(icon(SCOPES[scope].0).text_color(colors.muted))
+                    .child(div().truncate().child(scope_label))
+                    .child(icon("chevron-down").text_color(colors.muted)),
+            )
+            .dropdown_menu(move |mut menu, _, _| {
+                menu = menu.label("笔记范围");
+                for (i, (ico, label)) in SCOPES.into_iter().enumerate() {
+                    let weak = weak.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(if i == 0 {
+                            "当前笔记 / 选区"
+                        } else {
+                            label
+                        })
+                        .icon(icon(ico))
+                        .checked(i == scope)
+                        .on_click(move |_, window, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.agent.scope = i;
+                                if matches!(i, 1 | 2) {
+                                    window.focus(&this.agent.scope_input.focus_handle(cx), cx);
+                                }
+                                cx.notify();
+                            });
+                        }),
+                    );
+                }
+                menu
+            });
+        let model = self.agent_model_menu(
+            Button::new("agent-model")
+                .ghost()
+                .small()
+                .tooltip("切换模型配置")
+                .disabled(busy)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .max_w(px(140.))
+                        .child(div().truncate().child(self.agent_model_name()))
+                        .child(icon("chevron-down").text_color(colors.muted)),
+                ),
+            true,
+            cx,
+        );
+        let action = if busy {
+            Button::new("agent-composer-stop")
+                .icon(icon("stop"))
+                .tooltip("停止")
+                .rounded(px(10.))
+                .on_click(cx.listener(|this, _, _, cx| this.agent_stop(cx)))
+        } else {
+            Button::new("agent-send")
+                .primary()
+                .icon(icon("arrow-up"))
+                .tooltip("发送（Enter）")
+                .rounded(px(10.))
+                .disabled(self.vault.is_none())
+                .on_click(cx.listener(|this, _, w, cx| this.agent_send(w, cx)))
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_1p5()
+            .px_3()
+            .pt_2()
+            .pb_2()
+            .flex_shrink_0()
+            .min_w_0()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .rounded(px(14.))
+                    .border_1()
+                    .border_color(colors.border)
+                    .bg(colors.surface)
+                    .shadow_xs()
+                    .when(matches!(scope, 1 | 2), |card| {
+                        card.child(
+                            div()
+                                .px_2()
+                                .pt_2()
+                                .child(Input::new(&self.agent.scope_input).small().disabled(busy)),
+                        )
+                    })
+                    .child(
+                        // The textarea only propagates plain Enter (submit); handling it here
+                        // also stops the key from falling back to a newline insertion.
+                        div()
+                            .min_w_0()
+                            .px_1()
+                            .pt_1()
+                            .on_action(cx.listener(|this, _: &Enter, w, cx| this.agent_send(w, cx)))
+                            .child(Textarea::new(&self.agent.prompt).appearance(false)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .px_1p5()
+                            .pb_1p5()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .child(scope_button)
+                                    .child(model),
+                            )
+                            .child(action.flex_shrink_0().w(px(30.)).h(px(30.))),
+                    ),
+            )
+            .child(
+                div()
+                    .px_1()
+                    .text_xs()
+                    .text_color(colors.muted)
+                    .child("Enter 发送 · Shift+Enter 换行"),
+            )
+    }
+
+    pub(super) fn agent_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let colors = crate::theme::palette(self.ui.prefs.light);
+        let busy = self.agent.busy();
         let mut panel = div()
             .id("agent-panel")
+            .track_scroll(&self.agent.scroll)
             .min_w_0()
             .whitespace_normal()
             .flex()
@@ -837,351 +1599,156 @@ impl Workspace {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .p_3()
-            .gap_2()
-            .text_sm();
-        let header = div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_2()
             .px_3()
-            .py_2()
-            .flex_shrink_0()
-            .border_b_1()
-            .border_color(colors.border)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(icon("sparkles").text_color(colors.accent))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Agent")),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        tool("agent-sessions", "history", "会话历史")
-                            .selected(self.agent.show_sessions)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.agent.show_sessions = !this.agent.show_sessions;
-                                cx.notify();
-                            })),
-                    )
-                    .child(tool("agent-new", "plus", "新会话").disabled(busy).on_click(
-                        cx.listener(|this, _, w, cx| {
-                            this.agent.sessions.push(Session::default());
-                            this.agent.selected = this.agent.sessions.len() - 1;
-                            this.agent.scope_key.clear();
-                            this.agent.show_sessions = false;
-                            this.agent.persist();
-                            w.focus(&this.agent.prompt.focus_handle(cx), cx);
-                            cx.notify();
-                        }),
-                    ))
-                    .child(
-                        tool("agent-settings", "settings", "Agent 设置")
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_agent_settings(window, cx);
-                            })),
-                    ),
-            );
-        let model_label = self.agent.settings.models[self.agent.settings.selected]
-            .name
-            .clone();
-        let model = Button::new("agent-model")
-            .ghost()
-            .tooltip("切换模型")
-            .icon(icon("chevrons-up-down"))
-            .label(model_label)
-            .disabled(busy)
-            .on_click(cx.listener(|this, _, w, cx| {
-                this.agent.settings.selected =
-                    (this.agent.settings.selected + 1) % this.agent.settings.models.len();
-                this.agent.fill_fields(w, cx);
-                cx.notify();
-            }));
-        let scopes = ["当前笔记 / 选区", "指定文件夹", "指定笔记", "整个笔记库"];
-        let mut context = div().flex().flex_wrap().items_center().gap_1().child(
-            Button::new("agent-scope")
-                .ghost()
-                .tooltip("切换笔记范围")
-                .label(scopes[self.agent.scope])
-                .disabled(busy)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.agent.scope = (this.agent.scope + 1) % 4;
-                    cx.notify();
-                })),
-        );
-        if matches!(self.agent.scope, 1 | 2) {
-            context = context.child(div().w_full().child(Input::new(&self.agent.scope_input)));
-        }
-        if self.agent.show_sessions {
-            let mut history = div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .p_2()
-                .rounded(px(12.))
-                .bg(colors.surface)
-                .child(
-                    div()
-                        .px_2()
-                        .py_1()
-                        .text_color(colors.muted)
-                        .child("会话历史"),
-                );
-            for (i, session) in self.agent.sessions.iter().enumerate() {
-                history = history.child(
-                    Button::new(("agent-session", i))
-                        .ghost()
-                        .selected(i == self.agent.selected)
-                        .label(format!(
-                            "{}{}",
-                            if i == self.agent.selected { "• " } else { "" },
-                            session.title
-                        ))
-                        .disabled(busy)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.agent.selected = i;
-                            this.agent.show_sessions = false;
-                            this.agent.scope_key.clear();
-                            cx.notify();
-                        })),
-                );
-            }
-            history = history.child(
-                Button::new("agent-delete-session")
-                    .ghost()
-                    .label("删除当前会话")
-                    .disabled(busy)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.agent.sessions.remove(this.agent.selected);
-                        if this.agent.sessions.is_empty() {
-                            this.agent.sessions.push(Session::default());
-                        }
-                        this.agent.selected = 0;
-                        this.agent.scope_key.clear();
-                        this.agent.persist();
-                        cx.notify();
-                    })),
-            );
-            panel = panel.child(history);
-        }
+            .py_3()
+            .gap_4();
         let session = self.agent.session();
         if session.messages.is_empty() {
-            panel = panel.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .py_6()
-                    .child(
-                        div()
-                            .p_3()
-                            .rounded(px(16.))
-                            .bg(colors.selected)
-                            .child(icon("sparkles").text_color(colors.accent)),
-                    )
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("从一个想法开始"),
-                    )
-                    .child(
-                        div()
-                            .text_center()
-                            .text_color(colors.muted)
-                            .child("梳理笔记、提炼要点，或一起打磨文字。"),
-                    ),
-            );
+            panel = panel.child(self.agent_empty(colors, cx));
         }
-        if !session.messages.is_empty() || busy {
-            panel = panel.child(
-                div()
-                    .text_color(colors.muted)
-                    .child(state_label(&session.state)),
-            );
-        }
-        if !self.agent.error.is_empty() {
-            panel = panel.child(
-                div()
-                    .p_3()
-                    .rounded(px(10.))
-                    .bg(colors.surface)
-                    .border_l_2()
-                    .border_color(colors.accent)
-                    .child(self.agent.error.clone()),
-            );
-        }
+        let last = session.messages.len().saturating_sub(1);
         for (i, message) in session.messages.iter().enumerate() {
-            let copy = message.text.clone();
-            panel = panel.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .rounded(px(12.))
-                    .bg(if message.role == "user" {
-                        colors.selected
-                    } else {
-                        colors.surface
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_2()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(
-                                if message.role == "user" {
-                                    "你"
-                                } else {
-                                    "Agent"
-                                },
-                            ))
-                            .child(
-                                Button::new(("agent-copy-message", i))
-                                    .ghost()
-                                    .compact()
-                                    .label("复制")
-                                    .on_click(move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(
-                                            copy.clone(),
-                                        ))
-                                    }),
-                            ),
-                    )
-                    .child(message.text.clone()),
-            );
-        }
-        if let Some(usage) = &session.usage {
-            panel = panel.child(
-                div()
-                    .text_color(colors.muted)
-                    .child(format!("本次用量 · {usage}")),
-            );
+            let thinking = busy && i == last && message.role != "user" && message.text.is_empty();
+            panel = panel.child(self.agent_message(i, message, thinking, colors));
         }
         if !session.tools.is_empty() {
-            panel = panel.child(
-                Button::new("agent-toggle-log")
-                    .ghost()
-                    .label(format!(
-                        "{} 工具记录 · {}",
-                        if self.agent.show_tools {
-                            "收起"
-                        } else {
-                            "展开"
-                        },
-                        session.tools.len()
-                    ))
+            let open = self.agent.show_tools;
+            let mut log = div().flex().flex_col().gap_1().child(
+                div()
+                    .id("agent-toggle-log")
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .py_1()
+                    .text_xs()
+                    .text_color(colors.muted)
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(colors.foreground))
+                    .child(icon(if open {
+                        "chevron-down"
+                    } else {
+                        "chevron-right"
+                    }))
+                    .child(icon("wrench"))
+                    .child(format!("调用了 {} 次工具", session.tools.len()))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.agent.show_tools = !this.agent.show_tools;
                         cx.notify();
                     })),
             );
-        }
-        if self.agent.show_tools {
-            for (name, result) in &session.tools {
-                panel = panel.child(format!("{name}\n{}", recovery::preview_text(result)));
+            if open {
+                for (name, result) in &session.tools {
+                    log = log.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_0p5()
+                            .ml_2()
+                            .pl_3()
+                            .border_l_2()
+                            .border_color(colors.border)
+                            .text_xs()
+                            .child(div().font_weight(FontWeight::MEDIUM).child(name.clone()))
+                            .child(div().text_color(colors.muted).child(excerpt(result, 240))),
+                    );
+                }
             }
+            panel = panel.child(log);
         }
-        for (i, source) in session.sources.iter().enumerate() {
-            let source = source.clone();
-            panel = panel.child(
-                Button::new(("agent-source", i))
-                    .label(format!(
-                        "[{}] {}{}",
-                        source.id,
-                        source.path.display(),
-                        if source.unsaved {
-                            "（编辑器快照）"
-                        } else {
-                            ""
-                        }
-                    ))
-                    .on_click(
-                        cx.listener(move |this, _, w, cx| this.agent_source(source.clone(), w, cx)),
-                    ),
-            );
-        }
-        for (i, proposal) in session.proposals.iter().enumerate() {
-            let mut review = div()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .border_1()
-                .border_color(colors.border)
-                .rounded(px(12.))
-                .bg(colors.surface)
-                .p_3()
-                .child(format!("修改组 {}：{}", i + 1, proposal.status));
-            if proposal.changes.changes.len() > 1 {
-                review = review.child("关联修改须整组接受，避免缺失链接目标。");
-            }
-            for (j, change) in proposal.changes.changes.iter().enumerate() {
-                let diff = proposal
-                    .previews
-                    .get(j)
-                    .cloned()
-                    .unwrap_or_else(|| "旧会话未保存差异预览，请重新生成提案。".into());
-                review = review
-                    .child(format!(
-                        "{}{}\n{}",
-                        change.path.display(),
-                        if change.before.is_none() {
-                            "（新建）"
-                        } else {
-                            ""
-                        },
-                        change.reason
-                    ))
-                    .child(recovery::preview_text(&diff));
-                let path = change.path.clone();
-                review = review.child(
-                    Button::new(("agent-history", i * 100 + j))
-                        .label("查看版本历史 / 恢复")
-                        .disabled(busy)
+        if !session.sources.is_empty() {
+            let mut chips = div().flex().flex_wrap().gap_1p5();
+            for (i, source) in session.sources.iter().enumerate() {
+                let name = source
+                    .path
+                    .file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| source.path.display().to_string());
+                let tip = format!(
+                    "{}{}",
+                    source.path.display(),
+                    if source.unsaved {
+                        "（编辑器快照）"
+                    } else {
+                        ""
+                    }
+                );
+                let source = source.clone();
+                chips = chips.child(
+                    Button::new(("agent-source", i))
+                        .outline()
+                        .xsmall()
+                        .icon(icon("file-text"))
+                        .label(format!("{} · {name}", source.id))
+                        .tooltip(tip)
                         .on_click(cx.listener(move |this, _, w, cx| {
-                            this.open_history_path(path.clone(), w, cx)
+                            this.agent_source(source.clone(), w, cx)
                         })),
                 );
             }
-            if let Some(report) = &proposal.report {
-                review = review.child(report_text(report));
-            }
-            review = review.child(
+            panel = panel.child(
                 div()
                     .flex()
-                    .gap_1()
+                    .flex_col()
+                    .gap_1p5()
                     .child(
-                        Button::new(("agent-accept", i))
-                            .primary()
-                            .label("接受并应用")
-                            .disabled(busy || proposal.status != "等待审阅")
-                            .on_click(
-                                cx.listener(move |this, _, w, cx| this.agent_apply(i, w, cx)),
-                            ),
+                        div()
+                            .text_xs()
+                            .text_color(colors.muted)
+                            .child(format!("引用来源 · {}", session.sources.len())),
+                    )
+                    .child(chips),
+            );
+        }
+        for (i, proposal) in session.proposals.iter().enumerate() {
+            panel = panel.child(self.agent_proposal(i, proposal, colors, cx));
+        }
+        if let Some(usage) = &session.usage {
+            panel = panel.child(
+                div()
+                    .text_xs()
+                    .text_color(colors.muted)
+                    .child(format!("本次用量 · {usage}")),
+            );
+        }
+        if !self.agent.error.is_empty() {
+            let ok = self.agent.error == PROBE_OK;
+            panel = panel.child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap_2()
+                    .pl_3()
+                    .pr_1()
+                    .py_1()
+                    .rounded(px(10.))
+                    .bg(colors.surface)
+                    .border_1()
+                    .border_color(colors.border)
+                    .child(
+                        div().pt_1p5().child(
+                            icon(if ok { "circle-check" } else { "circle-alert" })
+                                .text_color(colors.accent),
+                        ),
                     )
                     .child(
-                        Button::new(("agent-reject", i))
-                            .label("拒绝")
-                            .disabled(busy || proposal.status != "等待审阅")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.agent.session_mut().proposals[i].status = "已拒绝".into();
-                                this.agent.persist();
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .py_1()
+                            .child(self.agent.error.clone()),
+                    )
+                    .child(
+                        Button::new("agent-dismiss-error")
+                            .ghost()
+                            .xsmall()
+                            .icon(icon("x"))
+                            .tooltip("关闭")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.agent.error.clear();
                                 cx.notify();
                             })),
                     ),
             );
-            panel = panel.child(review);
         }
         div()
             .flex()
@@ -1193,62 +1760,29 @@ impl Workspace {
             .whitespace_normal()
             .text_color(colors.foreground)
             .bg(colors.background)
-            .child(header)
+            .child(self.agent_header(colors, cx))
             .child(panel)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .p_3()
-                    .flex_shrink_0()
-                    .border_t_1()
-                    .border_color(colors.border)
-                    .child(context)
-                    .child(Textarea::new(&self.agent.prompt))
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .items_center()
-                            .justify_between()
-                            .flex_wrap()
-                            .child(model)
-                            .when(!busy, |row| {
-                                row.child(
-                                    Button::new("agent-send")
-                                        .primary()
-                                        .label("发送")
-                                        .disabled(busy)
-                                        .on_click(
-                                            cx.listener(|this, _, w, cx| this.agent_send(w, cx)),
-                                        ),
-                                )
-                            })
-                            .when(busy, |row| {
-                                row.child(
-                                    Button::new("agent-composer-stop")
-                                        .label("停止")
-                                        .disabled(!busy)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            if let Some(run) = &this.agent.run {
-                                                run.cancel.cancel();
-                                            }
-                                            if let Some(cancel) = &this.agent.applying {
-                                                cancel.cancel();
-                                            }
-                                            cx.notify();
-                                        })),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_color(colors.muted)
-                            .child("仅发送所选范围内的必要内容，修改先审阅。"),
-                    ),
-            )
+            .child(self.agent_composer(colors, cx))
             .into_any_element()
+    }
+}
+const DIFF_LINES: usize = 400;
+fn pill(text: impl Into<SharedString>, fg: Rgba, bg: Rgba) -> Div {
+    div()
+        .flex_shrink_0()
+        .px_2()
+        .py_0p5()
+        .rounded_full()
+        .text_xs()
+        .text_color(fg)
+        .bg(bg)
+        .child(text.into())
+}
+fn excerpt(text: &str, limit: usize) -> String {
+    let text = text.trim();
+    match text.char_indices().nth(limit) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.into(),
     }
 }
 fn state_label(state: &RunState) -> &'static str {
@@ -1384,5 +1918,98 @@ mod tests {
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.simulate_resize(size(px(1100.), px(800.)));
         visual.update(|window, cx| window.draw(cx).clear(cx));
+    }
+    #[gpui::test]
+    fn agent_composer_sends_on_enter_and_keeps_shift_enter_newline(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("notes");
+        std::fs::create_dir(&root).unwrap();
+        let vault = Vault::open(&root, dir.path().join("history")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        let prompt = handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.vault = Some(vault);
+                w.poll_agent(window, cx);
+                w.open_agent(0, window, cx);
+                // An invalid model stops the send before any request is made.
+                w.agent.settings.models[0].model.clear();
+                w.agent.prompt.clone()
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1100.), px(800.)));
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.focus(&prompt.focus_handle(cx), cx);
+        });
+        visual.simulate_input("问题");
+        visual.simulate_keystrokes("shift-enter");
+        visual.simulate_input("补充");
+        visual.simulate_keystrokes("enter");
+        visual.run_until_parked();
+        prompt.read_with(&visual, |s, _| assert_eq!(s.value(), "问题\n补充"));
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.agent.error, "请填写模型名称")
+            })
+            .unwrap();
+    }
+    #[gpui::test]
+    fn agent_panel_renders_conversation_and_reuses_empty_session(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.open_agent(0, window, cx);
+                w.agent_new_session(window, cx);
+                assert_eq!(w.agent.sessions.len(), 1);
+                let session = w.agent.session_mut();
+                session.title = "整理笔记".into();
+                session.messages.push(Message {
+                    role: "user".into(),
+                    text: "总结".into(),
+                });
+                session.messages.push(Message {
+                    role: "assistant".into(),
+                    text: "## 要点\n- 一 [1]".into(),
+                });
+                session.tools.push(("read".into(), "x".repeat(1000)));
+                session.sources.push(Source {
+                    id: "1".into(),
+                    path: "a.md".into(),
+                    hash: String::new(),
+                    range: 0..1,
+                    unsaved: true,
+                });
+                let mut pending = proposal("old\n", "new\n");
+                pending.previews = pending.changes.previews();
+                session.proposals.push(pending);
+                w.agent.show_tools = true;
+                w.agent.error = PROBE_OK.into();
+                w.agent.scope = 1;
+                w.agent_new_session(window, cx);
+                assert_eq!((w.agent.sessions.len(), w.agent.selected), (2, 1));
+                w.agent_select_session(0, cx);
+                assert_eq!(w.agent.session().title, "整理笔记");
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1100.), px(800.)));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, _, cx| {
+                w.agent_delete_session(cx);
+                assert_eq!(w.agent.sessions.len(), 1);
+                assert!(w.agent.session().messages.is_empty());
+            })
+            .unwrap();
+    }
+    #[test]
+    fn excerpt_truncates_on_char_boundaries() {
+        assert_eq!(excerpt("  中文内容  ", 2), "中文…");
+        assert_eq!(excerpt("短", 4), "短");
     }
 }
