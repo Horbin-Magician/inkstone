@@ -13,7 +13,6 @@ pub struct ModelConfig {
     pub model: String,
     pub context_tokens: usize,
     pub output_tokens: usize,
-    pub tools: bool,
 }
 impl Default for ModelConfig {
     fn default() -> Self {
@@ -24,7 +23,6 @@ impl Default for ModelConfig {
             model: String::new(),
             context_tokens: 32768,
             output_tokens: 4096,
-            tools: true,
         }
     }
 }

@@ -153,11 +153,6 @@ impl Workspace {
         self.ui.prefs.right_open = true;
         self.ui.focus_mode = false;
         self.ui.right_mode = 5;
-        self.agent.mode = if command == 113 {
-            RequestMode::WriteCurrent
-        } else {
-            RequestMode::Chat
-        };
         let prompt = match command {
             113 => "请润色当前选区或笔记，保留原意，提出修改供我审阅。",
             114 => "请总结当前选区或笔记，列出要点并引用来源。",
@@ -277,27 +272,8 @@ impl Workspace {
                 }
                 AgentEvent::Usage(usage) => self.agent.session_mut().usage = Some(usage),
                 AgentEvent::Error(error) => self.agent.error = error,
-                AgentEvent::Probe { model_id, tools } => {
-                    if let Some(model) = self
-                        .agent
-                        .settings
-                        .models
-                        .iter_mut()
-                        .find(|m| m.id == model_id)
-                    {
-                        model.tools = tools;
-                    }
-                    self.agent.error = if tools {
-                        "流式连接与工具参数测试通过"
-                    } else {
-                        "流式连接通过；未返回有效工具调用，已切换基础问答与写作"
-                    }
-                    .into();
-                    if let Err(error) =
-                        storage::write(&app_dir().join("agent-settings.json"), &self.agent.settings)
-                    {
-                        self.agent.error = error.to_string();
-                    }
+                AgentEvent::Probe => {
+                    self.agent.error = "流式连接与工具参数测试通过".into();
                 }
                 AgentEvent::Finished => (),
             }
@@ -335,7 +311,6 @@ impl Workspace {
             model: values[2].trim().into(),
             context_tokens: values[4].parse().unwrap_or(0),
             output_tokens: values[5].parse().unwrap_or(0),
-            tools: old.tools,
         };
         let excluded: Vec<PathBuf> = values[6]
             .split(',')
@@ -816,56 +791,37 @@ impl Workspace {
                     .child(div().text_color(colors.muted).child((*title).to_owned()))
                     .child(Input::new(&self.agent.fields[i]));
             }
-            let tools = self.agent.settings.models[self.agent.settings.selected].tools;
-            settings = settings
-                .child(
-                    Button::new("agent-tools-toggle")
-                        .ghost()
-                        .label(if tools {
-                            "工具调用：启用"
-                        } else {
-                            "工具调用：关闭（基础问答）"
-                        })
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let i = this.agent.settings.selected;
-                            this.agent.settings.models[i].tools =
-                                !this.agent.settings.models[i].tools;
+            settings = settings.child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_1()
+                    .child(
+                        Button::new("agent-save-config")
+                            .primary()
+                            .label("保存配置")
+                            .on_click(cx.listener(|this, _, w, cx| {
+                                this.agent_save_settings(w, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("agent-test-config")
+                            .label("测试连接与工具")
+                            .on_click(cx.listener(|this, _, w, cx| this.agent_test_model(w, cx))),
+                    )
+                    .child(Button::new("agent-add-config").label("新增配置").on_click(
+                        cx.listener(|this, _, w, cx| {
+                            let config = ModelConfig {
+                                id: Session::default().id,
+                                ..Default::default()
+                            };
+                            this.agent.settings.models.push(config);
+                            this.agent.settings.selected = this.agent.settings.models.len() - 1;
+                            this.agent.fill_fields(w, cx);
                             cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_1()
-                        .child(
-                            Button::new("agent-save-config")
-                                .primary()
-                                .label("保存配置")
-                                .on_click(cx.listener(|this, _, w, cx| {
-                                    this.agent_save_settings(w, cx);
-                                })),
-                        )
-                        .child(
-                            Button::new("agent-test-config")
-                                .label("测试连接与工具")
-                                .on_click(
-                                    cx.listener(|this, _, w, cx| this.agent_test_model(w, cx)),
-                                ),
-                        )
-                        .child(Button::new("agent-add-config").label("新增配置").on_click(
-                            cx.listener(|this, _, w, cx| {
-                                let config = ModelConfig {
-                                    id: Session::default().id,
-                                    ..Default::default()
-                                };
-                                this.agent.settings.models.push(config);
-                                this.agent.settings.selected = this.agent.settings.models.len() - 1;
-                                this.agent.fill_fields(w, cx);
-                                cx.notify();
-                            }),
-                        )),
-                );
+                        }),
+                    )),
+            );
             panel = panel.child(settings);
         }
         let model_label = self.agent.settings.models[self.agent.settings.selected]
@@ -892,26 +848,6 @@ impl Workspace {
                 .disabled(busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.agent.scope = (this.agent.scope + 1) % 4;
-                    cx.notify();
-                })),
-        );
-        context = context.child(
-            Button::new("agent-writing-mode")
-                .ghost()
-                .selected(self.agent.mode == RequestMode::WriteCurrent)
-                .tooltip("切换问答 / 写作模式，写作修改先审阅")
-                .label(if self.agent.mode == RequestMode::WriteCurrent {
-                    "写作模式"
-                } else {
-                    "问答模式"
-                })
-                .disabled(busy)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.agent.mode = if this.agent.mode == RequestMode::WriteCurrent {
-                        RequestMode::Chat
-                    } else {
-                        RequestMode::WriteCurrent
-                    };
                     cx.notify();
                 })),
         );
