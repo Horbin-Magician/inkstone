@@ -19,9 +19,10 @@ cargo run --locked --bin inkstone -- demo-vault
 ## 项目结构
 
 
-项目使用 Cargo workspace，依赖方向为 `inkstone-desktop → inkstone-core`：
+项目使用 Cargo workspace，依赖方向为 `inkstone-desktop → inkstone-agent → inkstone-core`（desktop 仍直接使用 core）：
 
 - `crates/inkstone-core`：Markdown 解析与编辑规则、索引、搜索、文件存储、备份、导出及后台基准；不依赖 GPUI。
+- `crates/inkstone-agent`：兼容模型协议、Agent 执行循环、授权范围检索、会话与修改提案；不依赖 GPUI。
 - `crates/inkstone-desktop`：GPUI 编辑器、工作区、原生窗口 / 菜单、图形适配及桌面集成测试；可执行文件仍名为 `inkstone`。
 
 根目录统一维护依赖版本、`Cargo.lock`、release profile 和 vendor 补丁。正式图标由 `crates/inkstone-desktop/assets/` 管理，设计候选和提示词归入 `docs/design/branding/`；macOS 打包脚本与配置集中放在 `packaging/macos/`。
@@ -51,7 +52,7 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 10000
 
 只验证核心逻辑、无需构建 GPUI 时运行 `cargo test --locked -p inkstone-core`；桌面及其集成测试运行 `cargo test --locked -p inkstone-desktop`。CI 保留 macOS / Windows 全工作区检查，并增加 Ubuntu 核心独立检查。
 
-两个 package 都是 workspace 默认成员，因此根目录原有的 `cargo test --locked`、`cargo build --locked --bin inkstone` 和 `cargo run --locked --bin inkstone` 仍可使用。
+三个 package 都是 workspace 默认成员，因此根目录原有的 `cargo test --locked`、`cargo build --locked --bin inkstone` 和 `cargo run --locked --bin inkstone` 仍可使用。
 
 macOS 开发启动使用 `cargo run --locked --bin inkstone`，可执行文件内嵌应用名称配置与图标，系统菜单显示“墨砚”，启动时主动设置 Dock 图标。打包为可双击启动的应用：
 
@@ -65,6 +66,7 @@ open target/debug/墨砚.app
 
 ## 文档入口
 
+- [Agent 助理](docs/AGENT.md)：模型配置、带来源问答、写作、审阅与恢复。
 - [使用指南](docs/GUIDE.md)：功能、快捷键、双链和数据恢复。
 - [项目状态](docs/STATUS.md)：当前进度、支持范围与验收缺口。
 - [验证指南](docs/TESTING.md)：检查命令、原生验收原则和最近完整回归。
