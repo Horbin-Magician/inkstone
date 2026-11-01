@@ -13,11 +13,11 @@
 
 ## Cargo workspace
 
-根 `Cargo.toml` 是虚拟 workspace，包含 `crates/inkstone-core` 与 `crates/inkstone-desktop` 两个默认成员，使用 resolver 3。共享依赖版本、release profile 与 `[patch.crates-io]` 只在根配置；`vendor/gpui-base`、`vendor/gpui-component` 显式排除出 workspace 成员，继续作为补丁依赖维护。
+根 `Cargo.toml` 是虚拟 workspace，包含 `crates/inkstone-core`、`crates/inkstone-agent` 与 `crates/inkstone-desktop` 三个默认成员，使用 resolver 3。共享依赖版本、release profile 与 `[patch.crates-io]` 只在根配置；`vendor/gpui-base`、`vendor/gpui-component` 显式排除出 workspace 成员，继续作为补丁依赖维护。
 
 `inkstone-core` 提供 `inkstone_core` 库，拥有原 `lib.rs` 的全部核心模块；运行、构建和测试依赖均不包含 GPUI。`notify` 在 core 中只用于文件监听测试，平台安全文件操作的 `libc` / `windows-sys` 由 core 持有。Markdown 测试夹具与后台 benchmark 随核心代码放置。
 
-`inkstone-desktop` 单向依赖 core，拥有原 `main.rs` 的桌面模块，二进制目标仍为 `inkstone`。GPUI、原生菜单和应用图标依赖只由 desktop 声明；字素补丁与展示对象集成测试也归入 desktop。macOS build script 在 desktop 内定位根目录 `packaging/macos/Info.plist`，打包脚本 `packaging/macos/bundle.sh` 输出根 `target/` 下的应用；正式图标放在 `crates/inkstone-desktop/assets/`，候选设计归入 `docs/design/branding/`。
+`inkstone-desktop` 单向依赖 core 与 agent，拥有原 `main.rs` 的桌面模块，二进制目标仍为 `inkstone`。GPUI、原生菜单和应用图标依赖只由 desktop 声明；字素补丁与展示对象集成测试也归入 desktop。macOS build script 在 desktop 内定位根目录 `packaging/macos/Info.plist`，打包脚本 `packaging/macos/bundle.sh` 输出根 `target/` 下的应用；正式图标放在 `crates/inkstone-desktop/assets/`，候选设计归入 `docs/design/branding/`。
 
 核心层不得引用 desktop 或 GPUI 类型。共享类型和不依赖 UI 的算法放入 core，涉及 `Entity`、`Window`、焦点和原生图像的适配留在 desktop。包不独立发布，资源和受控依赖按整个仓库构建。
 
@@ -260,3 +260,14 @@ macOS `app_menu` 在启动和 Workspace 通知时计算菜单命令的有效快�
 `ReadingDocument::rebase_local_fragment` 只为单源、无引用/任务依赖且全部来源映射落在同一未改动范围内的片段平移源码坐标。核对旧正文版本、前后范围字节完全一致，并拒绝含方括号的原始片段，防止旧文档尚未解析的链接/脚注在外部新增定义后仍被误认为无依赖。调用方必须另行验证语法类型未变。`EditorPane::retain_live_objects` 用新语法候选核对角色、块类型及范围；非图形片段还要求无脚注编号/跳转目标，随后替换映射文档并保留 TextView 实体和已有尺寸。任一验证失败时旧片段不匹配当前正文，等待现有异步重建。公式已有保留路径继续使用原有图形保护；后台仍重建完整阅读结果，此改动不表示后台解析或所有对象更新已经增量化。
 
 逐记录历史元数据是可重建缓存，其临时文件保持独占创建、完整写入与改名发布，但不逐条 sync_all；掉电后缺失或损坏缓存由完整日志校验重建。该写入策略仅用于 history/records.rs 的派生缓存，不适用于恢复日志、草稿、正文或权威重命名归属。
+
+
+## Agent（2026-11-01）
+
+`inkstone-desktop → inkstone-agent → inkstone-core`，desktop 继续直接使用 core。Agent crate 不包含 GPUI，核心层不反向依赖模型服务。`ModelProvider` 提供协议边界，`CompatibleProvider` 处理 Chat Completions SSE 字节流、工具参数聚合、取消与超时；工具只有完整正常结束后才可执行。模型请求由单独线程上的 Tokio runtime 驱动，有界事件通道形成背压；桌面仅在运行期间每 50 ms 消费事件，原工作区维护定时器不加速。
+
+`ToolHost` 持有本次范围内的索引与当前编辑器快照，工具入口验证路径、排除目录和 Vault 文件安全规则。当前笔记范围只读取明确路径；文件夹与全库在后台构建快照。当前选区的外部正文不进入索引；生成提案时才用保留的完整快照还原全文。来源保存正文哈希与 UTF-8 范围，修改权限不由来源或模型文本授予。
+
+core 的 `changes::ChangeSet` 保存创建/修改的精确基线和最终正文；`validate` 全量预检，`apply` 复用 Vault 条件写入，在首个错误处停止并返回逐文件 `ApplyReport`。它不提供跨文件原子事务。Agent 只能产生提案，实际执行由 workspace 适配：单篇打开文档使用原编辑器撤销栈；其余使用 FileWrites 独占准入，完成后按 generation 更新 SaveState 和索引，处理中继续输入的内容保留为冲突。
+
+会话位于应用数据目录，以库路径哈希隔离；`SessionWriter` 在独立线程按库合并待写快照，串行完成 JSON 编码、刷盘和替换。应用前有持久化屏障，切库前刷新旧库检查点，退出时排空待写；损坏记录不被静默覆盖。凭据和模型配置与会话分开保存。会话不参与笔记云同步；中断任务不自动恢复执行。历史提案重新应用仍须当前正文匹配，不依赖历史授权。

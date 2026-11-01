@@ -5018,3 +5018,21 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 空行后缩进四个空格或一个 Tab 的列表、公式和正文不再识别为无语言代码块。笔记原文不变；代码块只保留围栏。阅读、实时预览、搜索、列表续写和链接补全共用同一解析配置。
 - 回归覆盖用户报告的有序列表公式、仅首行 Tab、引用内四空格缩进，以及围栏代码仍保持代码块。列表续写把四空格条目当作列表，不再跳过。
 - `cargo test -p inkstone-core --offline --lib` 中解析、预览、搜索、表格、注释和编辑相关 114 项通过，1 项既有手动计时测试忽略。桌面端已用新解析配置编译通过。未做原生窗口截图。
+
+## Agent 首版（2026-11-01）
+
+实现分步提交：核心条件修改方案、独立 Agent runtime、桌面会话与审阅、能力测试与检查点、流式与分组保护、固定多行输入区、分屏上下文及边界修复。所有数据测试使用临时笔记库、模拟模型或本地 HTTP 服务，没有读取个人笔记或使用真实 API Key。
+
+验证结果：
+
+- 全工作区测试通过：Agent 14 项；core 416 项通过、4 项沿用忽略；desktop 477 项通过、5 项沿用忽略；三个桌面集成测试目标共 8 项通过。日志 `target/agent-final-tests.log`。core 的子进程测试另有一次子进程内单项通过记录，不重复计数。
+- 全量后补充聚焦分屏快照回归，再运行 Agent 14 项与桌面 Agent 3 项，均通过。日志 `target/agent-runtime-tests.log`、`target/agent-ui-tests.log`。桌面测试实际验证新输入不被旧提案覆盖、单次撤销、重复接受无效、原生 GPUI 布局构造及聚焦分屏的选区来源。
+- SSE 按每一种字节分片大小解析中文与 emoji，覆盖交错工具调用和截断参数拒绝；本地 HTTP 验证请求路径/认证、流式正文、429 错误脱敏及取消中断等待。合成能力测试核对请求中没有笔记内容；基础写作生成提案但不写文件。
+- 工具覆盖范围排除、路径穿越、符号链接、选区外正文隔离、只读提案、长笔记完整读取要求。运行循环覆盖读取→提案→等待审阅、压缩保留用户要求与工具配对。配置极大数值被拒绝，不因整数溢出崩溃。
+- 条件写入覆盖整批预检先于任一写入、创建重名、重复应用拒绝、取消保留已完成项、首个写失败后不执行余项。会话覆盖按库隔离、中断标记、不重放、后台写入合并与退出排空。
+- `cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo fmt --all --check`、`git diff --check` 通过；日志 `target/agent-final-clippy.log`、`target/agent-fmt.log`。保留依赖 `block v0.1.6` 的 future-incompat 提示及已有大型桌面测试链接器 unwind 提示，没有通过放宽 lint 隐藏新增问题。
+- 打包工具回归 11 项通过，日志 `target/agent-packaging-tests.log`；其中 Apple ticket 网络错误文本来自测试模拟，不是真实公证请求。
+- 调试构建合成检索测量：1,000 篇笔记，构建范围索引 1,831 ms、20 条全文结果 6 ms、单篇范围初始化不足 1 ms（整数毫秒显示 0）。命令 `cargo run --locked -p inkstone-agent --example benchmark -- 1000`；日志 `target/agent-benchmark.log`。这是单轮后台测量，不是 release 基线、端到端模型延迟、内存峰值或原生帧延迟验收。
+- 开发构建在独立 `XDG_DATA_HOME` 和生成笔记库启动成功，CoreGraphics 查询到 `inkstone` 的可见原生窗口，尺寸 1081×739；日志位于 `target/agent-native-v6xcalig/`，进程已关闭。本机 System Events 报告辅助功能关闭，窗口截图返回 `could not create image from window`，因此没有完成 Agent 原生点击、视觉或读屏验收。启动检查发生在最后的分屏修复之前，不替代最终版本原生验收。
+
+仍未完成：真实云端/本地模型供应商兼容测试、Windows 原生运行、macOS Agent 完整原生交互与读屏、跨进程强退/物理掉电、长时间大库与模型流式负载下的性能验收。现有 CI 将在 macOS / Windows 执行 workspace 检查，本地结果不能代替尚未运行的 Windows 验证。
