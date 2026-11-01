@@ -3,6 +3,22 @@
 use super::*;
 
 impl Workspace {
+    pub(super) fn file_operation_ready(&mut self, cx: &mut Context<Self>) -> bool {
+        let message = if !self.file_writes.can_start_exclusive_operation() {
+            Some("正在保存、同步或处理文件，请稍后重试。")
+        } else if self.ui.link_update.is_some() {
+            Some("请先完成或取消内部链接更新，再管理文件。")
+        } else {
+            None
+        };
+        if let Some(message) = message {
+            self.notifications.publish(message.into());
+            cx.notify();
+            return false;
+        }
+        true
+    }
+
     pub(super) fn restore_text_as_copy(
         &mut self,
         original: &std::path::Path,
@@ -55,7 +71,7 @@ impl Workspace {
             );
             return;
         }
-        if !self.file_writes.can_start_exclusive_operation() || self.ui.link_update.is_some() {
+        if !self.file_operation_ready(cx) {
             return;
         }
         if self.has_pending_input(id, window, cx) {
@@ -65,12 +81,12 @@ impl Workspace {
             return;
         }
         if trash
-            && self
-                .active
-                .and_then(|i| self.tabs.get(i))
-                .is_some_and(|t| t.path.as_os_str().is_empty())
+            && let Some(index) = self
+                .tabs
+                .iter()
+                .position(|tab| tab.id == id && tab.path.as_os_str().is_empty())
         {
-            self.close_tab(window, cx);
+            self.close_tab_at(index, window, cx);
             return;
         }
         let Some(vault) = self.vault.clone() else {

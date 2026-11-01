@@ -6668,3 +6668,69 @@ fn tree_blank_space_selects_root_for_new_notes_and_folders(cx: &mut TestAppConte
         .unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[gpui::test]
+fn trash_reports_pending_writes_and_succeeds_after_retry(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-trash-retry-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("a.md"), "原文").unwrap();
+    std::fs::write(root.join("attachment.txt"), "attachment").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+            w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+            let pending = w.file_writes.begin();
+            w.manage_named_note(w.tabs[0].id, true, String::new(), window, cx);
+            assert!(w.notifications.text().contains("请稍后重试"));
+            assert!(root.join("a.md").exists());
+            w.notifications.publish(String::new());
+            w.manage_tree_path("attachment.txt".into(), None, false, window, cx);
+            assert!(w.notifications.text().contains("请稍后重试"));
+            assert!(root.join("attachment.txt").exists());
+            assert!(!w.file_writes.operation_active());
+            w.file_writes.finish(pending);
+            w.manage_named_note(w.tabs[0].id, true, String::new(), window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(!root.join("a.md").exists());
+    handle
+        .update(cx, |w, window, cx| {
+            assert!(w.tabs.is_empty());
+            w.manage_tree_path("attachment.txt".into(), None, false, window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(!root.join("attachment.txt").exists());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[gpui::test]
+fn trash_named_note_uses_target_instead_of_active_blank_tab(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = std::env::temp_dir().join(format!("inkstone-trash-target-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("a.md"), "原文").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.vault = Some(Vault::open(&root, app_dir().join("recovery")).unwrap());
+            w.add_tab("a.md".into(), Some("原文".into()), false, window, cx);
+            let target = w.tabs[0].id;
+            w.new_blank(window, cx);
+            assert!(w.tabs[w.active.unwrap()].path.as_os_str().is_empty());
+            w.manage_named_note(target, true, String::new(), window, cx);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(!root.join("a.md").exists());
+    handle
+        .update(cx, |w, _, _| {
+            assert_eq!(w.tabs.len(), 1);
+            assert!(w.tabs[0].path.as_os_str().is_empty());
+        })
+        .unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}

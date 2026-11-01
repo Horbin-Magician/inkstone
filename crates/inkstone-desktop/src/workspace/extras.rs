@@ -242,7 +242,7 @@ impl Workspace {
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        if !self.file_writes.can_start_exclusive_operation() || self.ui.link_update.is_some() {
+        if !self.file_operation_ready(cx) {
             return;
         }
         if self.tabs.iter().any(|t| {
