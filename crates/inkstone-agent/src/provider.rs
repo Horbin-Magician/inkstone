@@ -18,11 +18,11 @@ impl Default for ModelConfig {
     fn default() -> Self {
         Self {
             id: "default".into(),
-            name: "默认模型".into(),
-            base_url: "http://localhost:11434/v1".into(),
-            model: String::new(),
-            context_tokens: 32768,
-            output_tokens: 4096,
+            name: "OpenAI".into(),
+            base_url: "https://api.openai.com/v1".into(),
+            model: "gpt-6-astra".into(),
+            context_tokens: 1_050_000,
+            output_tokens: 128_000,
         }
     }
 }
@@ -92,7 +92,7 @@ impl ModelProvider for CompatibleProvider {
                 .timeout(Duration::from_secs(180))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?;
-            let mut body = json!({"model":self.config.model,"messages":messages,"stream":true,"max_tokens":self.config.output_tokens});
+            let mut body = json!({"model":self.config.model,"messages":messages,"stream":true,"max_completion_tokens":self.config.output_tokens});
             if !tools.is_empty() {
                 body["tools"] = tools.into();
             }
@@ -383,6 +383,10 @@ pub(crate) mod http_tests {
         let request = server.join().unwrap();
         assert!(request.starts_with("POST /v1/chat/completions"));
         assert!(request.contains("Bearer test-secret"));
+        let (_, body) = request.split_once("\r\n\r\n").unwrap();
+        let body: Value = serde_json::from_str(body).unwrap();
+        assert_eq!(body["max_completion_tokens"], provider.config.output_tokens);
+        assert!(body.get("max_tokens").is_none());
         let (url, server) = self::server(
             "429 Too Many Requests",
             "private-provider-error test-secret",
