@@ -260,21 +260,100 @@ impl Workspace {
                     .on_click(move |_, _, cx| cx.reveal_path(&path)),
             );
         }
-        let mut content = div().flex().flex_col().flex_shrink_0().min_w_0().gap_4()
-            .child(div().text_size(px(24.)).child(format!("{} {}", crate::product::name(), env!("CARGO_PKG_VERSION"))))
-            .child(div().id("update-status").debug_selector(|| "update-status".into()).child(state.label()))
-            .child(super::focus_reveal::FocusReveal::new("update-actions-focus", &self.ui.settings_scroll, controls))
-            .child(div().text_size(px(13.)).child(if cfg!(target_os = "macos") {
-                "下载后打开 DMG。保存笔记并退出应用，再将新版本拖入 Applications 替换旧版本。"
-            } else {
-                "下载后打开安装器。请先保存笔记，按安装界面提示退出应用并完成更新。"
-            }));
+        let palette = crate::theme::palette(self.ui.prefs.light);
+        let mut content = div()
+            .w_full()
+            .max_w(px(700.))
+            .mx_auto()
+            .flex()
+            .flex_col()
+            .flex_shrink_0()
+            .min_w_0()
+            .gap_4()
+            .child(self.settings_title("关于与更新"))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .p_5()
+                    .rounded(px(10.))
+                    .bg(palette.surface)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_shrink_0()
+                                    .items_center()
+                                    .justify_center()
+                                    .size(px(48.))
+                                    .rounded(px(12.))
+                                    .bg(palette.selected)
+                                    .child(super::ui::icon("info").size(px(24.)).text_color(palette.accent)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(2.))
+                                    .child(
+                                        div()
+                                            .text_size(px(18.))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(crate::product::name().to_string()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(palette.muted)
+                                            .child(format!("版本 {}", env!("CARGO_PKG_VERSION"))),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("update-status")
+                            .debug_selector(|| "update-status".into())
+                            .when(state.phase == Phase::Available, |s| s.text_color(palette.accent))
+                            .child(state.label()),
+                    )
+                    .when(state.phase == Phase::Downloading, |s| {
+                        let total = state.total.load(Ordering::Relaxed);
+                        s.child(
+                            gpui_component::progress::Progress::new("update-progress")
+                                .w_full()
+                                .loading(total == 0)
+                                .value(if total == 0 {
+                                    0.
+                                } else {
+                                    state.progress.load(Ordering::Relaxed) as f32 * 100. / total as f32
+                                }),
+                        )
+                    })
+                    .child(super::focus_reveal::FocusReveal::new(
+                        "update-actions-focus",
+                        &self.ui.settings_scroll,
+                        controls,
+                    ))
+                    .child(div().text_color(palette.muted).child(if cfg!(target_os = "macos") {
+                        "下载后打开 DMG。保存笔记并退出应用，再将新版本拖入 Applications 替换旧版本。"
+                    } else {
+                        "下载后打开安装器。请先保存笔记，按安装界面提示退出应用并完成更新。"
+                    })),
+            );
         if let Some(release) = &state.release {
             let page = release.page.clone();
             content = content
                 .child(
                     div()
+                        .mt_2()
                         .text_size(px(18.))
+                        .font_weight(FontWeight::SEMIBOLD)
                         .child(format!("新版本 {}", release.version)),
                 )
                 .child(

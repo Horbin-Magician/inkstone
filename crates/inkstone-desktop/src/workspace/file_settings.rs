@@ -220,7 +220,6 @@ impl Workspace {
                 "note-location"
             })
             .label(label)
-            .tooltip("仅影响之后创建的笔记和导入的附件；文件夹路径相对于当前笔记库。")
             .accessibility_label(format!(
                 "{}：{label}",
                 if attachment {
@@ -254,21 +253,31 @@ impl Workspace {
             div()
                 .flex()
                 .flex_col()
-                .gap_4()
-                .pb_4()
-                .border_b_1()
-                .border_color(crate::theme::palette(self.ui.prefs.light).border)
+                .gap_3()
+                .py_4()
+                .when(attachment, |s| {
+                    s.border_t_1()
+                        .border_color(crate::theme::palette(self.ui.prefs.light).border)
+                })
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .justify_between()
                         .gap_4()
-                        .child(div().flex_1().child(if attachment {
-                            "附件默认存放路径"
-                        } else {
-                            "新建笔记的存放位置"
-                        }))
+                        .child(div().flex_1().min_w_0().child(self.settings_label(
+                            if attachment {
+                                "attachment-location-label"
+                            } else {
+                                "note-location-label"
+                            },
+                            if attachment {
+                                "附件默认存放路径"
+                            } else {
+                                "新建笔记的存放位置"
+                            },
+                            "仅影响之后创建的笔记和导入的附件；文件夹路径相对于当前笔记库。",
+                        )))
                         .child(FocusReveal::new(
                             if attachment {
                                 "attachment-location-focus"
@@ -288,11 +297,16 @@ impl Workspace {
                                 .items_center()
                                 .justify_between()
                                 .gap_4()
-                                .child(div().flex_1().child(if attachment {
-                                    "附件文件夹路径"
-                                } else {
-                                    "存放新建笔记的文件夹"
-                                }))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                                        .child(if attachment {
+                                            "附件文件夹路径"
+                                        } else {
+                                            "存放新建笔记的文件夹"
+                                        }),
+                                )
                                 .child(FocusReveal::new(
                                     if attachment {
                                         "attachment-folder-focus"
@@ -373,37 +387,30 @@ impl Workspace {
             .child(self.settings_nav(cx))
             .child(
                 self.settings_content()
-                    .gap_5()
-                    .child(row(false, cx))
-                    .child(row(true, cx))
-                    .child(
-                        div()
-                            .text_size(px(16.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("链接"),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_4()
-                            .child(div().flex_1().child("内部链接类型"))
-                            .child(FocusReveal::new(
-                                "link-format-focus",
-                                &self.ui.settings_scroll,
+                    .gap_2()
+                    .child(self.settings_title("文件与链接"))
+                    .child(self.settings_group(
+                        "存放位置",
+                        vec![
+                            row(false, cx).into_any_element(),
+                            row(true, cx).into_any_element(),
+                        ],
+                    ))
+                    .child(self.settings_group(
+                        "链接",
+                        vec![
+                            self.settings_row(
+                                "link-format",
+                                "内部链接类型",
+                                "插入或更新内部链接时使用的路径形式。",
                                 link_format,
-                            )),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .child("使用双链语法")
-                            .child(FocusReveal::new(
-                                "use-wikilinks-focus",
-                                &self.ui.settings_scroll,
+                                false,
+                                16.,
+                            ),
+                            self.settings_row(
+                                "use-wikilinks",
+                                "使用双链语法",
+                                "开启时插入 [[双链]]，关闭时插入 Markdown 链接。",
                                 super::settings_ui::setting_switch("use-wikilinks")
                                     .accessibility_label("使用双链语法")
                                     .checked(!self.ui.prefs.use_markdown_links)
@@ -413,25 +420,13 @@ impl Workspace {
                                         s.persist_workspace(cx);
                                         cx.notify();
                                     })),
-                            )),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_3()
-                            .child(
-                                self.settings_label(
-                                    "update-links-label",
-                                    "自动更新内部链接",
-                                    "关闭时，重命名或移动后会询问是否更新链接。",
-                                )
-                                .flex_1(),
-                            )
-                            .child(FocusReveal::new(
-                                "always-update-links-focus",
-                                &self.ui.settings_scroll,
+                                true,
+                                16.,
+                            ),
+                            self.settings_row(
+                                "update-links-label",
+                                "自动更新内部链接",
+                                "关闭时，重命名或移动后会询问是否更新链接。",
                                 super::settings_ui::setting_switch("always-update-links")
                                     .accessibility_label("自动更新内部链接")
                                     .checked(self.ui.prefs.always_update_links)
@@ -440,8 +435,11 @@ impl Workspace {
                                         s.persist_workspace(cx);
                                         cx.notify();
                                     })),
-                            )),
-                    ),
+                                true,
+                                16.,
+                            ),
+                        ],
+                    )),
             )
             .into_any_element()
     }
