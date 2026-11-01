@@ -107,6 +107,9 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (109, "切换专注模式", ""),
     (110, "快速记录（时间命名的新笔记）", ""),
     (111, "可视化编辑光标所在表格", ""),
+    (112, "发送当前笔记或选区给 Agent", ""),
+    (113, "Agent 润色选区或当前笔记", ""),
+    (114, "Agent 摘要选区或当前笔记", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -359,6 +362,7 @@ impl Workspace {
     ) {
         self.command_open = false;
         match id {
+            112..=114 => self.open_agent(id, window, cx),
             0 => self.focus_new(window, cx),
             1 => self.choose_vault(window, cx),
             2 => self.focus_search(false, window, cx),

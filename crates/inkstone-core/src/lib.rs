@@ -1,6 +1,6 @@
-pub mod changes;
 pub mod batch;
 mod changed_range;
+pub mod changes;
 pub mod comments;
 pub mod file_order;
 pub mod graphics;

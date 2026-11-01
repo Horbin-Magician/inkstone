@@ -1,5 +1,6 @@
 mod accessible_text;
 mod activity_trace;
+mod agent;
 mod file_drop;
 mod file_sync;
 mod file_writes;
@@ -76,6 +77,9 @@ type LinkEdits = Vec<(PathBuf, String, String)>;
 actions!(
     inkstone,
     [
+        AgentAsk,
+        AgentPolish,
+        AgentSummary,
         Save,
         OpenVault,
         QuickOpen,
@@ -117,6 +121,7 @@ struct Tab {
     _focus: Subscription,
 }
 pub struct Workspace {
+    agent: agent::State,
     updates: updates::State,
     activity_trace: Option<activity_trace::ActivityTrace>,
     settings_save: settings_save::State,
@@ -184,6 +189,7 @@ fn app_dir() -> PathBuf {
 }
 impl Workspace {
     fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_agent(window, cx);
         self.poll_update_progress(cx);
         let mut sync_paths = Vec::new();
         if let Some(receiver) = &self.watch_events {

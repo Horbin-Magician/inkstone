@@ -11,6 +11,7 @@ name = "inkstone"
 path = "src/main.rs"
 
 [dependencies]
+inkstone-agent.workspace = true
 inkstone-core.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
@@ -35,6 +36,7 @@ objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 gpui-base = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 ropey.workspace = true

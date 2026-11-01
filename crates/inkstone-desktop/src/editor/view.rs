@@ -398,6 +398,23 @@ impl Render for EditorPane {
                                         .h_full()
                                         .child(
                                             Editor::new(&self.editor)
+                                                .context_menu(|menu, _, _| {
+                                                    menu.separator()
+                                                        .menu(
+                                                            "发送给 Agent",
+                                                            Box::new(crate::workspace::AgentAsk),
+                                                        )
+                                                        .menu(
+                                                            "Agent 润色",
+                                                            Box::new(crate::workspace::AgentPolish),
+                                                        )
+                                                        .menu(
+                                                            "Agent 摘要",
+                                                            Box::new(
+                                                                crate::workspace::AgentSummary,
+                                                            ),
+                                                        )
+                                                })
                                                 .w_full()
                                                 .on_paste(move |item, _, cx| {
                                                     for entry in &item.entries {

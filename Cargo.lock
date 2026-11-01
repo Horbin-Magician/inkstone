@@ -3473,6 +3473,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "image",
+ "inkstone-agent",
  "inkstone-core",
  "lsp-types",
  "markdown",
@@ -3486,6 +3487,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "similar",
+ "tempfile",
  "unicode-segmentation",
  "url",
 ]

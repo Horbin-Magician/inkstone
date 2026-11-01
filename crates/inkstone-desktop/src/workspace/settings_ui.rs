@@ -266,6 +266,15 @@ impl Workspace {
             .flex_col()
             .gap_1()
             .child(Input::new(&self.ui.settings_filter).w_full())
+            .child(
+                Button::new("settings-agent")
+                    .label("Agent 模型与权限")
+                    .on_click(cx.listener(|this, _, w, cx| {
+                        this.ui.settings = false;
+                        this.agent.show_settings = true;
+                        this.open_agent(112, w, cx);
+                    })),
+            )
             .children(
                 [
                     (5, "外观", "palette"),

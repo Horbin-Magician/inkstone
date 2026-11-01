@@ -107,6 +107,7 @@ impl Workspace {
         .detach();
         let ui = ui::UiState::new(window, cx);
         Self {
+            agent: agent::State::new(window, cx),
             updates: Default::default(),
             activity_trace: activity_trace::ActivityTrace::from_env(),
             settings_save: Default::default(),
