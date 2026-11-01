@@ -905,7 +905,8 @@ impl Workspace {
             .child(
                 self.settings_content()
                     .gap_2()
-                    .child(self.settings_group("Agent · 模型与权限", rows))
+                    .child(self.settings_title("Agent"))
+                    .child(self.settings_group("模型与权限", rows))
                     .child(
                         div()
                             .w_full()
