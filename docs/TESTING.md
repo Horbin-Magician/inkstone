@@ -5036,3 +5036,11 @@ cargo run --release --locked -p inkstone-core --example benchmark -- 2000 30
 - 开发构建在独立 `XDG_DATA_HOME` 和生成笔记库启动成功，CoreGraphics 查询到 `inkstone` 的可见原生窗口，尺寸 1081×739；日志位于 `target/agent-native-v6xcalig/`，进程已关闭。本机 System Events 报告辅助功能关闭，窗口截图返回 `could not create image from window`，因此没有完成 Agent 原生点击、视觉或读屏验收。启动检查发生在最后的分屏修复之前，不替代最终版本原生验收。
 
 仍未完成：真实云端/本地模型供应商兼容测试、Windows 原生运行、macOS Agent 完整原生交互与读屏、跨进程强退/物理掉电、长时间大库与模型流式负载下的性能验收。现有 CI 将在 macOS / Windows 执行 workspace 检查，本地结果不能代替尚未运行的 Windows 验证。
+
+## Agent OpenAI Responses 适配（2026-11-01）
+
+- 使用用户授权的测试密钥和合成 `inkstone_probe` 请求，在 Chat Completions + `gpt-6-astra` 下实际复现 HTTP 400；服务端指出工具调用与该接口的推理配置不兼容。
+- 官方 OpenAI 地址改用 Responses，回传完整输出项（含加密推理状态）和对应 `call_id` 的工具结果，使用 `store: false`。其他兼容地址保留 Chat Completions。
+- 使用实际 Rust provider 的 `openai_probe` 示例完成两次真实请求，验证流式响应、工具调用、结果回传、最终 `PROBE_OK` 回复。密钥仅经标准输入传入，未写入代码、日志或笔记。
+- `cargo test --locked -p inkstone-agent`：17 项通过；覆盖 Responses 的 UTF-8 分片、推理与调用配对、截断拒绝、错误字段脱敏。`cargo check --locked -p inkstone-desktop` 通过。
+- 此验证未读取用户笔记，也不代表所有兼容服务或完整桌面操作已验收。

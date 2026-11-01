@@ -244,7 +244,12 @@ pub async fn execute(
             return Ok(());
         }
         let tool_calls: Vec<_> = result.calls.iter().map(|c| json!({"id":c.id,"type":"function","function":{"name":c.name,"arguments":c.arguments}})).collect();
-        messages.push(json!({"role":"assistant","content":result.text,"tool_calls":tool_calls}));
+        let mut assistant =
+            json!({"role":"assistant","content":result.text,"tool_calls":tool_calls});
+        if !result.output_items.is_empty() {
+            assistant["response_items"] = result.output_items.into();
+        }
+        messages.push(assistant);
         for call in result.calls {
             if cancel.cancelled() {
                 bail!("已取消");
