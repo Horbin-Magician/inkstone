@@ -1,3 +1,4 @@
+pub mod changes;
 pub mod batch;
 mod changed_range;
 pub mod comments;
