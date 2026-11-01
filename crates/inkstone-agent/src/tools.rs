@@ -44,7 +44,10 @@ impl Scope {
             && path
                 .extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("md"))
-            && !excluded.iter().any(|p| path.starts_with(p))
+            && !excluded.iter().any(|p| {
+                PathBuf::from(path.to_string_lossy().to_lowercase())
+                    .starts_with(p.to_string_lossy().to_lowercase())
+            })
             && match self {
                 Self::Notes(paths) => paths.iter().any(|p| p == path),
                 Self::Folder(folder) => {
@@ -64,7 +67,7 @@ pub struct ToolHost {
     pub source_prefix: String,
     pub proposals: Vec<ChangeSet>,
     overrides: BTreeMap<PathBuf, (String, Range<usize>)>,
-    read_paths: BTreeSet<PathBuf>,
+    read_ranges: BTreeMap<PathBuf, Vec<Range<usize>>>,
 }
 impl ToolHost {
     pub fn new(
@@ -103,8 +106,26 @@ impl ToolHost {
             source_prefix: String::new(),
             proposals: vec![],
             overrides,
-            read_paths: BTreeSet::new(),
+            read_ranges: BTreeMap::new(),
         })
+    }
+    fn fully_read(&self, path: &Path) -> bool {
+        let Some(note) = self.index.notes.get(path) else {
+            return false;
+        };
+        let Some(ranges) = self.read_ranges.get(path) else {
+            return false;
+        };
+        let mut ranges = ranges.clone();
+        ranges.sort_by_key(|r| r.start);
+        let mut end = 0;
+        for range in ranges {
+            if range.start > end {
+                return false;
+            }
+            end = end.max(range.end);
+        }
+        end >= note.text.len()
     }
     fn check(&self, path: &Path) -> Result<()> {
         if !self.scope.allows(path, &self.excluded) {
@@ -214,7 +235,7 @@ impl ToolHost {
                     end -= 1;
                 }
                 let source = self.cite(&path, start..end)?;
-                self.read_paths.insert(path);
+                self.read_ranges.entry(path).or_default().push(start..end);
                 Ok(
                     json!({"source":source,"text":&note.text[start..end],"next_start":end,"total_bytes":note.text.len()}),
                 )
@@ -237,16 +258,16 @@ impl ToolHost {
                         .context("缺少完整 content")?
                         .to_owned();
                     let before = if let Some((text, range)) = self.overrides.get(&path) {
-                        if !self.read_paths.contains(&path) {
-                            bail!("必须先读取目标笔记");
+                        if !self.fully_read(&path) {
+                            bail!("必须先完整读取目标笔记（使用 next_start 继续读取）");
                         }
                         let mut full = text.clone();
                         full.replace_range(range.clone(), &after);
                         after = full;
                         Some(text.clone())
                     } else if let Some(note) = self.index.notes.get(&path) {
-                        if !self.read_paths.contains(&path) {
-                            bail!("必须先读取目标笔记");
+                        if !self.fully_read(&path) {
+                            bail!("必须先完整读取目标笔记（使用 next_start 继续读取）");
                         }
                         Some(note.text.clone())
                     } else {
@@ -362,6 +383,21 @@ mod tests {
             "secret中文tail"
         );
         assert!(host.call("read_note", json!({"path":"../a.md"})).is_err());
+    }
+    #[test]
+    fn partial_read_cannot_replace_full_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vault");
+        std::fs::create_dir(&root).unwrap();
+        let vault = Vault::open(&root, dir.path().join("history")).unwrap();
+        vault.create(Path::new("a.md"), &"a".repeat(13000)).unwrap();
+        let mut host = ToolHost::new(vault, Scope::Vault, vec![], None).unwrap();
+        host.call("read_note", json!({"path":"a.md"})).unwrap();
+        let proposal = json!({"changes":[{"path":"a.md","content":"new","reason":"test"}]});
+        assert!(host.call("propose_changes", proposal.clone()).is_err());
+        host.call("read_note", json!({"path":"a.md","start":12000}))
+            .unwrap();
+        assert!(host.call("propose_changes", proposal).is_ok());
     }
     #[cfg(unix)]
     #[test]

@@ -18,6 +18,8 @@ pub struct Message {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Proposal {
+    #[serde(default)]
+    pub previews: Vec<String>,
     pub changes: ChangeSet,
     pub status: String,
     pub report: Option<ApplyReport>,
@@ -140,6 +142,29 @@ pub fn check_exclusions(paths: &[std::path::PathBuf]) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
+    fn writer_coalesces_without_losing_other_vaults_and_flushes_on_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let writer = SessionWriter::default();
+            for i in 0..10 {
+                writer.queue(
+                    dir.path(),
+                    Path::new("a"),
+                    vec![Session {
+                        title: i.to_string(),
+                        ..Default::default()
+                    }],
+                );
+            }
+            writer.queue(dir.path(), Path::new("b"), vec![Session::default()]);
+        }
+        assert_eq!(
+            load_sessions(dir.path(), Path::new("a")).unwrap()[0].title,
+            "9"
+        );
+        assert_eq!(load_sessions(dir.path(), Path::new("b")).unwrap().len(), 1);
+    }
+    #[test]
     fn sessions_isolated_and_interrupted_without_replay() {
         let dir = tempfile::tempdir().unwrap();
         let session = Session {
@@ -156,5 +181,94 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+}
+
+/// Serializes and writes on one worker. Pending snapshots coalesce per vault,
+/// so switching vaults cannot discard the previous vault's last checkpoint.
+pub struct SessionWriter {
+    shared: std::sync::Arc<(std::sync::Mutex<PendingWrites>, std::sync::Condvar)>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    pub errors: std::sync::mpsc::Receiver<String>,
+}
+#[derive(Default)]
+struct PendingWrites {
+    snapshots: BTreeMap<std::path::PathBuf, Vec<Session>>,
+    stopping: bool,
+    writing: bool,
+    error: Option<String>,
+}
+impl Default for SessionWriter {
+    fn default() -> Self {
+        let shared = std::sync::Arc::new((
+            std::sync::Mutex::new(PendingWrites::default()),
+            std::sync::Condvar::new(),
+        ));
+        let worker = shared.clone();
+        let (tx, errors) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            loop {
+                let (lock, signal) = &*worker;
+                let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+                while state.snapshots.is_empty() && !state.stopping {
+                    state = signal.wait(state).unwrap_or_else(|e| e.into_inner());
+                }
+                if state.snapshots.is_empty() && state.stopping {
+                    break;
+                }
+                let snapshots = std::mem::take(&mut state.snapshots);
+                state.writing = true;
+                drop(state);
+                let mut error = None;
+                for (path, sessions) in snapshots {
+                    if let Err(e) = write(&path, &sessions) {
+                        let text = format!("会话保存失败：{e}");
+                        let _ = tx.send(text.clone());
+                        error = Some(text);
+                    }
+                }
+                let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+                state.writing = false;
+                state.error = error;
+                signal.notify_all();
+            }
+        });
+        Self {
+            shared,
+            thread: Some(thread),
+            errors,
+        }
+    }
+}
+impl SessionWriter {
+    pub fn queue(&self, dir: &Path, vault: &Path, sessions: Vec<Session>) {
+        let (lock, signal) = &*self.shared;
+        lock.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .snapshots
+            .insert(sessions_path(dir, vault), sessions);
+        signal.notify_one();
+    }
+    /// Barrier used before starting writes, at vault switches and on shutdown.
+    pub fn flush(&self) -> Result<()> {
+        let (lock, signal) = &*self.shared;
+        let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while state.writing || !state.snapshots.is_empty() {
+            state = signal.wait(state).unwrap_or_else(|e| e.into_inner());
+        }
+        if let Some(error) = &state.error {
+            bail!("{error}");
+        }
+        Ok(())
+    }
+}
+impl Drop for SessionWriter {
+    fn drop(&mut self) {
+        let (lock, signal) = &*self.shared;
+        lock.lock().unwrap_or_else(|e| e.into_inner()).stopping = true;
+        signal.notify_one();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
