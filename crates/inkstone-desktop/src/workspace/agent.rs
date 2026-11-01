@@ -1142,6 +1142,7 @@ impl Workspace {
         i: usize,
         message: &Message,
         thinking: bool,
+        usage: Option<&serde_json::Value>,
         colors: crate::theme::Palette,
     ) -> AnyElement {
         let copy = message.text.clone();
@@ -1214,10 +1215,60 @@ impl Workspace {
                     .child("Agent"),
             )
             .child(body)
-            .when(!thinking && !message.text.is_empty(), |col| {
-                col.child(copy_button)
+            .when(!thinking, |col| {
+                let stats = usage.map(usage_stats).unwrap_or_default();
+                col.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .min_h(px(22.))
+                        .when(!message.text.is_empty(), |row| row.child(copy_button))
+                        .when(!stats.is_empty(), |row| {
+                            row.child(self.agent_usage(i, &stats, colors))
+                        }),
+                )
             })
             .into_any_element()
+    }
+    fn agent_usage(
+        &self,
+        i: usize,
+        stats: &[(&'static str, u64)],
+        colors: crate::theme::Palette,
+    ) -> impl IntoElement {
+        let exact = stats
+            .iter()
+            .map(|(label, n)| format!("{label} {n} token"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut row = div()
+            .id(("agent-usage", i))
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_x_2()
+            .gap_y_0p5()
+            .text_xs()
+            .text_color(colors.muted)
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(format!("最近一次请求用量\n{exact}"))
+                    .build(window, cx)
+            });
+        for (j, (label, n)) in stats.iter().enumerate() {
+            if j > 0 {
+                row = row.child(div().size(px(3.)).rounded_full().bg(colors.border));
+            }
+            row = row.child(
+                div().flex().items_baseline().gap_1().child(*label).child(
+                    div()
+                        .text_color(colors.foreground)
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(compact_tokens(*n)),
+                ),
+            );
+        }
+        row
     }
     fn agent_proposal(
         &self,
@@ -1609,7 +1660,9 @@ impl Workspace {
         let last = session.messages.len().saturating_sub(1);
         for (i, message) in session.messages.iter().enumerate() {
             let thinking = busy && i == last && message.role != "user" && message.text.is_empty();
-            panel = panel.child(self.agent_message(i, message, thinking, colors));
+            // Usage belongs to the latest request, so it sits under the latest reply.
+            let usage = session.usage.as_ref().filter(|_| i == last);
+            panel = panel.child(self.agent_message(i, message, thinking, usage, colors));
         }
         if !session.tools.is_empty() {
             let open = self.agent.show_tools;
@@ -1702,14 +1755,6 @@ impl Workspace {
         for (i, proposal) in session.proposals.iter().enumerate() {
             panel = panel.child(self.agent_proposal(i, proposal, colors, cx));
         }
-        if let Some(usage) = &session.usage {
-            panel = panel.child(
-                div()
-                    .text_xs()
-                    .text_color(colors.muted)
-                    .child(format!("本次用量 · {usage}")),
-            );
-        }
         if !self.agent.error.is_empty() {
             let ok = self.agent.error == PROBE_OK;
             panel = panel.child(
@@ -1777,6 +1822,56 @@ fn pill(text: impl Into<SharedString>, fg: Rgba, bg: Rgba) -> Div {
         .text_color(fg)
         .bg(bg)
         .child(text.into())
+}
+/// Reads token counts from either Responses or Chat Completions usage objects.
+fn usage_stats(usage: &serde_json::Value) -> Vec<(&'static str, u64)> {
+    let field = |paths: &[&str]| {
+        paths
+            .iter()
+            .find_map(|path| usage.pointer(path).and_then(serde_json::Value::as_u64))
+    };
+    let input = field(&["/input_tokens", "/prompt_tokens"]);
+    let output = field(&["/output_tokens", "/completion_tokens"]);
+    [
+        ("输入", input),
+        (
+            "缓存",
+            field(&[
+                "/input_tokens_details/cached_tokens",
+                "/prompt_tokens_details/cached_tokens",
+            ]),
+        ),
+        ("输出", output),
+        (
+            "推理",
+            field(&[
+                "/output_tokens_details/reasoning_tokens",
+                "/completion_tokens_details/reasoning_tokens",
+            ]),
+        ),
+        (
+            "合计",
+            field(&["/total_tokens"]).or(input.zip(output).map(|(a, b)| a + b)),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(label, n)| n.filter(|&n| n > 0 || label == "输出").map(|n| (label, n)))
+    .collect()
+}
+fn compact_tokens(n: u64) -> String {
+    let scaled = |n: u64, unit: f64, suffix: &str| {
+        let value = n as f64 / unit;
+        if value < 10. {
+            format!("{:.1}{suffix}", value).replace(".0", "")
+        } else {
+            format!("{:.0}{suffix}", value)
+        }
+    };
+    match n {
+        0..1_000 => n.to_string(),
+        1_000..999_500 => scaled(n, 1e3, "K"),
+        _ => scaled(n, 1e6, "M"),
+    }
 }
 fn excerpt(text: &str, limit: usize) -> String {
     let text = text.trim();
@@ -1987,6 +2082,8 @@ mod tests {
                 let mut pending = proposal("old\n", "new\n");
                 pending.previews = pending.changes.previews();
                 session.proposals.push(pending);
+                session.usage =
+                    Some(serde_json::json!({"input_tokens": 1_200, "output_tokens": 80}));
                 w.agent.show_tools = true;
                 w.agent.error = PROBE_OK.into();
                 w.agent.scope = 1;
@@ -2006,6 +2103,35 @@ mod tests {
                 assert!(w.agent.session().messages.is_empty());
             })
             .unwrap();
+    }
+    #[test]
+    fn usage_reads_both_api_shapes_compactly() {
+        let responses = serde_json::json!({
+            "input_tokens": 12_345,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": 980,
+            "output_tokens_details": {"reasoning_tokens": 512},
+            "total_tokens": 13_325
+        });
+        assert_eq!(
+            usage_stats(&responses),
+            [
+                ("输入", 12_345),
+                ("输出", 980),
+                ("推理", 512),
+                ("合计", 13_325)
+            ]
+        );
+        let chat = serde_json::json!({"prompt_tokens": 2_000, "completion_tokens": 0});
+        assert_eq!(
+            usage_stats(&chat),
+            [("输入", 2_000), ("输出", 0), ("合计", 2_000)]
+        );
+        assert!(usage_stats(&serde_json::json!({"output_tokens": null})).is_empty());
+        let labels: Vec<_> = [999, 1_000, 1_250, 12_345, 999_499, 999_500, 1_050_000]
+            .map(compact_tokens)
+            .into();
+        assert_eq!(labels, ["999", "1K", "1.2K", "12K", "999K", "1M", "1.1M"]);
     }
     #[test]
     fn excerpt_truncates_on_char_boundaries() {
