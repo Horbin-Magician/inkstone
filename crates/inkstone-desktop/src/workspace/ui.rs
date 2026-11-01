@@ -697,6 +697,9 @@ pub(super) fn icon(name: &str) -> Icon {
             .data(format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{fill}<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M{divider} 3v18"/></svg>"#).as_bytes());
     }
     let shape = match name {
+        "sparkles" => {
+            Some("m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7ZM20 2v4M18 4h4")
+        }
         "trash" => Some("M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"),
         "history" => Some("M3 3v6h6M3 9a9 9 0 1 1 0 6M12 7v5l3 2"),
         "code" => Some("m8 5-7 7 7 7m8-14 7 7-7 7"),

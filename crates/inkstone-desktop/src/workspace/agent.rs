@@ -1,6 +1,10 @@
 //! Workspace adapter: the agent can stage proposals, only this layer applies them.
 use super::*;
-use gpui_component::{Disableable, button::Button};
+use gpui_component::{
+    Disableable,
+    button::Button,
+    input::{Textarea, TextareaState},
+};
 use inkstone_agent::{
     AgentEvent, AgentRun, RunState, Scope,
     provider::ModelConfig,
@@ -15,7 +19,7 @@ pub(super) struct State {
     settings: Settings,
     secrets: BTreeMap<String, String>,
     fields: Vec<Entity<InputState>>,
-    prompt: Entity<InputState>,
+    prompt: Entity<TextareaState>,
     scope_input: Entity<InputState>,
     scope: usize,
     mode: RequestMode,
@@ -65,8 +69,11 @@ impl State {
             settings,
             secrets: secrets.unwrap_or_default(),
             fields,
-            prompt: cx
-                .new(|cx| InputState::new(window, cx).placeholder("向 Agent 提问或描述修改任务")),
+            prompt: cx.new(|cx| {
+                TextareaState::new(window, cx)
+                    .rows(3)
+                    .placeholder("向 Agent 提问或描述修改任务")
+            }),
             scope_input: cx
                 .new(|cx| InputState::new(window, cx).placeholder("库内目录 / 笔记路径，逗号分隔")),
             scope: 0,
@@ -678,6 +685,8 @@ impl Workspace {
         let busy = self.agent.busy();
         let mut panel = div()
             .id("agent-panel")
+            .min_w_0()
+            .whitespace_normal()
             .flex()
             .flex_col()
             .flex_1()
@@ -873,7 +882,8 @@ impl Workspace {
         if !self.agent.error.is_empty() {
             panel = panel.child(div().child(self.agent.error.clone()));
         }
-        for message in &session.messages {
+        for (i, message) in session.messages.iter().enumerate() {
+            let copy = message.text.clone();
             panel = panel.child(
                 div()
                     .flex()
@@ -886,7 +896,14 @@ impl Workspace {
                     } else {
                         "Agent"
                     })
-                    .child(message.text.clone()),
+                    .child(message.text.clone())
+                    .child(
+                        Button::new(("agent-copy-message", i))
+                            .label("复制")
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                            }),
+                    ),
             );
         }
         panel = panel.child(format!(
@@ -996,13 +1013,46 @@ impl Workspace {
             );
             panel = panel.child(review);
         }
-        panel
-            .child(Input::new(&self.agent.prompt))
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .child(panel)
             .child(
-                Button::new("agent-send")
-                    .label("发送 / 继续")
-                    .disabled(busy)
-                    .on_click(cx.listener(|this, _, w, cx| this.agent_send(w, cx))),
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .p_3()
+                    .flex_shrink_0()
+                    .child(Textarea::new(&self.agent.prompt))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                Button::new("agent-send")
+                                    .label("发送 / 继续")
+                                    .disabled(busy)
+                                    .on_click(cx.listener(|this, _, w, cx| this.agent_send(w, cx))),
+                            )
+                            .child(
+                                Button::new("agent-composer-stop")
+                                    .label("停止")
+                                    .disabled(!busy)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if let Some(run) = &this.agent.run {
+                                            run.cancel.cancel();
+                                        }
+                                        if let Some(cancel) = &this.agent.applying {
+                                            cancel.cancel();
+                                        }
+                                        cx.notify();
+                                    })),
+                            ),
+                    ),
             )
             .into_any_element()
     }
