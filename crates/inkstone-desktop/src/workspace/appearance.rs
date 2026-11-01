@@ -1,7 +1,10 @@
 use super::*;
-use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_component::select::{SearchableVec, Select, SelectItem};
-use gpui_component::{button::Button, slider::Slider};
+use gpui_component::{
+    Selectable,
+    button::{Button, ButtonVariants},
+    slider::Slider,
+};
 use inkstone_core::preferences::ThemeMode;
 
 impl Workspace {
@@ -164,58 +167,72 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let selected = self.ui.prefs.theme;
-        let weak = cx.entity().downgrade();
-        let theme = Button::new("theme-setting")
-            .label(match selected {
-                ThemeMode::System => "跟随系统",
-                ThemeMode::Light => "浅色",
-                ThemeMode::Dark => "深色",
-            })
-            .dropdown_menu(move |mut menu, _, _| {
-                for (value, label) in [
-                    (ThemeMode::System, "跟随系统"),
-                    (ThemeMode::Light, "浅色"),
-                    (ThemeMode::Dark, "深色"),
-                ] {
-                    let weak = weak.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(label)
-                            .checked(value == selected)
-                            .on_click(move |_, window, cx| {
-                                let _ =
-                                    weak.update(cx, |this, cx| this.set_theme(value, window, cx));
-                            }),
-                    );
-                }
-                menu
-            });
-        let card = crate::theme::palette(self.ui.prefs.light).surface;
+        let palette = crate::theme::palette(self.ui.prefs.light);
+        // Segmented control: every option stays visible and switches in one click.
+        let theme = div()
+            .id("theme-setting")
+            .flex()
+            .gap(px(2.))
+            .p(px(2.))
+            .rounded(px(8.))
+            .bg(palette.sidebar)
+            .border_1()
+            .border_color(palette.border)
+            .children(
+                [
+                    (ThemeMode::System, "跟随系统", "monitor"),
+                    (ThemeMode::Light, "浅色", "sun"),
+                    (ThemeMode::Dark, "深色", "moon"),
+                ]
+                .into_iter()
+                .enumerate()
+                .map(|(i, (value, label, symbol))| {
+                    let active = value == selected;
+                    Button::new(("theme-option", i))
+                        .ghost()
+                        .h(px(28.))
+                        .px_3()
+                        .selected(active)
+                        .accessibility_label(label)
+                        .when(active, |button| button.bg(palette.background))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .text_size(px(crate::theme::MIN_UI_FONT_SIZE))
+                                .text_color(if active {
+                                    palette.accent
+                                } else {
+                                    palette.muted
+                                })
+                                .child(ui::icon(symbol))
+                                .child(label),
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.set_theme(value, window, cx);
+                        }))
+                }),
+            );
         let content = if interface {
-            vec![
-                div()
-                    .px_4()
-                    .rounded(px(12.))
-                    .bg(card)
-                    .flex_shrink_0()
-                    .child(
-                        self.settings_row(
-                            "view-header-row",
-                            "显示标签页标题栏",
-                            "在每个标签页顶部显示文件标题与导航控件。",
-                            super::settings_ui::setting_switch("view-header-setting")
-                                .accessibility_label("显示标签页标题栏")
-                                .checked(self.ui.prefs.show_view_header)
-                                .on_click(cx.listener(|this, enabled: &bool, _, cx| {
-                                    this.ui.prefs.show_view_header = *enabled;
-                                    this.persist_workspace(cx);
-                                    cx.notify();
-                                })),
-                            false,
-                            16.,
-                        ),
-                    )
-                    .into_any_element(),
-            ]
+            vec![self.settings_group(
+                "",
+                vec![self.settings_row(
+                    "view-header-row",
+                    "显示标签页标题栏",
+                    "在每个标签页顶部显示文件标题与导航控件。",
+                    super::settings_ui::setting_switch("view-header-setting")
+                        .accessibility_label("显示标签页标题栏")
+                        .checked(self.ui.prefs.show_view_header)
+                        .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                            this.ui.prefs.show_view_header = *enabled;
+                            this.persist_workspace(cx);
+                            cx.notify();
+                        })),
+                    false,
+                    16.,
+                )],
+            )]
         } else {
             let mut fonts: Vec<_> = [
                 ("界面字体", ""),
@@ -266,13 +283,17 @@ impl Workspace {
                 ),
             );
             vec![
-                div()
-                    .px_4()
-                    .rounded(px(12.))
-                    .bg(card)
-                    .flex_shrink_0()
-                    .child(self.settings_row("theme-row", "基础颜色", "", theme, false, 16.))
-                    .into_any_element(),
+                self.settings_group(
+                    "",
+                    vec![self.settings_row(
+                        "theme-row",
+                        "基础颜色",
+                        "选择浅色、深色，或跟随系统外观自动切换。",
+                        theme,
+                        false,
+                        16.,
+                    )],
+                ),
                 self.settings_group("字体", {
                     fonts.push(
                         self.settings_row(
@@ -303,13 +324,7 @@ impl Workspace {
             .child(
                 self.settings_content()
                     .gap_2()
-                    .child(
-                        div()
-                            .text_size(px(18.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .mb_3()
-                            .child(if interface { "界面" } else { "外观" }),
-                    )
+                    .child(self.settings_title(if interface { "界面" } else { "外观" }))
                     .children(content),
             )
             .into_any_element()

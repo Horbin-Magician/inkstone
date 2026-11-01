@@ -11,6 +11,36 @@ pub(super) fn setting_switch(id: impl Into<ElementId>) -> gpui_component::switch
     gpui_component::switch::Switch::new(id).large()
 }
 
+/// Settings navigation sections: (group title, [(tab index, label, icon)]).
+const SETTINGS_SECTIONS: &[(&str, &[(usize, &str, &str)])] = &[
+    ("个性化", &[(5, "外观", "palette"), (6, "界面", "monitor")]),
+    (
+        "编辑",
+        &[
+            (0, "编辑器", "pencil"),
+            (2, "文件与链接", "folder"),
+            (1, "快捷键", "command"),
+        ],
+    ),
+    (
+        "数据与服务",
+        &[
+            (7, "备份与恢复", "history"),
+            (8, "云同步", "cloud"),
+            (10, "Agent", "sparkles"),
+        ],
+    ),
+    ("应用", &[(9, "关于与更新", "info")]),
+];
+
+fn settings_tab_icon(tab: usize) -> &'static str {
+    SETTINGS_SECTIONS
+        .iter()
+        .flat_map(|(_, tabs)| tabs.iter())
+        .find(|(i, _, _)| *i == tab)
+        .map_or("settings", |(_, _, symbol)| symbol)
+}
+
 #[derive(Clone, Copy)]
 enum EditorSetting {
     ReadableWidth,
@@ -33,16 +63,30 @@ impl Workspace {
         description: &str,
     ) -> Stateful<Div> {
         let description = description.to_string();
+        let muted = crate::theme::palette(self.ui.prefs.light).muted;
         div()
             .id((ElementId::from(id), "name"))
             .role(gpui::Role::Label)
             .aria_label(name.to_string())
-            .text_size(px(MIN_UI_FONT_SIZE))
-            .line_height(relative(1.3))
-            .child(name.to_string())
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .child(
+                div()
+                    .text_size(px(MIN_UI_FONT_SIZE))
+                    .line_height(relative(1.3))
+                    .child(name.to_string()),
+            )
             .when(!description.is_empty(), |label| {
                 label
                     .aria_description(description.clone())
+                    .child(
+                        div()
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .line_height(relative(1.4))
+                            .text_color(muted)
+                            .child(description.clone()),
+                    )
                     .tooltip(move |window, cx| {
                         let description = description.clone();
                         gpui_component::tooltip::Tooltip::element(move |_, _| {
@@ -89,12 +133,17 @@ impl Workspace {
         divider: bool,
         padding: f32,
     ) -> AnyElement {
+        let py = if description.is_empty() {
+            padding
+        } else {
+            padding + 2.
+        };
         div()
             .flex()
             .items_center()
             .gap_4()
             .flex_shrink_0()
-            .py(px(padding))
+            .py(px(py))
             .relative()
             .when(divider, |row| {
                 row.child(
@@ -122,29 +171,48 @@ impl Workspace {
     }
 
     pub(super) fn settings_group(&self, title: &str, rows: Vec<AnyElement>) -> AnyElement {
+        let muted = crate::theme::palette(self.ui.prefs.light).muted;
         div()
             .w_full()
             .flex_shrink_0()
             .max_w(px(700.))
             .mx_auto()
-            .mt_4()
-            .child(
-                div()
-                    .px_4()
-                    .mb_3()
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title.to_string()),
-            )
+            .when(!title.is_empty(), |group| group.mt_5())
+            .when(!title.is_empty(), |group| {
+                group.child(
+                    div()
+                        .px_4()
+                        .mb_2()
+                        .text_size(px(MIN_UI_FONT_SIZE))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(muted)
+                        .child(title.to_string()),
+                )
+            })
             .child(
                 div()
                     .px_5()
                     .flex()
                     .flex_col()
-                    .rounded(px(12.))
+                    .rounded(px(10.))
                     .bg(crate::theme::palette(self.ui.prefs.light).surface)
                     .children(rows),
             )
+            .into_any_element()
+    }
+
+    /// Page heading shown at the top of each settings page.
+    pub(super) fn settings_title(&self, title: &str) -> AnyElement {
+        div()
+            .w_full()
+            .max_w(px(700.))
+            .mx_auto()
+            .flex_shrink_0()
+            .px_1()
+            .mb_1()
+            .text_size(px(20.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(title.to_string())
             .into_any_element()
     }
 
@@ -257,41 +325,36 @@ impl Workspace {
     }
 
     pub(super) fn settings_nav(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .id("settings-navigation")
-            .w(px(192.))
-            .flex_shrink_0()
-            .min_h_0()
-            .overflow_y_scrollbar()
-            .p_3()
-            .bg(self.side())
-            .border_r_1()
-            .border_color(self.border())
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(Input::new(&self.ui.settings_filter).w_full())
-            .children(
-                [
-                    (5, "外观", "palette"),
-                    (6, "界面", "monitor"),
-                    (0, "编辑器", "pencil"),
-                    (2, "文件与链接", "folder"),
-                    (7, "备份与恢复", "history"),
-                    (8, "云同步", "folder"),
-                    (10, "Agent", "sparkles"),
-                    (1, "快捷键", "command"),
-                    (9, "关于与更新", "info"),
-                ]
-                .into_iter()
-                .map(|(i, title, symbol)| {
+        let palette = crate::theme::palette(self.ui.prefs.light);
+        let accent = palette.accent;
+        let muted = palette.muted;
+        let groups = SETTINGS_SECTIONS;
+        let current_tab = self.ui.settings_tab;
+        let mut items: Vec<AnyElement> = Vec::new();
+        for (section_title, tabs) in groups.iter() {
+            if !section_title.is_empty() {
+                items.push(
+                    div()
+                        .px_2()
+                        .pt_3()
+                        .pb_1()
+                        .text_size(px(MIN_UI_FONT_SIZE))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(muted)
+                        .child(section_title.to_string())
+                        .into_any_element(),
+                );
+            }
+            for &(i, title, symbol) in tabs.iter() {
+                let selected = current_tab == i;
+                items.push(
                     Button::new(("settings-tab", i))
                         .ghost()
-                        .h(px(36.))
+                        .h(px(34.))
                         .w_full()
-                        .selected(self.ui.settings_tab == i)
-                        .toggled(self.ui.settings_tab == i)
-                        .when(self.ui.settings_tab == i, |button| {
+                        .selected(selected)
+                        .toggled(selected)
+                        .when(selected, |button| {
                             button.bg(crate::theme::palette(self.ui.prefs.light).selected)
                         })
                         .accessibility_label(title)
@@ -302,14 +365,43 @@ impl Workspace {
                                 .items_center()
                                 .gap_2()
                                 .text_size(px(MIN_UI_FONT_SIZE))
-                                .child(ui::icon(symbol))
+                                .when(selected, |d| d.text_color(accent))
+                                .child(
+                                    div()
+                                        .when(selected, |d| d.text_color(accent))
+                                        .child(ui::icon(symbol)),
+                                )
                                 .child(title),
                         )
                         .on_click(cx.listener(move |this, _, w, cx| {
                             this.select_settings_tab(i, w, cx);
                         }))
-                }),
+                        .into_any_element(),
+                );
+            }
+        }
+        div()
+            .id("settings-navigation")
+            .w(px(208.))
+            .flex_shrink_0()
+            .min_h_0()
+            .overflow_y_scrollbar()
+            .px_2()
+            .pt_2()
+            .pb_3()
+            .bg(self.side())
+            .border_r_1()
+            .border_color(self.border())
+            .flex()
+            .flex_col()
+            .gap_0()
+            .child(
+                div()
+                    .px_1()
+                    .pb_2()
+                    .child(Input::new(&self.ui.settings_filter).w_full()),
             )
+            .children(items)
             .into_any_element()
     }
     pub(super) fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -321,6 +413,7 @@ impl Workspace {
             .trim()
             .to_lowercase();
         if !query.is_empty() {
+            let palette = crate::theme::palette(self.ui.prefs.light);
             let entries = [
                 (
                     10,
@@ -392,29 +485,77 @@ impl Workspace {
                     query.split_whitespace().all(|word| haystack.contains(word))
                 })
                 .map(|(id, (tab, label, _))| {
+                    let (section, item) = label.split_once(" · ").unwrap_or((label, ""));
                     Button::new(("settings-search-result", id))
                         .ghost()
                         .w_full()
                         .h_auto()
                         .accessibility_label(label)
-                        .child(div().w_full().py_2().flex().flex_col().gap_1().child(label))
+                        .child(
+                            div()
+                                .w_full()
+                                .px_2()
+                                .py_2()
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .child(ui::icon(settings_tab_icon(tab)).text_color(palette.accent))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(2.))
+                                        .child(item.to_string())
+                                        .child(
+                                            div()
+                                                .text_color(palette.muted)
+                                                .child(section.to_string()),
+                                        ),
+                                )
+                                .child(icon("chevron-right").text_color(palette.muted)),
+                        )
                         .on_click(cx.listener(move |this, _, w, cx| {
                             this.select_settings_tab(tab, w, cx);
                         }))
                 })
                 .collect();
-            let empty = rows.is_empty();
+            let count = rows.len();
             return div()
                 .flex()
                 .flex_1()
                 .min_h_0()
                 .child(self.settings_nav(cx))
                 .child(
-                    self.settings_content()
-                        .gap_2()
-                        .child("搜索结果")
-                        .when(empty, |s| s.child("未找到相关设置"))
-                        .children(rows),
+                    self.settings_content().child(
+                        div()
+                            .w_full()
+                            .max_w(px(700.))
+                            .mx_auto()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(self.settings_title("搜索结果"))
+                            .when(count == 0, |s| {
+                                s.child(self.empty_state(
+                                    "search",
+                                    "未找到相关设置",
+                                    "换个关键词试试，例如“字体”“同步”“快捷键”。",
+                                ))
+                            })
+                            .when(count > 0, |s| {
+                                s.child(
+                                    div()
+                                        .px_2()
+                                        .flex()
+                                        .flex_col()
+                                        .rounded(px(10.))
+                                        .bg(palette.surface)
+                                        .children(rows),
+                                )
+                            }),
+                    ),
                 )
                 .into_any_element();
         }
@@ -560,7 +701,6 @@ impl Workspace {
                 20.,
             ),
         );
-        let card = crate::theme::palette(self.ui.prefs.light).surface;
         div()
             .flex()
             .gap_0()
@@ -570,29 +710,28 @@ impl Workspace {
             .child(
                 self.settings_content()
                     .gap_2()
-                    .child(
-                        div()
-                            .px_5()
-                            .flex_shrink_0()
-                            .rounded(px(12.))
-                            .bg(card)
-                            .child(self.settings_row(
+                    .child(self.settings_title("编辑器"))
+                    .child(self.settings_group(
+                        "",
+                        vec![
+                            self.settings_row(
                                 "default-view-row",
                                 "新标签页的默认视图",
                                 "",
                                 default_view,
                                 false,
                                 20.,
-                            ))
-                            .child(self.settings_row(
+                            ),
+                            self.settings_row(
                                 "default-mode-row",
                                 "默认编辑模式",
                                 "",
                                 editing_mode,
                                 true,
                                 20.,
-                            )),
-                    )
+                            ),
+                        ],
+                    ))
                     .child(self.settings_group("显示", display))
                     .child(self.settings_group("行为", behavior))
                     .child(FocusReveal::new(
