@@ -128,6 +128,7 @@ impl AgentRun {
                     let messages = vec![
                         json!({"role":"user","content":"Call inkstone_probe with {} to test tool calling. This is a synthetic connection test."}),
                     ];
+                    send(&sender, &cancel, AgentEvent::State(RunState::Requesting))?;
                     let result = runtime.block_on(provider.complete(
                         &messages,
                         &schema,
@@ -196,6 +197,7 @@ impl AgentRun {
                     if serde_json::to_vec(&messages)?.len() > budget {
                         bail!("上下文预算不足，请缩小选区");
                     }
+                    send(&sender, &cancel, AgentEvent::State(RunState::Requesting))?;
                     let result = runtime.block_on(provider.complete(
                         &messages,
                         &[],

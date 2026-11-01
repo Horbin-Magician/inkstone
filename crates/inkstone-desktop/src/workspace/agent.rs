@@ -15,6 +15,8 @@ use inkstone_agent::{
 use inkstone_core::changes::{ApplyReport, ApplyStatus};
 use std::collections::BTreeMap;
 
+type AgentSnapshot = (PathBuf, String, std::ops::Range<usize>);
+
 pub(super) struct State {
     settings: Settings,
     secrets: BTreeMap<String, String>,
@@ -27,6 +29,7 @@ pub(super) struct State {
     sessions: Vec<Session>,
     selected: usize,
     root: Option<PathBuf>,
+    generation: u64,
     run: Option<AgentRun>,
     stream_task: Option<Task<()>>,
     sequence: u64,
@@ -82,6 +85,7 @@ impl State {
             sessions: vec![Session::default()],
             selected: 0,
             root: None,
+            generation: 0,
             run: None,
             stream_task: None,
             sequence: 0,
@@ -166,7 +170,7 @@ impl Workspace {
     }
     pub(super) fn poll_agent(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let root = self.vault.as_ref().map(|v| v.root.clone());
-        if self.agent.root != root {
+        if self.agent.root != root || self.agent.generation != self.generation {
             self.agent.run.take();
             if let Some(cancel) = self.agent.applying.take() {
                 cancel.cancel();
@@ -182,6 +186,7 @@ impl Workspace {
                 self.agent.error = error.to_string();
             }
             self.agent.root = root.clone();
+            self.agent.generation = self.generation;
             self.agent.selected = 0;
             self.agent.scope = 0;
             self.agent.scope_key.clear();
@@ -237,7 +242,12 @@ impl Workspace {
         let changed = !events.is_empty() || finished;
         for event in events {
             match event {
-                AgentEvent::State(state) => self.agent.session_mut().state = state,
+                AgentEvent::State(state) => {
+                    if state == RunState::Requesting {
+                        self.agent.session_mut().usage = None;
+                    }
+                    self.agent.session_mut().state = state;
+                }
                 AgentEvent::Text(text) => {
                     if let Some(message) = self.agent.session_mut().messages.last_mut() {
                         message.text.push_str(&text);
@@ -359,6 +369,37 @@ impl Workspace {
             }
         }
     }
+    fn agent_snapshot(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<AgentSnapshot>, String> {
+        let Some(pane) = self.current_pane() else {
+            return Ok(None);
+        };
+        let (path, input) = {
+            let pane = pane.read(cx);
+            (pane.current_path.clone(), pane.editor.clone())
+        };
+        if input.read(cx).is_composing()
+            || self
+                .tabs
+                .iter()
+                .filter(|t| t.path == path)
+                .any(|t| self.has_pending_input(t.id, window, cx))
+        {
+            return Err("请先完成中文组词再发送".into());
+        }
+        let editor = input.read(cx);
+        let text = editor.value().to_string();
+        let selection = editor.selected_range();
+        let range = if self.agent.scope == 0 && !selection.is_empty() {
+            selection
+        } else {
+            0..text.len()
+        };
+        Ok(Some((path, text, range)))
+    }
     fn agent_send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.poll_agent(window, cx);
         if self.agent.busy() {
@@ -379,26 +420,18 @@ impl Workspace {
             return;
         }
         self.flush_document_views(window, cx);
-        let current = self.active.and_then(|i| self.tabs.get(i));
-        let mut snapshot = None;
-        if let Some(tab) = current {
-            if self.has_pending_input(tab.id, window, cx) {
-                self.agent.error = "请先完成中文组词再发送".into();
-                cx.notify();
-                return;
+        let snapshot = if self.agent.mode == RequestMode::Probe {
+            None
+        } else {
+            match self.agent_snapshot(window, cx) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    self.agent.error = error;
+                    cx.notify();
+                    return;
+                }
             }
-            if tab.image.is_none() {
-                let editor = tab.save.editor.read(cx);
-                let text = editor.value().to_string();
-                let selection = editor.selected_range();
-                let range = if self.agent.scope == 0 && !selection.is_empty() {
-                    selection
-                } else {
-                    0..text.len()
-                };
-                snapshot = Some((tab.path.clone(), text, range));
-            }
-        }
+        };
         let input = self.agent.scope_input.read(cx).value();
         let scope = match if self.agent.mode == RequestMode::Probe {
             3
@@ -454,6 +487,7 @@ impl Workspace {
             text: String::new(),
         });
         session.state = RunState::Preparing;
+        session.usage = None;
         self.agent.error.clear();
         self.agent.sequence = self.agent.sequence.wrapping_add(1);
         // Use a timestamp for source IDs so reopened sessions cannot reuse citations.
@@ -676,7 +710,13 @@ impl Workspace {
         if !self.agent_save_settings(window, cx) || self.agent.busy() {
             return;
         }
-        self.agent.prompt.update(cx, |s, cx| s.set_value("连接测试：请回复‘连接成功’，如果提供工具，请调用 list_notes 一次，然后报告工具是否成功。不要修改笔记。", window, cx));
+        self.agent.prompt.update(cx, |s, cx| {
+            s.set_value(
+                "测试模型连接、流式回复与工具调用能力（不读取笔记）。",
+                window,
+                cx,
+            )
+        });
         self.agent.mode = RequestMode::Probe;
         self.agent_send(window, cx);
         self.agent.mode = RequestMode::Chat;
@@ -907,7 +947,7 @@ impl Workspace {
             );
         }
         panel = panel.child(format!(
-            "本轮用量：{}",
+            "最近一次请求用量（非累计）：{}",
             session
                 .usage
                 .as_ref()
@@ -1146,6 +1186,23 @@ mod tests {
                 editor.update(cx, |s, cx| s.replace_all("new user edit", window, cx));
                 w.agent_apply(1, window, cx);
                 assert_eq!(editor.read(cx).value().as_ref(), "new user edit");
+            })
+            .unwrap();
+    }
+    #[gpui::test]
+    fn agent_uses_focused_split_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.add_tab("a.md".into(), Some("中文选区".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                w.focus_secondary(cx);
+                let editor = w.views.split.as_ref().unwrap().pane.read(cx).editor.clone();
+                editor.update(cx, |s, cx| s.set_selected_range(0..6, cx));
+                let (_, text, range) = w.agent_snapshot(window, cx).unwrap().unwrap();
+                assert_eq!(&text[range], "中文");
             })
             .unwrap();
     }
