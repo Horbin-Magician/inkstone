@@ -35,7 +35,6 @@ pub(super) struct State {
     stream_task: Option<Task<()>>,
     sequence: u64,
     applying: Option<Cancel>,
-    pub(super) show_settings: bool,
     show_tools: bool,
     show_sessions: bool,
     error: String,
@@ -92,7 +91,6 @@ impl State {
             stream_task: None,
             sequence: 0,
             applying: None,
-            show_settings: false,
             show_tools: false,
             show_sessions: false,
             writer: Default::default(),
@@ -335,7 +333,6 @@ impl Workspace {
         match result {
             Ok(()) => {
                 self.agent.error.clear();
-                self.agent.show_settings = false;
                 self.agent.fill_fields(window, cx);
                 cx.notify();
                 true
@@ -393,7 +390,7 @@ impl Workspace {
         let config = self.agent.settings.models[self.agent.settings.selected].clone();
         if let Err(error) = config.validate() {
             self.agent.error = error.to_string();
-            self.agent.show_settings = true;
+            self.open_agent_settings(window, cx);
             cx.notify();
             return;
         }
@@ -699,6 +696,135 @@ impl Workspace {
         self.agent_send(window, cx);
         self.agent.mode = RequestMode::Chat;
     }
+    fn open_agent_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.ui.settings = true;
+        self.select_settings_tab(10, window, cx);
+        window.focus(&self.ui.modal_focus, cx);
+    }
+
+    pub(super) fn agent_settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let busy = self.agent.busy();
+        let mut rows = vec![
+            self.settings_row(
+                "agent-current-config",
+                "当前配置",
+                "切换要编辑和使用的模型配置。",
+                Button::new("agent-settings-model")
+                    .label(
+                        self.agent.settings.models[self.agent.settings.selected]
+                            .name
+                            .clone(),
+                    )
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.agent.settings.selected =
+                            (this.agent.settings.selected + 1) % this.agent.settings.models.len();
+                        this.agent.fill_fields(window, cx);
+                        cx.notify();
+                    })),
+                false,
+                16.,
+            ),
+        ];
+        for (i, (id, title, description)) in [
+            ("agent-config-name", "配置名称", "用于区分多个模型配置。"),
+            (
+                "agent-config-url",
+                "服务地址",
+                "模型服务的 API 基础地址，包含 /v1。",
+            ),
+            ("agent-config-model", "模型", "需要支持流式回复与工具调用。"),
+            (
+                "agent-config-key",
+                "API Key",
+                "密钥在本机以明文独立保存，不随笔记同步。",
+            ),
+            (
+                "agent-config-context",
+                "上下文容量",
+                "单位为 token，包含输入与输出。",
+            ),
+            (
+                "agent-config-output",
+                "输出上限",
+                "每次请求的最大输出 token，包含推理 token。",
+            ),
+            (
+                "agent-config-excluded",
+                "排除目录",
+                "库内相对路径，以逗号分隔；对所有范围生效。",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            rows.push(self.settings_row(
+                id,
+                title,
+                description,
+                Input::new(&self.agent.fields[i]).w(px(320.)).disabled(busy),
+                true,
+                16.,
+            ));
+        }
+        let actions = div()
+            .flex()
+            .flex_wrap()
+            .gap_2()
+            .child(
+                Button::new("agent-save-config")
+                    .primary()
+                    .label("保存配置")
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, w, cx| {
+                        this.agent_save_settings(w, cx);
+                    })),
+            )
+            .child(
+                Button::new("agent-test-config")
+                    .label("测试连接与工具")
+                    .disabled(busy || self.vault.is_none())
+                    .on_click(cx.listener(|this, _, w, cx| this.agent_test_model(w, cx))),
+            )
+            .child(
+                Button::new("agent-add-config")
+                    .label("新增配置")
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, w, cx| {
+                        this.agent.settings.models.push(ModelConfig {
+                            id: Session::default().id,
+                            ..Default::default()
+                        });
+                        this.agent.settings.selected = this.agent.settings.models.len() - 1;
+                        this.agent.fill_fields(w, cx);
+                        cx.notify();
+                    })),
+            );
+        div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .child(self.settings_nav(cx))
+            .child(
+                self.settings_content()
+                    .gap_2()
+                    .child(self.settings_group("Agent · 模型与权限", rows))
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(px(700.))
+                            .mx_auto()
+                            .px_4()
+                            .child(actions),
+                    )
+                    .when(busy, |panel| panel.child("Agent 正在运行，请稍候。"))
+                    .when(!self.agent.error.is_empty(), |panel| {
+                        panel.child(self.agent.error.clone())
+                    }),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn agent_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.agent.busy();
         let colors = crate::theme::palette(self.ui.prefs.light);
@@ -757,73 +883,13 @@ impl Workspace {
                         }),
                     ))
                     .child(
-                        tool("agent-settings", "settings", "模型设置")
-                            .selected(self.agent.show_settings)
+                        tool("agent-settings", "settings", "Agent 设置")
                             .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.agent.show_settings = !this.agent.show_settings;
-                                cx.notify();
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_agent_settings(window, cx);
                             })),
                     ),
             );
-        if self.agent.show_settings {
-            let mut settings = div()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .p_3()
-                .rounded(px(12.))
-                .bg(colors.surface)
-                .child(div().font_weight(FontWeight::SEMIBOLD).child("模型设置"));
-            for (i, title) in [
-                "名称",
-                "服务地址",
-                "模型",
-                "API Key（本地明文）",
-                "上下文 token",
-                "最大输出 token",
-                "排除目录（逗号分隔）",
-            ]
-            .iter()
-            .enumerate()
-            {
-                settings = settings
-                    .child(div().text_color(colors.muted).child((*title).to_owned()))
-                    .child(Input::new(&self.agent.fields[i]));
-            }
-            settings = settings.child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_1()
-                    .child(
-                        Button::new("agent-save-config")
-                            .primary()
-                            .label("保存配置")
-                            .on_click(cx.listener(|this, _, w, cx| {
-                                this.agent_save_settings(w, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("agent-test-config")
-                            .label("测试连接与工具")
-                            .on_click(cx.listener(|this, _, w, cx| this.agent_test_model(w, cx))),
-                    )
-                    .child(Button::new("agent-add-config").label("新增配置").on_click(
-                        cx.listener(|this, _, w, cx| {
-                            let config = ModelConfig {
-                                id: Session::default().id,
-                                ..Default::default()
-                            };
-                            this.agent.settings.models.push(config);
-                            this.agent.settings.selected = this.agent.settings.models.len() - 1;
-                            this.agent.fill_fields(w, cx);
-                            cx.notify();
-                        }),
-                    )),
-            );
-            panel = panel.child(settings);
-        }
         let model_label = self.agent.settings.models[self.agent.settings.selected]
             .name
             .clone();
@@ -1310,7 +1376,9 @@ mod tests {
                 assert_eq!(w.ui.right_mode, 5);
                 assert_eq!(w.tabs[0].save.editor.read(cx).selected_range(), 0..6);
                 assert!(w.agent.prompt.read(cx).value().contains("润色"));
-                w.agent.show_settings = true;
+                w.open_agent_settings(window, cx);
+                assert!(w.ui.settings);
+                assert_eq!(w.ui.settings_tab, 10);
             })
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
