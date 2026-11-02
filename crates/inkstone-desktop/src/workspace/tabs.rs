@@ -396,6 +396,15 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.remove_tab_view_with_history(index, true, window, cx);
+    }
+    pub(super) fn remove_tab_view_with_history(
+        &mut self,
+        index: usize,
+        remember: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let main_before = self.views.main;
         let active_id = self.active.and_then(|i| self.tabs.get(i)).map(|t| t.id);
         let removed = self.tabs.remove(index);
@@ -408,7 +417,6 @@ impl Workspace {
             self.tree
                 .update(cx, |tree, cx| tree.set_selected_index(None, cx));
         }
-        let closed_view = Self::snapshot_view(removed.path.clone(), &removed.pane, cx);
         if self
             .views
             .split
@@ -427,7 +435,8 @@ impl Workspace {
             }
         }
         self.ui.close_pending.remove(&removed.id);
-        if !removed.path.as_os_str().is_empty() {
+        if remember && !removed.path.as_os_str().is_empty() {
+            let closed_view = Self::snapshot_view(removed.path.clone(), &removed.pane, cx);
             self.ui.remember_closed(ui::ClosedTab::new(
                 closed_view,
                 removed.pane.read(cx).navigation.clone(),

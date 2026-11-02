@@ -37,6 +37,27 @@ impl PreparedRelocation {
     }
 }
 
+/// Sync represents a move as a deletion and an addition. Only pair paths when
+/// the same contents identify exactly one removed and one newly added note.
+fn moved_note(previous: &Index, current: &Index, old: &std::path::Path) -> Option<PathBuf> {
+    let source = previous.notes.get(old)?;
+    if previous.notes.iter().any(|(path, note)| {
+        path != old
+            && !current.notes.contains_key(path)
+            && !current.errors.contains_key(path)
+            && note.text == source.text
+    }) {
+        return None;
+    }
+    let mut candidates = current.notes.iter().filter(|(path, note)| {
+        !previous.notes.contains_key(*path)
+            && !previous.errors.contains_key(*path)
+            && note.text == source.text
+    });
+    let (new, _) = candidates.next()?;
+    candidates.next().is_none().then(|| new.clone())
+}
+
 impl Workspace {
     pub(super) fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.loading || self.file_writes.operation_active() {
@@ -70,11 +91,20 @@ impl Workspace {
         };
         let previous = self.index.clone();
         let folders = self.ui.folders.clone();
+        let mut owners = std::collections::HashSet::new();
         let requests: Vec<_> = self
             .tabs
             .iter()
-            .filter(|t| t.image.is_none())
-            .map(|t| (t.id, t.path.clone(), t.save.persistence.baseline().clone()))
+            .filter(|t| t.image.is_none() && owners.insert(t.save.editor.entity_id()))
+            .map(|t| {
+                (
+                    t.save.editor.entity_id(),
+                    t.path.clone(),
+                    t.save.persistence.baseline().clone(),
+                    (t.save.persistence.is_dirty() && !self.has_pending_input(t.id, window, cx))
+                        .then(|| t.save.text_snapshot(cx)),
+                )
+            })
             .collect();
         let task = cx.background_executor().spawn(async move {
             let _span =
@@ -114,12 +144,24 @@ impl Workspace {
             };
             let files = index.note_paths();
             let mut documents = vec![];
-            for (id, path, baseline) in requests {
-                if Arc::ptr_eq(&previous, &index) {
-                    break;
+            for (id, path, baseline, draft) in requests {
+                let missing = baseline.is_some()
+                    && !index.notes.contains_key(&path)
+                    && !index.errors.contains_key(&path);
+                if !missing && Arc::ptr_eq(&previous, &index) {
+                    continue;
                 }
-                let disk = vault.read(&path);
-                documents.push((id, path, baseline, disk));
+                let destination = missing
+                    .then(|| moved_note(&previous, &index, &path))
+                    .flatten();
+                let disk = vault.read(destination.as_deref().unwrap_or(&path));
+                let disk = match (&disk, draft.as_ref()) {
+                    (Ok(None), Some(text)) if missing && destination.is_none() => vault
+                        .journal(&path, baseline.as_deref(), text.as_ref())
+                        .map(|_| None),
+                    _ => disk,
+                };
+                documents.push((id, path, baseline, destination, disk, draft));
             }
             Ok::<_, VaultError>((files, documents, index, folders))
         });
@@ -143,15 +185,21 @@ impl Workspace {
                         let index_changed = !Arc::ptr_eq(&this.index, &index);
                         if index_changed {
                             this.index = index;
-                            this.sync_index_ui(cx);
                         } else if this.ui.tree_folders != this.ui.folders {
                             this.ui.tree_folders = this.ui.folders.clone();
                             this.rebuild_sorted_tree(cx);
                         }
-                        for (id, path, baseline, disk) in documents {
-                            let split_pending=this.has_pending_input(id,window,cx);
-                            let Some(tab) = this.tabs.iter_mut().find(|t|t.id == id) else { continue; };
-                            if tab.save.persistence.is_saving() || tab.path!=path || *tab.save.persistence.baseline() != baseline { this.refresh_requested = true; continue; }
+                        for (id, path, baseline, destination, disk, draft) in documents {
+                            let Some(position) = this.tabs.iter().position(|t| t.save.editor.entity_id() == id) else { continue; };
+                            if matches!(disk, Ok(None)) && baseline.is_some() {
+                                this.flush_document_views(window, cx);
+                            }
+                            let split_pending = this.has_pending_input(this.tabs[position].id, window, cx);
+                            let tab = &this.tabs[position];
+                            if tab.save.persistence.is_saving() || tab.path != path || *tab.save.persistence.baseline() != baseline {
+                                this.refresh_requested = true;
+                                continue;
+                            }
                             let disk = match disk {
                                 Ok(disk) => disk,
                                 Err(error) => {
@@ -160,6 +208,48 @@ impl Workspace {
                                     continue;
                                 }
                             };
+                            if let Some(new) = destination {
+                                if disk.is_none() {
+                                    this.refresh_requested = true;
+                                    this.rescan = true;
+                                    continue;
+                                }
+                                let document = tab.save.clone();
+                                this.relocate_document(&document, new.clone());
+                                this.relocate_navigation(&path, Some(&new), false, cx);
+                                this.ui.prefs.locations.relocate(&path, &new);
+                                if this.ui.tree_active.as_ref() == Some(&path) {
+                                    this.ui.tree_active = Some(new);
+                                }
+                                this.persist_workspace(cx);
+                            } else if disk.is_none() && baseline.is_some() {
+                                // A read can race a rename after the index scan. Reconcile both
+                                // paths together before interpreting absence as a deletion.
+                                if this.index.notes.contains_key(&path) || this.index.errors.contains_key(&path) {
+                                    this.refresh_requested = true;
+                                    this.rescan = true;
+                                    continue;
+                                }
+                                if split_pending || (tab.save.persistence.is_dirty()
+                                    && draft.as_ref() != Some(&tab.save.text_snapshot(cx))) {
+                                    this.changed_paths.insert(path);
+                                    this.refresh_requested = true;
+                                    continue;
+                                }
+                                if draft.is_some() {
+                                    this.notifications.publish(format!("{} 已删除，未保存的编辑已存入恢复记录。", path.display()));
+                                }
+                                let document = tab.save.clone();
+                                for i in (0..this.tabs.len()).rev() {
+                                    if std::rc::Rc::ptr_eq(&this.tabs[i].save, &document) {
+                                        this.remove_tab_view_with_history(i, false, window, cx);
+                                    }
+                                }
+                                this.ui.closed.retain(|closed| closed.view.path != path);
+                                this.relocate_navigation(&path, None, false, cx);
+                                continue;
+                            }
+                            let tab = &this.tabs[position];
                             match tab.save.persistence.external_change(disk, split_pending) {
                                 super::save_state::ExternalChange::Unchanged => {}
                                 super::save_state::ExternalChange::PreserveLocal => {
@@ -175,6 +265,7 @@ impl Workspace {
                             }
                         }
                         if index_changed {
+                            this.sync_index_ui(cx);
                             this.run_search(cx);
                         }
                         // Writes arriving during this pass must not wait for the
@@ -407,6 +498,94 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     use std::path::Path;
+
+    #[gpui::test]
+    fn refreshed_tabs_follow_moves_and_close_on_deletion(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root =
+            std::env::temp_dir().join(format!("inkstone-tab-relocation-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("folder")).unwrap();
+        std::fs::write(root.join("a.md"), "original").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| w.load_vault(root.clone(), window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        let ids = handle
+            .update(cx, |w, window, cx| {
+                w.watcher = None;
+                w.watch_events = None;
+                w.add_tab("a.md".into(), Some("original".into()), false, window, cx);
+                let ids = w.tabs.iter().map(|t| t.id).collect::<Vec<_>>();
+                assert_eq!(ids.len(), 2);
+                std::fs::rename(root.join("a.md"), root.join("folder/b.md")).unwrap();
+                w.rescan = true;
+                w.refresh(window, cx);
+                ids
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                assert_eq!(w.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), ids);
+                for tab in &w.tabs {
+                    assert_eq!(tab.path, Path::new("folder/b.md"));
+                    assert_eq!(tab.save.path.borrow().as_path(), tab.path);
+                    assert!(!tab.save.persistence.has_conflict());
+                }
+                let editor = w.tabs[0].save.editor.clone();
+                editor.update(cx, |editor, cx| editor.set_value("local edit", window, cx));
+                w.document_changed(editor, window, cx);
+                w.tabs[0].pinned = true;
+                std::fs::remove_file(root.join("folder/b.md")).unwrap();
+                w.rescan = true;
+                w.refresh(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, _| {
+                assert!(w.tabs.is_empty());
+                assert!(w.active.is_none());
+                assert!(
+                    w.vault
+                        .as_ref()
+                        .unwrap()
+                        .recoveries()
+                        .unwrap()
+                        .iter()
+                        .any(|entry| {
+                            entry.record.relative == Path::new("folder/b.md")
+                                && entry.record.draft == "local edit"
+                        })
+                );
+                assert!(
+                    w.ui.closed
+                        .iter()
+                        .all(|closed| closed.view.path != Path::new("folder/b.md"))
+                );
+                window.remove_window();
+            })
+            .unwrap();
+        cx.run_until_parked();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn identical_additions_or_deletions_do_not_identify_a_move() {
+        let mut before = Index::default();
+        before.update("old.md".into(), "same".into());
+        let mut after = Index::default();
+        after.update("new.md".into(), "same".into());
+        let old = Path::new("old.md");
+        assert_eq!(moved_note(&before, &after, old), Some("new.md".into()));
+        after.update("copy.md".into(), "same".into());
+        assert_eq!(moved_note(&before, &after, old), None);
+        after = Index::default();
+        after.update("new.md".into(), "same".into());
+        before.update("other.md".into(), "same".into());
+        assert_eq!(moved_note(&before, &after, old), None);
+    }
 
     #[gpui::test]
     fn failed_refresh_keeps_full_reconciliation_for_the_next_request(cx: &mut TestAppContext) {

@@ -223,7 +223,12 @@ impl Workspace {
                             {
                                 continue;
                             }
-                            if matches!(event.kind, notify::EventKind::Create(_)) {
+                            if matches!(
+                                event.kind,
+                                notify::EventKind::Create(_)
+                                    | notify::EventKind::Remove(_)
+                                    | notify::EventKind::Modify(notify::event::ModifyKind::Name(_))
+                            ) {
                                 self.structure_changed = true;
                             }
                             if path
