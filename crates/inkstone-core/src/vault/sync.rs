@@ -338,6 +338,54 @@ fn snapshot_cancellable(
     })?;
     Ok(files)
 }
+// Shared with iOS: UTF-8 byte budget, Unicode scalar truncation, full hash,
+// preserved extension, and deterministic numbering starting at 2 for occupied names.
+fn conflict_path(path: &str, hash: &str, occupied: &[&Files]) -> Result<String> {
+    let p = Path::new(path);
+    let file = p
+        .file_name()
+        .and_then(|s| s.to_str())
+        .context("invalid name")?;
+    let parent = &path[..path.len() - file.len()];
+    let stem = p
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .context("invalid stem")?;
+    let extension = p
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| format!(".{s}"))
+        .unwrap_or_default();
+    let limit = 255usize.min(4096usize.saturating_sub(parent.len()));
+    for number in 1..=100_001 {
+        let suffix = if number == 1 {
+            format!(" (云端冲突 {hash})")
+        } else {
+            format!(" (云端冲突 {hash} {number})")
+        };
+        let budget = limit
+            .checked_sub(suffix.len() + extension.len())
+            .context("文件扩展名过长，无法安全生成冲突副本")?;
+        let mut end = stem.len().min(budget);
+        while !stem.is_char_boundary(end) {
+            end -= 1;
+        }
+        let candidate = format!("{parent}{}{suffix}{extension}", &stem[..end]);
+        let folded = candidate.to_lowercase();
+        let blocked = occupied.iter().any(|files| {
+            files.iter().any(|(other, value)| {
+                let lower = other.to_lowercase();
+                (lower == folded && (other != &candidate || value != hash))
+                    || lower.starts_with(&format!("{folded}/"))
+                    || folded.starts_with(&format!("{lower}/"))
+            })
+        });
+        if !blocked {
+            return Ok(candidate);
+        }
+    }
+    anyhow::bail!("无法分配冲突副本名称")
+}
 fn merge(base: &Files, local: &Files, remote: &Files) -> Result<(Files, Vec<String>)> {
     let mut merged = Files::new();
     let mut copies = Vec::new();
@@ -359,24 +407,8 @@ fn merge(base: &Files, local: &Files, remote: &Files) -> Result<(Files, Vec<Stri
             conflicts.push(path.clone());
             if let (Some(l), Some(r)) = (l, r) {
                 // Keep the local version at the original name, remote beside it.
-                let p = Path::new(path);
-                let stem = p.file_stem().unwrap().to_str().unwrap();
-                let ext = p
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| format!(".{e}"))
-                    .unwrap_or_default();
-                let name = p
-                    .with_file_name(format!("{stem} (云端冲突 {r}){ext}"))
-                    .to_str()
-                    .unwrap()
-                    .replace('\\', "/");
-                for files in [base, local, remote] {
-                    ensure!(
-                        files.get(&name).is_none_or(|h| h == r),
-                        "冲突副本名称已被占用：{name}"
-                    );
-                }
+                let allocated: Files = copies.iter().cloned().collect();
+                let name = conflict_path(path, r, &[base, local, remote, &allocated])?;
                 copies.push((name, r.clone()));
                 Some(l)
             } else {

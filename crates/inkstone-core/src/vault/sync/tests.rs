@@ -1560,3 +1560,19 @@ fn version_two_sync_preserves_generation_and_rejects_remote_rollback() -> Result
     }
     Ok(())
 }
+
+#[test]
+fn long_conflict_names_match_mobile_byte_rule() {
+    let hash = "a".repeat(64);
+    for stem in ["中".repeat(84), "😀".repeat(63)] {
+        let path = format!("{stem}.md");
+        let name = conflict_path(&path, &hash, &[]).unwrap();
+        assert!(name.len() <= 255);
+        assert!(name.ends_with(".md"));
+        assert_eq!(name, conflict_path(&path, &hash, &[]).unwrap());
+        let occupied = Files::from([(name.clone(), "b".repeat(64))]);
+        let second = conflict_path(&path, &hash, &[&occupied]).unwrap();
+        assert!(second.ends_with(&format!(" (云端冲突 {hash} 2).md")));
+        assert!(second.len() <= 255);
+    }
+}
