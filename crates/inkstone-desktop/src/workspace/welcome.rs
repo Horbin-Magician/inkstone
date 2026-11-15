@@ -233,17 +233,12 @@ impl Workspace {
                                                     div()
                                                         .size(px(42.))
                                                         .flex_shrink_0()
-                                                        .rounded(px(12.))
-                                                        .bg(if command == 0 {
-                                                            colors.selected
-                                                        } else {
-                                                            colors.background
-                                                        })
                                                         .flex()
                                                         .items_center()
                                                         .justify_center()
                                                         .child(
                                                             ui::icon(symbol)
+                                                                .size(px(30.))
                                                                 .text_color(colors.accent),
                                                         ),
                                                 )
