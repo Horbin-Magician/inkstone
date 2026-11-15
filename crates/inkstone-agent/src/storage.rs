@@ -13,6 +13,8 @@ pub struct Settings {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Message {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requests: Vec<Option<serde_json::Value>>,
     pub role: String,
     pub text: String,
 }
