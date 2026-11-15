@@ -297,6 +297,7 @@ impl EditorPane {
                     },
                     Kind::Strong => HighlightStyle {
                         font_weight: Some(FontWeight::BOLD),
+                        color: Some(crate::theme::palette(self.light).accent.into()),
                         ..Default::default()
                     },
                     Kind::Emphasis => HighlightStyle {

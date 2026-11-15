@@ -620,10 +620,10 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.title_bar_border = border;
         theme.popover = bg;
         theme.popover_foreground = fg;
-        theme.secondary = colors.surface.into();
+        theme.secondary = hover;
         theme.secondary_hover = hover;
         theme.secondary_foreground = fg;
-        theme.button = colors.surface.into();
+        theme.button = hover;
         theme.button_hover = hover;
         theme.button_foreground = fg;
         theme.accent = hover;
@@ -633,9 +633,9 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.tokens.list_hover =
             Hsla::from(rgba(if light { 0x00000008 } else { 0xffffff08 })).into();
         theme.primary = colors.accent.into();
-        theme.primary_hover = rgb(if light { 0x1b5c51 } else { 0xa6dfc8 }).into();
-        theme.primary_active = rgb(if light { 0x144b43 } else { 0x74bea4 }).into();
-        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x14372b }).into();
+        theme.primary_hover = rgb(if light { 0x1c6577 } else { 0x8dcedc }).into();
+        theme.primary_active = rgb(if light { 0x175565 } else { 0x5bafc2 }).into();
+        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x142b33 }).into();
         theme.button_primary = theme.primary;
         theme.button_primary_hover = theme.primary_hover;
         theme.button_primary_active = theme.primary_active;
@@ -643,7 +643,7 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.ring = colors.accent.into();
         theme.switch_thumb = rgb(0xffffff).into();
         theme.slider_thumb = rgb(0xffffff).into();
-        theme.selection = rgba(if light { 0x23695f33 } else { 0x8ad2b840 }).into();
+        theme.selection = rgba(if light { 0x24778a33 } else { 0x72bfd040 }).into();
         theme.scrollbar_thumb = rgb(if light { 0xcccccc } else { 0x484848 }).into();
     });
 }
