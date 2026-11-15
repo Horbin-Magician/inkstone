@@ -316,7 +316,11 @@ impl Workspace {
                         report: None,
                     })
                 }
-                AgentEvent::Usage(usage) => self.agent.session_mut().usage = Some(usage),
+                AgentEvent::Usage(usage) => {
+                    if let Some(reply) = self.agent.session_mut().messages.last_mut() {
+                        reply.requests.push(usage);
+                    }
+                }
                 AgentEvent::Error(error) => self.agent.error = error,
                 AgentEvent::Probe => self.agent.error = PROBE_OK.into(),
                 AgentEvent::Finished => (),
@@ -498,10 +502,12 @@ impl Workspace {
             session.title = prompt.chars().take(24).collect();
         }
         session.messages.push(Message {
+            requests: vec![],
             role: "user".into(),
             text: prompt.clone(),
         });
         session.messages.push(Message {
+            requests: vec![],
             role: "assistant".into(),
             text: String::new(),
         });
@@ -1229,7 +1235,14 @@ impl Workspace {
             )
             .child(body)
             .when(!thinking, |col| {
-                let stats = usage.map(usage_stats).unwrap_or_default();
+                let (stats, coverage) = if message.requests.is_empty() {
+                    (
+                        usage.map(usage_stats).unwrap_or_default(),
+                        "最近一次请求".to_string(),
+                    )
+                } else {
+                    task_usage(&message.requests)
+                };
                 col.child(
                     div()
                         .flex()
@@ -1237,8 +1250,11 @@ impl Workspace {
                         .gap_2()
                         .min_h(px(22.))
                         .when(!message.text.is_empty(), |row| row.child(copy_button))
+                        .when(!message.requests.is_empty(), |row| {
+                            row.child(div().text_xs().child(coverage.clone()))
+                        })
                         .when(!stats.is_empty(), |row| {
-                            row.child(self.agent_usage(i, &stats, colors))
+                            row.child(self.agent_usage(i, &stats, coverage, colors))
                         }),
                 )
             })
@@ -1248,6 +1264,7 @@ impl Workspace {
         &self,
         i: usize,
         stats: &[(&'static str, u64)],
+        coverage: String,
         colors: crate::theme::Palette,
     ) -> impl IntoElement {
         let exact = stats
@@ -1265,7 +1282,7 @@ impl Workspace {
             .text_xs()
             .text_color(colors.muted)
             .tooltip(move |window, cx| {
-                gpui_component::tooltip::Tooltip::new(format!("最近一次请求用量\n{exact}"))
+                gpui_component::tooltip::Tooltip::new(format!("{coverage}\n{exact}"))
                     .build(window, cx)
             });
         for (j, (label, n)) in stats.iter().enumerate() {
@@ -1840,6 +1857,31 @@ fn pill(text: impl Into<SharedString>, fg: Rgba, bg: Rgba) -> Div {
         .bg(bg)
         .child(text.into())
 }
+fn task_usage(requests: &[Option<serde_json::Value>]) -> (Vec<(&'static str, u64)>, String) {
+    let mut totals: Vec<(&str, u64)> = Vec::new();
+    let mut reported = 0;
+    for usage in requests.iter().flatten() {
+        let stats = usage_stats(usage);
+        if stats.is_empty() {
+            continue;
+        }
+        reported += 1;
+        for (label, value) in stats {
+            if let Some((_, total)) = totals.iter_mut().find(|(key, _)| *key == label) {
+                *total = total.saturating_add(value);
+            } else {
+                totals.push((label, value));
+            }
+        }
+    }
+    let label = if reported == 0 {
+        format!("{} 次请求 · 用量未知", requests.len())
+    } else {
+        format!("已报告用量 {reported}/{} 次", requests.len())
+    };
+    (totals, label)
+}
+
 /// Reads token counts from either Responses or Chat Completions usage objects.
 fn usage_stats(usage: &serde_json::Value) -> Vec<(&'static str, u64)> {
     let field = |paths: &[&str]| {
@@ -1868,7 +1910,7 @@ fn usage_stats(usage: &serde_json::Value) -> Vec<(&'static str, u64)> {
         ),
         (
             "合计",
-            field(&["/total_tokens"]).or(input.zip(output).map(|(a, b)| a + b)),
+            field(&["/total_tokens"]).or(input.zip(output).map(|(a, b)| a.saturating_add(b))),
         ),
     ]
     .into_iter()
@@ -1939,6 +1981,7 @@ mod tests {
     fn narrowed_scope_excludes_old_messages_on_followups() {
         let mut window = HistoryWindow::default();
         let message = |text: &str| Message {
+            requests: vec![],
             role: "assistant".into(),
             text: text.into(),
         };
@@ -2061,6 +2104,7 @@ mod tests {
                 w.open_agent(0, window, cx);
                 let session = w.agent.session_mut();
                 session.messages.push(Message {
+                    requests: vec![],
                     role: "assistant".into(),
                     text: "这是较长的修改说明。\n\n".repeat(50),
                 });
@@ -2136,10 +2180,12 @@ mod tests {
                 let session = w.agent.session_mut();
                 session.title = "整理笔记".into();
                 session.messages.push(Message {
+                    requests: vec![],
                     role: "user".into(),
                     text: "总结".into(),
                 });
                 session.messages.push(Message {
+                    requests: vec![],
                     role: "assistant".into(),
                     text: "## 要点\n- 一 [1]".into(),
                 });
@@ -2200,6 +2246,10 @@ mod tests {
             [("输入", 2_000), ("输出", 0), ("合计", 2_000)]
         );
         assert!(usage_stats(&serde_json::json!({"output_tokens": null})).is_empty());
+        let (totals, coverage) = task_usage(&[Some(responses), None, Some(chat)]);
+        assert_eq!(coverage, "已报告用量 2/3 次");
+        assert!(totals.contains(&("合计", 15_325)));
+        assert!(task_usage(&[None]).1.contains("未知"));
         let labels: Vec<_> = [999, 1_000, 1_250, 12_345, 999_499, 999_500, 1_050_000]
             .map(compact_tokens)
             .into();
