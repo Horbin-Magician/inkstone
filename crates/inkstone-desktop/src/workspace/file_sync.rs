@@ -95,7 +95,11 @@ impl Workspace {
         let requests: Vec<_> = self
             .tabs
             .iter()
-            .filter(|t| t.image.is_none() && owners.insert(t.save.editor.entity_id()))
+            .filter(|t| {
+                !t.path.as_os_str().is_empty()
+                    && t.image.is_none()
+                    && owners.insert(t.save.editor.entity_id())
+            })
             .map(|t| {
                 (
                     t.save.editor.entity_id(),
@@ -518,6 +522,7 @@ mod tests {
                 w.add_tab("a.md".into(), Some("original".into()), false, window, cx);
                 let ids = w.tabs.iter().map(|t| t.id).collect::<Vec<_>>();
                 assert_eq!(ids.len(), 2);
+                w.new_blank(window, cx);
                 std::fs::rename(root.join("a.md"), root.join("folder/b.md")).unwrap();
                 w.rescan = true;
                 w.refresh(window, cx);
@@ -527,6 +532,13 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, window, cx| {
+                let blank = w
+                    .tabs
+                    .iter()
+                    .position(|t| t.path.as_os_str().is_empty())
+                    .unwrap();
+                assert!(!w.tabs[blank].save.persistence.has_conflict());
+                w.close_tab_at(blank, window, cx);
                 assert_eq!(w.tabs.iter().map(|t| t.id).collect::<Vec<_>>(), ids);
                 for tab in &w.tabs {
                     assert_eq!(tab.path, Path::new("folder/b.md"));
