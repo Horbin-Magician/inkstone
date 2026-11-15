@@ -97,6 +97,7 @@ impl ToolHost {
             Scope::Notes(paths) => paths.clone(),
             _ => vault.scan_files()?,
         };
+        let mut updates = Vec::with_capacity(paths.len());
         for path in paths {
             if !scope.allows(&path, &excluded) {
                 continue;
@@ -107,9 +108,10 @@ impl ToolHost {
                 vault.read(&path)?.unwrap_or_default()
             };
             if text.len() <= 4 * 1024 * 1024 {
-                index.update(path, text);
+                updates.push((path, text));
             }
         }
+        index.update_many(updates);
         Ok(Self {
             vault,
             scope,
