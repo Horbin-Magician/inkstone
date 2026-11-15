@@ -142,6 +142,49 @@ impl ToolHost {
         }
         end >= note.text.len()
     }
+    fn local_replacement(&self, path: &Path, edit: &Value) -> Result<(Option<String>, String)> {
+        let id = edit["source"].as_str().context("缺少读取来源")?;
+        let source = self
+            .sources
+            .iter()
+            .find(|s| s.id == id && s.path == path)
+            .context("来源不属于本轮目标笔记")?;
+        let original = edit["original"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .context("缺少待替换原文")?;
+        let replacement = edit["replacement"].as_str().context("缺少替换文本")?;
+        let (text, base) = match self.overrides.get(path) {
+            Some((text, selection)) => (text.as_str(), selection.start),
+            None => (
+                self.index
+                    .notes
+                    .get(path)
+                    .context("笔记不存在")?
+                    .text
+                    .as_str(),
+                0,
+            ),
+        };
+        let range = source.range.clone();
+        let covered = self.read_ranges.get(path).is_some_and(|reads| {
+            reads
+                .iter()
+                .any(|r| base + r.start <= range.start && range.end <= base + r.end)
+        });
+        anyhow::ensure!(covered, "必须先读取目标段落");
+        let excerpt = text.get(range.clone()).context("无效的来源范围")?;
+        let start = excerpt.find(original).context("来源中找不到原文")?;
+        anyhow::ensure!(
+            excerpt.rfind(original) == Some(start),
+            "来源中原文不唯一，请提供更长原文或缩小读取范围"
+        );
+        let mut after = text.to_owned();
+        let start = range.start + start;
+        after.replace_range(start..start + original.len(), replacement);
+        Ok((Some(text.to_owned()), after))
+    }
+
     fn check(&self, path: &Path) -> Result<()> {
         if !self.scope.allows(path, &self.excluded) {
             bail!("路径不在本次任务允许范围内");
@@ -255,7 +298,7 @@ impl ToolHost {
                     json!({"source":source,"text":&note.text[start..end],"next_start":end,"total_bytes":note.text.len()}),
                 )
             }
-            "propose_changes" => {
+            "propose_changes" | "propose_replacements" => {
                 let edits = args["changes"].as_array().context("缺少 changes")?;
                 if edits.is_empty() || edits.len() > 100 {
                     bail!("一次最多提出 100 篇修改");
@@ -284,28 +327,33 @@ impl ToolHost {
                     if !paths.insert(path.to_string_lossy().to_lowercase()) {
                         bail!("方案中路径重复");
                     }
-                    let mut after = edit["content"]
-                        .as_str()
-                        .context("缺少完整 content")?
-                        .to_owned();
-                    let before = if let Some((text, range)) = self.overrides.get(&path) {
-                        if !self.fully_read(&path) {
-                            bail!("必须先完整读取目标笔记（使用 next_start 继续读取）");
-                        }
-                        let mut full = text.clone();
-                        full.replace_range(range.clone(), &after);
-                        after = full;
-                        Some(text.clone())
-                    } else if let Some(note) = self.index.notes.get(&path) {
-                        if !self.fully_read(&path) {
-                            bail!("必须先完整读取目标笔记（使用 next_start 继续读取）");
-                        }
-                        Some(note.text.clone())
+                    let (before, after) = if name == "propose_replacements" {
+                        self.local_replacement(&path, edit)?
                     } else {
-                        if self.vault.read(&path)?.is_some() {
-                            bail!("目标文件存在但未读取");
-                        }
-                        None
+                        let mut after = edit["content"]
+                            .as_str()
+                            .context("缺少完整 content")?
+                            .to_owned();
+                        let before = if let Some((text, range)) = self.overrides.get(&path) {
+                            if !self.fully_read(&path) {
+                                bail!("必须先完整读取目标笔记（使用 next_start 继续读取）");
+                            }
+                            let mut full = text.clone();
+                            full.replace_range(range.clone(), &after);
+                            after = full;
+                            Some(text.clone())
+                        } else if let Some(note) = self.index.notes.get(&path) {
+                            if !self.fully_read(&path) {
+                                bail!("必须先完整读取目标笔记（使用 next_start 继续读取）");
+                            }
+                            Some(note.text.clone())
+                        } else {
+                            if self.vault.read(&path)?.is_some() {
+                                bail!("目标文件存在但未读取");
+                            }
+                            None
+                        };
+                        (before, after)
                     };
                     if after.len() > 1024 * 1024 {
                         bail!("单篇提案超过 1 MiB");
@@ -370,6 +418,12 @@ pub fn definitions() -> Vec<Value> {
             vec!["path"],
         ),
         (
+            "propose_replacements",
+            "局部修改优先使用。每篇提供 read_note 来源编号、其中唯一的非空原文和替换文本；无需读取整篇。仅生成审阅提案。",
+            json!({"changes":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"source":{"type":"string"},"original":{"type":"string"},"replacement":{"type":"string"},"reason":{"type":"string"}},"required":["path","source","original","replacement","reason"],"additionalProperties":false}}}),
+            vec!["changes"],
+        ),
+        (
             "propose_changes",
             "提出一组相互依赖的修改供用户审阅，绝不会写入文件。content 为完整新正文；当前选区则仅为新选区内容。先读后改；独立修改分别提案。",
             json!({"changes":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"reason":{"type":"string"}},"required":["path","content","reason"],"additionalProperties":false}}}),
@@ -425,6 +479,38 @@ mod tests {
         );
         assert!(host.call("read_note", json!({"path":"../a.md"})).is_err());
     }
+    #[test]
+    fn replacement_uses_only_unique_text_in_read_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vault");
+        std::fs::create_dir(&root).unwrap();
+        let vault = Vault::open(&root, dir.path().join("history")).unwrap();
+        let text = "外甲乙乙丙外";
+        vault.create(Path::new("a.md"), text).unwrap();
+        let mut host = ToolHost::new(
+            vault,
+            Scope::Vault,
+            vec![],
+            Some(("a.md".into(), text.into(), 3..15)),
+        )
+        .unwrap();
+        let read = host
+            .call("read_note", json!({"path":"a.md","end":9}))
+            .unwrap();
+        let mut replace = |original: &str| {
+            host.call("propose_replacements",json!({"changes":[{"path":"a.md","source":read["source"]["id"],"original":original,"replacement":"新","reason":"test"}]}))
+        };
+        for invalid in ["外", "丙", "乙", ""] {
+            assert!(replace(invalid).is_err());
+        }
+        replace("甲乙").unwrap();
+        assert_eq!(host.proposals[0].changes[0].after, "外新乙丙外");
+        assert_eq!(
+            host.vault.read(Path::new("a.md")).unwrap().as_deref(),
+            Some(text)
+        );
+    }
+
     #[test]
     fn partial_read_cannot_replace_full_note() {
         let dir = tempfile::tempdir().unwrap();
