@@ -232,7 +232,7 @@ impl ToolHost {
                     .map_err(anyhow::Error::msg)?;
                 let mut result = vec![];
                 for hit in hits.into_iter().skip(offset).take(limit) {
-                    let source = self.cite(&hit.path, hit.offset..hit.offset)?;
+                    let source = self.cite(&hit.path, hit.offset..hit.match_end)?;
                     result.push(json!({"source":source,"excerpt":hit.excerpt}));
                 }
                 let titles: Vec<_> = self
@@ -465,6 +465,11 @@ mod tests {
         )
         .unwrap();
         let read = host.call("read_note", json!({"path":"a.md"})).unwrap();
+        let hits = host.call("search_notes", json!({"query":"文"})).unwrap();
+        assert_eq!(
+            hits["matches"][0]["source"]["range"],
+            json!({"start":9,"end":12})
+        );
         assert_eq!(read["text"], "中文");
         assert_eq!(read["source"]["range"]["start"], 6);
         host.call(

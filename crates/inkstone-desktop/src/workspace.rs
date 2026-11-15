@@ -120,6 +120,15 @@ struct Tab {
     _links: Subscription,
     _focus: Subscription,
 }
+#[derive(Clone)]
+enum JumpTarget {
+    Offset(usize),
+    Citation {
+        range: std::ops::Range<usize>,
+        hash: String,
+    },
+}
+
 pub struct Workspace {
     agent: agent::State,
     updates: updates::State,
@@ -158,7 +167,7 @@ pub struct Workspace {
     _search_subscription: Subscription,
     _name_subscription: Subscription,
     _tree_subscription: Subscription,
-    pending_jump: Option<(PathBuf, usize)>,
+    pending_jump: Option<(PathBuf, JumpTarget)>,
     pending_navigation: Option<navigation::PendingNavigation>,
     backlinks: Vec<PathBuf>,
     backlink_scroll: UniformListScrollHandle,

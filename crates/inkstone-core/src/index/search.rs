@@ -103,6 +103,7 @@ impl Index {
                     path: path.clone(),
                     display_name: display_name.cloned(),
                     offset: 0,
+                    match_end: 0,
                     line: 1,
                     excerpt: String::new(),
                     highlights: vec![],
@@ -217,6 +218,7 @@ impl Index {
                     path: path.clone(),
                     display_name: None,
                     offset: found.offset,
+                    match_end: found.match_end,
                     line: found.line,
                     excerpt: note.text[found.range].to_string(),
                     highlights: found.highlights,
@@ -230,6 +232,7 @@ impl Index {
                     path: path.clone(),
                     display_name: None,
                     offset: 0,
+                    match_end: 0,
                     line: 1,
                     excerpt: note
                         .text

@@ -53,6 +53,7 @@ pub struct SearchHit {
     pub path: PathBuf,
     pub display_name: Option<String>,
     pub offset: usize,
+    pub match_end: usize,
     pub line: usize,
     pub excerpt: String,
     pub highlights: Vec<Range<usize>>,

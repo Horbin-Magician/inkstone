@@ -96,7 +96,7 @@ impl Workspace {
                 .and_then(|note| entry.offset(&note.parsed))
         };
         if let Some(offset) = offset {
-            self.pending_jump = Some((entry.path.clone(), offset));
+            self.pending_jump = Some((entry.path.clone(), JumpTarget::Offset(offset)));
             self.open_note(entry.path.clone(), window, cx);
             self.apply_jump(window, cx);
         } else {

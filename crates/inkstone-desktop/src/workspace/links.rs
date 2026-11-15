@@ -30,19 +30,32 @@ impl Workspace {
     }
 
     pub(super) fn apply_jump(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((path, offset)) = self.pending_jump.clone() else {
+        let Some((path, target)) = self.pending_jump.as_ref() else {
             return;
         };
-        let Some(tab) = self
-            .active
-            .and_then(|i| self.tabs.get(i))
-            .filter(|t| t.path == path)
+        let Some(pane) = self
+            .current_pane()
+            .filter(|p| &p.read(cx).current_path == path)
         else {
             return;
         };
-        let _ = tab;
-        if let Some(pane) = self.current_pane() {
-            pane.update(cx, |p, cx| p.jump(offset, window, cx));
+        match target {
+            JumpTarget::Offset(offset) => pane.update(cx, |p, cx| p.jump(*offset, window, cx)),
+            JumpTarget::Citation { range, hash } => {
+                let text = pane.read(cx).editor.read(cx).value();
+                if text.get(range.clone()).is_some() && &inkstone_agent::tools::hash(&text) == hash
+                {
+                    pane.update(cx, |p, cx| {
+                        p.reading = false;
+                        p.jump(range.start, window, cx);
+                        p.editor.update(cx, |editor, cx| {
+                            editor.set_selected_range(range.clone(), cx)
+                        });
+                    });
+                } else {
+                    self.agent.stale_source();
+                }
+            }
         }
         self.pending_jump = None;
     }
@@ -95,7 +108,7 @@ impl Workspace {
             Resolution::Found(path) => {
                 self.pending_jump = heading
                     .and_then(|heading| self.link_anchor_offset(&path, &heading, false, window, cx))
-                    .map(|offset| (path.clone(), offset));
+                    .map(|offset| (path.clone(), JumpTarget::Offset(offset)));
                 self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
             }
@@ -124,7 +137,7 @@ impl Workspace {
                     .and_then(|(_, heading)| {
                         self.link_anchor_offset(&path, heading, true, window, cx)
                     })
-                    .map(|offset| (path.clone(), offset));
+                    .map(|offset| (path.clone(), JumpTarget::Offset(offset)));
                 self.open_link_note(path, new_tab, window, cx);
                 self.apply_jump(window, cx);
             }

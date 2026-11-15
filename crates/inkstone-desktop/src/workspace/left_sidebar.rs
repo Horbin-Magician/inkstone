@@ -825,7 +825,7 @@ impl Workspace {
             .get(self.ui.selected)
             .map(|h| (h.path.clone(), h.offset));
         if let Some((path, offset)) = hit {
-            self.pending_jump = Some((path.clone(), offset));
+            self.pending_jump = Some((path.clone(), JumpTarget::Offset(offset)));
             self.open_note(path, w, cx);
             self.apply_jump(w, cx);
         }
@@ -844,6 +844,7 @@ impl Workspace {
                         path: p.clone(),
                         display_name: None,
                         offset: 0,
+                        match_end: 0,
                         line: 1,
                         excerpt: String::new(),
                         highlights: vec![],
@@ -920,7 +921,7 @@ impl Workspace {
                         )
                     })
                     .on_click(cx.listener(move |this, _, w, cx| {
-                        this.pending_jump = Some((path.clone(), offset));
+                        this.pending_jump = Some((path.clone(), JumpTarget::Offset(offset)));
                         this.open_note(path.clone(), w, cx);
                         this.apply_jump(w, cx);
                     }))
@@ -1073,7 +1074,8 @@ impl Workspace {
                                         }),
                                     ))
                                     .on_click(cx.listener(move |this, _, w, cx| {
-                                        this.pending_jump = Some((open_path.clone(), offset));
+                                        this.pending_jump =
+                                            Some((open_path.clone(), JumpTarget::Offset(offset)));
                                         this.open_note(open_path.clone(), w, cx);
                                         this.apply_jump(w, cx);
                                     })),
@@ -1142,7 +1144,8 @@ impl Workspace {
                                         ),
                                 )
                                 .on_click(cx.listener(move |this, _, w, cx| {
-                                    this.pending_jump = Some((path.clone(), offset));
+                                    this.pending_jump =
+                                        Some((path.clone(), JumpTarget::Offset(offset)));
                                     this.open_note(path.clone(), w, cx);
                                     this.apply_jump(w, cx);
                                 }))

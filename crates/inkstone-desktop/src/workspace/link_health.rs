@@ -67,7 +67,7 @@ impl Workspace {
     }
     fn open_link_issue(&mut self, issue: &Issue, window: &mut Window, cx: &mut Context<Self>) {
         self.close_overlays(window, cx);
-        self.pending_jump = Some((issue.from.clone(), issue.offset));
+        self.pending_jump = Some((issue.from.clone(), JumpTarget::Offset(issue.offset)));
         self.open_note(issue.from.clone(), window, cx);
         self.apply_jump(window, cx);
     }
