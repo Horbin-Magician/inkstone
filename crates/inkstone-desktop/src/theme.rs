@@ -15,19 +15,23 @@ pub(crate) struct Palette {
     pub hover: Rgba,
     pub selected: Rgba,
     pub accent: Rgba,
+    pub danger: Rgba,
+    pub warning: Rgba,
 }
 
 pub(crate) fn palette(light: bool) -> Palette {
     let color = |day, night| rgb(if light { day } else { night });
     Palette {
-        background: color(0xffffff, 0x212121),
-        sidebar: color(0xf4f6f8, 0x1b1b1b),
-        surface: color(0xf8fafb, 0x292929),
-        foreground: color(0x263342, 0xe8e8e8),
-        muted: color(0x627184, 0xadadad),
-        border: color(0xe2e8ef, 0x383838),
-        hover: color(0xeaf0f5, 0x303030),
-        selected: color(0xe0eef2, 0x3a3a3a),
-        accent: color(0x24778a, 0x72bfd0),
+        background: color(0xfcfdfc, 0x202826),
+        sidebar: color(0xeff3f1, 0x19211f),
+        surface: color(0xf5f7f5, 0x27312e),
+        foreground: color(0x233330, 0xe2ebe5),
+        muted: color(0x586c64, 0xa6b7ad),
+        border: color(0xd7e0da, 0x3e4d46),
+        hover: color(0xe5ece7, 0x303e38),
+        selected: color(0xd3e7dc, 0x324d42),
+        danger: color(0xa43540, 0xffa8ab),
+        warning: color(0x885518, 0xf0c184),
+        accent: color(0x23695f, 0x8ad2b8),
     }
 }

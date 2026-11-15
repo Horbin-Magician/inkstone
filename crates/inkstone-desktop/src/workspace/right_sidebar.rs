@@ -448,7 +448,7 @@ impl Workspace {
                                     .px_2()
                                     .py_1()
                                     .text_size(px(MIN_UI_FONT_SIZE))
-                                    .text_color(rgb(0x777777))
+                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
                                     .child("没有笔记链接当前文件"),
                             )
                         })
@@ -815,7 +815,7 @@ impl Workspace {
                     s.child(
                         div()
                             .text_size(px(MIN_UI_FONT_SIZE))
-                            .text_color(rgb(0xe87979))
+                            .text_color(crate::theme::palette(self.ui.prefs.light).danger)
                             .child(error),
                     )
                 },

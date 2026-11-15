@@ -596,12 +596,13 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         cx,
     );
     Theme::update(cx, |theme| {
-        let bg = crate::theme::palette(light).background.into();
-        let side = crate::theme::palette(light).sidebar.into();
-        let hover = crate::theme::palette(light).hover.into();
-        let fg = crate::theme::palette(light).foreground.into();
-        let muted = crate::theme::palette(light).muted.into();
-        let border = crate::theme::palette(light).border.into();
+        let colors = crate::theme::palette(light);
+        let bg = colors.background.into();
+        let side = colors.sidebar.into();
+        let hover = colors.hover.into();
+        let fg = colors.foreground.into();
+        let muted = colors.muted.into();
+        let border = colors.border.into();
         theme.font_size = px(14.);
         theme.radius = px(8.);
         theme.background = bg;
@@ -610,7 +611,7 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.input = side;
         theme.colors.list = side;
         theme.list_hover = hover;
-        theme.list_active_border = crate::theme::palette(light).selected.into();
+        theme.list_active_border = colors.selected.into();
         theme.muted = side;
         theme.muted_foreground = muted;
         theme.sidebar = side;
@@ -619,30 +620,30 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.title_bar_border = border;
         theme.popover = bg;
         theme.popover_foreground = fg;
-        theme.secondary = hover;
+        theme.secondary = colors.surface.into();
         theme.secondary_hover = hover;
         theme.secondary_foreground = fg;
-        theme.button = hover;
+        theme.button = colors.surface.into();
         theme.button_hover = hover;
         theme.button_foreground = fg;
         theme.accent = hover;
         theme.accent_foreground = fg;
         theme.list.active_highlight = true;
-        theme.list_active = crate::theme::palette(light).selected.into();
+        theme.list_active = colors.selected.into();
         theme.tokens.list_hover =
             Hsla::from(rgba(if light { 0x00000008 } else { 0xffffff08 })).into();
-        theme.primary = crate::theme::palette(light).accent.into();
-        theme.primary_hover = rgb(if light { 0x1c6577 } else { 0x8dcedc }).into();
-        theme.primary_active = rgb(if light { 0x175565 } else { 0x5bafc2 }).into();
-        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x142b33 }).into();
+        theme.primary = colors.accent.into();
+        theme.primary_hover = rgb(if light { 0x1b5c51 } else { 0xa6dfc8 }).into();
+        theme.primary_active = rgb(if light { 0x144b43 } else { 0x74bea4 }).into();
+        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x14372b }).into();
         theme.button_primary = theme.primary;
         theme.button_primary_hover = theme.primary_hover;
         theme.button_primary_active = theme.primary_active;
         theme.button_primary_foreground = theme.primary_foreground;
-        theme.ring = crate::theme::palette(light).accent.into();
+        theme.ring = colors.accent.into();
         theme.switch_thumb = rgb(0xffffff).into();
         theme.slider_thumb = rgb(0xffffff).into();
-        theme.selection = rgba(if light { 0x24778a33 } else { 0x72bfd040 }).into();
+        theme.selection = rgba(if light { 0x23695f33 } else { 0x8ad2b840 }).into();
         theme.scrollbar_thumb = rgb(if light { 0xcccccc } else { 0x484848 }).into();
     });
 }
@@ -781,12 +782,16 @@ struct DraggedTab {
     label: String,
 }
 impl Render for DraggedTab {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = gpui_component::Theme::global(cx);
         div()
-            .p_2()
+            .px_3()
+            .py_1()
+            .border_1()
+            .border_color(theme.border)
             .rounded(px(6.))
-            .bg(rgb(0x363636))
-            .text_color(rgb(0xdddddd))
+            .bg(theme.popover)
+            .text_color(theme.popover_foreground)
             .child(self.label.clone())
     }
 }
@@ -1888,7 +1893,7 @@ impl Workspace {
                                                             .gap_3()
                                                             .text_size(px(MIN_UI_FONT_SIZE))
                                                             .when(id == 10, |s| {
-                                                                s.text_color(rgb(0xe76575))
+                                                                s.text_color(colors.danger)
                                                             })
                                                             .child(
                                                                 div()
@@ -2254,7 +2259,7 @@ impl Render for Workspace {
                     div()
                         .px_3()
                         .py_1()
-                        .text_color(rgb(0xe4a66a))
+                        .text_color(crate::theme::palette(self.ui.prefs.light).warning)
                         .children(error)
                         .child(
                             Button::new("review-save-conflict")

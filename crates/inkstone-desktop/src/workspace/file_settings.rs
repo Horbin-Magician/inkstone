@@ -374,7 +374,7 @@ impl Workspace {
                     s.child(
                         div()
                             .text_size(px(MIN_UI_FONT_SIZE))
-                            .text_color(rgb(0xe4a66a))
+                            .text_color(crate::theme::palette(self.ui.prefs.light).warning)
                             .child(settings.directory(None, attachment).unwrap_err()),
                     )
                 })

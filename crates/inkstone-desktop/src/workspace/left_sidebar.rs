@@ -17,12 +17,16 @@ pub(super) struct DraggedFile {
 }
 
 impl Render for DraggedFile {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = gpui_component::Theme::global(cx);
         div()
-            .p_2()
+            .px_3()
+            .py_1()
+            .border_1()
+            .border_color(theme.border)
             .rounded(px(6.))
-            .bg(rgb(0x363636))
-            .text_color(rgb(0xdddddd))
+            .bg(theme.popover)
+            .text_color(theme.popover_foreground)
             .child(
                 self.path
                     .file_name()
@@ -715,11 +719,7 @@ impl Workspace {
                                 .text_size(px(MIN_UI_FONT_SIZE))
                                 .line_height(relative(1.4))
                                 .whitespace_normal()
-                                .text_color(rgb(if self.ui.prefs.light {
-                                    0xb42318
-                                } else {
-                                    0xfda29b
-                                }))
+                                .text_color(crate::theme::palette(self.ui.prefs.light).danger)
                                 .child(self.ui.search_error.clone()),
                         )
                     })

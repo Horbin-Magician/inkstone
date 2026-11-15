@@ -340,7 +340,7 @@ impl Workspace {
                         s.child(
                             div()
                                 .text_size(px(MIN_UI_FONT_SIZE))
-                                .text_color(rgb(0xe87979))
+                                .text_color(crate::theme::palette(self.ui.prefs.light).danger)
                                 .whitespace_normal()
                                 .child(self.ui.property_error.clone()),
                         )
