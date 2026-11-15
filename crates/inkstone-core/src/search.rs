@@ -177,6 +177,7 @@ pub struct Query {
 }
 pub struct LineMatch {
     pub offset: usize,
+    pub match_end: usize,
     pub line: usize,
     pub range: std::ops::Range<usize>,
     pub highlights: Vec<std::ops::Range<usize>>,
@@ -511,12 +512,14 @@ impl Query {
                 }
                 let entry = matches.entry(line).or_insert_with(|| LineMatch {
                     offset,
+                    match_end: found.end,
                     line: line + 1,
                     range: snippet(line, offset),
                     highlights: vec![],
                 });
                 if offset < entry.offset {
                     entry.offset = offset;
+                    entry.match_end = found.end;
                     entry.range = snippet(line, offset);
                     entry.highlights.retain_mut(|range| {
                         range.start = range.start.max(entry.range.start);

@@ -14,7 +14,7 @@ use inkstone_agent::{
     provider::ModelConfig,
     runtime::{Cancel, RequestMode, RunRequest},
     storage::{self, Message, Proposal, Session, Settings},
-    tools::{Source, hash},
+    tools::Source,
 };
 use inkstone_core::changes::{ApplyReport, ApplyStatus};
 use std::collections::BTreeMap;
@@ -149,6 +149,9 @@ impl State {
         state.fields[3].update(cx, |s, cx| s.set_masked(true, window, cx));
         state.fill_fields(window, cx);
         state
+    }
+    pub(super) fn stale_source(&mut self) {
+        self.error = "引用来源已变化；打开当前版本，不再使用旧位置".into();
     }
     fn fill_fields(&mut self, window: &mut Window, cx: &mut Context<Workspace>) {
         let model = &self.settings.models[self.settings.selected];
@@ -770,28 +773,15 @@ impl Workspace {
         cx.notify();
     }
     fn agent_source(&mut self, source: Source, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(vault) = self.vault.clone() else {
-            return;
-        };
-        let current = self
-            .tabs
-            .iter()
-            .find(|t| t.path == source.path)
-            .map(|t| t.save.editor.read(cx).value().to_string());
-        let text = current.or_else(|| vault.read(&source.path).ok().flatten());
-        if text.as_deref().is_none_or(|t| hash(t) != source.hash) {
-            self.agent.error = "引用来源已变化；打开当前版本，不再使用旧位置".into();
-            self.open_note(source.path, window, cx);
-        } else {
-            self.pending_jump = Some((source.path.clone(), source.range.start));
-            self.open_note(source.path.clone(), window, cx);
-            self.apply_jump(window, cx);
-            if let Some(tab) = self.tabs.iter().find(|t| t.path == source.path) {
-                tab.save
-                    .editor
-                    .update(cx, |s, cx| s.set_selected_range(source.range, cx));
-            }
-        }
+        self.pending_jump = Some((
+            source.path.clone(),
+            JumpTarget::Citation {
+                range: source.range,
+                hash: source.hash,
+            },
+        ));
+        self.open_note(source.path, window, cx);
+        self.apply_jump(window, cx);
         cx.notify();
     }
     fn agent_test_model(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1163,6 +1153,7 @@ impl Workspace {
         thinking: bool,
         usage: Option<&serde_json::Value>,
         colors: crate::theme::Palette,
+        cx: &Context<Self>,
     ) -> AnyElement {
         let copy = message.text.clone();
         let group: SharedString = format!("agent-message-{i}").into();
@@ -1214,7 +1205,30 @@ impl Workspace {
                 .child("（没有文字回复）")
                 .into_any_element()
         } else {
-            TextView::markdown(("agent-reply", i), message.text.clone())
+            let weak = cx.weak_entity();
+            let markdown = citation_markdown(&message.text, &self.agent.session().sources);
+            TextView::markdown(("agent-reply", i), markdown)
+                .on_link_click(move |url, event, window, cx| {
+                    if event.is_right_click() {
+                        return;
+                    }
+                    if let Some(id) = url.strip_prefix("inkstone-citation:") {
+                        let _ = weak.update(cx, |this, cx| {
+                            if let Some(source) = this
+                                .agent
+                                .session()
+                                .sources
+                                .iter()
+                                .find(|s| s.id == id)
+                                .cloned()
+                            {
+                                this.agent_source(source, window, cx);
+                            }
+                        });
+                    } else if inkstone_core::rendering::is_external_link(url) {
+                        cx.open_url(url);
+                    }
+                })
                 .selectable(true)
                 .into_any_element()
         };
@@ -1233,7 +1247,11 @@ impl Workspace {
                     .child(icon("sparkles").text_color(colors.accent))
                     .child("Agent"),
             )
-            .child(body)
+            .child(
+                div()
+                    .debug_selector(move || format!("agent-reply-body-{i}"))
+                    .child(body),
+            )
             .when(!thinking, |col| {
                 let (stats, coverage) = if message.requests.is_empty() {
                     (
@@ -1696,7 +1714,7 @@ impl Workspace {
             let thinking = busy && i == last && message.role != "user" && message.text.is_empty();
             // Usage belongs to the latest request, so it sits under the latest reply.
             let usage = session.usage.as_ref().filter(|_| i == last);
-            panel = panel.child(self.agent_message(i, message, thinking, usage, colors));
+            panel = panel.child(self.agent_message(i, message, thinking, usage, colors, cx));
         }
         if !session.tools.is_empty() {
             let open = self.agent.show_tools;
@@ -1857,6 +1875,57 @@ fn pill(text: impl Into<SharedString>, fg: Rgba, bg: Rgba) -> Div {
         .bg(bg)
         .child(text.into())
 }
+fn citation_markdown(text: &str, sources: &[Source]) -> String {
+    use markdown_parser::mdast::Node;
+    static CITATION: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\[(S[0-9]+(?:-[0-9]+)?)\]").unwrap());
+    if sources.is_empty() || !CITATION.is_match(text) {
+        return text.to_owned();
+    }
+    let Ok(root) = markdown_parser::to_mdast(text, &inkstone_core::syntax::options()) else {
+        return text.to_owned();
+    };
+    // Insert destinations only into ordinary prose, preserving code and authored links.
+    let mut stack = vec![&root];
+    let mut output = String::new();
+    let mut cursor = 0;
+    while let Some(node) = stack.pop() {
+        match node {
+            Node::Text(t) => {
+                let Some(position) = &t.position else {
+                    continue;
+                };
+                let start = position.start.offset;
+                for captures in CITATION.captures_iter(&text[start..position.end.offset]) {
+                    let id = &captures[1];
+                    let token = captures.get(0).unwrap();
+                    let escaped = text[..start + token.start()]
+                        .bytes()
+                        .rev()
+                        .take_while(|b| *b == b'\\')
+                        .count()
+                        % 2
+                        == 1;
+                    if !escaped && sources.iter().any(|s| s.id == id) {
+                        let end = start + token.end();
+                        output.push_str(&text[cursor..end]);
+                        output.push_str(&format!("(inkstone-citation:{id})"));
+                        cursor = end;
+                    }
+                }
+            }
+            Node::Link(_) | Node::LinkReference(_) => (),
+            _ => {
+                if let Some(children) = node.children() {
+                    stack.extend(children.iter().rev());
+                }
+            }
+        }
+    }
+    output.push_str(&text[cursor..]);
+    output
+}
+
 fn task_usage(requests: &[Option<serde_json::Value>]) -> (Vec<(&'static str, u64)>, String) {
     let mut totals: Vec<(&str, u64)> = Vec::new();
     let mut reported = 0;
@@ -2012,6 +2081,64 @@ mod tests {
             status: "等待审阅".into(),
             report: None,
         }
+    }
+    #[gpui::test]
+    fn inline_citation_selects_evidence_after_loading_note(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("notes");
+        std::fs::create_dir(&root).unwrap();
+        let vault = Vault::open(&root, dir.path().join("history")).unwrap();
+        let text = "前文。证据。";
+        vault.create("b.md".as_ref(), text).unwrap();
+        let source = Source {
+            id: "S123-1".into(),
+            path: "b.md".into(),
+            hash: inkstone_agent::tools::hash(text),
+            range: 9..15,
+            unsaved: false,
+        };
+        let markup = citation_markdown(
+            "[S123-1][S123-1] `[S123-1]` [S999]",
+            std::slice::from_ref(&source),
+        );
+        assert_eq!(
+            markup,
+            "[S123-1](inkstone-citation:S123-1)[S123-1](inkstone-citation:S123-1) `[S123-1]` [S999]"
+        );
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.startup_pending = false;
+                w.vault = Some(vault);
+                w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                w.open_agent(0, window, cx);
+                w.agent.session_mut().sources.push(source.clone());
+                w.agent.session_mut().messages.push(Message {
+                    role: "assistant".into(),
+                    text: "[S123-1]".into(),
+                    requests: vec![],
+                });
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1100.), px(800.)));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let body = visual.debug_bounds("agent-reply-body-0").unwrap();
+        visual.simulate_click(body.origin + point(px(8.), px(8.)), Modifiers::default());
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, window, cx| {
+                let pane = w.current_pane().unwrap();
+                assert_eq!(pane.read(cx).current_path, source.path);
+                let editor = pane.read(cx).editor.clone();
+                assert_eq!(editor.read(cx).selected_range(), source.range);
+                editor.update(cx, |s, cx| s.replace_all("新的版本", window, cx));
+                w.agent_source(source, window, cx);
+                assert!(w.agent.error.contains("来源已变化"));
+            })
+            .unwrap();
     }
     #[gpui::test]
     fn agent_review_preserves_new_edits_and_applies_through_editor(cx: &mut TestAppContext) {
