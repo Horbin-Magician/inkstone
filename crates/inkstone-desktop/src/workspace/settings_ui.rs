@@ -12,7 +12,9 @@ pub(super) fn setting_switch(id: impl Into<ElementId>) -> gpui_component::switch
 }
 
 /// Settings navigation sections: (group title, [(tab index, label, icon)]).
-const SETTINGS_SECTIONS: &[(&str, &[(usize, &str, &str)])] = &[
+type SettingsNavItem = (usize, &'static str, &'static str);
+
+const SETTINGS_SECTIONS: &[(&str, &[SettingsNavItem])] = &[
     ("个性化", &[(5, "外观", "palette"), (6, "界面", "monitor")]),
     (
         "编辑",
