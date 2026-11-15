@@ -276,9 +276,7 @@ impl EditorPane {
                             decorations.push(TextDecoration::new(
                                 span.content.clone(),
                                 HighlightStyle {
-                                    color: Some(
-                                        rgb(if self.light { 0xababab } else { 0x666666 }).into(),
-                                    ),
+                                    color: Some(crate::theme::palette(self.light).muted.into()),
                                     ..Default::default()
                                 },
                             ));
@@ -299,7 +297,6 @@ impl EditorPane {
                     },
                     Kind::Strong => HighlightStyle {
                         font_weight: Some(FontWeight::BOLD),
-                        color: Some(crate::theme::palette(self.light).accent.into()),
                         ..Default::default()
                     },
                     Kind::Emphasis => HighlightStyle {
@@ -446,7 +443,7 @@ impl EditorPane {
                     decorations.push(TextDecoration::new(
                         start..end,
                         HighlightStyle {
-                            color: Some(rgb(if self.light { 0x5c5c5c } else { 0xb3b3b3 }).into()),
+                            color: Some(crate::theme::palette(self.light).muted.into()),
                             strikethrough: Some(StrikethroughStyle {
                                 thickness: px(1.),
                                 ..Default::default()
@@ -613,7 +610,7 @@ impl EditorPane {
             decorations.push(TextDecoration::new(
                 span.source.clone(),
                 HighlightStyle {
-                    color: Some(rgb(if self.light { 0xababab } else { 0x666666 }).into()),
+                    color: Some(crate::theme::palette(self.light).muted.into()),
                     ..Default::default()
                 },
             ));

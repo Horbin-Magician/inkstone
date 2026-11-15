@@ -49,11 +49,12 @@ pub(super) fn overlay(
                                 state.focus(window, cx);
                             });
                         })
-                        .child(div().w_full().h(px(2.)).bg(rgb(if light {
-                            0xe6e6e6
-                        } else {
-                            0x363636
-                        })))
+                        .child(
+                            div()
+                                .w_full()
+                                .h(px(1.))
+                                .bg(crate::theme::palette(light).border),
+                        )
                         .into_any_element();
                     element.prepaint_as_root(
                         bounds.origin,

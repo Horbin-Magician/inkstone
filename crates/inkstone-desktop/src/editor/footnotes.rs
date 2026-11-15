@@ -180,7 +180,7 @@ impl EditorPane {
             .rounded_md()
             .shadow_lg()
             .border_1()
-            .border_color(rgb(if self.light { 0xdddddd } else { 0x454545 }))
+            .border_color(crate::theme::palette(self.light).border)
             .bg(crate::theme::palette(self.light).background)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" {

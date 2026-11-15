@@ -143,7 +143,7 @@ impl Render for EditorPane {
                 gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
                     .with_foreground(crate::theme::palette(self.light).foreground.into())
                     .with_link(crate::theme::palette(self.light).accent.into())
-                    .with_strong_color(crate::theme::palette(self.light).accent.into())
+                    .with_strong_color(crate::theme::palette(self.light).foreground.into())
                     .with_code_background(crate::theme::palette(self.light).surface.into())
                     .with_inline_code(HighlightStyle {
                         color: Some(crate::theme::palette(self.light).foreground.into()),
@@ -153,7 +153,7 @@ impl Render for EditorPane {
                     .with_task_checkbox(
                         StyleRefinement::default()
                             .rounded_full()
-                            .border_color(rgb(if self.light { 0xababab } else { 0x666666 })),
+                            .border_color(crate::theme::palette(self.light).muted),
                     )
                     .with_paragraph_gap(rems(16. / f32::from(_window.rem_size()).max(1.)))
                     .with_heading(move |level| {
