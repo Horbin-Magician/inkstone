@@ -1,6 +1,7 @@
 //! Workspace adapter: the agent can stage proposals, only this layer applies them.
 use super::ui::{icon, tool};
 use super::*;
+use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
     Disableable, Sizable,
     button::{Button, ButtonVariants},
@@ -1073,7 +1074,7 @@ impl Workspace {
                                 .flex()
                                 .items_center()
                                 .gap_1()
-                                .text_xs()
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .text_color(colors.muted)
                                 .when(busy, |row| {
                                     row.child(Spinner::new().xsmall().color(colors.accent.into()))
@@ -1100,20 +1101,15 @@ impl Workspace {
         let mut suggestions = div().flex().flex_col().gap_2().w_full().max_w(px(320.));
         for (i, (ico, label, prompt)) in SUGGESTIONS.into_iter().enumerate() {
             suggestions = suggestions.child(
-                div()
-                    .id(("agent-suggestion", i))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
+                Button::new(("agent-suggestion", i))
+                    .outline()
+                    .w_full()
+                    .h_auto()
                     .py_2()
-                    .rounded(px(10.))
-                    .border_1()
-                    .border_color(colors.border)
-                    .cursor_pointer()
-                    .hover(|s| s.bg(colors.hover))
-                    .child(icon(ico).text_color(colors.accent))
-                    .child(label)
+                    .justify_start()
+                    .accessibility_label(label)
+                    .icon(icon(ico).text_color(colors.accent))
+                    .label(label)
                     .on_click(cx.listener(move |this, _, w, cx| this.agent_suggest(prompt, w, cx))),
             );
         }
@@ -1242,7 +1238,7 @@ impl Workspace {
                     .flex()
                     .items_center()
                     .gap_1()
-                    .text_xs()
+                    .text_size(px(MIN_UI_FONT_SIZE))
                     .text_color(colors.muted)
                     .child(icon("sparkles").text_color(colors.accent))
                     .child("Agent"),
@@ -1269,7 +1265,11 @@ impl Workspace {
                         .min_h(px(22.))
                         .when(!message.text.is_empty(), |row| row.child(copy_button))
                         .when(!message.requests.is_empty(), |row| {
-                            row.child(div().text_xs().child(coverage.clone()))
+                            row.child(
+                                div()
+                                    .text_size(px(MIN_UI_FONT_SIZE))
+                                    .child(coverage.clone()),
+                            )
                         })
                         .when(!stats.is_empty(), |row| {
                             row.child(self.agent_usage(i, &stats, coverage, colors))
@@ -1297,7 +1297,7 @@ impl Workspace {
             .items_center()
             .gap_x_2()
             .gap_y_0p5()
-            .text_xs()
+            .text_size(px(MIN_UI_FONT_SIZE))
             .text_color(colors.muted)
             .tooltip(move |window, cx| {
                 gpui_component::tooltip::Tooltip::new(format!("{coverage}\n{exact}"))
@@ -1389,7 +1389,7 @@ impl Workspace {
         if proposal.changes.changes.len() > 1 {
             body = body.child(
                 div()
-                    .text_xs()
+                    .text_size(px(MIN_UI_FONT_SIZE))
                     .text_color(colors.muted)
                     .child("关联修改须整组接受，避免缺失链接目标。"),
             );
@@ -1466,7 +1466,7 @@ impl Workspace {
                     .when(!change.reason.trim().is_empty(), |col| {
                         col.child(
                             div()
-                                .text_xs()
+                                .text_size(px(MIN_UI_FONT_SIZE))
                                 .text_color(colors.muted)
                                 .child(change.reason.clone()),
                         )
@@ -1482,7 +1482,8 @@ impl Workspace {
                             .border_color(colors.border)
                             .bg(colors.surface)
                             .font_family(mono.clone())
-                            .text_xs()
+                            .line_height(relative(1.5))
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .child(lines),
                     ),
             );
@@ -1490,7 +1491,7 @@ impl Workspace {
         if let Some(report) = &proposal.report {
             body = body.child(
                 div()
-                    .text_xs()
+                    .text_size(px(MIN_UI_FONT_SIZE))
                     .text_color(colors.muted)
                     .child(report_text(report)),
             );
@@ -1683,7 +1684,7 @@ impl Workspace {
             .child(
                 div()
                     .px_1()
-                    .text_xs()
+                    .text_size(px(MIN_UI_FONT_SIZE))
                     .text_color(colors.muted)
                     .child("Enter 发送 · Shift+Enter 换行"),
             )
@@ -1719,13 +1720,19 @@ impl Workspace {
         if !session.tools.is_empty() {
             let open = self.agent.show_tools;
             let mut log = div().flex().flex_col().gap_1().child(
-                div()
-                    .id("agent-toggle-log")
+                Button::new("agent-toggle-log")
+                    .ghost()
+                    .justify_start()
+                    .accessibility_label(if open {
+                        "收起工具调用记录"
+                    } else {
+                        "展开工具调用记录"
+                    })
                     .flex()
                     .items_center()
                     .gap_1p5()
                     .py_1()
-                    .text_xs()
+                    .text_size(px(MIN_UI_FONT_SIZE))
                     .text_color(colors.muted)
                     .cursor_pointer()
                     .hover(|s| s.text_color(colors.foreground))
@@ -1752,7 +1759,7 @@ impl Workspace {
                             .pl_3()
                             .border_l_2()
                             .border_color(colors.border)
-                            .text_xs()
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .child(div().font_weight(FontWeight::MEDIUM).child(name.clone()))
                             .child(div().text_color(colors.muted).child(excerpt(result, 240))),
                     );
@@ -1797,7 +1804,7 @@ impl Workspace {
                     .gap_1p5()
                     .child(
                         div()
-                            .text_xs()
+                            .text_size(px(MIN_UI_FONT_SIZE))
                             .text_color(colors.muted)
                             .child(format!("引用来源 · {}", session.sources.len())),
                     )
@@ -1821,12 +1828,13 @@ impl Workspace {
                     .bg(colors.surface)
                     .border_1()
                     .border_color(colors.border)
-                    .child(
-                        div().pt_1p5().child(
-                            icon(if ok { "circle-check" } else { "circle-alert" })
-                                .text_color(colors.accent),
-                        ),
-                    )
+                    .child(div().pt_1p5().child(
+                        icon(if ok { "circle-check" } else { "circle-alert" }).text_color(if ok {
+                            colors.accent
+                        } else {
+                            colors.danger
+                        }),
+                    ))
                     .child(
                         div()
                             .flex_1()
@@ -1870,7 +1878,7 @@ fn pill(text: impl Into<SharedString>, fg: Rgba, bg: Rgba) -> Div {
         .px_2()
         .py_0p5()
         .rounded_full()
-        .text_xs()
+        .text_size(px(MIN_UI_FONT_SIZE))
         .text_color(fg)
         .bg(bg)
         .child(text.into())
