@@ -860,6 +860,7 @@ impl Workspace {
         if !modal && self.fulltext {
             return self.grouped_search_results(cx);
         }
+        let colors = crate::theme::palette(self.ui.prefs.light);
         let hits = self.visible_search_hits(modal, cx);
         let empty = hits.is_empty();
         div()
@@ -886,13 +887,15 @@ impl Workspace {
                 div()
                     .id(("result", i))
                     .when(modal && self.ui.selected == i, |s| {
-                        s.bg(crate::theme::palette(self.ui.prefs.light).selected)
+                        s.bg(colors.selected).font_weight(FontWeight::MEDIUM)
                     })
                     .p_2()
                     .when(modal, |s| s.py(px(6.)).px_3().h(px(38.)).overflow_hidden())
                     .rounded(px(4.))
                     .cursor_pointer()
-                    .hover(|s| s.bg(crate::theme::palette(self.ui.prefs.light).selected))
+                    .when(!modal || self.ui.selected != i, |row| {
+                        row.hover(|s| s.bg(colors.hover))
+                    })
                     .child(div().text_size(px(14.)).truncate().child(
                         hit.display_name.clone().unwrap_or_else(|| {
                             if modal {
@@ -911,7 +914,7 @@ impl Workspace {
                         s.child(
                             div()
                                 .text_size(px(MIN_UI_FONT_SIZE))
-                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                                .text_color(colors.muted)
                                 .truncate()
                                 .child(if hit.excerpt.is_empty() {
                                     path.to_string_lossy().to_string()

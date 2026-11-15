@@ -72,11 +72,12 @@ impl Workspace {
             .aria_label(name.to_string())
             .flex()
             .flex_col()
-            .gap(px(2.))
+            .gap(px(4.))
             .child(
                 div()
                     .text_size(px(MIN_UI_FONT_SIZE))
-                    .line_height(relative(1.3))
+                    .font_weight(FontWeight::MEDIUM)
+                    .line_height(relative(1.35))
                     .child(name.to_string()),
             )
             .when(!description.is_empty(), |label| {
@@ -85,7 +86,7 @@ impl Workspace {
                     .child(
                         div()
                             .text_size(px(MIN_UI_FONT_SIZE))
-                            .line_height(relative(1.4))
+                            .line_height(relative(1.5))
                             .text_color(muted)
                             .child(description.clone()),
                     )
@@ -183,7 +184,7 @@ impl Workspace {
             .when(!title.is_empty(), |group| {
                 group.child(
                     div()
-                        .px_4()
+                        .px_1()
                         .mb_2()
                         .text_size(px(MIN_UI_FONT_SIZE))
                         .font_weight(FontWeight::SEMIBOLD)
@@ -237,7 +238,7 @@ impl Workspace {
             .px_3()
             .selected(active)
             .accessibility_label(label.to_string())
-            .when(active, |button| button.bg(palette.background))
+            .when(active, |button| button.bg(palette.selected))
             .child(
                 div()
                     .flex()
@@ -263,7 +264,7 @@ impl Workspace {
             .flex_shrink_0()
             .px_1()
             .mb_1()
-            .text_size(px(20.))
+            .text_size(px(24.))
             .font_weight(FontWeight::SEMIBOLD)
             .child(title.to_string())
             .into_any_element()
@@ -407,9 +408,7 @@ impl Workspace {
                         .w_full()
                         .selected(selected)
                         .toggled(selected)
-                        .when(selected, |button| {
-                            button.bg(crate::theme::palette(self.ui.prefs.light).selected)
-                        })
+                        .when(selected, |button| button.bg(palette.selected))
                         .accessibility_label(title)
                         .child(
                             div()

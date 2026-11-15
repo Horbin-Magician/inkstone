@@ -346,7 +346,8 @@ impl Workspace {
                             uniform_list(
                                 "outline-rows",
                                 headings.len(),
-                                cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
+                                cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                                    let colors = crate::theme::palette(this.ui.prefs.light);
                                     range
                                         .map(|i| {
                                             let (h, has_children, folded) = headings[i].clone();
@@ -359,11 +360,11 @@ impl Workspace {
                                                 .h(px(27.))
                                                 .text_size(px(MIN_UI_FONT_SIZE))
                                                 .rounded(px(4.))
-                                                .hover(|s| s.bg(rgba(0x88888818)))
+                                                .hover(|s| s.bg(colors.hover))
                                                 .flex()
                                                 .items_center()
                                                 .gap_1()
-                                                .pl(px((h.level - 1) as f32 * 17.))
+                                                .pl(px((h.level - 1) as f32 * 13.))
                                                 .cursor_pointer()
                                                 .child(div().w(px(28.)).flex_shrink_0().when(
                                                     has_children,
@@ -408,7 +409,16 @@ impl Workspace {
                                                             "跳转到 {} 级标题 {}",
                                                             h.level, h.title
                                                         ))
-                                                        .child(div().truncate().child(h.title))
+                                                        .child(
+                                                            div()
+                                                                .truncate()
+                                                                .when(h.level <= 2, |row| {
+                                                                    row.font_weight(
+                                                                        FontWeight::MEDIUM,
+                                                                    )
+                                                                })
+                                                                .child(h.title),
+                                                        )
                                                         .on_click(cx.listener(
                                                             move |_, _, w, cx| {
                                                                 if let Some(pane) = &pane {
@@ -859,7 +869,7 @@ impl Workspace {
                             .text_size(px(MIN_UI_FONT_SIZE))
                             .rounded(px(4.))
                             .py_1()
-                            .pl(px(row.depth as f32 * 17.))
+                            .pl(px(row.depth as f32 * 13.))
                             .cursor_pointer()
                             .hover(|s| s.bg(crate::theme::palette(self.ui.prefs.light).selected))
                             .child(div().w(px(20.)).flex_shrink_0().when(row.children, |s| {
