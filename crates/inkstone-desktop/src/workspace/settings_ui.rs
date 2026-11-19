@@ -174,7 +174,7 @@ impl Workspace {
     }
 
     pub(super) fn settings_group(&self, title: &str, rows: Vec<AnyElement>) -> AnyElement {
-        let muted = crate::theme::palette(self.ui.prefs.light).muted;
+        let palette = crate::theme::palette(self.ui.prefs.light);
         div()
             .w_full()
             .flex_shrink_0()
@@ -186,9 +186,9 @@ impl Workspace {
                     div()
                         .px_1()
                         .mb_2()
-                        .text_size(px(MIN_UI_FONT_SIZE))
+                        .text_size(px(13.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(muted)
+                        .text_color(palette.muted)
                         .child(title.to_string()),
                 )
             })
@@ -197,8 +197,10 @@ impl Workspace {
                     .px_5()
                     .flex()
                     .flex_col()
-                    .rounded(px(10.))
-                    .bg(crate::theme::palette(self.ui.prefs.light).surface)
+                    .rounded(px(12.))
+                    .bg(palette.surface)
+                    .border_1()
+                    .border_color(palette.border)
                     .children(rows),
             )
             .into_any_element()
@@ -215,9 +217,9 @@ impl Workspace {
             .id(id)
             .flex()
             .flex_wrap()
-            .gap(px(2.))
-            .p(px(2.))
-            .rounded(px(8.))
+            .gap(px(3.))
+            .p(px(3.))
+            .rounded(px(9.))
             .bg(palette.sidebar)
             .border_1()
             .border_color(palette.border)
@@ -236,21 +238,36 @@ impl Workspace {
             .ghost()
             .h(px(28.))
             .px_3()
+            .rounded(px(6.))
             .selected(active)
             .accessibility_label(label.to_string())
-            .when(active, |button| button.bg(palette.selected))
+            .when(active, |button| {
+                button
+                    .bg(palette.background)
+                    .border_1()
+                    .border_color(palette.border)
+            })
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_1()
+                    .gap_1p5()
                     .text_size(px(MIN_UI_FONT_SIZE))
+                    .when(active, |d| d.font_weight(FontWeight::MEDIUM))
                     .text_color(if active {
-                        palette.accent
+                        palette.foreground
                     } else {
                         palette.muted
                     })
-                    .children(symbol.map(icon))
+                    .children(symbol.map(|s| {
+                        icon(s)
+                            .size(px(15.))
+                            .text_color(if active {
+                                palette.accent
+                            } else {
+                                palette.muted
+                            })
+                    }))
                     .child(label.to_string()),
             )
     }
@@ -263,8 +280,8 @@ impl Workspace {
             .mx_auto()
             .flex_shrink_0()
             .px_1()
-            .mb_1()
-            .text_size(px(24.))
+            .mb_2()
+            .text_size(px(22.))
             .font_weight(FontWeight::SEMIBOLD)
             .child(title.to_string())
             .into_any_element()
@@ -389,10 +406,10 @@ impl Workspace {
             if !section_title.is_empty() {
                 items.push(
                     div()
-                        .px_2()
-                        .pt_3()
+                        .px_2p5()
+                        .pt_3p5()
                         .pb_1()
-                        .text_size(px(MIN_UI_FONT_SIZE))
+                        .text_size(px(12.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(muted)
                         .child(section_title.to_string())
@@ -404,8 +421,9 @@ impl Workspace {
                 items.push(
                     Button::new(("settings-tab", i))
                         .ghost()
-                        .h(px(34.))
+                        .h(px(36.))
                         .w_full()
+                        .rounded(px(8.))
                         .selected(selected)
                         .toggled(selected)
                         .when(selected, |button| button.bg(palette.selected))
@@ -415,13 +433,15 @@ impl Workspace {
                                 .w_full()
                                 .flex()
                                 .items_center()
-                                .gap_2()
+                                .gap_2p5()
                                 .text_size(px(MIN_UI_FONT_SIZE))
-                                .when(selected, |d| d.text_color(accent))
+                                .when(selected, |d| {
+                                    d.font_weight(FontWeight::MEDIUM).text_color(accent)
+                                })
                                 .child(
                                     div()
-                                        .when(selected, |d| d.text_color(accent))
-                                        .child(ui::icon(symbol)),
+                                        .text_color(if selected { accent } else { muted })
+                                        .child(ui::icon(symbol).size(px(16.))),
                                 )
                                 .child(title),
                         )
@@ -434,22 +454,21 @@ impl Workspace {
         }
         div()
             .id("settings-navigation")
-            .w(px(208.))
+            .w(px(220.))
             .flex_shrink_0()
             .min_h_0()
             .overflow_y_scrollbar()
-            .px_2()
-            .pt_2()
-            .pb_3()
+            .px_3()
+            .pt_3()
+            .pb_4()
             .bg(self.side())
             .border_r_1()
             .border_color(self.border())
             .flex()
             .flex_col()
-            .gap_0()
+            .gap_0p5()
             .child(
                 div()
-                    .px_1()
                     .pb_2()
                     .child(Input::new(&self.ui.settings_filter).w_full()),
             )
@@ -599,11 +618,13 @@ impl Workspace {
                             .when(count > 0, |s| {
                                 s.child(
                                     div()
-                                        .px_2()
+                                        .p_2()
                                         .flex()
                                         .flex_col()
-                                        .rounded(px(10.))
+                                        .rounded(px(12.))
                                         .bg(palette.surface)
+                                        .border_1()
+                                        .border_color(palette.border)
                                         .children(rows),
                                 )
                             }),

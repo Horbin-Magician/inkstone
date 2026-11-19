@@ -78,11 +78,11 @@ impl Workspace {
                             this.navigate_modal_tab(event, window, cx)
                         }))
                         .w(px(580.))
-                        .p_3()
+                        .p_5()
                         .gap_3()
                         .flex()
                         .flex_col()
-                        .rounded(px(12.))
+                        .rounded(px(14.))
                         .bg(self.bg())
                         .border_1()
                         .border_color(self.border())
@@ -93,7 +93,12 @@ impl Workspace {
                                 .flex()
                                 .justify_between()
                                 .items_center()
-                                .child("更新内部链接")
+                                .child(
+                                    div()
+                                        .text_size(px(15.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child("更新内部链接"),
+                                )
                                 .child(
                                     tool("close-links", "x", "不更新链接").on_click(
                                         cx.listener(|s, _, w, cx| s.close_overlays(w, cx)),
@@ -125,12 +130,12 @@ impl Workspace {
             .when(recovery, |s| {
                 s.h(px(700.).min(available_height)).max_h(available_height)
             })
-            .p_3()
-            .gap_2()
+            .p_5()
+            .gap_3()
             .when(picker || self.ui.settings || recovery, |s| {
                 s.p_0().gap_0().overflow_hidden()
             })
-            .rounded(px(12.))
+            .rounded(px(14.))
             .bg(self.bg())
             .border_1()
             .border_color(self.border())
@@ -190,41 +195,46 @@ impl Workspace {
                             .font_weight(FontWeight::SEMIBOLD)
                     })
                     .when(self.ui.settings, |s| {
-                        s.h(px(48.))
+                        s.h(px(50.))
                             .flex_shrink_0()
-                            .px_3()
+                            .px_5()
                             .border_b_1()
                             .border_color(self.border())
                     })
-                    .child(if self.command_open {
-                        "命令面板"
-                    } else if self.ui.quick_open {
-                        "快速切换"
-                    } else if self.ui.property_open {
-                        "编辑属性"
-                    } else if self.ui.settings {
-                        "设置"
-                    } else if self.ui.conflict_review.is_some() {
-                        "比较并处理外部修改"
-                    } else if self.ui.attachment_manager.is_some() {
-                        "附件管理"
-                    } else if self.ui.link_health.is_some() {
-                        "链接健康检查"
-                    } else if self.ui.bulk_edit.is_some() {
-                        "批量修改预览"
-                    } else if self.ui.table_editor.is_some() {
-                        "可视化表格编辑"
-                    } else if self.ui.history.is_some() {
-                        if self.reviewing_draft() {
-                            "草稿恢复与比较"
-                        } else {
-                            "笔记版本历史"
-                        }
-                    } else if self.ui.trash_open {
-                        "文件恢复中心"
-                    } else {
-                        "操作"
-                    })
+                    .child(
+                        div()
+                            .text_size(px(15.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(if self.command_open {
+                                "命令面板"
+                            } else if self.ui.quick_open {
+                                "快速切换"
+                            } else if self.ui.property_open {
+                                "编辑属性"
+                            } else if self.ui.settings {
+                                "设置"
+                            } else if self.ui.conflict_review.is_some() {
+                                "比较并处理外部修改"
+                            } else if self.ui.attachment_manager.is_some() {
+                                "附件管理"
+                            } else if self.ui.link_health.is_some() {
+                                "链接健康检查"
+                            } else if self.ui.bulk_edit.is_some() {
+                                "批量修改预览"
+                            } else if self.ui.table_editor.is_some() {
+                                "可视化表格编辑"
+                            } else if self.ui.history.is_some() {
+                                if self.reviewing_draft() {
+                                    "草稿恢复与比较"
+                                } else {
+                                    "笔记版本历史"
+                                }
+                            } else if self.ui.trash_open {
+                                "文件恢复中心"
+                            } else {
+                                "操作"
+                            }),
+                    )
                     .child(
                         tool("close-modal", "x", "关闭 Esc")
                             .on_click(cx.listener(|this, _, w, cx| this.close_overlays(w, cx))),
@@ -248,31 +258,45 @@ impl Workspace {
                         })
                         .max_h(px(384.).min((available_height - px(80.)).max(px(40.))))
                         .children(commands.into_iter().enumerate().map(|(i, (id, label, _))| {
+                            let colors = crate::theme::palette(self.ui.prefs.light);
+                            let shortcut = self.hotkey_label(id);
+                            let active = self.ui.selected == i;
                             Button::new(("command", id))
                                 .ghost()
                                 .w_full()
-                                .accessibility_label(format!("{label} {}", self.hotkey_label(id)))
+                                .accessibility_label(format!("{label} {shortcut}"))
                                 .flex()
                                 .items_center()
                                 .justify_between()
-                                .h(px(38.))
+                                .h(px(40.))
                                 .px_3()
                                 .gap_3()
-                                .rounded(px(4.))
+                                .rounded(px(8.))
                                 .cursor_pointer()
-                                .when(self.ui.selected == i, |s| {
-                                    s.bg(crate::theme::palette(self.ui.prefs.light).selected)
-                                })
-                                .child(div().flex_1().min_w_0().truncate().child(label))
+                                .when(active, |s| s.bg(colors.selected))
                                 .child(
                                     div()
-                                        .text_color(
-                                            crate::theme::palette(self.ui.prefs.light).muted,
-                                        )
-                                        .text_size(px(MIN_UI_FONT_SIZE))
-                                        .flex_shrink_0()
-                                        .child(self.hotkey_label(id)),
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .when(active, |d| d.font_weight(FontWeight::MEDIUM))
+                                        .child(label),
                                 )
+                                .when(!shortcut.is_empty(), |s| {
+                                    s.child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .px_2()
+                                            .py_0p5()
+                                            .rounded(px(6.))
+                                            .bg(colors.surface)
+                                            .border_1()
+                                            .border_color(colors.border)
+                                            .text_color(colors.muted)
+                                            .text_size(px(12.5))
+                                            .child(shortcut),
+                                    )
+                                })
                                 .on_click(cx.listener(move |this, _, w, cx| {
                                     this.execute_command(id, w, cx)
                                 }))
@@ -293,19 +317,23 @@ impl Workspace {
                 )
             })
             .when(picker, |s| {
+                let colors = crate::theme::palette(self.ui.prefs.light);
                 s.child(
                     div()
                         .flex_shrink_0()
-                        .h(px(28.))
+                        .h(px(34.))
+                        .border_t_1()
+                        .border_color(colors.border)
+                        .bg(colors.subtle_bg)
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(MIN_UI_FONT_SIZE))
-                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                        .text_size(px(12.5))
+                        .text_color(colors.muted)
                         .child(if self.command_open {
-                            "↑↓ 导航　↵ 使用　esc 退出"
+                            "↑↓ 导航  ·  ↵ 执行  ·  Esc 退出"
                         } else {
-                            "↑↓ 导航　↵ 打开　esc 退出"
+                            "↑↓ 导航  ·  ↵ 打开  ·  Esc 退出"
                         }),
                 )
             })
@@ -401,14 +429,22 @@ impl Workspace {
             .into_any_element()
     }
     fn picker_search(&self, command: bool, cx: &mut Context<Self>) -> AnyElement {
+        let colors = crate::theme::palette(self.ui.prefs.light);
         div()
             .flex()
             .items_center()
             .flex_shrink_0()
-            .h(px(50.))
-            .px_3()
+            .h(px(54.))
+            .px_4()
+            .gap_2p5()
             .border_b_1()
-            .border_color(self.border())
+            .border_color(colors.border)
+            .child(
+                icon(if command { "command" } else { "search" })
+                    .size(px(17.))
+                    .flex_shrink_0()
+                    .text_color(colors.muted),
+            )
             .child(
                 div().flex_1().min_w_0().child(
                     Input::new(if command {
@@ -451,14 +487,17 @@ impl Workspace {
                     .flex_wrap()
                     .gap_1()
                     .children(items.into_iter().enumerate().map(|(i, value)| {
+                        let colors = crate::theme::palette(self.ui.prefs.light);
                         div()
                             .flex()
                             .items_center()
                             .gap_1()
-                            .px_2()
-                            .py_1()
-                            .rounded(px(4.))
-                            .bg(rgba(0x88888822))
+                            .px_2p5()
+                            .py_0p5()
+                            .rounded_full()
+                            .bg(colors.accent_tint)
+                            .border_1()
+                            .border_color(colors.border)
                             .child(
                                 div()
                                     .max_w(px(400.))
