@@ -134,6 +134,7 @@ impl Workspace {
         };
         let weak = cx.entity().downgrade();
         let selected = self.ui.right_mode;
+        let colors = crate::theme::palette(self.ui.prefs.light);
         div()
             .id("right-header-tools")
             .debug_selector(|| "right-header-tools".into())
@@ -144,10 +145,11 @@ impl Workspace {
             .when(cfg!(target_os = "windows"), |bar| {
                 bar.window_control_area(gpui::WindowControlArea::Drag)
             })
-            .px_1()
-            .gap_0()
+            .px_1p5()
+            .gap_0p5()
             .children(visible.iter().map(|&mode| {
                 let (i, ico, label) = MODES.iter().copied().find(|&(i, _, _)| i == mode).unwrap();
+                let is_active = self.ui.right_mode == i;
                 div()
                     .debug_selector(move || format!("right-mode-{i}"))
                     .flex_shrink_0()
@@ -156,10 +158,14 @@ impl Workspace {
                             .occlude()
                             .accessibility_id(format!("right-mode-{i}"))
                             .accessibility_label(label)
-                            .selected(self.ui.right_mode == i)
-                            .toggled(self.ui.right_mode == i)
+                            .selected(is_active)
+                            .toggled(is_active)
                             .ghost()
                             .compact()
+                            .rounded(px(7.))
+                            .when(is_active, |b| {
+                                b.bg(colors.selected).text_color(colors.accent)
+                            })
                             .icon(icon(ico))
                             .tooltip(label)
                             .w(px(32.))
@@ -357,9 +363,9 @@ impl Workspace {
                                             div()
                                                 .id(("outline", i))
                                                 .debug_selector(move || format!("outline-row-{i}"))
-                                                .h(px(27.))
+                                                .h(px(28.))
                                                 .text_size(px(MIN_UI_FONT_SIZE))
-                                                .rounded(px(4.))
+                                                .rounded(px(6.))
                                                 .hover(|s| s.bg(colors.hover))
                                                 .flex()
                                                 .items_center()
@@ -401,7 +407,7 @@ impl Workspace {
                                                     Button::new(("outline-jump", offset))
                                                         .ghost()
                                                         .compact()
-                                                        .h(px(27.))
+                                                        .h(px(28.))
                                                         .flex_1()
                                                         .min_w_0()
                                                         .justify_start()
@@ -416,6 +422,10 @@ impl Workspace {
                                                                     row.font_weight(
                                                                         FontWeight::MEDIUM,
                                                                     )
+                                                                    .text_color(colors.foreground)
+                                                                })
+                                                                .when(h.level > 2, |row| {
+                                                                    row.text_color(colors.muted)
                                                                 })
                                                                 .child(h.title),
                                                         )
@@ -440,17 +450,31 @@ impl Workspace {
                         )
                     })
                     .when(self.ui.right_mode == 1, |s| {
+                        let colors = crate::theme::palette(self.ui.prefs.light);
                         s.child(
                             div()
                                 .flex()
                                 .items_center()
                                 .justify_between()
                                 .px_2()
-                                .h(px(32.))
-                                .text_size(px(MIN_UI_FONT_SIZE))
-                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                                .h(px(34.))
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.muted)
                                 .child("链接当前文件")
-                                .child(self.backlinks.len().to_string()),
+                                .child(
+                                    div()
+                                        .px_2()
+                                        .py(px(1.))
+                                        .rounded_full()
+                                        .bg(colors.surface)
+                                        .border_1()
+                                        .border_color(colors.border)
+                                        .text_size(px(12.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(colors.muted)
+                                        .child(self.backlinks.len().to_string()),
+                                ),
                         )
                         .when(self.backlinks.is_empty(), |s| {
                             s.child(
@@ -458,7 +482,7 @@ impl Workspace {
                                     .px_2()
                                     .py_1()
                                     .text_size(px(MIN_UI_FONT_SIZE))
-                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                                    .text_color(colors.muted)
                                     .child("没有笔记链接当前文件"),
                             )
                         })
@@ -471,10 +495,10 @@ impl Workspace {
                                         .filter_map(|i| {
                                             this.backlinks.get(i).cloned().map(|path| {
                                                 ListItem::new(("backlink", i))
-                                                    .h(px(27.))
+                                                    .h(px(28.))
                                                     .px_2()
                                                     .text_size(px(MIN_UI_FONT_SIZE))
-                                                    .rounded(px(4.))
+                                                    .rounded(px(6.))
                                                     .child(
                                                         div().truncate().child(
                                                             path.to_string_lossy().to_string(),
@@ -489,34 +513,49 @@ impl Workspace {
                                 }),
                             )
                             .track_scroll(&self.backlink_scroll)
-                            .h(px((self.backlinks.len() as f32 * 27.).min(400.)))
+                            .h(px((self.backlinks.len() as f32 * 28.).min(400.)))
                             .w_full(),
                         )
                     })
                     .when(self.ui.right_mode == 1, |s| {
+                        let colors = crate::theme::palette(self.ui.prefs.light);
                         s.child(
                             div()
+                                .mt_3()
                                 .flex()
                                 .items_center()
                                 .justify_between()
                                 .px_2()
-                                .h(px(32.))
-                                .text_size(px(MIN_UI_FONT_SIZE))
-                                .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                                .h(px(34.))
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.muted)
                                 .child("当前笔记中的链接")
-                                .child(links.len().to_string()),
+                                .child(
+                                    div()
+                                        .px_2()
+                                        .py(px(1.))
+                                        .rounded_full()
+                                        .bg(colors.surface)
+                                        .border_1()
+                                        .border_color(colors.border)
+                                        .text_size(px(12.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(colors.muted)
+                                        .child(links.len().to_string()),
+                                ),
                         )
                         .children(links.into_iter().enumerate().map(|(i, link)| {
                             let from = tab_path.clone();
                             div()
                                 .id(("outlink", i))
-                                .h(px(27.))
+                                .h(px(28.))
                                 .px_2()
                                 .text_size(px(MIN_UI_FONT_SIZE))
-                                .rounded(px(4.))
-                                .hover(|s| s.bg(rgba(0x88888818)))
+                                .rounded(px(6.))
+                                .hover(move |s| s.bg(colors.hover))
                                 .py_1()
-                                .text_color(crate::theme::palette(self.ui.prefs.light).accent)
+                                .text_color(colors.accent)
                                 .cursor_pointer()
                                 .child(div().truncate().child(link.label))
                                 .on_click(cx.listener(move |this, event: &ClickEvent, w, cx| {
@@ -569,31 +608,26 @@ impl Workspace {
                                     .join(", "),
                                 _ => value.clone(),
                             };
+                            let colors = crate::theme::palette(self.ui.prefs.light);
                             div()
                                 .id(("property", i))
                                 .flex()
                                 .items_center()
                                 .gap_2()
                                 .min_h(px(34.))
-                                .px_2()
+                                .px_2p5()
                                 .py_1()
-                                .rounded(px(4.))
+                                .rounded(px(6.))
                                 .text_size(px(MIN_UI_FONT_SIZE))
                                 .cursor_pointer()
-                                .hover(|s| s.bg(rgba(0x88888818)))
-                                .child(
-                                    icon(symbol).text_color(
-                                        crate::theme::palette(self.ui.prefs.light).muted,
-                                    ),
-                                )
+                                .hover(move |s| s.bg(colors.hover))
+                                .child(icon(symbol).size(px(15.)).text_color(colors.muted))
                                 .child(
                                     div()
                                         .w(px(100.))
                                         .flex_shrink_0()
                                         .truncate()
-                                        .text_color(
-                                            crate::theme::palette(self.ui.prefs.light).muted,
-                                        )
+                                        .text_color(colors.muted)
                                         .child(name.clone()),
                                 )
                                 .child(div().flex_1().min_w_0().truncate().child(display))

@@ -21,11 +21,14 @@ impl Render for DraggedFile {
         let theme = gpui_component::Theme::global(cx);
         div()
             .px_3()
-            .py_1()
+            .py_1p5()
             .border_1()
             .border_color(theme.border)
-            .rounded(px(6.))
+            .rounded(px(8.))
             .bg(theme.popover)
+            .shadow_md()
+            .text_size(px(MIN_UI_FONT_SIZE))
+            .font_weight(FontWeight::MEDIUM)
             .text_color(theme.popover_foreground)
             .child(
                 self.path
@@ -141,6 +144,7 @@ impl Workspace {
     }
 
     fn left_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = crate::theme::palette(self.ui.prefs.light);
         let header = div()
             .w_full()
             .min_w_0()
@@ -159,8 +163,12 @@ impl Workspace {
             .child(
                 tool("files", "folder-closed", "文件列表")
                     .occlude()
+                    .rounded(px(7.))
                     .selected(self.ui.left_mode == 0)
                     .toggled(self.ui.left_mode == 0)
+                    .when(self.ui.left_mode == 0, |b| {
+                        b.bg(colors.selected).text_color(colors.accent)
+                    })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.ui.left_mode = 0;
                         cx.notify();
@@ -169,15 +177,23 @@ impl Workspace {
             .child(
                 tool("search", "search", "搜索")
                     .occlude()
+                    .rounded(px(7.))
                     .selected(self.ui.left_mode == 1)
                     .toggled(self.ui.left_mode == 1)
+                    .when(self.ui.left_mode == 1, |b| {
+                        b.bg(colors.selected).text_color(colors.accent)
+                    })
                     .on_click(cx.listener(|this, _, w, cx| this.focus_search(true, w, cx))),
             )
             .child(
                 tool("bookmarks", "bookmark", "书签")
                     .occlude()
+                    .rounded(px(7.))
                     .selected(self.ui.left_mode == 2)
                     .toggled(self.ui.left_mode == 2)
+                    .when(self.ui.left_mode == 2, |b| {
+                        b.bg(colors.selected).text_color(colors.accent)
+                    })
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.ui.left_mode = 2;
                         cx.notify();
@@ -253,9 +269,9 @@ impl Workspace {
             };
             ListItem::new(i)
                 .h(TREE_ROW_HEIGHT)
-                .px_1()
+                .px_1p5()
                 .py_0()
-                .rounded(px(4.))
+                .rounded(px(6.))
                 .text_size(px(MIN_UI_FONT_SIZE))
                 .text_color(tree_foreground)
                 .accessibility_label(entry.item().label.clone())
@@ -317,7 +333,9 @@ impl Workspace {
                                 .debug_selector(move || selector.clone())
                                 .flex_1()
                                 .min_w_0()
-                                .when(selected, |s| s.text_color(tree_active))
+                                .when(selected, |s| {
+                                    s.font_weight(FontWeight::MEDIUM).text_color(tree_active)
+                                })
                                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                     if !folder || is_editing {
                                         cx.stop_propagation();
@@ -555,9 +573,13 @@ impl Workspace {
                                 },
                             )
                         })
-                        .child(
+                        .child({
+                            let colors = crate::theme::palette(self.ui.prefs.light);
                             tool("reveal", "locate", "自动显示当前文件")
-                                .when(self.ui.prefs.auto_reveal_file, |s| s.bg(self.bg()))
+                                .rounded(px(7.))
+                                .when(self.ui.prefs.auto_reveal_file, |s| {
+                                    s.bg(colors.selected).text_color(colors.accent)
+                                })
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.ui.prefs.auto_reveal_file =
                                         !this.ui.prefs.auto_reveal_file;
@@ -567,8 +589,8 @@ impl Workspace {
                                     }
                                     this.persist_workspace(cx);
                                     cx.notify();
-                                })),
-                        )
+                                }))
+                        })
                         .child(
                             tool("collapse", "fold-vertical", "折叠所有文件夹").on_click(
                                 cx.listener(|this, _, _, cx| {
