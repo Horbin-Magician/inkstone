@@ -51,10 +51,15 @@ impl Workspace {
     pub(super) fn modal(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let recovery = self.recovery_hub_is_open() || self.ui.history.is_some();
         let picker = self.command_open || self.ui.quick_open;
+        let centered = self.ui.settings;
         let top = px(if recovery { 48. } else { 100. })
             .min(window.viewport_size().height * if picker { 0.12 } else { 0.15 })
             .max(px(16.));
-        let available_height = (window.viewport_size().height - top - px(16.)).max(px(100.));
+        let available_height = if centered {
+            (window.viewport_size().height - px(32.)).max(px(100.))
+        } else {
+            (window.viewport_size().height - top - px(16.)).max(px(100.))
+        };
         if self.ui.link_update.is_some() {
             return div()
                 .absolute()
@@ -102,6 +107,7 @@ impl Workspace {
         }
         let content = div()
             .id("modal-body")
+            .debug_selector(|| "modal-body".into())
             .track_focus(&self.ui.modal_focus)
             .on_key_down(
                 cx.listener(|this, event, window, cx| this.navigate_modal_tab(event, window, cx)),
@@ -388,9 +394,9 @@ impl Workspace {
             .bg(rgba(0x00000066))
             .occlude()
             .flex()
-            .items_start()
             .justify_center()
-            .pt(top)
+            .when(centered, |s| s.items_center())
+            .when(!centered, |s| s.items_start().pt(top))
             .child(content.focus_trap("workspace-modal-focus-trap", &self.ui.modal_focus))
             .into_any_element()
     }
@@ -694,6 +700,41 @@ mod tests {
                         .unwrap();
                 }
             }
+        }
+    }
+
+    #[gpui::test]
+    fn settings_modal_is_centered_across_viewport_sizes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.execute_command(14, window, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for (width, height) in [(1400., 960.), (1200., 800.), (1200., 620.), (800., 800.)] {
+            visual.simulate_resize(size(px(width), px(height)));
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let bounds = visual
+                .debug_bounds("modal-body")
+                .expect("settings modal should render");
+            let left = f32::from(bounds.left());
+            let right = width - f32::from(bounds.right());
+            let top = f32::from(bounds.top());
+            let bottom = height - f32::from(bounds.bottom());
+            assert!(
+                (left - right).abs() <= 1.0,
+                "viewport {width}x{height}: horizontal margins differ ({left} vs {right})"
+            );
+            assert!(
+                (top - bottom).abs() <= 1.0,
+                "viewport {width}x{height}: vertical margins differ ({top} vs {bottom})"
+            );
+            assert!(
+                left >= 15.0 && right >= 15.0 && top >= 15.0 && bottom >= 15.0,
+                "viewport {width}x{height}: margins too small (l={left}, r={right}, t={top}, b={bottom})"
+            );
         }
     }
 }
