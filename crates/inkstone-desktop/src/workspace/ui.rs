@@ -755,6 +755,10 @@ pub(super) fn icon(name: &str) -> Icon {
         ),
         "quote" => Some("M3 20c3 0 7-1 7-8V5H3v7h4M14 20c3 0 7-1 7-8V5h-7v7h4"),
         "list-checks" => Some("M3 7l2 2 4-4M3 17l2 2 4-4M13 6h8M13 12h8M13 18h8"),
+        "download" => Some("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"),
+        "external-link" => {
+            Some("M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6")
+        }
         _ => None,
     };
     if let Some(shape) = shape {

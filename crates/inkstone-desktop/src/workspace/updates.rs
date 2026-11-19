@@ -1,11 +1,25 @@
 //! UI state for the release workflow. Workers never touch notes or UI entities.
 use super::*;
+use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::{
-    Disableable,
+    Disableable, Sizable,
     button::{Button, ButtonVariants},
+    spinner::Spinner,
 };
 use inkstone_core::updates::{self, Download, Release};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+fn platform_label() -> &'static str {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => "macOS · Apple Silicon",
+        ("macos", "x86_64") => "macOS · Intel",
+        ("windows", "x86_64") => "Windows · x64",
+        ("windows", "aarch64") => "Windows · ARM64",
+        ("linux", "x86_64") => "Linux · x64",
+        ("linux", "aarch64") => "Linux · ARM64",
+        _ => std::env::consts::OS,
+    }
+}
 
 #[derive(Default, PartialEq)]
 enum Phase {
@@ -62,6 +76,33 @@ impl State {
             Phase::Opening => "正在校验并打开安装包…".into(),
             Phase::Opened => "安装包已打开，请按安装界面完成更新".into(),
             Phase::Failed => "操作失败，请重试".into(),
+        }
+    }
+    fn detail(&self) -> String {
+        if self.error.is_some() {
+            return "请检查网络连接或稍后重试".into();
+        }
+        match self.phase {
+            Phase::Idle => format!(
+                "当前版本 {} · 支持应用内下载与 SHA-256 校验",
+                env!("CARGO_PKG_VERSION")
+            ),
+            Phase::Checking => "正在连接 GitHub Releases 获取最新版本信息…".into(),
+            Phase::Current => format!("当前安装的 {} 已是最新稳定版本", env!("CARGO_PKG_VERSION")),
+            Phase::Available => match &self.release {
+                Some(release) => {
+                    format!("新版本 v{} 已发布，可下载安装包完成更新", release.version)
+                }
+                None => "有新版本可供下载".into(),
+            },
+            Phase::Downloading if self.cancelled.load(Ordering::Relaxed) => {
+                "正在中断传输并清理临时文件…".into()
+            }
+            Phase::Downloading => "下载完成后将自动校验文件完整性".into(),
+            Phase::Ready => "安装包已通过完整性校验，可以打开安装".into(),
+            Phase::Opening => "正在校验文件并启动系统安装程序…".into(),
+            Phase::Opened => "请先保存笔记并退出应用，按安装界面完成更新".into(),
+            Phase::Failed => "请检查网络连接后重试".into(),
         }
     }
 }
@@ -211,12 +252,13 @@ impl Workspace {
 
     pub(super) fn update_settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let state = &self.updates;
-        let mut controls = div().flex().flex_wrap().gap_2().child(
-            Button::new("check-updates")
-                .label("检查更新")
-                .disabled(state.busy())
-                .on_click(cx.listener(|this, _, _, cx| this.check_updates(cx))),
-        );
+        let light = self.ui.prefs.light;
+        let palette = crate::theme::palette(light);
+        let accent_tint = rgba(if light { 0x24778a18 } else { 0x72bfd01f });
+        let danger_tint = rgba(if light { 0xa4354018 } else { 0xffa8ab1f });
+        let hint_bg = rgba(if light { 0x00000005 } else { 0xffffff04 });
+
+        let mut controls = div().flex().flex_wrap().items_center().gap_2();
         if state.phase == Phase::Downloading {
             controls = controls.child(
                 Button::new("cancel-update")
@@ -239,6 +281,7 @@ impl Workspace {
             controls = controls.child(
                 Button::new("download-update")
                     .primary()
+                    .icon(super::ui::icon("download").size(px(15.)))
                     .label(if matches!(state.phase, Phase::Failed | Phase::Opened) {
                         "重新下载"
                     } else {
@@ -256,45 +299,165 @@ impl Workspace {
         if let Some(path) = path {
             controls = controls.child(
                 Button::new("reveal-update")
+                    .icon(super::ui::icon("folder-open").size(px(15.)))
                     .label("显示安装包")
                     .on_click(move |_, _, cx| cx.reveal_path(&path)),
             );
         }
-        let palette = crate::theme::palette(self.ui.prefs.light);
-        let mut content = div()
-            .w_full()
-            .max_w(px(700.))
-            .mx_auto()
+        controls = controls.child(
+            Button::new("check-updates")
+                .icon(super::ui::icon("refresh-cw").size(px(15.)))
+                .label("检查更新")
+                .disabled(state.busy())
+                .on_click(cx.listener(|this, _, _, cx| this.check_updates(cx))),
+        );
+
+        let status_badge = {
+            let is_error = state.phase == Phase::Failed || state.error.is_some();
+            let badge_bg = if is_error { danger_tint } else { accent_tint };
+            let glyph: AnyElement = match state.phase {
+                Phase::Checking | Phase::Opening => Spinner::new()
+                    .small()
+                    .color(palette.accent.into())
+                    .into_any_element(),
+                _ if is_error => super::ui::icon("info")
+                    .size(px(18.))
+                    .text_color(palette.danger)
+                    .into_any_element(),
+                Phase::Idle => super::ui::icon("refresh-cw")
+                    .size(px(18.))
+                    .text_color(palette.accent)
+                    .into_any_element(),
+                Phase::Current | Phase::Ready | Phase::Opened => super::ui::icon("check")
+                    .size(px(18.))
+                    .text_color(palette.accent)
+                    .into_any_element(),
+                Phase::Available => super::ui::icon("sparkles")
+                    .size(px(18.))
+                    .text_color(palette.accent)
+                    .into_any_element(),
+                Phase::Downloading => super::ui::icon("download")
+                    .size(px(18.))
+                    .text_color(palette.accent)
+                    .into_any_element(),
+                Phase::Failed => super::ui::icon("info")
+                    .size(px(18.))
+                    .text_color(palette.danger)
+                    .into_any_element(),
+            };
+            div()
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .justify_center()
+                .size(px(38.))
+                .rounded(px(10.))
+                .bg(badge_bg)
+                .child(glyph)
+        };
+
+        let status_color = if state.phase == Phase::Failed || state.error.is_some() {
+            palette.danger
+        } else if state.phase == Phase::Available {
+            palette.accent
+        } else {
+            palette.foreground
+        };
+
+        let hero_card = div()
             .flex()
-            .flex_col()
-            .flex_shrink_0()
-            .min_w_0()
-            .gap_4()
-            .child(self.settings_title("关于与更新"))
+            .items_center()
+            .gap_5()
+            .px(px(24.))
+            .py(px(22.))
+            .rounded(px(14.))
+            .bg(palette.surface)
+            .border_1()
+            .border_color(palette.border)
+            .child(
+                img(super::welcome::app_icon())
+                    .size(px(64.))
+                    .flex_shrink_0(),
+            )
             .child(
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
-                    .gap_4()
-                    .p_5()
-                    .rounded(px(10.))
-                    .bg(palette.surface)
+                    .gap(px(6.))
                     .child(
                         div()
                             .flex()
                             .items_center()
-                            .gap_4()
+                            .flex_wrap()
+                            .gap_2()
                             .child(
                                 div()
-                                    .flex()
-                                    .flex_shrink_0()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(px(48.))
-                                    .rounded(px(12.))
-                                    .bg(palette.selected)
-                                    .child(super::ui::icon("info").size(px(24.)).text_color(palette.accent)),
+                                    .text_size(px(22.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .line_height(relative(1.2))
+                                    .text_color(palette.foreground)
+                                    .child(crate::product::name().to_string()),
                             )
+                            .child(
+                                div()
+                                    .px(px(9.))
+                                    .py(px(2.))
+                                    .rounded_full()
+                                    .bg(accent_tint)
+                                    .text_size(px(12.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(palette.accent)
+                                    .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
+                            )
+                            .child(
+                                div()
+                                    .px(px(9.))
+                                    .py(px(2.))
+                                    .rounded_full()
+                                    .bg(palette.sidebar)
+                                    .border_1()
+                                    .border_color(palette.border)
+                                    .text_size(px(12.))
+                                    .text_color(palette.muted)
+                                    .child(platform_label()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .line_height(relative(1.5))
+                            .text_color(palette.muted)
+                            .child("本地优先的 Markdown 桌面笔记应用"),
+                    ),
+            );
+
+        let update_card = div()
+            .flex()
+            .flex_col()
+            .rounded(px(12.))
+            .bg(palette.surface)
+            .border_1()
+            .border_color(palette.border)
+            .overflow_hidden()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .flex_wrap()
+                    .gap_4()
+                    .px(px(20.))
+                    .py(px(18.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .flex_1()
+                            .min_w(px(220.))
+                            .child(status_badge)
                             .child(
                                 div()
                                     .flex_1()
@@ -304,65 +467,264 @@ impl Workspace {
                                     .gap(px(2.))
                                     .child(
                                         div()
-                                            .text_size(px(18.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child(crate::product::name().to_string()),
+                                            .id("update-status")
+                                            .debug_selector(|| "update-status".into())
+                                            .text_size(px(15.))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .line_height(relative(1.35))
+                                            .text_color(status_color)
+                                            .child(state.label()),
                                     )
                                     .child(
                                         div()
+                                            .text_size(px(13.))
+                                            .line_height(relative(1.45))
                                             .text_color(palette.muted)
-                                            .child(format!("版本 {}", env!("CARGO_PKG_VERSION"))),
+                                            .child(state.detail()),
                                     ),
                             ),
                     )
-                    .child(
-                        div()
-                            .id("update-status")
-                            .debug_selector(|| "update-status".into())
-                            .when(state.phase == Phase::Available, |s| s.text_color(palette.accent))
-                            .child(state.label()),
-                    )
-                    .when(state.phase == Phase::Downloading, |s| {
-                        let total = state.total.load(Ordering::Relaxed);
-                        s.child(
-                            gpui_component::progress::Progress::new("update-progress")
-                                .w_full()
-                                .loading(total == 0)
-                                .value(if total == 0 {
-                                    0.
-                                } else {
-                                    state.progress.load(Ordering::Relaxed) as f32 * 100. / total as f32
-                                }),
-                        )
-                    })
                     .child(super::focus_reveal::FocusReveal::new(
                         "update-actions-focus",
                         &self.ui.settings_scroll,
                         controls,
-                    ))
-                    .child(div().text_color(palette.muted).child(if cfg!(target_os = "macos") {
-                        "下载后打开 DMG。保存笔记并退出应用，再将新版本拖入 Applications 替换旧版本。"
-                    } else {
-                        "下载后打开安装器。请先保存笔记，按安装界面提示退出应用并完成更新。"
-                    })),
+                    )),
+            )
+            .when(state.phase == Phase::Downloading, |s| {
+                let total = state.total.load(Ordering::Relaxed);
+                let percent = if total == 0 {
+                    0.
+                } else {
+                    (state.progress.load(Ordering::Relaxed) as f32 * 100. / total as f32)
+                        .clamp(0., 100.)
+                };
+                s.child(
+                    div()
+                        .px(px(20.))
+                        .pb(px(16.))
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .text_size(px(12.))
+                                .text_color(palette.muted)
+                                .child(if total == 0 {
+                                    "正在连接下载服务器…"
+                                } else {
+                                    "下载进度"
+                                })
+                                .when(total > 0, |row| row.child(format!("{percent:.0}%"))),
+                        )
+                        .child(
+                            gpui_component::progress::Progress::new("update-progress")
+                                .w_full()
+                                .loading(total == 0)
+                                .value(percent),
+                        ),
+                )
+            })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px(px(20.))
+                    .py(px(12.))
+                    .border_t_1()
+                    .border_color(palette.border)
+                    .bg(hint_bg)
+                    .child(
+                        super::ui::icon("info")
+                            .size(px(14.))
+                            .flex_shrink_0()
+                            .text_color(palette.muted),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .line_height(relative(1.45))
+                            .text_color(palette.muted)
+                            .child(if cfg!(target_os = "macos") {
+                                "下载后打开 DMG。保存笔记并退出应用，再将新版本拖入 Applications 替换旧版本。"
+                            } else {
+                                "下载后打开安装器。请先保存笔记，按安装界面提示退出应用并完成更新。"
+                            }),
+                    ),
             );
-        if let Some(release) = &state.release {
-            let page = release.page.clone();
-            content = content
+
+        let section = |title: &str, card: Div| {
+            div()
+                .flex()
+                .flex_col()
                 .child(
                     div()
-                        .mt_2()
-                        .text_size(px(18.))
+                        .px_1()
+                        .mb_2()
+                        .text_size(px(13.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(format!("新版本 {}", release.version)),
+                        .text_color(palette.muted)
+                        .child(title.to_string()),
+                )
+                .child(card)
+        };
+
+        let about_row = |title: &str, description: &str, trailing: AnyElement, divider: bool| {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_4()
+                .py(px(14.))
+                .when(divider, |row| row.border_t_1().border_color(palette.border))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(
+                            div()
+                                .text_size(px(MIN_UI_FONT_SIZE))
+                                .font_weight(FontWeight::MEDIUM)
+                                .line_height(relative(1.35))
+                                .text_color(palette.foreground)
+                                .child(title.to_string()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .line_height(relative(1.45))
+                                .text_color(palette.muted)
+                                .child(description.to_string()),
+                        ),
+                )
+                .child(trailing)
+        };
+
+        let repo_url = updates::REPOSITORY.to_string();
+        let releases_url = format!("{}/releases", updates::REPOSITORY);
+        let about_card = div()
+            .flex()
+            .flex_col()
+            .px_5()
+            .rounded(px(12.))
+            .bg(palette.surface)
+            .border_1()
+            .border_color(palette.border)
+            .child(about_row(
+                "项目主页",
+                "github.com/Horbin-Magician/inkstone",
+                Button::new("about-repository")
+                    .ghost()
+                    .small()
+                    .icon(super::ui::icon("external-link").size(px(14.)))
+                    .label("访问仓库")
+                    .on_click(move |_, _, cx| cx.open_url(&repo_url))
+                    .into_any_element(),
+                false,
+            ))
+            .child(about_row(
+                "发布说明",
+                "查看历史版本与完整更新日志",
+                Button::new("about-releases")
+                    .ghost()
+                    .small()
+                    .icon(super::ui::icon("external-link").size(px(14.)))
+                    .label("查看日志")
+                    .on_click(move |_, _, cx| cx.open_url(&releases_url))
+                    .into_any_element(),
+                true,
+            ))
+            .child(about_row(
+                "开源协议",
+                "基于 Apache-2.0 许可证开源发布",
+                div()
+                    .px(px(10.))
+                    .py(px(3.))
+                    .rounded_full()
+                    .bg(palette.sidebar)
+                    .border_1()
+                    .border_color(palette.border)
+                    .text_size(px(12.))
+                    .text_color(palette.muted)
+                    .child("Apache-2.0")
+                    .into_any_element(),
+                true,
+            ));
+
+        let mut content = div()
+            .w_full()
+            .max_w(px(700.))
+            .mx_auto()
+            .flex()
+            .flex_col()
+            .flex_shrink_0()
+            .min_w_0()
+            .gap_5()
+            .child(self.settings_title("关于与更新"))
+            .child(hero_card)
+            .child(section("软件更新", update_card));
+
+        if let Some(release) = &state.release {
+            let page = release.page.clone();
+            let notes_card = div()
+                .flex()
+                .flex_col()
+                .rounded(px(12.))
+                .bg(palette.surface)
+                .border_1()
+                .border_color(palette.border)
+                .overflow_hidden()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .px(px(20.))
+                        .py(px(14.))
+                        .border_b_1()
+                        .border_color(palette.border)
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_size(px(15.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(palette.foreground)
+                                        .child("新版本更新说明"),
+                                )
+                                .child(
+                                    div()
+                                        .px(px(8.))
+                                        .py(px(1.5))
+                                        .rounded_full()
+                                        .bg(accent_tint)
+                                        .text_size(px(12.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(palette.accent)
+                                        .child(format!("v{}", release.version)),
+                                ),
+                        )
+                        .child(
+                            Button::new("update-release-page")
+                                .ghost()
+                                .small()
+                                .icon(super::ui::icon("external-link").size(px(14.)))
+                                .label("在 GitHub 查看")
+                                .on_click(move |_, _, cx| cx.open_url(&page)),
+                        ),
                 )
                 .child(
-                    Button::new("update-release-page")
-                        .label("在 GitHub 查看此版本")
-                        .on_click(move |_, _, cx| cx.open_url(&page)),
-                )
-                .child(
-                    div().id("update-notes").child(
+                    div().id("update-notes").px(px(20.)).py(px(16.)).child(
                         gpui_component::text::TextView::markdown(
                             "update-release-notes",
                             if release.notes.trim().is_empty() {
@@ -375,7 +737,11 @@ impl Workspace {
                         .scrollable(false),
                     ),
                 );
+            content = content.child(section("更新内容", notes_card));
         }
+
+        content = content.child(section("关于", about_card));
+
         div()
             .flex()
             .flex_1()

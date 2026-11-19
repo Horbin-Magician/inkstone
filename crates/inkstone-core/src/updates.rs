@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-const REPOSITORY: &str = "https://github.com/Horbin-Magician/inkstone";
+pub const REPOSITORY: &str = "https://github.com/Horbin-Magician/inkstone";
 const ENDPOINT: &str = "https://api.github.com/repos/Horbin-Magician/inkstone/releases/latest";
 const MAX_METADATA: u64 = 1024 * 1024;
 const MAX_DOWNLOAD: u64 = 1024 * 1024 * 1024;

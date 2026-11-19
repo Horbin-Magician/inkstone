@@ -100,16 +100,22 @@ impl Workspace {
             )
             .into_any_element()
     }
+}
 
+pub(super) fn app_icon() -> std::sync::Arc<gpui::Image> {
+    static ICON: std::sync::LazyLock<std::sync::Arc<gpui::Image>> =
+        std::sync::LazyLock::new(|| {
+            std::sync::Arc::new(gpui::Image::from_bytes(
+                gpui::ImageFormat::Png,
+                include_bytes!("../../assets/inkstone-icon.png").to_vec(),
+            ))
+        });
+    ICON.clone()
+}
+
+impl Workspace {
     pub(super) fn welcome(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = crate::theme::palette(self.ui.prefs.light);
-        static ICON: std::sync::LazyLock<std::sync::Arc<gpui::Image>> =
-            std::sync::LazyLock::new(|| {
-                std::sync::Arc::new(gpui::Image::from_bytes(
-                    gpui::ImageFormat::Png,
-                    include_bytes!("../../assets/inkstone-icon.png").to_vec(),
-                ))
-            });
         div()
             .id("welcome")
             .debug_selector(|| "welcome".into())
@@ -129,7 +135,7 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(img(ICON.clone()).size(px(72.)))
+                    .child(img(app_icon()).size(px(72.)))
                     .child(div().text_size(px(32.)).font_weight(FontWeight::SEMIBOLD)
                         .child(crate::product::name()))
                     .child(div().line_height(relative(1.65)).text_color(colors.muted)
