@@ -254,9 +254,9 @@ impl Workspace {
         let state = &self.updates;
         let light = self.ui.prefs.light;
         let palette = crate::theme::palette(light);
-        let accent_tint = rgba(if light { 0x24778a18 } else { 0x72bfd01f });
-        let danger_tint = rgba(if light { 0xa4354018 } else { 0xffa8ab1f });
-        let hint_bg = rgba(if light { 0x00000005 } else { 0xffffff04 });
+        let accent_tint = palette.accent_tint;
+        let danger_tint = palette.danger_tint;
+        let hint_bg = palette.subtle_bg;
 
         let mut controls = div().flex().flex_wrap().items_center().gap_2();
         if state.phase == Phase::Downloading {

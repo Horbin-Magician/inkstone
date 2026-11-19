@@ -631,11 +631,11 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.list.active_highlight = true;
         theme.list_active = colors.selected.into();
         theme.tokens.list_hover =
-            Hsla::from(rgba(if light { 0x00000008 } else { 0xffffff08 })).into();
+            Hsla::from(rgba(if light { 0x0f172a0a } else { 0xffffff0b })).into();
         theme.primary = colors.accent.into();
-        theme.primary_hover = rgb(if light { 0x1c6577 } else { 0x8dcedc }).into();
-        theme.primary_active = rgb(if light { 0x175565 } else { 0x5bafc2 }).into();
-        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x142b33 }).into();
+        theme.primary_hover = rgb(if light { 0x196374 } else { 0x84d0e0 }).into();
+        theme.primary_active = rgb(if light { 0x145362 } else { 0x56afc2 }).into();
+        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x11252c }).into();
         theme.button_primary = theme.primary;
         theme.button_primary_hover = theme.primary_hover;
         theme.button_primary_active = theme.primary_active;
@@ -643,31 +643,52 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.ring = colors.accent.into();
         theme.switch_thumb = rgb(0xffffff).into();
         theme.slider_thumb = rgb(0xffffff).into();
-        theme.selection = rgba(if light { 0x24778a33 } else { 0x72bfd040 }).into();
-        theme.scrollbar_thumb = rgb(if light { 0xcccccc } else { 0x484848 }).into();
+        theme.selection = rgba(if light { 0x1f75882e } else { 0x6bc2d43d }).into();
+        theme.scrollbar_thumb = rgba(if light { 0x64748b48 } else { 0x8c98a948 }).into();
     });
 }
 impl Workspace {
     pub(super) fn empty_state(&self, symbol: &str, title: &str, description: &str) -> AnyElement {
+        let colors = crate::theme::palette(self.ui.prefs.light);
         div()
             .flex()
             .flex_col()
             .items_center()
-            .gap_2()
-            .p_4()
+            .gap_3()
+            .px_5()
+            .py_8()
             .text_center()
-            .child(icon(symbol).text_color(crate::theme::palette(self.ui.prefs.light).accent))
             .child(
                 div()
-                    .text_size(px(MIN_UI_FONT_SIZE))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(title.to_string()),
+                    .size(px(44.))
+                    .rounded(px(12.))
+                    .bg(colors.accent_tint)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(icon(symbol).size(px(20.)).text_color(colors.accent)),
             )
             .child(
                 div()
-                    .text_size(px(MIN_UI_FONT_SIZE))
-                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                    .child(description.to_string()),
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_size(px(15.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(colors.foreground)
+                            .child(title.to_string()),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(300.))
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .line_height(relative(1.5))
+                            .text_color(colors.muted)
+                            .child(description.to_string()),
+                    ),
             )
             .into_any_element()
     }
@@ -790,11 +811,14 @@ impl Render for DraggedTab {
         let theme = gpui_component::Theme::global(cx);
         div()
             .px_3()
-            .py_1()
+            .py_1p5()
             .border_1()
             .border_color(theme.border)
-            .rounded(px(6.))
+            .rounded(px(8.))
             .bg(theme.popover)
+            .shadow_md()
+            .text_size(px(MIN_UI_FONT_SIZE))
+            .font_weight(FontWeight::MEDIUM)
             .text_color(theme.popover_foreground)
             .child(self.label.clone())
     }
@@ -1551,47 +1575,75 @@ impl Workspace {
                             })
                             .cursor_pointer()
                             .when(!selected, |s| {
+                                let hover_bg = crate::theme::palette(self.ui.prefs.light).hover;
                                 s.child(
                                     div()
                                         .absolute()
                                         .top(px(3.))
                                         .bottom(px(3.))
-                                        .left(px(2.))
-                                        .right(px(2.))
-                                        .rounded(px(6.))
-                                        .group_hover(format!("note-tab-{}", t.id), |style| {
-                                            style.bg(rgba(0x88888818))
+                                        .left(px(3.))
+                                        .right(px(3.))
+                                        .rounded(px(7.))
+                                        .group_hover(format!("note-tab-{}", t.id), move |style| {
+                                            style.bg(hover_bg)
                                         }),
                                 )
                             })
                             .when(selected, |s| {
                                 s.child(active_tab_background(self.bg(), self.border()))
                             })
-                            .child(
+                            .child({
+                                let colors = crate::theme::palette(self.ui.prefs.light);
+                                let title = if t.path.as_os_str().is_empty() {
+                                    "新标签页".to_string()
+                                } else if t.image.is_some() {
+                                    t.path
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string()
+                                } else {
+                                    t.path
+                                        .file_stem()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string()
+                                };
+                                let has_issue = t.save.persistence.has_conflict()
+                                    || t.save.persistence.error().is_some();
+                                let is_dirty = t.save.persistence.is_dirty();
                                 div()
-                                    .truncate()
+                                    .flex()
+                                    .items_center()
+                                    .gap_1p5()
                                     .flex_1()
-                                    .text_size(px(MIN_UI_FONT_SIZE))
-                                    .child(format!(
-                                        "{}{}",
-                                        if t.path.as_os_str().is_empty() {
-                                            "新标签页".into()
-                                        } else if t.image.is_some() {
-                                            t.path.file_name().unwrap_or_default().to_string_lossy()
-                                        } else {
-                                            t.path.file_stem().unwrap_or_default().to_string_lossy()
-                                        },
-                                        if t.save.persistence.has_conflict()
-                                            || t.save.persistence.error().is_some()
-                                        {
-                                            " ⚠"
-                                        } else if t.save.persistence.is_dirty() {
-                                            " •"
-                                        } else {
-                                            ""
-                                        }
-                                    )),
-                            )
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .text_size(px(MIN_UI_FONT_SIZE))
+                                            .when(selected, |d| d.font_weight(FontWeight::MEDIUM))
+                                            .child(title),
+                                    )
+                                    .when(has_issue, |d| {
+                                        d.child(
+                                            div()
+                                                .size(px(7.))
+                                                .flex_shrink_0()
+                                                .rounded_full()
+                                                .bg(colors.warning),
+                                        )
+                                    })
+                                    .when(!has_issue && is_dirty, |d| {
+                                        d.child(
+                                            div()
+                                                .size(px(6.))
+                                                .flex_shrink_0()
+                                                .rounded_full()
+                                                .bg(colors.accent),
+                                        )
+                                    })
+                            })
                             .child(
                                 Button::new(("close-tab", t.id))
                                     .accessibility_id(format!("close-tab-{}", t.id))
@@ -1765,14 +1817,13 @@ impl Workspace {
             .and_then(|i| self.tabs.get(i))
             .filter(|t| !t.path.as_os_str().is_empty());
         let pane = if active.is_some() { pane } else { None };
-        let breadcrumb = active
+        let breadcrumb_parts: Vec<String> = active
             .map(|t| {
                 t.path
                     .with_extension("")
                     .iter()
-                    .map(|part| part.to_string_lossy())
-                    .collect::<Vec<_>>()
-                    .join(" / ")
+                    .map(|part| part.to_string_lossy().to_string())
+                    .collect()
             })
             .unwrap_or_default();
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
@@ -1797,21 +1848,46 @@ impl Workspace {
                         div()
                             .flex()
                             .items_center()
-                            .h(px(40.))
-                            .px_3()
+                            .h(px(42.))
+                            .px_4()
                             .gap_1()
                             .child(self.navigation_button(pane.clone(), false, secondary, cx))
                             .child(self.navigation_button(pane.clone(), true, secondary, cx))
-                            .child(
+                            .child({
+                                let last = breadcrumb_parts.len().saturating_sub(1);
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .truncate()
-                                    .text_center()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .gap_1p5()
+                                    .overflow_hidden()
                                     .text_size(px(MIN_UI_FONT_SIZE))
-                                    .text_color(colors.muted)
-                                    .child(breadcrumb),
-                            )
+                                    .children(breadcrumb_parts.into_iter().enumerate().flat_map(
+                                        move |(idx, part)| {
+                                            let is_last = idx == last;
+                                            let sep = (idx > 0).then(|| {
+                                                div()
+                                                    .flex_shrink_0()
+                                                    .text_color(colors.muted)
+                                                    .opacity(0.45)
+                                                    .child("/")
+                                                    .into_any_element()
+                                            });
+                                            let label = div()
+                                                .truncate()
+                                                .when(is_last, |d| {
+                                                    d.font_weight(FontWeight::MEDIUM)
+                                                        .text_color(colors.foreground)
+                                                })
+                                                .when(!is_last, |d| d.text_color(colors.muted))
+                                                .child(part)
+                                                .into_any_element();
+                                            sep.into_iter().chain(std::iter::once(label))
+                                        },
+                                    ))
+                            })
                             .child(
                                 tool(
                                     "read-mode",
@@ -2035,7 +2111,7 @@ impl Render for Workspace {
             .filter(|_| active.is_some_and(|tab| !tab.path.as_os_str().is_empty()))
             .map(|p| {
                 let counts = p.update(cx, |pane, cx| pane.text_counts(cx));
-                format!("{} 个词  {} 个字符", counts.words, counts.characters)
+                format!("{} 词 · {} 字符", counts.words, counts.characters)
             })
             .unwrap_or_default();
         let error = active.and_then(|t| t.save.persistence.error().clone());
@@ -2259,12 +2335,21 @@ impl Render for Workspace {
                 )
             })
             .when(error.is_some(), |s| {
+                let colors = crate::theme::palette(self.ui.prefs.light);
                 s.child(
                     div()
-                        .px_3()
-                        .py_1()
-                        .text_color(crate::theme::palette(self.ui.prefs.light).warning)
-                        .children(error)
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .px_4()
+                        .py_2()
+                        .border_t_1()
+                        .border_color(colors.border)
+                        .bg(colors.warning_tint)
+                        .text_size(px(MIN_UI_FONT_SIZE))
+                        .text_color(colors.warning)
+                        .child(div().flex_1().min_w_0().children(error))
                         .child(
                             Button::new("review-save-conflict")
                                 .compact()
@@ -2276,6 +2361,7 @@ impl Render for Workspace {
                 )
             })
             .when(has_workspace, |s| {
+                let colors = crate::theme::palette(self.ui.prefs.light);
                 s.child(
                     div()
                         .id("workspace-status-bar")
@@ -2284,15 +2370,15 @@ impl Render for Workspace {
                         .w_full()
                         .flex_shrink_0()
                         .border_t_1()
-                        .border_color(self.border())
+                        .border_color(colors.border)
                         .flex()
                         .items_center()
-                        .h(px(28.))
-                        .px_2()
+                        .h(px(30.))
+                        .px_3()
                         .gap_2()
-                        .bg(self.bg())
-                        .text_size(px(MIN_UI_FONT_SIZE))
-                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
+                        .bg(colors.sidebar)
+                        .text_size(px(13.))
+                        .text_color(colors.muted)
                         .when(has_active_note, |bar| {
                             let backlink_count = self.backlinks.len();
                             let backlink_tip = format!("{backlink_count} 条反向链接");
@@ -2300,11 +2386,9 @@ impl Render for Workspace {
                                 Button::new("status-backlinks")
                                     .ghost()
                                     .compact()
-                                    .w(px(28.))
-                                    .h(px(28.))
-                                    .icon(icon("links").text_color(
-                                        crate::theme::palette(self.ui.prefs.light).muted,
-                                    ))
+                                    .w(px(26.))
+                                    .h(px(26.))
+                                    .icon(icon("links").size(px(15.)).text_color(colors.muted))
                                     .accessibility_label(backlink_tip.clone())
                                     .tooltip(backlink_tip)
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -2363,7 +2447,11 @@ impl Render for Workspace {
                         .child({
                             let spinning = self.ui.cloud_sync.is_busy();
                             let detail = self.status_corner_detail();
-                            let mark = icon("refresh-cw").text_color(self.fg());
+                            let mark = icon("refresh-cw").size(px(15.)).text_color(if spinning {
+                                colors.accent
+                            } else {
+                                colors.muted
+                            });
                             let mark: AnyElement = if spinning {
                                 mark.with_animation(
                                     "status-sync-spin",
@@ -2384,8 +2472,10 @@ impl Render for Workspace {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .w(px(28.))
-                                .h(px(28.))
+                                .w(px(26.))
+                                .h(px(26.))
+                                .rounded(px(6.))
+                                .hover(move |s| s.bg(colors.hover))
                                 .cursor_pointer()
                                 .child(mark)
                                 .tooltip(move |window, cx| {
@@ -2408,16 +2498,16 @@ impl Render for Workspace {
                         })
                         .child(
                             tool("status-trash", "trash", "回收站管理")
-                                .w(px(28.))
-                                .h(px(28.))
+                                .w(px(26.))
+                                .h(px(26.))
                                 .on_click(
                                     cx.listener(|this, _, w, cx| this.execute_command(16, w, cx)),
                                 ),
                         )
                         .child(
                             tool("status-settings", "settings", "设置")
-                                .w(px(28.))
-                                .h(px(28.))
+                                .w(px(26.))
+                                .h(px(26.))
                                 .on_click(
                                     cx.listener(|this, _, w, cx| this.execute_command(14, w, cx)),
                                 ),
