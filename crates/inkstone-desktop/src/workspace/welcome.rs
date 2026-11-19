@@ -80,23 +80,32 @@ impl Workspace {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .children([0.7, 0.9, 0.6].into_iter().map(|width| {
+                    .children([0.55, 0.85, 0.7, 0.9, 0.62, 0.78].into_iter().map(|width| {
                         div()
                             .h(px(12.))
                             .w(relative(width))
-                            .rounded(px(4.))
-                            .bg(colors.surface)
+                            .rounded(px(6.))
+                            .bg(colors.hover)
                     })),
             )
             .child(
                 div()
                     .flex_1()
                     .flex()
+                    .flex_col()
                     .items_center()
                     .justify_center()
-                    .text_size(px(MIN_UI_FONT_SIZE))
-                    .text_color(colors.muted)
-                    .child("正在打开笔记库…"),
+                    .gap_3()
+                    .child(
+                        gpui_component::spinner::Spinner::new()
+                            .color(colors.accent.into()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .text_color(colors.muted)
+                            .child("正在打开笔记库…"),
+                    ),
             )
             .into_any_element()
     }
@@ -125,38 +134,126 @@ impl Workspace {
             .flex()
             .flex_col()
             .items_center()
-            .p_6()
+            .px_6()
+            .py_8()
             .child(
                 div()
-                    .w(px(392.))
+                    .w(px(440.))
                     .max_w_full()
                     .my_auto()
                     .flex_shrink_0()
                     .flex()
                     .flex_col()
-                    .gap_3()
-                    .child(img(app_icon()).size(px(72.)))
-                    .child(div().text_size(px(32.)).font_weight(FontWeight::SEMIBOLD)
-                        .child(crate::product::name()))
-                    .child(div().line_height(relative(1.65)).text_color(colors.muted)
-                        .child("选择一个文件夹作为笔记库。每篇笔记都会以 Markdown 文件保存在这个文件夹里。"))
-                    .when(!self.notifications.text().is_empty(), |s| s.child(div()
-                        .id("welcome-error").debug_selector(|| "welcome-error".into())
-                        .text_color(colors.danger)
-                        .child(self.notifications.text().to_owned())))
-                    .child(Button::new("welcome-create-vault").primary().mt_3().h(px(42.)).w_full()
-                        .label("创建新笔记库").accessibility_label("创建新笔记库")
-                        .disabled(self.file_writes.pending() > 0)
-                        .on_click(cx.listener(|this, _, window, cx| this.create_first_vault(window, cx))))
-                    .child(Button::new("welcome-open-vault").h(px(42.)).w_full()
-                        .label("打开已有笔记库").accessibility_label("打开已有笔记库")
-                        .disabled(self.file_writes.pending() > 0).icon(ui::icon("folder-open"))
-                        .on_click(cx.listener(|this, _, window, cx| this.choose_vault(window, cx))))
+                    .items_center()
+                    .text_center()
+                    .gap_4()
+                    .child(img(app_icon()).size(px(80.)))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(32.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .line_height(relative(1.2))
+                                    .text_color(colors.foreground)
+                                    .child(crate::product::name()),
+                            )
+                            .child(
+                                div()
+                                    .px(px(10.))
+                                    .py(px(3.))
+                                    .rounded_full()
+                                    .bg(colors.accent_tint)
+                                    .text_size(px(12.))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(colors.accent)
+                                    .child("本地优先 · Markdown 知识库"),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(360.))
+                            .text_size(px(MIN_UI_FONT_SIZE))
+                            .line_height(relative(1.65))
+                            .text_color(colors.muted)
+                            .child(
+                                "选择一个文件夹作为笔记库。每篇笔记都会以 Markdown 文件保存在这个文件夹里。",
+                            ),
+                    )
+                    .when(!self.notifications.text().is_empty(), |s| {
+                        s.child(
+                            div()
+                                .id("welcome-error")
+                                .debug_selector(|| "welcome-error".into())
+                                .w_full()
+                                .px_4()
+                                .py_3()
+                                .rounded(px(10.))
+                                .bg(colors.danger_tint)
+                                .text_left()
+                                .text_size(px(MIN_UI_FONT_SIZE))
+                                .line_height(relative(1.5))
+                                .text_color(colors.danger)
+                                .child(self.notifications.text().to_owned()),
+                        )
+                    })
+                    .child(
+                        div()
+                            .w_full()
+                            .mt_2()
+                            .p_5()
+                            .rounded(px(14.))
+                            .bg(colors.surface)
+                            .border_1()
+                            .border_color(colors.border)
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(
+                                Button::new("welcome-create-vault")
+                                    .primary()
+                                    .h(px(44.))
+                                    .w_full()
+                                    .rounded(px(10.))
+                                    .label("创建新笔记库")
+                                    .accessibility_label("创建新笔记库")
+                                    .disabled(self.file_writes.pending() > 0)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.create_first_vault(window, cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new("welcome-open-vault")
+                                    .h(px(44.))
+                                    .w_full()
+                                    .rounded(px(10.))
+                                    .label("打开已有笔记库")
+                                    .accessibility_label("打开已有笔记库")
+                                    .disabled(self.file_writes.pending() > 0)
+                                    .icon(ui::icon("folder-open"))
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.choose_vault(window, cx)
+                                    })),
+                            ),
+                    ),
             )
             .into_any_element()
     }
     pub(super) fn blank_note(&self, cx: &mut Context<Self>) -> AnyElement {
         let colors = crate::theme::palette(self.ui.prefs.light);
+        let vault_meta = self.vault.as_ref().map(|vault| {
+            let name = vault
+                .root
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| vault.root.display().to_string());
+            format!("{name} · {} 篇笔记", self.index.notes.len())
+        });
         div()
             .id("blank-note")
             .flex_1()
@@ -170,7 +267,7 @@ impl Workspace {
             .text_color(colors.foreground)
             .child(
                 div()
-                    .w(px(520.))
+                    .w(px(540.))
                     .max_w_full()
                     .flex_shrink_0()
                     .my_auto()
@@ -178,17 +275,45 @@ impl Workspace {
                     .flex_col()
                     .gap_6()
                     .child(
-                        div().flex().flex_col().child(
-                            div()
-                                .mt_2()
-                                .text_size(px(28.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(if self.index.notes.is_empty() {
-                                    "写下第一篇笔记"
-                                } else {
-                                    "打开或创建笔记"
-                                }),
-                        ),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .when_some(vault_meta, |s, meta| {
+                                s.child(
+                                    div().flex().child(
+                                        div()
+                                            .px(px(10.))
+                                            .py(px(3.))
+                                            .rounded_full()
+                                            .bg(colors.surface)
+                                            .border_1()
+                                            .border_color(colors.border)
+                                            .text_size(px(12.))
+                                            .text_color(colors.muted)
+                                            .child(meta),
+                                    ),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .text_size(px(28.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .line_height(relative(1.25))
+                                    .child(if self.index.notes.is_empty() {
+                                        "写下第一篇笔记"
+                                    } else {
+                                        "打开或创建笔记"
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(MIN_UI_FONT_SIZE))
+                                    .line_height(relative(1.5))
+                                    .text_color(colors.muted)
+                                    .child("开始记录想法，或按名称快速跳转到已有文档。"),
+                            ),
                     )
                     .child(
                         div().flex().flex_col().gap_3().children(
@@ -222,8 +347,9 @@ impl Workspace {
                                         )
                                         .w_full()
                                         .h_auto()
-                                        .p_4()
-                                        .rounded(px(8.))
+                                        .px_5()
+                                        .py_4()
+                                        .rounded(px(12.))
                                         .border_1()
                                         .border_color(colors.border)
                                         .accessibility_label(label)
@@ -234,7 +360,7 @@ impl Workspace {
                                                 .flex()
                                                 .flex_wrap()
                                                 .items_center()
-                                                .gap_3()
+                                                .gap_4()
                                                 .child(
                                                     div()
                                                         .size(px(42.))
@@ -275,13 +401,14 @@ impl Workspace {
                                                     s.child(
                                                         div()
                                                             .flex_shrink_0()
-                                                            .px_2()
+                                                            .px_2p5()
                                                             .py_1()
                                                             .rounded(px(6.))
                                                             .border_1()
                                                             .border_color(colors.border)
                                                             .bg(colors.background)
-                                                            .text_size(px(MIN_UI_FONT_SIZE))
+                                                            .text_size(px(13.))
+                                                            .font_weight(FontWeight::MEDIUM)
                                                             .text_color(colors.muted)
                                                             .child(shortcut),
                                                     )
