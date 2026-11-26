@@ -119,171 +119,175 @@ impl Render for EditorPane {
             });
         }
         let paste_weak = cx.entity().downgrade();
-        let image_dir = self.image_dir.clone();
-        let root = self.vault_root.clone();
-        let asset_index = self.reference_index.clone();
-        let rendered = self.rendered.clone();
-        let task_weak = cx.entity().downgrade();
-        let weak = cx.entity().downgrade();
-        let font_size = self.font_size;
-        let preview = TextView::new(&self.preview)
-            .code_block_actions(code_blocks::actions)
-            .font_family(self.text_font.clone())
-            .markdown_extensions(crate::native_graphics::extensions(
-                font_size,
-                _window.scale_factor(),
-                self.light,
-                self.strict_line_breaks,
-                cx.entity().downgrade(),
-                cx,
-            ))
-            .text_size(px(font_size))
-            .line_height(relative(self.line_spacing))
-            .style(
-                gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
-                    .with_foreground(crate::theme::palette(self.light).foreground.into())
-                    .with_link(crate::theme::palette(self.light).accent.into())
-                    .with_strong_color(crate::theme::palette(self.light).accent.into())
-                    .with_code_background(crate::theme::palette(self.light).surface.into())
-                    .with_inline_code(HighlightStyle {
-                        color: Some(crate::theme::palette(self.light).foreground.into()),
-                        ..Default::default()
-                    })
-                    .with_border(crate::theme::palette(self.light).border.into())
-                    .with_task_checkbox(
-                        StyleRefinement::default()
-                            .rounded_full()
-                            .border_color(crate::theme::palette(self.light).muted),
-                    )
-                    .with_paragraph_gap(rems(16. / f32::from(_window.rem_size()).max(1.)))
-                    .with_heading(move |level| {
-                        let i = usize::from(level.saturating_sub(1)).min(5);
-                        StyleRefinement::default()
-                            .text_size(px(font_size * markdown::HEADING_SCALES[i]))
-                            .font_weight(if level == 1 {
-                                FontWeight::BOLD
-                            } else {
-                                FontWeight::SEMIBOLD
-                            })
-                            .line_height(relative([1.2, 1.2, 1.3, 1.4, 1.5, 1.5][i]))
-                    })
-                    .with_code_block(code_blocks::style(font_size))
-                    .with_table_cell(StyleRefinement::default().text_size(px(font_size)))
-                    .with_table_head(
-                        StyleRefinement::default()
-                            .bg(crate::theme::palette(self.light).background)
-                            .text_color(crate::theme::palette(self.light).foreground),
-                    ),
-            )
-            .scrollable(true)
-            .scrollbar_visible(false)
-            .selectable(true)
-            .on_task_toggle(move |offset, checked, window, cx| {
-                let _ = task_weak.update(cx, |this, cx| {
-                    if let Some(target) = this
-                        .rendered
-                        .tasks
-                        .iter()
-                        .find(|t| t.rendered_start == offset)
-                        .cloned()
-                    {
-                        this.toggle_task(target, checked, window, cx);
-                    }
-                });
-            })
-            .image_link(|uri| Some(format!("inkstone-image:{uri}").into()))
-            .image_source(move |uri| {
-                let raw = uri.to_string();
-                if let Some(id) = raw
-                    .strip_prefix("inkstone-reference:")
-                    .and_then(|s| s.parse::<usize>().ok())
-                {
-                    if let Some(reference) = rendered.references.get(id) {
-                        if !reference.wiki
-                            && inkstone_core::rendering::is_remote_image(&reference.target)
-                        {
-                            return SharedUri::from(reference.target.clone()).into();
-                        }
-                        if let Some(path) = inkstone_core::rendering::asset_path(
-                            &root,
-                            reference,
-                            &asset_index.files,
-                        ) {
-                            return path.into();
-                        }
-                    }
-                    root.join(".inkstone-missing-image").into()
-                } else if inkstone_core::rendering::is_remote_image(&raw) {
-                    uri.clone().into()
-                } else {
-                    image_dir
-                        .join(
-                            percent_encoding::percent_decode_str(raw.trim_start_matches("file://"))
-                                .decode_utf8_lossy()
-                                .as_ref(),
+        let preview = self.reading.then(|| {
+            let image_dir = self.image_dir.clone();
+            let root = self.vault_root.clone();
+            let asset_index = self.reference_index.clone();
+            let rendered = self.rendered.clone();
+            let task_weak = cx.entity().downgrade();
+            let weak = cx.entity().downgrade();
+            let font_size = self.font_size;
+            TextView::new(&self.preview)
+                .code_block_actions(code_blocks::actions)
+                .font_family(self.text_font.clone())
+                .markdown_extensions(crate::native_graphics::extensions(
+                    font_size,
+                    _window.scale_factor(),
+                    self.light,
+                    self.strict_line_breaks,
+                    cx.entity().downgrade(),
+                    cx,
+                ))
+                .text_size(px(font_size))
+                .line_height(relative(self.line_spacing))
+                .style(
+                    gpui_base::text::TextViewStyle::from_theme(&gpui_base::Theme::global(cx))
+                        .with_foreground(crate::theme::palette(self.light).foreground.into())
+                        .with_link(crate::theme::palette(self.light).accent.into())
+                        .with_strong_color(crate::theme::palette(self.light).accent.into())
+                        .with_code_background(crate::theme::palette(self.light).surface.into())
+                        .with_inline_code(HighlightStyle {
+                            color: Some(crate::theme::palette(self.light).foreground.into()),
+                            ..Default::default()
+                        })
+                        .with_border(crate::theme::palette(self.light).border.into())
+                        .with_task_checkbox(
+                            StyleRefinement::default()
+                                .rounded_full()
+                                .border_color(crate::theme::palette(self.light).muted),
                         )
-                        .into()
-                }
-            })
-            .on_link_click(move |url, event, _, cx| {
-                if event.is_right_click() {
-                    return;
-                }
-                if let Some(target) = url.strip_prefix("inkstone-image:") {
-                    cx.stop_propagation();
-                    let _ = weak.update(cx, |this, cx| {
-                        let reference = target
-                            .strip_prefix("inkstone-reference:")
-                            .and_then(|id| id.parse::<usize>().ok())
-                            .and_then(|id| this.rendered.references.get(id))
-                            .cloned();
-                        if let Some(reference) = reference {
-                            cx.emit(EditorEvent::PreviewImage(reference));
+                        .with_paragraph_gap(rems(16. / f32::from(_window.rem_size()).max(1.)))
+                        .with_heading(move |level| {
+                            let i = usize::from(level.saturating_sub(1)).min(5);
+                            StyleRefinement::default()
+                                .text_size(px(font_size * markdown::HEADING_SCALES[i]))
+                                .font_weight(if level == 1 {
+                                    FontWeight::BOLD
+                                } else {
+                                    FontWeight::SEMIBOLD
+                                })
+                                .line_height(relative([1.2, 1.2, 1.3, 1.4, 1.5, 1.5][i]))
+                        })
+                        .with_code_block(code_blocks::style(font_size))
+                        .with_table_cell(StyleRefinement::default().text_size(px(font_size)))
+                        .with_table_head(
+                            StyleRefinement::default()
+                                .bg(crate::theme::palette(self.light).background)
+                                .text_color(crate::theme::palette(self.light).foreground),
+                        ),
+                )
+                .scrollable(true)
+                .scrollbar_visible(false)
+                .selectable(true)
+                .on_task_toggle(move |offset, checked, window, cx| {
+                    let _ = task_weak.update(cx, |this, cx| {
+                        if let Some(target) = this
+                            .rendered
+                            .tasks
+                            .iter()
+                            .find(|t| t.rendered_start == offset)
+                            .cloned()
+                        {
+                            this.toggle_task(target, checked, window, cx);
                         }
                     });
-                    return;
-                }
-                let new_tab = event.modifiers().secondary();
-                let _ = weak.update(cx, |this, cx| {
-                    if let Some(id) = url
+                })
+                .image_link(|uri| Some(format!("inkstone-image:{uri}").into()))
+                .image_source(move |uri| {
+                    let raw = uri.to_string();
+                    if let Some(id) = raw
                         .strip_prefix("inkstone-reference:")
                         .and_then(|s| s.parse::<usize>().ok())
                     {
-                        if let Some(reference) = this.rendered.references.get(id).cloned() {
+                        if let Some(reference) = rendered.references.get(id) {
                             if !reference.wiki
-                                && inkstone_core::rendering::is_external_link(&reference.target)
+                                && inkstone_core::rendering::is_remote_image(&reference.target)
                             {
-                                cx.open_url(&reference.target);
-                            } else {
-                                cx.emit(if new_tab {
-                                    EditorEvent::FollowReferenceInNewTab(reference)
-                                } else {
-                                    EditorEvent::FollowReference(reference)
-                                });
+                                return SharedUri::from(reference.target.clone()).into();
+                            }
+                            if let Some(path) = inkstone_core::rendering::asset_path(
+                                &root,
+                                reference,
+                                &asset_index.files,
+                            ) {
+                                return path.into();
                             }
                         }
-                    } else if let Some(index) = url
-                        .strip_prefix("inkstone-link:")
-                        .and_then(|i| i.parse::<usize>().ok())
-                    {
-                        if let Some(link) = this.parsed.links.get(index) {
+                        root.join(".inkstone-missing-image").into()
+                    } else if inkstone_core::rendering::is_remote_image(&raw) {
+                        uri.clone().into()
+                    } else {
+                        image_dir
+                            .join(
+                                percent_encoding::percent_decode_str(
+                                    raw.trim_start_matches("file://"),
+                                )
+                                .decode_utf8_lossy()
+                                .as_ref(),
+                            )
+                            .into()
+                    }
+                })
+                .on_link_click(move |url, event, _, cx| {
+                    if event.is_right_click() {
+                        return;
+                    }
+                    if let Some(target) = url.strip_prefix("inkstone-image:") {
+                        cx.stop_propagation();
+                        let _ = weak.update(cx, |this, cx| {
+                            let reference = target
+                                .strip_prefix("inkstone-reference:")
+                                .and_then(|id| id.parse::<usize>().ok())
+                                .and_then(|id| this.rendered.references.get(id))
+                                .cloned();
+                            if let Some(reference) = reference {
+                                cx.emit(EditorEvent::PreviewImage(reference));
+                            }
+                        });
+                        return;
+                    }
+                    let new_tab = event.modifiers().secondary();
+                    let _ = weak.update(cx, |this, cx| {
+                        if let Some(id) = url
+                            .strip_prefix("inkstone-reference:")
+                            .and_then(|s| s.parse::<usize>().ok())
+                        {
+                            if let Some(reference) = this.rendered.references.get(id).cloned() {
+                                if !reference.wiki
+                                    && inkstone_core::rendering::is_external_link(&reference.target)
+                                {
+                                    cx.open_url(&reference.target);
+                                } else {
+                                    cx.emit(if new_tab {
+                                        EditorEvent::FollowReferenceInNewTab(reference)
+                                    } else {
+                                        EditorEvent::FollowReference(reference)
+                                    });
+                                }
+                            }
+                        } else if let Some(index) = url
+                            .strip_prefix("inkstone-link:")
+                            .and_then(|i| i.parse::<usize>().ok())
+                        {
+                            if let Some(link) = this.parsed.links.get(index) {
+                                cx.emit(if new_tab {
+                                    EditorEvent::FollowLinkInNewTab(link.target.clone())
+                                } else {
+                                    EditorEvent::FollowLink(link.target.clone())
+                                });
+                            }
+                        } else if inkstone_core::rendering::is_external_link(url) {
+                            cx.open_url(url);
+                        } else {
                             cx.emit(if new_tab {
-                                EditorEvent::FollowLinkInNewTab(link.target.clone())
+                                EditorEvent::FollowMarkdownLinkInNewTab(url.to_string())
                             } else {
-                                EditorEvent::FollowLink(link.target.clone())
+                                EditorEvent::FollowMarkdownLink(url.to_string())
                             });
                         }
-                    } else if inkstone_core::rendering::is_external_link(url) {
-                        cx.open_url(url);
-                    } else {
-                        cx.emit(if new_tab {
-                            EditorEvent::FollowMarkdownLinkInNewTab(url.to_string())
-                        } else {
-                            EditorEvent::FollowMarkdownLink(url.to_string())
-                        });
-                    }
-                });
-            });
+                    });
+                })
+        });
         let scrollbar = if self.reading {
             gpui_base::Scrollbar::vertical(self.preview.read(cx).list_state())
                 .viewport_from_layout()
@@ -383,7 +387,7 @@ impl Render for EditorPane {
                             .h_full()
                             .min_w_0()
                             .when(self.readable_width, |s| s.max_w(px(700.)))
-                            .when(self.reading, |s| s.child(preview))
+                            .children(preview)
                             .when(!self.reading, |s| {
                                 // The gutter narrows the wrap. Extend the editor by
                                 // the gutter and shift it left, so the text column
