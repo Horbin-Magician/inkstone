@@ -8,13 +8,13 @@ use std::io::Read;
 fn main() -> Result<()> {
     let mut key = String::new();
     std::io::stdin().read_to_string(&mut key)?;
-    let provider = CompatibleProvider {
-        config: ModelConfig {
+    let provider = CompatibleProvider::new(
+        ModelConfig {
             output_tokens: 2048,
             ..Default::default()
         },
-        key: key.trim().into(),
-    };
+        key,
+    )?;
     ensure!(!provider.key.is_empty(), "Provide a test key via stdin");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

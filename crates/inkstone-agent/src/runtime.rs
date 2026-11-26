@@ -117,10 +117,7 @@ impl AgentRun {
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()?;
-                    let provider = CompatibleProvider {
-                        config: request.config.clone(),
-                        key: request.key,
-                    };
+                    let provider = CompatibleProvider::new(request.config.clone(), request.key)?;
                     let schema = vec![
                         json!({"type":"function","function":{"name":"inkstone_probe","description":"Connection test, no side effects","parameters":{"type":"object","properties":{}}}}),
                     ];
@@ -168,10 +165,7 @@ impl AgentRun {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()?;
-                let provider = CompatibleProvider {
-                    config: request.config.clone(),
-                    key: request.key,
-                };
+                let provider = CompatibleProvider::new(request.config.clone(), request.key)?;
                 runtime.block_on(execute(
                     &provider,
                     &request.config,

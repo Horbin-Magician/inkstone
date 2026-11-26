@@ -78,6 +78,22 @@ pub trait ModelProvider: Send + Sync {
 pub struct CompatibleProvider {
     pub config: ModelConfig,
     pub key: String,
+    client: reqwest::Client,
+    response_timeout: Duration,
+}
+impl CompatibleProvider {
+    pub fn new(config: ModelConfig, key: String) -> Result<Self> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        Ok(Self {
+            config,
+            key: key.trim().to_owned(),
+            client,
+            response_timeout: Duration::from_secs(45),
+        })
+    }
 }
 impl ModelProvider for CompatibleProvider {
     fn complete<'a>(
@@ -89,11 +105,6 @@ impl ModelProvider for CompatibleProvider {
     ) -> CompletionFuture<'a> {
         Box::pin(async move {
             self.config.validate()?;
-            let client = reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(15))
-                .timeout(Duration::from_secs(180))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()?;
             let responses = uses_responses(&self.config)?;
             let body = request_body(&self.config, messages, tools)?;
             let endpoint = if responses {
@@ -101,7 +112,8 @@ impl ModelProvider for CompatibleProvider {
             } else {
                 "chat/completions"
             };
-            let mut request = client
+            let mut request = self
+                .client
                 .post(format!(
                     "{}/{endpoint}",
                     self.config.base_url.trim_end_matches('/')
@@ -112,7 +124,9 @@ impl ModelProvider for CompatibleProvider {
             }
             let response = tokio::select! {
                 _ = cancel.wait() => bail!("已取消"),
-                response = request.send() => response.map_err(|_| anyhow::anyhow!("连接模型服务失败或超时"))?,
+                response = tokio::time::timeout(self.response_timeout, request.send()) => response
+                    .map_err(|_| anyhow::anyhow!("模型响应等待超时"))?
+                    .map_err(|_| anyhow::anyhow!("连接模型服务失败或超时"))?,
             };
             if !response.status().is_success() {
                 let status = response.status().as_u16();
@@ -141,7 +155,7 @@ impl ModelProvider for CompatibleProvider {
             'stream: loop {
                 let next = tokio::select! {
                     _ = cancel.wait() => bail!("已取消"),
-                    next = tokio::time::timeout(Duration::from_secs(45), stream.next()) => next.context("模型响应等待超时")?,
+                    next = tokio::time::timeout(self.response_timeout, stream.next()) => next.context("模型响应等待超时")?,
                 };
                 let Some(bytes) = next else {
                     break;
@@ -605,6 +619,111 @@ pub(crate) mod http_tests {
         });
         (url, handle)
     }
+    fn read_request(stream: &mut std::net::TcpStream) -> String {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0; 1024];
+        loop {
+            let n = stream.read(&mut buffer).unwrap();
+            assert_ne!(n, 0);
+            request.extend_from_slice(&buffer[..n]);
+            if let Some(end) = request.windows(4).position(|b| b == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&request[..end]).to_lowercase();
+                let size: usize = head
+                    .lines()
+                    .find_map(|line| {
+                        line.strip_prefix("content-length:")
+                            .and_then(|s| s.trim().parse().ok())
+                    })
+                    .unwrap();
+                if request.len() >= end + 4 + size {
+                    break;
+                }
+            }
+        }
+        String::from_utf8(request).unwrap()
+    }
+    #[test]
+    fn provider_reuses_one_connection_and_trims_credentials() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let config = ModelConfig {
+            base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+            ..Default::default()
+        };
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            for _ in 0..2 {
+                let request = read_request(&mut stream);
+                assert!(request.contains("Bearer test-key\r\n"));
+                let body = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n{body}",body.len()).unwrap();
+            }
+        });
+        let provider = CompatibleProvider::new(config, "  test-key\n".into()).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            for _ in 0..2 {
+                assert_eq!(
+                    provider
+                        .complete(&[], &[], &Cancel::default(), &mut |_| Ok(()))
+                        .await
+                        .unwrap()
+                        .text,
+                    "ok"
+                );
+            }
+        });
+        server.join().unwrap();
+    }
+    #[test]
+    fn stream_can_outlast_idle_timeout_but_stalled_headers_or_body_fail() {
+        for mode in ["flowing", "headers", "body"] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let config = ModelConfig {
+                base_url: format!("http://{}/v1", listener.local_addr().unwrap()),
+                ..Default::default()
+            };
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                read_request(&mut stream);
+                if mode == "headers" {
+                    std::thread::sleep(Duration::from_millis(600));
+                    return;
+                }
+                let chunk = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n";
+                let end = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n",chunk.len()*8+end.len()).unwrap();
+                if mode == "body" {
+                    std::thread::sleep(Duration::from_millis(600));
+                    return;
+                }
+                for _ in 0..8 {
+                    stream.write_all(chunk.as_bytes()).unwrap();
+                    std::thread::sleep(Duration::from_millis(60));
+                }
+                stream.write_all(end.as_bytes()).unwrap();
+            });
+            let mut provider = CompatibleProvider::new(config, String::new()).unwrap();
+            provider.response_timeout = Duration::from_millis(300);
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let result =
+                runtime.block_on(provider.complete(&[], &[], &Cancel::default(), &mut |_| Ok(())));
+            if mode == "flowing" {
+                assert_eq!(result.unwrap().text, "ok".repeat(8));
+            } else {
+                assert!(result.unwrap_err().to_string().contains("等待超时"));
+            }
+            server.join().unwrap();
+        }
+    }
     #[test]
     fn real_http_stream_and_errors_are_redacted() {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -613,14 +732,15 @@ pub(crate) mod http_tests {
             .unwrap();
         let body = "data: {\"choices\":[{\"delta\":{\"content\":\"你好\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
         let (url, server) = server("200 OK", body);
-        let provider = CompatibleProvider {
-            config: ModelConfig {
+        let provider = CompatibleProvider::new(
+            ModelConfig {
                 base_url: url,
                 model: "test".into(),
                 ..Default::default()
             },
-            key: "test-secret".into(),
-        };
+            "test-secret".into(),
+        )
+        .unwrap();
         let mut deltas = String::new();
         let result = runtime
             .block_on(provider.complete(
@@ -646,14 +766,15 @@ pub(crate) mod http_tests {
             "429 Too Many Requests",
             "private-provider-error test-secret",
         );
-        let provider = CompatibleProvider {
-            config: ModelConfig {
+        let provider = CompatibleProvider::new(
+            ModelConfig {
                 base_url: url,
                 model: "test".into(),
                 ..Default::default()
             },
-            key: "test-secret".into(),
-        };
+            "test-secret".into(),
+        )
+        .unwrap();
         let error = runtime
             .block_on(provider.complete(&[], &[], &Cancel::default(), &mut |_| Ok(())))
             .unwrap_err()
@@ -670,14 +791,15 @@ pub(crate) mod http_tests {
             let (_stream, _) = listener.accept().unwrap();
             std::thread::sleep(Duration::from_millis(500));
         });
-        let provider = CompatibleProvider {
-            config: ModelConfig {
+        let provider = CompatibleProvider::new(
+            ModelConfig {
                 base_url: url,
                 model: "test".into(),
                 ..Default::default()
             },
-            key: String::new(),
-        };
+            String::new(),
+        )
+        .unwrap();
         let cancel = Cancel::default();
         let other = cancel.clone();
         std::thread::spawn(move || {

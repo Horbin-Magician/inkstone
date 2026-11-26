@@ -363,7 +363,9 @@ impl Workspace {
         }
         self.agent.settings.models[self.agent.settings.selected] = config.clone();
         self.agent.settings.excluded = excluded;
-        self.agent.secrets.insert(config.id, values[3].clone());
+        self.agent
+            .secrets
+            .insert(config.id, values[3].trim().to_owned());
         let result = storage::save_secrets(&app_dir(), &self.agent.secrets).and_then(|_| {
             storage::write(&app_dir().join("agent-settings.json"), &self.agent.settings)
         });
