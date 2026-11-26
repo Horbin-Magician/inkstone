@@ -260,13 +260,11 @@ impl Workspace {
                         palette.muted
                     })
                     .children(symbol.map(|s| {
-                        icon(s)
-                            .size(px(15.))
-                            .text_color(if active {
-                                palette.accent
-                            } else {
-                                palette.muted
-                            })
+                        icon(s).size(px(15.)).text_color(if active {
+                            palette.accent
+                        } else {
+                            palette.muted
+                        })
                     }))
                     .child(label.to_string()),
             )
@@ -820,5 +818,57 @@ impl Workspace {
                     )),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+    use core::prelude::v1::test;
+    #[gpui::test]
+    fn filters_notify_workspace_only_when_content_changes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        let count = std::rc::Rc::new(std::cell::Cell::new(0));
+        let observed = count.clone();
+        let _subscription = handle
+            .update(cx, |_, _, cx| {
+                cx.observe(&cx.entity(), move |_, _, _| {
+                    observed.set(observed.get() + 1)
+                })
+            })
+            .unwrap();
+        cx.run_until_parked();
+        for settings in [true, false] {
+            let before = count.get();
+            handle
+                .update(cx, |w, _, cx| {
+                    let input = if settings {
+                        &w.ui.settings_filter
+                    } else {
+                        &w.ui.hotkey_filter
+                    };
+                    input.update(cx, |_, cx| cx.notify());
+                })
+                .unwrap();
+            cx.run_until_parked();
+            assert_eq!(
+                count.get(),
+                before,
+                "cursor/geometry notifications must stay local"
+            );
+            handle
+                .update(cx, |w, window, cx| {
+                    let input = if settings {
+                        &w.ui.settings_filter
+                    } else {
+                        &w.ui.hotkey_filter
+                    };
+                    input.update(cx, |s, cx| s.replace("保存", window, cx));
+                })
+                .unwrap();
+            cx.run_until_parked();
+            assert!(count.get() > before, "filter results must update");
+        }
     }
 }

@@ -453,8 +453,18 @@ impl UiState {
         .collect();
         let hotkey_filter = cx.new(|cx| InputState::new(window, cx).placeholder("搜索快捷键命令…"));
         let settings_filter = cx.new(|cx| InputState::new(window, cx).placeholder("搜索设置…"));
-        let settings_filter_subscription = cx.observe(&settings_filter, |_, _, cx| cx.notify());
-        let hotkey_filter_subscription = cx.observe(&hotkey_filter, |_, _, cx| cx.notify());
+        let settings_filter_subscription =
+            cx.subscribe(&settings_filter, |_, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            });
+        let hotkey_filter_subscription =
+            cx.subscribe(&hotkey_filter, |_, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            });
         let weak = cx.entity().downgrade();
         let window_id = window.window_handle().window_id();
         let hotkey_subscription = cx.intercept_keystrokes(move |event, window, cx| {
