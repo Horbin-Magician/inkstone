@@ -46,25 +46,6 @@ const SUGGESTIONS: [(&str, &str, &str); 4] = [
     ),
 ];
 
-#[derive(Default)]
-struct HistoryWindow {
-    scope_key: String,
-    start: usize,
-}
-
-impl HistoryWindow {
-    fn messages(&mut self, key: String, messages: &[Message]) -> Vec<serde_json::Value> {
-        if self.scope_key != key {
-            self.scope_key = key;
-            self.start = messages.len();
-        }
-        messages[self.start..]
-            .iter()
-            .map(|m| serde_json::json!({"role":m.role,"content":m.text}))
-            .collect()
-    }
-}
-
 pub(super) struct State {
     settings: Settings,
     secrets: BTreeMap<String, String>,
@@ -73,7 +54,6 @@ pub(super) struct State {
     scope_input: Entity<InputState>,
     scope: usize,
     mode: RequestMode,
-    history_window: HistoryWindow,
     sessions: Vec<Session>,
     selected: usize,
     root: Option<PathBuf>,
@@ -131,7 +111,6 @@ impl State {
                 .new(|cx| InputState::new(window, cx).placeholder("库内目录 / 笔记路径，逗号分隔")),
             scope: 0,
             mode: RequestMode::Chat,
-            history_window: HistoryWindow::default(),
             sessions: vec![Session::default()],
             selected: 0,
             root: None,
@@ -237,7 +216,6 @@ impl Workspace {
             self.agent.generation = self.generation;
             self.agent.selected = 0;
             self.agent.scope = 0;
-            self.agent.history_window = HistoryWindow::default();
             match root
                 .as_ref()
                 .map(|root| storage::load_sessions(&app_dir(), root))
@@ -491,16 +469,21 @@ impl Workspace {
             ),
             _ => Scope::Vault,
         };
-        let scope_key = format!(
-            "{scope:?}:{:?}:{:?}",
-            self.agent.settings.excluded,
-            snapshot.as_ref().map(|(p, _, range)| (p, range))
-        );
-        // Never resend earlier broad-scope content after narrowing the task scope.
-        let history = self.agent.history_window.messages(
-            scope_key,
-            &self.agent.sessions[self.agent.selected].messages,
-        );
+        let selection = if self.agent.scope == 0 && self.agent.mode != RequestMode::Probe {
+            self.current_pane().and_then(|pane| {
+                let range = pane.read(cx).editor.read(cx).selected_range();
+                snapshot.as_ref().and_then(|(path, text, _)| {
+                    (!range.is_empty()).then_some((path.as_path(), range, text.as_str()))
+                })
+            })
+        } else {
+            None
+        };
+        let excluded = self.agent.settings.excluded.clone();
+        let history = self
+            .agent
+            .session_mut()
+            .history_messages(&scope, &excluded, selection);
         let session = self.agent.session_mut();
         if session.messages.is_empty() {
             session.title = prompt.chars().take(24).collect();
@@ -588,7 +571,6 @@ impl Workspace {
             self.agent.selected = self.agent.sessions.len() - 1;
             self.agent.persist();
         }
-        self.agent.history_window = HistoryWindow::default();
         self.agent.error.clear();
         window.focus(&self.agent.prompt.focus_handle(cx), cx);
         cx.notify();
@@ -598,7 +580,6 @@ impl Workspace {
             return;
         }
         self.agent.selected = index;
-        self.agent.history_window = HistoryWindow::default();
         self.agent.error.clear();
         self.agent.scroll.scroll_to_bottom();
         cx.notify();
@@ -612,7 +593,6 @@ impl Workspace {
             self.agent.sessions.push(Session::default());
         }
         self.agent.selected = self.agent.sessions.len() - 1;
-        self.agent.history_window = HistoryWindow::default();
         self.agent.persist();
         cx.notify();
     }
@@ -2054,26 +2034,6 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
     use inkstone_core::changes::{Change, ChangeSet};
-    #[test]
-    fn narrowed_scope_excludes_old_messages_on_followups() {
-        let mut window = HistoryWindow::default();
-        let message = |text: &str| Message {
-            requests: vec![],
-            role: "assistant".into(),
-            text: text.into(),
-        };
-        let mut messages = vec![];
-        assert!(window.messages("vault".into(), &messages).is_empty());
-        messages.push(message("vault-only"));
-        assert!(window.messages("selection".into(), &messages).is_empty());
-        messages.push(message("selected"));
-        let history = window.messages("selection".into(), &messages);
-        assert_eq!(
-            history,
-            vec![serde_json::json!({"role":"assistant","content":"selected"})]
-        );
-    }
-
     fn proposal(before: &str, after: &str) -> Proposal {
         Proposal {
             previews: vec![],

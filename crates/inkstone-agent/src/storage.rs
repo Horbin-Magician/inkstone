@@ -36,6 +36,8 @@ pub struct Session {
     pub proposals: Vec<Proposal>,
     pub tools: Vec<(String, String)>,
     pub usage: Option<serde_json::Value>,
+    #[serde(default)]
+    history_window: HistoryWindow,
 }
 impl Default for Session {
     fn default() -> Self {
@@ -56,7 +58,51 @@ impl Default for Session {
             proposals: vec![],
             tools: vec![],
             usage: None,
+            history_window: HistoryWindow::default(),
         }
+    }
+}
+// Persist both the permission boundary and its position: reopening a session must
+// neither discard its current history nor resurrect messages from a wider scope.
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct HistoryWindow {
+    key: Option<String>,
+    start: usize,
+}
+impl Session {
+    pub fn history_messages(
+        &mut self,
+        scope: &crate::Scope,
+        excluded: &[std::path::PathBuf],
+        selection: Option<(&Path, std::ops::Range<usize>, &str)>,
+    ) -> Vec<serde_json::Value> {
+        let mut scope = scope.clone();
+        if let crate::Scope::Notes(paths) = &mut scope {
+            paths.sort();
+            paths.dedup();
+        }
+        let mut excluded = excluded.to_vec();
+        excluded.sort();
+        excluded.dedup();
+        // Full-document length and active tabs are not permission boundaries.
+        // Selected text participates so a different selection at the same offsets
+        // cannot accidentally reuse content from the preceding selection.
+        let selection = selection.map(|(path, range, text)| {
+            let digest = crate::tools::hash(text.get(range.clone()).unwrap_or_default());
+            (path, range, digest)
+        });
+        let key = format!("{scope:?}:{excluded:?}:{selection:?}");
+        if self.history_window.key.as_ref() != Some(&key) {
+            self.history_window.key = Some(key);
+            // Legacy sessions have no scope provenance; retain their UI transcript
+            // but do not send potentially broader content under a narrower scope.
+            self.history_window.start = self.messages.len();
+        }
+        self.messages[self.history_window.start.min(self.messages.len())..]
+            .iter()
+            .filter(|m| m.role != "assistant" || !m.text.trim().is_empty())
+            .map(|m| serde_json::json!({"role":m.role,"content":m.text}))
+            .collect()
     }
 }
 pub fn read<T: serde::de::DeserializeOwned + Default>(path: &Path) -> Result<T> {
@@ -143,6 +189,93 @@ pub fn check_exclusions(paths: &[std::path::PathBuf]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn message(role: &str, text: &str) -> Message {
+        Message {
+            requests: vec![],
+            role: role.into(),
+            text: text.into(),
+        }
+    }
+    #[test]
+    fn history_survives_reopening_and_keeps_narrowed_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Path::new("vault");
+        let mut session = Session::default();
+        session.history_messages(&crate::Scope::Vault, &[], None);
+        session.messages.push(message("assistant", "broad content"));
+        let narrow = crate::Scope::Notes(vec!["a.md".into()]);
+        assert!(session.history_messages(&narrow, &[], None).is_empty());
+        session.messages.push(message("user", "continue"));
+        session
+            .messages
+            .push(message("assistant", "allowed content"));
+        let expected = session.history_messages(&narrow, &[], None);
+        save_sessions(dir.path(), vault, &[session, Session::default()]).unwrap();
+        let mut sessions = load_sessions(dir.path(), vault).unwrap();
+        sessions[1].history_messages(&crate::Scope::Vault, &[], None);
+        assert_eq!(sessions[0].history_messages(&narrow, &[], None), expected);
+        assert_eq!(expected.len(), 2);
+        assert!(
+            sessions[0]
+                .history_messages(&narrow, &["private".into()], None)
+                .is_empty()
+        );
+    }
+    #[test]
+    fn history_tracks_permissions_instead_of_document_length_or_path_order() {
+        let mut session = Session::default();
+        let notes = crate::Scope::Notes(vec!["a.md".into(), "b.md".into()]);
+        session.history_messages(&notes, &[], None);
+        session
+            .messages
+            .push(message("assistant", "previous answer"));
+        let reordered = crate::Scope::Notes(vec!["b.md".into(), "a.md".into(), "a.md".into()]);
+        assert_eq!(session.history_messages(&reordered, &[], None).len(), 1);
+        let selected = Some((Path::new("a.md"), 0..3, "one rest"));
+        assert!(
+            session
+                .history_messages(&notes, &[], selected.clone())
+                .is_empty()
+        );
+        session
+            .messages
+            .push(message("assistant", "selection answer"));
+        assert_eq!(session.history_messages(&notes, &[], selected).len(), 1);
+        assert!(
+            session
+                .history_messages(&notes, &[], Some((Path::new("a.md"), 0..3, "two rest")))
+                .is_empty()
+        );
+    }
+    #[test]
+    fn failed_and_cancelled_turns_do_not_send_empty_assistant_placeholders() {
+        for state in [RunState::Failed, RunState::Cancelled, RunState::Interrupted] {
+            let mut session = Session::default();
+            session.history_messages(&crate::Scope::Vault, &[], None);
+            session.messages.push(message("user", "request"));
+            session.messages.push(message("assistant", ""));
+            session.state = state;
+            let mut reopened: Session =
+                serde_json::from_slice(&serde_json::to_vec(&session).unwrap()).unwrap();
+            assert_eq!(
+                reopened.history_messages(&crate::Scope::Vault, &[], None),
+                vec![serde_json::json!({"role":"user", "content":"request"})]
+            );
+        }
+    }
+    #[test]
+    fn legacy_sessions_keep_transcript_without_resending_unknown_scope() {
+        let mut value = serde_json::to_value(Session::default()).unwrap();
+        value.as_object_mut().unwrap().remove("history_window");
+        value["messages"] = serde_json::json!([{"role":"assistant","text":"unknown scope"}]);
+        let mut session: Session = serde_json::from_value(value).unwrap();
+        assert!(
+            session
+                .history_messages(&crate::Scope::Notes(vec!["a.md".into()]), &[], None)
+                .is_empty()
+        );
+        assert_eq!(session.messages.len(), 1);
+    }
     #[test]
     fn writer_coalesces_without_losing_other_vaults_and_flushes_on_drop() {
         let dir = tempfile::tempdir().unwrap();
