@@ -647,11 +647,11 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.list.active_highlight = true;
         theme.list_active = colors.selected.into();
         theme.tokens.list_hover =
-            Hsla::from(rgba(if light { 0x090a0d0c } else { 0xffffff10 })).into();
+            Hsla::from(rgba(if light { 0x0a0a0a0c } else { 0xffffff10 })).into();
         theme.primary = colors.accent.into();
         theme.primary_hover = rgb(if light { 0x1565d8 } else { 0x73b2ff }).into();
         theme.primary_active = rgb(if light { 0x1155be } else { 0x3688ff }).into();
-        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x06101f }).into();
+        theme.primary_foreground = rgb(if light { 0xffffff } else { 0x101010 }).into();
         theme.button_primary = theme.primary;
         theme.button_primary_hover = theme.primary_hover;
         theme.button_primary_active = theme.primary_active;
@@ -672,12 +672,12 @@ pub(super) fn apply_theme(light: bool, cx: &mut App) {
         theme.drag_border = colors.accent.into();
         theme.drop_target = colors.accent_tint.into();
         theme.slider_bar = colors.accent.into();
-        theme.switch = rgb(if light { 0xcfd4de } else { 0x2b303d }).into();
+        theme.switch = rgb(if light { 0xd4d4d4 } else { 0x303030 }).into();
         theme.switch_thumb = rgb(0xffffff).into();
         theme.slider_thumb = rgb(0xffffff).into();
         theme.selection = rgba(if light { 0x1a73e833 } else { 0x529eff42 }).into();
-        theme.scrollbar_thumb = rgba(if light { 0x52586652 } else { 0x9da5b452 }).into();
-        theme.scrollbar_thumb_hover = rgba(if light { 0x52586680 } else { 0x9da5b480 }).into();
+        theme.scrollbar_thumb = rgba(if light { 0x58585852 } else { 0xa5a5a552 }).into();
+        theme.scrollbar_thumb_hover = rgba(if light { 0x58585880 } else { 0xa5a5a580 }).into();
     });
 }
 impl Workspace {
