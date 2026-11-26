@@ -231,7 +231,7 @@ pub(crate) fn request_body(
             message
         })
         .collect();
-    let mut body = json!({"model":config.model,"messages":messages,"stream":true,"max_completion_tokens":config.output_tokens});
+    let mut body = json!({"model":config.model,"messages":messages,"stream":true,"stream_options":{"include_usage":true},"max_completion_tokens":config.output_tokens});
     if !tools.is_empty() {
         body["tools"] = tools.into();
     }
@@ -407,6 +407,9 @@ impl Collector {
             self.result.usage = Some(value["usage"].clone());
         }
         let Some(choices) = value["choices"].as_array() else {
+            if value.get("choices").is_none() && value["usage"].is_object() {
+                return Ok(None);
+            }
             bail!("响应缺少 choices");
         };
         let mut text = None;
@@ -564,6 +567,40 @@ mod tests {
             ..Default::default()
         };
         assert!(config.validate().is_err());
+    }
+    #[test]
+    fn usage_trailers_accept_empty_or_absent_choices_without_hiding_malformed_chunks() {
+        for trailer in [
+            json!({"usage":{"total_tokens":7},"choices":[]}),
+            json!({"usage":{"total_tokens":7}}),
+        ] {
+            let mut collector = Collector::default();
+            collector
+                .event(r#"{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}"#)
+                .unwrap();
+            assert!(collector.event(&trailer.to_string()).unwrap().is_none());
+            collector.event("[DONE]").unwrap();
+            let result = collector.finish().unwrap();
+            assert_eq!(result.text, "ok");
+            assert_eq!(result.usage.unwrap()["total_tokens"], 7);
+        }
+        for malformed in [
+            json!({}),
+            json!({"usage":null}),
+            json!({"choices":"bad","usage":{"total_tokens":7}}),
+        ] {
+            assert!(Collector::default().event(&malformed.to_string()).is_err());
+        }
+        let body = request_body(
+            &ModelConfig {
+                base_url: "https://compatible.example/v1".into(),
+                ..Default::default()
+            },
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(body["stream_options"]["include_usage"], true);
     }
     #[test]
     fn truncated_call_never_finishes() {
