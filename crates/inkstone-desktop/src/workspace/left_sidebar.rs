@@ -235,8 +235,9 @@ impl Workspace {
             .active
             .and_then(|i| self.tabs.get(i))
             .map(|tab| tab.path.clone());
-        let tree_foreground = crate::theme::palette(self.ui.prefs.light).muted;
-        let tree_active = crate::theme::palette(self.ui.prefs.light).accent;
+        let palette = crate::theme::palette(self.ui.prefs.light);
+        let tree_foreground = palette.muted;
+        let tree_active = palette.accent;
         let tree_guide = self.border();
         let guide_depths = self.tree.read(cx).depths();
         let guide_scroll = self.tree.read(cx).scroll_handle().clone();
@@ -348,7 +349,22 @@ impl Workspace {
                                     })
                                 })
                                 .when(is_editing, |s| {
-                                    s.child(Input::new(&name_input).small().h(px(25.)))
+                                    s.child(
+                                        Input::new(&name_input)
+                                            .small()
+                                            .focus_bordered(false)
+                                            .h(px(24.))
+                                            .w_full()
+                                            .min_w_0()
+                                            .px(px(4.))
+                                            .rounded(px(4.))
+                                            .border_1()
+                                            .border_color(tree_active)
+                                            .bg(palette.background)
+                                            .text_size(px(MIN_UI_FONT_SIZE))
+                                            .font_weight(FontWeight::NORMAL)
+                                            .text_color(palette.foreground),
+                                    )
                                 })
                                 .when(!is_editing, |s| {
                                     let label = if !folder
