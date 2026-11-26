@@ -65,6 +65,7 @@ pub struct Completion {
     /// Complete Responses items, including encrypted reasoning, for this run only.
     pub output_items: Vec<Value>,
 }
+pub type EmitFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 pub type CompletionFuture<'a> = Pin<Box<dyn Future<Output = Result<Completion>> + Send + 'a>>;
 pub trait ModelProvider: Send + Sync {
     fn complete<'a>(
@@ -72,7 +73,7 @@ pub trait ModelProvider: Send + Sync {
         messages: &'a [Value],
         tools: &'a [Value],
         cancel: &'a Cancel,
-        emit: &'a mut (dyn FnMut(String) -> Result<()> + Send),
+        emit: &'a mut (dyn FnMut(String) -> EmitFuture + Send),
     ) -> CompletionFuture<'a>;
 }
 pub struct CompatibleProvider {
@@ -101,7 +102,7 @@ impl ModelProvider for CompatibleProvider {
         messages: &'a [Value],
         tools: &'a [Value],
         cancel: &'a Cancel,
-        emit: &'a mut (dyn FnMut(String) -> Result<()> + Send),
+        emit: &'a mut (dyn FnMut(String) -> EmitFuture + Send),
     ) -> CompletionFuture<'a> {
         Box::pin(async move {
             self.config.validate()?;
@@ -168,7 +169,7 @@ impl ModelProvider for CompatibleProvider {
                         completion.event(&event)?
                     };
                     if let Some(delta) = delta {
-                        emit(delta)?;
+                        emit(delta).await?;
                     }
                     if response_completion.done || event == "[DONE]" {
                         break 'stream;
@@ -670,7 +671,9 @@ pub(crate) mod http_tests {
             for _ in 0..2 {
                 assert_eq!(
                     provider
-                        .complete(&[], &[], &Cancel::default(), &mut |_| Ok(()))
+                        .complete(&[], &[], &Cancel::default(), &mut |_| Box::pin(
+                            std::future::ready(Ok(()))
+                        ))
                         .await
                         .unwrap()
                         .text,
@@ -715,7 +718,9 @@ pub(crate) mod http_tests {
                 .build()
                 .unwrap();
             let result =
-                runtime.block_on(provider.complete(&[], &[], &Cancel::default(), &mut |_| Ok(())));
+                runtime.block_on(provider.complete(&[], &[], &Cancel::default(), &mut |_| {
+                    Box::pin(std::future::ready(Ok(())))
+                }));
             if mode == "flowing" {
                 assert_eq!(result.unwrap().text, "ok".repeat(8));
             } else {
@@ -749,7 +754,7 @@ pub(crate) mod http_tests {
                 &Cancel::default(),
                 &mut |text| {
                     deltas.push_str(&text);
-                    Ok(())
+                    Box::pin(std::future::ready(Ok(())))
                 },
             ))
             .unwrap();
@@ -776,7 +781,9 @@ pub(crate) mod http_tests {
         )
         .unwrap();
         let error = runtime
-            .block_on(provider.complete(&[], &[], &Cancel::default(), &mut |_| Ok(())))
+            .block_on(provider.complete(&[], &[], &Cancel::default(), &mut |_| {
+                Box::pin(std::future::ready(Ok(())))
+            }))
             .unwrap_err()
             .to_string();
         server.join().unwrap();
@@ -811,7 +818,9 @@ pub(crate) mod http_tests {
             .enable_all()
             .build()
             .unwrap();
-        let result = runtime.block_on(provider.complete(&[], &[], &cancel, &mut |_| Ok(())));
+        let result = runtime.block_on(provider.complete(&[], &[], &cancel, &mut |_| {
+            Box::pin(std::future::ready(Ok(())))
+        }));
         assert!(result.is_err());
         assert!(start.elapsed() < Duration::from_secs(2));
         server.join().unwrap();
