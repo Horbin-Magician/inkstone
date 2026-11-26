@@ -312,9 +312,7 @@ impl EditorPane {
                         ..Default::default()
                     },
                     Kind::Highlight => HighlightStyle {
-                        background_color: Some(
-                            rgba(if self.light { 0xf4d03f66 } else { 0x9e7d2866 }).into(),
-                        ),
+                        background_color: Some(crate::theme::palette(self.light).highlight.into()),
                         ..Default::default()
                     },
                     Kind::Code => HighlightStyle {

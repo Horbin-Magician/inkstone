@@ -1085,12 +1085,9 @@ impl Workspace {
                                                 range,
                                                 HighlightStyle {
                                                     background_color: Some(
-                                                        rgba(if self.ui.prefs.light {
-                                                            0xf4d03f66
-                                                        } else {
-                                                            0x9e7d2866
-                                                        })
-                                                        .into(),
+                                                        crate::theme::palette(self.ui.prefs.light)
+                                                            .highlight
+                                                            .into(),
                                                     ),
                                                     font_weight: Some(FontWeight::SEMIBOLD),
                                                     ..Default::default()
@@ -1148,13 +1145,10 @@ impl Workspace {
                                                                 range,
                                                                 HighlightStyle {
                                                                     background_color: Some(
-                                                                        rgba(
-                                                                            if self.ui.prefs.light {
-                                                                                0xf4d03f66
-                                                                            } else {
-                                                                                0x9e7d2866
-                                                                            },
+                                                                        crate::theme::palette(
+                                                                            self.ui.prefs.light,
                                                                         )
+                                                                        .highlight
                                                                         .into(),
                                                                     ),
                                                                     font_weight: Some(

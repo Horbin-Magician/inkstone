@@ -1329,14 +1329,14 @@ impl Workspace {
         let pending = proposal.status == "等待审阅";
         let light = self.ui.prefs.light;
         let (added, removed) = if light {
-            (rgb(0x2f7d4a), rgb(0xb4413c))
+            (rgb(0x13803c), rgb(0xdc2638))
         } else {
-            (rgb(0x86d19c), rgb(0xf08a84))
+            (rgb(0x3ee07b), rgb(0xff5c6a))
         };
         let (added_bg, removed_bg) = if light {
-            (rgba(0x2f7d4a1a), rgba(0xb4413c17))
+            (rgba(0x13803c1a), rgba(0xdc263818))
         } else {
-            (rgba(0x86d19c1f), rgba(0xf08a841f))
+            (rgba(0x3ee07b22), rgba(0xff5c6a24))
         };
         let mono = gpui_component::Theme::global(cx).mono_font_family.clone();
         let card = div()

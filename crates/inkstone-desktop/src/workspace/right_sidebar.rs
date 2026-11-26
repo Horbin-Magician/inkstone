@@ -890,11 +890,12 @@ impl Workspace {
                         } else {
                             tag.clone()
                         };
+                        let colors = crate::theme::palette(self.ui.prefs.light);
                         div()
                             .id(("tag", i))
                             .when(
                                 self.ui.tags_selected.as_deref() == Some(fold_key.as_str()),
-                                |s| s.bg(rgba(0x88888833)),
+                                |s| s.bg(colors.selected),
                             )
                             .flex()
                             .items_center()
@@ -905,7 +906,7 @@ impl Workspace {
                             .py_1()
                             .pl(px(row.depth as f32 * 13.))
                             .cursor_pointer()
-                            .hover(|s| s.bg(crate::theme::palette(self.ui.prefs.light).selected))
+                            .hover(|s| s.bg(colors.hover))
                             .child(div().w(px(20.)).flex_shrink_0().when(row.children, |s| {
                                 s.child(
                                     Button::new(("tag-fold", i))
