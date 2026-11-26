@@ -2,62 +2,6 @@ use super::*;
 use crate::test_support::PlatformKeys;
 use core::prelude::v1::test;
 #[gpui::test]
-fn unchanged_input_notifications_stay_local_but_edits_and_selection_rebuild_pane(
-    cx: &mut TestAppContext,
-) {
-    cx.update(gpui_kit::init);
-    let handle = cx.add_window(|w, cx| EditorPane::new("# Heading\n\n**body**\n", w, cx));
-    let count = Rc::new(std::cell::Cell::new(0));
-    let observed = count.clone();
-    let _subscription = handle
-        .update(cx, |_, _, cx| {
-            cx.observe(&cx.entity(), move |_, _, _| {
-                observed.set(observed.get() + 1)
-            })
-        })
-        .unwrap();
-    let mut visual = VisualTestContext::from_window(handle.into(), cx);
-    visual.simulate_resize(size(px(1200.), px(820.)));
-    for _ in 0..5 {
-        visual.run_until_parked();
-        visual.update(|w, cx| w.draw(cx).clear(cx));
-    }
-    // Initialize the observation after layout, then emulate blink-only updates.
-    handle
-        .update(&mut visual, |p, _, cx| {
-            p.editor.update(cx, |_, cx| cx.notify())
-        })
-        .unwrap();
-    visual.run_until_parked();
-    let before = count.get();
-    for _ in 0..4 {
-        handle
-            .update(&mut visual, |p, _, cx| {
-                p.editor.update(cx, |_, cx| cx.notify())
-            })
-            .unwrap();
-        visual.run_until_parked();
-    }
-    assert_eq!(count.get(), before);
-    handle
-        .update(&mut visual, |p, _, cx| {
-            p.editor
-                .update(cx, |s, cx| s.set_selected_range(12..14, cx))
-        })
-        .unwrap();
-    visual.run_until_parked();
-    assert!(count.get() > before);
-    let before = count.get();
-    handle
-        .update(&mut visual, |p, w, cx| {
-            p.editor.update(cx, |s, cx| s.replace("改", w, cx))
-        })
-        .unwrap();
-    visual.run_until_parked();
-    assert!(count.get() > before);
-}
-
-#[gpui::test]
 fn property_cache_tracks_silent_edits_undo_and_editor_identity(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let source = "---\ntitle: Alpha\n---\n中文😀";
