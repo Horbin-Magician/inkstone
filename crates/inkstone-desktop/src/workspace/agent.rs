@@ -1703,6 +1703,7 @@ impl Workspace {
             let open = self.agent.show_tools;
             let mut log = div().flex().flex_col().gap_1().child(
                 Button::new("agent-toggle-log")
+                    .debug_selector(|| "agent-toggle-log".into())
                     .ghost()
                     .justify_start()
                     .accessibility_label(if open {
@@ -1717,7 +1718,6 @@ impl Workspace {
                     .text_size(px(MIN_UI_FONT_SIZE))
                     .text_color(colors.muted)
                     .cursor_pointer()
-                    .hover(|s| s.text_color(colors.foreground))
                     .child(icon(if open {
                         "chevron-down"
                     } else {
@@ -2271,6 +2271,7 @@ mod tests {
         handle
             .update(cx, |w, window, cx| {
                 w.startup_pending = false;
+                w.add_tab("a.md".into(), Some("old\n".into()), false, window, cx);
                 w.open_agent(0, window, cx);
                 w.agent_new_session(window, cx);
                 assert_eq!(w.agent.sessions.len(), 1);
@@ -2311,6 +2312,18 @@ mod tests {
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.simulate_resize(size(px(1100.), px(800.)));
         visual.update(|window, cx| window.draw(cx).clear(cx));
+        for expanded in [false, true] {
+            let toggle = visual.debug_bounds("agent-toggle-log").unwrap().center();
+            visual.simulate_mouse_move(toggle, None, Modifiers::default());
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.simulate_click(toggle, Modifiers::default());
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            handle
+                .update(&mut visual, |w, _, _| {
+                    assert_eq!(w.agent.show_tools, expanded);
+                })
+                .unwrap();
+        }
         handle
             .update(&mut visual, |w, _, cx| {
                 w.agent_delete_session(cx);
