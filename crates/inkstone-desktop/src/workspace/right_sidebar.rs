@@ -110,8 +110,17 @@ impl Workspace {
             (4, "inbox", "属性"),
             (5, "sparkles", "Agent"),
         ];
-        let toggle_width = if show_toggle { 32. } else { 0. };
-        let slots = ((f32::from(width) - 8. - toggle_width).max(0.) / 32.) as usize;
+        const BUTTON_WIDTH: f32 = 32.;
+        const PADDING: f32 = 6.;
+        const GAP: f32 = 2.;
+        // The toggle adds a spacer as well as a button, so reserve both gaps.
+        let toggle_width = if show_toggle {
+            BUTTON_WIDTH + 2. * GAP
+        } else {
+            0.
+        };
+        let slots = ((f32::from(width) - 2. * PADDING - toggle_width + GAP).max(0.)
+            / (BUTTON_WIDTH + GAP)) as usize;
         let collapsed = slots < MODES.len();
         let visible_count = if collapsed {
             slots.saturating_sub(1)
@@ -145,8 +154,8 @@ impl Workspace {
             .when(cfg!(target_os = "windows"), |bar| {
                 bar.window_control_area(gpui::WindowControlArea::Drag)
             })
-            .px_1p5()
-            .gap_0p5()
+            .px(px(PADDING))
+            .gap(px(GAP))
             .children(visible.iter().map(|&mode| {
                 let (i, ico, label) = MODES.iter().copied().find(|&(i, _, _)| i == mode).unwrap();
                 let is_active = self.ui.right_mode == i;
@@ -168,7 +177,7 @@ impl Workspace {
                             })
                             .icon(icon(ico))
                             .tooltip(label)
-                            .w(px(32.))
+                            .w(px(BUTTON_WIDTH))
                             .h(px(28.))
                             .on_click(cx.listener(move |this, _, w, cx| {
                                 this.ui.right_mode = i;
@@ -1041,7 +1050,7 @@ mod outline_tests {
         cx.run_until_parked();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.simulate_resize(size(px(1200.), px(820.)));
-        for width in [208., 250., 300., 345., 500., 208.] {
+        for width in [208., 215., 216., 250., 300., 345., 500., 208.] {
             handle
                 .update(&mut visual, |w, _, cx| {
                     w.ui.prefs.right_width = width;
@@ -1075,7 +1084,10 @@ mod outline_tests {
             buttons.sort_by(|a, b| a.left().partial_cmp(&b.left()).unwrap());
             for button in &buttons {
                 assert!(button.left() >= toolbar.left());
-                assert!(button.right() <= toolbar.right());
+                assert!(
+                    button.right() <= toolbar.right(),
+                    "button {button:?} overflows toolbar {toolbar:?} at sidebar width {width}"
+                );
                 assert_eq!(button.size.width, px(32.));
             }
             for pair in buttons.windows(2) {
@@ -1116,13 +1128,13 @@ mod outline_tests {
         let more = visual.debug_bounds("right-mode-more");
         assert!(more.is_some() || !cfg!(target_os = "windows"));
         let Some(more) = more else {
-            // macOS fits all four modes at the minimum sidebar width; Windows
-            // reserves room for window controls and must use the overflow menu.
+            // If every mode fits, verify direct activation instead.
             for selector in [
                 "right-mode-0",
                 "right-mode-1",
                 "right-mode-3",
                 "right-mode-4",
+                "right-mode-5",
             ] {
                 assert!(visual.debug_bounds(selector).is_some());
             }
@@ -1134,6 +1146,17 @@ mod outline_tests {
                 .unwrap();
             return;
         };
+        let first_hidden = [
+            (0, "right-mode-0"),
+            (1, "right-mode-1"),
+            (3, "right-mode-3"),
+            (4, "right-mode-4"),
+            (5, "right-mode-5"),
+        ]
+        .into_iter()
+        .find(|(_, selector)| visual.debug_bounds(selector).is_none())
+        .unwrap()
+        .0;
         visual.simulate_click(more.center(), Modifiers::default());
         visual.run_until_parked();
         visual.update(|window, cx| {
@@ -1152,6 +1175,24 @@ mod outline_tests {
             });
             visual.simulate_event(KeyUpEvent { keystroke });
         }
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.ui.right_mode, first_hidden)
+            })
+            .unwrap();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                w.ui.prefs.right_width = 500.;
+                cx.notify();
+            })
+            .unwrap();
+        for _ in 0..2 {
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        assert!(visual.debug_bounds("right-mode-more").is_none());
+        let outline = visual.debug_bounds("right-mode-0").unwrap();
+        visual.simulate_click(outline.center(), Modifiers::default());
+        visual.run_until_parked();
         handle
             .update(&mut visual, |w, _, _| assert_eq!(w.ui.right_mode, 0))
             .unwrap();
