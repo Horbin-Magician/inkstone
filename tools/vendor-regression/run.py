@@ -12,7 +12,7 @@ source = Path(__file__).resolve().parent
 root = source.parents[1]
 staging = root / "target" / "vendor-regression"
 staging.mkdir(parents=True, exist_ok=True)
-for package in ("gpui-base", "gpui-component"):
+for package in ("gpui-base", "gpui-component", "markdown"):
     destination = staging / "crates" / package.removeprefix("gpui-")
     if destination.exists():
         shutil.rmtree(destination)
@@ -24,7 +24,8 @@ shutil.copytree(source / "fixtures", staging, dirs_exist_ok=True)
 if not args.prepare_only:
     # Observation wraps native elements only in the feature-enabled build.
     # Keep both configurations for each package: neither replaces the other.
-    for package, features in (("gpui-base", []),
+    for package, features in (("markdown-regression", []),
+                              ("gpui-base", []),
                               ("gpui-base", ["--features", "test-support"]),
                               ("gpui-component", []),
                               ("gpui-component", ["--features", "test-support"])):

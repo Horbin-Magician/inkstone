@@ -1,8 +1,10 @@
 # Copied into target/vendor-regression by run.py alongside fresh vendor sources.
 [workspace]
 resolver = "3"
-members = ["crates/base", "crates/component"]
+members = ["crates/base", "crates/component", "markdown-regression"]
+exclude = ["crates/markdown"]
 
 [patch.crates-io]
 gpui-base = { path = "crates/base" }
 gpui-component = { path = "crates/component" }
+markdown = { path = "crates/markdown" }

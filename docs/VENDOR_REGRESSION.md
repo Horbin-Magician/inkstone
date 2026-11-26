@@ -2,6 +2,8 @@
 
 两个包均来自 crates.io 的 0.7.0 发布包，上游提交 `0c830f4d257e69fdd17200650533ab4ca9a40cc0`，分别对应 `crates/base` 和 `crates/component`。Apache-2.0 许可证保留在 vendor 包中。以下清单按 2026-10-05 对原始发布包的逐文件比较生成；路径均相对于各 vendor 包。新增文件没有对应上游文件。
 
+2026-11-26：独立入口同时复制并 patch `vendor/markdown`，增加轻量的 `markdown-regression` 测试包，验证 CJK 标点邻接、嵌套强调、删除线，以及 ASCII、下划线、代码和 emoji 边界。它通过发布 API 测试当前源码，不引入上游未随发布包提供的测试或其 SWC 开发依赖；原有 Base/Component 四组检查继续执行。独立锁文件中的 markdown 不再来自 crates.io。
+
 ## 独立运行
 
 ```sh
