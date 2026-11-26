@@ -53,6 +53,47 @@ struct PresentationSnapshot {
     line_spacing: f32,
 }
 
+// Blink notifications repaint the input itself; only changes that affect the
+// surrounding presentation need to rebuild the pane and its overlays.
+#[derive(PartialEq)]
+struct InputSnapshot {
+    revision: u64,
+    selections: Vec<std::ops::Range<usize>>,
+    bounds: Bounds<Pixels>,
+    text_bounds: Option<Bounds<Pixels>>,
+    scroll: Point<Pixels>,
+    cursor: Option<(Bounds<Pixels>, Pixels)>,
+    visible_rows: Option<std::ops::Range<usize>>,
+    folds: Vec<(usize, usize)>,
+    focused: bool,
+    composing: bool,
+    search_query: Option<String>,
+    search_matches: Rc<Vec<std::ops::Range<usize>>>,
+}
+impl InputSnapshot {
+    fn read(state: &EditorState, window: &Window, cx: &App) -> Self {
+        let search = state.search_session();
+        Self {
+            revision: state.text_revision(),
+            selections: state.selected_ranges(),
+            bounds: state.input_bounds(),
+            text_bounds: state.text_bounds(),
+            scroll: state.scroll_offset(),
+            cursor: state.cursor_layout(),
+            visible_rows: state.visible_row_range(),
+            folds: state
+                .folded_ranges()
+                .iter()
+                .map(|f| (f.start_line, f.end_line))
+                .collect(),
+            focused: state.focus_handle(cx).is_focused(window),
+            composing: state.is_composing(),
+            search_query: search.is_active().then(|| search.query.clone()),
+            search_matches: search.matcher.matched_ranges(),
+        }
+    }
+}
+
 struct CountSnapshot {
     input_revision: (EntityId, u64),
     selection: std::ops::Range<usize>,
@@ -127,6 +168,7 @@ pub struct EditorPane {
     pending_preview_jump: Option<usize>,
     pending_reading_position: Option<inkstone_core::preferences::ReadingPosition>,
     last_geometry: Option<(Size<Pixels>, bool)>,
+    last_input_snapshot: Option<InputSnapshot>,
     reveal_after_concealment: bool,
     typography_ready: bool,
 }
@@ -195,7 +237,11 @@ impl EditorPane {
                     }
                 });
             }
-            cx.notify();
+            let snapshot = InputSnapshot::read(state, window, cx);
+            if this.last_input_snapshot.as_ref() != Some(&snapshot) {
+                this.last_input_snapshot = Some(snapshot);
+                cx.notify();
+            }
         });
         let preview = cx.new(|cx| TextViewState::markdown("", cx));
         let completion_subscription =
@@ -338,6 +384,7 @@ impl EditorPane {
             pending_preview_jump: None,
             pending_reading_position: None,
             last_geometry: None,
+            last_input_snapshot: None,
             reveal_after_concealment: false,
             typography_ready: false,
         }
