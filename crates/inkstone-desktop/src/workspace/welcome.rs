@@ -96,10 +96,7 @@ impl Workspace {
                     .items_center()
                     .justify_center()
                     .gap_3()
-                    .child(
-                        gpui_component::spinner::Spinner::new()
-                            .color(colors.accent.into()),
-                    )
+                    .child(gpui_component::spinner::Spinner::new().color(colors.accent.into()))
                     .child(
                         div()
                             .text_size(px(MIN_UI_FONT_SIZE))
