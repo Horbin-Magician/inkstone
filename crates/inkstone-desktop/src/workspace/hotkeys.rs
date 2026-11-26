@@ -2,6 +2,35 @@ use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::button::*;
 
+fn is_function_key(key: &str) -> bool {
+    matches!(
+        key,
+        "f1" | "f2"
+            | "f3"
+            | "f4"
+            | "f5"
+            | "f6"
+            | "f7"
+            | "f8"
+            | "f9"
+            | "f10"
+            | "f11"
+            | "f12"
+            | "f13"
+            | "f14"
+            | "f15"
+            | "f16"
+            | "f17"
+            | "f18"
+            | "f19"
+            | "f20"
+            | "f21"
+            | "f22"
+            | "f23"
+            | "f24"
+    )
+}
+
 impl Workspace {
     fn default_hotkeys(id: usize) -> Vec<String> {
         #[cfg(target_os = "macos")]
@@ -216,7 +245,7 @@ impl Workspace {
         if !key.modifiers.control
             && !key.modifiers.alt
             && !key.modifiers.platform
-            && !key.key.starts_with('f')
+            && !is_function_key(&key.key)
         {
             return;
         }
@@ -438,6 +467,15 @@ mod tests {
     use super::*;
     use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
+    #[test]
+    fn function_key_gate_does_not_match_printable_f() {
+        for number in 1..=24 {
+            assert!(is_function_key(&format!("f{number}")));
+        }
+        for key in ["f", "F", "foo", "f0", "f01", "f25", "f-1", "f1x"] {
+            assert!(!is_function_key(key), "{key}");
+        }
+    }
     #[gpui::test]
     fn platform_defaults_are_unique_and_saved_control_bindings_remain_literal(
         cx: &mut TestAppContext,
