@@ -770,7 +770,6 @@ fn element(
 pub(super) fn overlay(
     pane: WeakEntity<EditorPane>,
     editor: Entity<EditorState>,
-    widgets: Vec<Widget>,
     appearance: (PathBuf, Arc<index::Index>, f32, bool, bool, SharedString),
 ) -> impl IntoElement {
     let appearance = Appearance {
@@ -785,6 +784,24 @@ pub(super) fn overlay(
         move |_, window, cx| {
             let viewport = editor.read(cx).input_bounds();
             let content = editor.read(cx).text_bounds().unwrap_or(viewport);
+            // Input prepaint has published this frame's geometry. Clone only
+            // intersecting widgets here, rather than every document object in render.
+            let widgets: Vec<_> = pane
+                .upgrade()
+                .map(|pane| {
+                    pane.read(cx)
+                        .live_objects
+                        .iter()
+                        .filter(|widget| {
+                            editor
+                                .read(cx)
+                                .display_object_bounds(widget.source.start as u64)
+                                .is_some_and(|bounds| viewport.intersects(&bounds))
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
             let mut elements = vec![];
             window.with_content_mask(Some(ContentMask { bounds: viewport }), |window| {
                 for widget in &widgets {
@@ -1841,6 +1858,28 @@ mod tests {
                 assert!(
                     crate::native_graphics::Service::get(cx).raster_count() * 3 < formulas.len()
                 );
+                assert_eq!(pane.editor.read(cx).value().as_ref(), source);
+            })
+            .unwrap();
+        let last = handle
+            .update(&mut visual, |pane, _, cx| {
+                let last = pane.live_objects.last().unwrap().source.start;
+                pane.editor
+                    .update(cx, |state, cx| state.reveal_offset(last, cx));
+                last
+            })
+            .unwrap();
+        for _ in 0..16 {
+            visual.run_until_parked();
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+        }
+        let selector = Box::leak(format!("live-object-{last}").into_boxed_str());
+        assert!(
+            visual.debug_bounds(selector).is_some(),
+            "scrolling must paint newly visible objects"
+        );
+        handle
+            .update(&mut visual, |pane, _, cx| {
                 assert_eq!(pane.editor.read(cx).value().as_ref(), source);
             })
             .unwrap();

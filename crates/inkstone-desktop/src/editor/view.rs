@@ -493,7 +493,6 @@ impl Render for EditorPane {
                 view.child(live_objects::overlay(
                     cx.entity().downgrade(),
                     self.editor.clone(),
-                    self.live_objects.clone(),
                     (
                         self.vault_root.clone(),
                         self.reference_index.clone(),
