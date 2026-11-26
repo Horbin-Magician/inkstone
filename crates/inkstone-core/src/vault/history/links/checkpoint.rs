@@ -7,8 +7,8 @@ struct Checkpoint {
     links: Links,
     checksum: String,
 }
-pub(super) fn path(vault: &Vault) -> PathBuf {
-    super::path(vault).with_extension("history-commit")
+pub(super) fn path(vault: &Vault) -> Result<PathBuf, VaultError> {
+    Ok(super::path(vault)?.with_extension("history-commit"))
 }
 fn checksum(links: &Links) -> Result<String, VaultError> {
     Ok(format!(
@@ -32,7 +32,7 @@ pub(super) fn encode(links: &Links) -> Result<Vec<u8>, VaultError> {
     .map_err(|e| io::Error::other(e).into())
 }
 pub(super) fn read_primary(vault: &Vault) -> Result<Option<Links>, VaultError> {
-    let path = path(vault);
+    let path = path(vault)?;
     let meta = match fs::symlink_metadata(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.into()),
@@ -47,8 +47,8 @@ pub(super) fn read_primary(vault: &Vault) -> Result<Option<Links>, VaultError> {
     }
     Ok(Some(checkpoint.links))
 }
-pub(super) fn proof_path(vault: &Vault) -> PathBuf {
-    path(vault).with_extension("history-proof")
+pub(super) fn proof_path(vault: &Vault) -> Result<PathBuf, VaultError> {
+    Ok(path(vault)?.with_extension("history-proof"))
 }
 fn regular_bytes(path: &Path) -> Result<Vec<u8>, VaultError> {
     let meta = fs::symlink_metadata(path)?;
@@ -64,12 +64,12 @@ pub(super) fn read(vault: &Vault) -> Result<Option<Links>, VaultError> {
     }
     // Only a separately certified mirror may replace missing/corrupt primary data.
     // Do not rewrite the primary here: a concurrent rename may be publishing it.
-    let proof = match regular_bytes(&proof_path(vault)) {
+    let proof = match regular_bytes(&proof_path(vault)?) {
         Ok(proof) => proof,
         Err(_) => return primary,
     };
     let links: Links =
-        serde_json::from_slice(&regular_bytes(&super::path(vault))?).map_err(|_| invalid())?;
+        serde_json::from_slice(&regular_bytes(&super::path(vault)?)?).map_err(|_| invalid())?;
     if checksum(&links)?.as_bytes() != proof {
         return Err(invalid());
     }
@@ -78,7 +78,7 @@ pub(super) fn read(vault: &Vault) -> Result<Option<Links>, VaultError> {
 /// Called under the rename lock before any file move. An old certificate must
 /// never authorize the old mirror after a newer checkpoint publication fails.
 pub(super) fn invalidate_proof(vault: &Vault) -> Result<Option<Vec<u8>>, VaultError> {
-    let path = proof_path(vault);
+    let path = proof_path(vault)?;
     let previous = match regular_bytes(&path) {
         Ok(bytes) => Some(bytes),
         Err(VaultError::Io(e)) if e.kind() == io::ErrorKind::NotFound => None,
@@ -88,7 +88,7 @@ pub(super) fn invalidate_proof(vault: &Vault) -> Result<Option<Vec<u8>>, VaultEr
     Ok(previous)
 }
 fn replace_proof(vault: &Vault, bytes: &[u8]) -> Result<(), VaultError> {
-    let proof = proof_path(vault);
+    let proof = proof_path(vault)?;
     let temp = proof.with_extension(format!("{}.proof-temp", unique_id()));
     let result = write_new_synced(&temp, bytes).and_then(|()| fs::rename(&temp, proof));
     let _ = fs::remove_file(temp);
@@ -98,7 +98,9 @@ pub(super) fn restore_proof(vault: &Vault, previous: Option<Vec<u8>>) {
     if let Some(bytes) = previous {
         let _ = replace_proof(vault, &bytes);
     } else {
-        let _ = fs::remove_file(proof_path(vault));
+        if let Ok(path) = proof_path(vault) {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 /// Called only by the successful publisher under the rename lock.
@@ -106,7 +108,10 @@ pub(super) fn certify(vault: &Vault, links: &Links) {
     let Ok(expected) = checksum(links) else {
         return;
     };
-    let Ok(mirror) = regular_bytes(&super::path(vault)) else {
+    let Ok(path) = super::path(vault) else {
+        return;
+    };
+    let Ok(mirror) = regular_bytes(&path) else {
         return;
     };
     let Ok(mirror) = serde_json::from_slice::<Links>(&mirror) else {
@@ -118,7 +123,9 @@ pub(super) fn certify(vault: &Vault, links: &Links) {
     let _ = replace_proof(vault, expected.as_bytes());
 }
 pub(super) fn repair_cache(vault: &Vault, links: &Links) {
-    let path = super::path(vault);
+    let Ok(path) = super::path(vault) else {
+        return;
+    };
     let Ok(bytes) = serde_json::to_vec(links) else {
         return;
     };
@@ -151,14 +158,14 @@ mod tests {
             owners: BTreeMap::new(),
         };
         fs::write(
-            super::super::path(&vault),
+            super::super::path(&vault).unwrap(),
             serde_json::to_vec(&legacy).unwrap(),
         )
         .unwrap();
         assert_eq!(vault.history(old).unwrap().len(), 1);
         vault.rename_note(old, new, "body").unwrap();
-        assert!(path(&vault).is_file());
-        let mirror = super::super::path(&vault);
+        assert!(path(&vault).unwrap().is_file());
+        let mirror = super::super::path(&vault).unwrap();
         for damaged in [b"broken".to_vec(), serde_json::to_vec(&legacy).unwrap()] {
             fs::write(&mirror, damaged).unwrap();
             assert_eq!(
@@ -174,9 +181,9 @@ mod tests {
         assert!(mirror.is_file());
         // A damaged authoritative checkpoint cannot silently fall back to a stale mirror.
         let mut damaged: serde_json::Value =
-            serde_json::from_slice(&fs::read(path(&vault)).unwrap()).unwrap();
+            serde_json::from_slice(&fs::read(path(&vault).unwrap()).unwrap()).unwrap();
         damaged["links"]["owners"] = serde_json::json!({});
-        fs::write(path(&vault), serde_json::to_vec(&damaged).unwrap()).unwrap();
+        fs::write(path(&vault).unwrap(), serde_json::to_vec(&damaged).unwrap()).unwrap();
         // The certified intact mirror keeps history available.
         assert_eq!(vault.history(new).unwrap().len(), 2);
         // A stale but valid JSON mirror cannot satisfy the current certificate.
@@ -200,12 +207,12 @@ mod tests {
         let c = Path::new("c.md");
         let first = vault.save(a, None, "body").unwrap();
         vault.rename_note(a, b, "body").unwrap();
-        assert!(proof_path(&vault).is_file());
-        fs::remove_file(path(&vault)).unwrap();
+        assert!(proof_path(&vault).unwrap().is_file());
+        fs::remove_file(path(&vault).unwrap()).unwrap();
         assert!(vault.read_history(b, &first.recovery).is_ok());
         vault.rename_note(b, c, "body").unwrap();
-        assert!(path(&vault).is_file());
-        let before = fs::read(path(&vault)).unwrap();
+        assert!(path(&vault).unwrap().is_file());
+        let before = fs::read(path(&vault).unwrap()).unwrap();
         assert!(
             super::super::rename_with(
                 &vault,
@@ -214,16 +221,16 @@ mod tests {
                 &vault.root.join(c),
                 &vault.root.join(a),
                 |_, _| {
-                    assert_eq!(fs::read(proof_path(&vault)).unwrap(), b"pending");
+                    assert_eq!(fs::read(proof_path(&vault).unwrap()).unwrap(), b"pending");
                     Err(io::Error::other("publication failed"))
                 }
             )
             .is_err()
         );
-        assert_eq!(fs::read(path(&vault)).unwrap(), before);
+        assert_eq!(fs::read(path(&vault).unwrap()).unwrap(), before);
         assert!(vault.read_history(c, &first.recovery).is_ok());
         assert!(vault.read(c).unwrap().is_some());
-        fs::write(path(&vault), b"damaged").unwrap();
+        fs::write(path(&vault).unwrap(), b"damaged").unwrap();
         assert!(
             vault.history(c).is_ok(),
             "rollback restores the previous certificate"

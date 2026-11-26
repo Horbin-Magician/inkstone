@@ -55,8 +55,8 @@ struct Envelope {
     intent: Intent,
     checksum: String,
 }
-fn path(vault: &Vault) -> PathBuf {
-    super::path(vault).with_extension("history-intent")
+fn path(vault: &Vault) -> Result<PathBuf, VaultError> {
+    Ok(super::path(vault)?.with_extension("history-intent"))
 }
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
@@ -64,7 +64,9 @@ fn digest(bytes: &[u8]) -> String {
 impl Intent {
     pub(super) fn clear(&self, vault: &Vault) {
         let _ = fs::remove_file(&self.staged);
-        let _ = fs::remove_file(path(vault));
+        if let Ok(path) = path(vault) {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 pub(super) fn prepare(
@@ -84,7 +86,7 @@ pub(super) fn prepare(
         before,
         after,
         staged,
-        proof: match fs::read(checkpoint::proof_path(vault)) {
+        proof: match fs::read(checkpoint::proof_path(vault)?) {
             Ok(bytes) => Some(bytes),
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.into()),
@@ -101,15 +103,15 @@ pub(super) fn prepare(
         checksum: digest(&bytes),
     })
     .map_err(io::Error::other)?;
-    let temp = file_temp(vault);
-    let result =
-        write_new_synced(&temp, &encoded).and_then(|()| move_no_replace(&temp, &path(vault)));
+    let temp = file_temp(vault)?;
+    let target = path(vault)?;
+    let result = write_new_synced(&temp, &encoded).and_then(|()| move_no_replace(&temp, &target));
     let _ = fs::remove_file(temp);
     result?;
     Ok(intent)
 }
 pub(super) fn reconcile(vault: &Vault) -> Result<(), VaultError> {
-    match fs::symlink_metadata(path(vault)) {
+    match fs::symlink_metadata(path(vault)?) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e.into()),
         Ok(_) => {}
@@ -118,7 +120,7 @@ pub(super) fn reconcile(vault: &Vault) -> Result<(), VaultError> {
     reconcile_locked(vault)
 }
 pub(super) fn reconcile_locked(vault: &Vault) -> Result<(), VaultError> {
-    let file = path(vault);
+    let file = path(vault)?;
     let meta = match fs::symlink_metadata(&file) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -160,7 +162,7 @@ pub(super) fn reconcile_locked(vault: &Vault) -> Result<(), VaultError> {
     let before = match current {
         Some(bytes) => bytes,
         None => {
-            let links = match fs::read(super::path(vault)) {
+            let links = match fs::read(super::path(vault)?) {
                 Ok(bytes) => serde_json::from_slice::<Links>(&bytes).map_err(|_| invalid())?,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Links {
                     version: 1,
@@ -183,9 +185,9 @@ pub(super) fn reconcile_locked(vault: &Vault) -> Result<(), VaultError> {
         return Ok(());
     }
     if !source_matches && dest_matches {
-        let staged = file_temp(vault);
+        let staged = file_temp(vault)?;
         write_new_synced(&staged, &intent.after)?;
-        let result = fs::rename(&staged, checkpoint::path(vault));
+        let result = fs::rename(&staged, checkpoint::path(vault)?);
         let _ = fs::remove_file(staged);
         result?;
         if let Some(links) = checkpoint::read(vault)? {
@@ -200,8 +202,8 @@ pub(super) fn reconcile_locked(vault: &Vault) -> Result<(), VaultError> {
             .into(),
     )
 }
-fn file_temp(vault: &Vault) -> PathBuf {
-    path(vault).with_extension(format!("{}.reconcile-temp", unique_id()))
+fn file_temp(vault: &Vault) -> Result<PathBuf, VaultError> {
+    Ok(path(vault)?.with_extension(format!("{}.reconcile-temp", unique_id())))
 }
 
 #[cfg(test)]
@@ -244,10 +246,10 @@ mod tests {
                     .unwrap();
                 });
                 assert!(stopped.is_err());
-                assert!(path(&vault).is_file());
+                assert!(path(&vault).unwrap().is_file());
                 let reopened = Vault::open(&vault.root, &vault.recovery_dir).unwrap();
                 assert!(reopened.read_history(destination, &record.recovery).is_ok());
-                assert!(!path(&vault).exists());
+                assert!(!path(&vault).unwrap().exists());
                 assert!(reopened.history(note).unwrap().is_empty());
                 assert_eq!(
                     reopened.read(destination).unwrap().as_deref(),
@@ -283,11 +285,11 @@ mod tests {
                 fs::rename(vault.root.join(old), vault.root.join("held.md")).unwrap();
                 fs::write(vault.root.join(new), "body").unwrap();
                 assert!(vault.history(new).is_err());
-                assert!(path(&vault).exists());
+                assert!(path(&vault).unwrap().exists());
                 assert_eq!(vault.read(new).unwrap().as_deref(), Some("body"));
             } else {
                 assert!(vault.read_history(old, &record.recovery).is_ok());
-                assert!(!path(&vault).exists());
+                assert!(!path(&vault).unwrap().exists());
             }
         }
         fs::remove_dir_all(root).unwrap();
@@ -326,7 +328,7 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(path(&vault).is_file());
+        assert!(path(&vault).unwrap().is_file());
         let reopened = Vault::open(&vault.root, &vault.recovery_dir).unwrap();
         assert_eq!(
             reopened
@@ -335,7 +337,7 @@ mod tests {
                 .draft,
             "durable body"
         );
-        assert!(!path(&vault).exists());
+        assert!(!path(&vault).unwrap().exists());
         assert!(!fs::read_dir(&vault.recovery_dir).unwrap().any(|e| {
             e.unwrap()
                 .path()

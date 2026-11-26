@@ -12,11 +12,14 @@ struct Links {
     owners: BTreeMap<PathBuf, PathBuf>,
 }
 pub(in crate::vault) struct Ownership(Links);
-fn path(vault: &Vault) -> PathBuf {
-    let key = serde_json::to_vec(&vault.root).expect("path serializes");
-    vault
+fn path(vault: &Vault) -> Result<PathBuf, VaultError> {
+    // Keep the legacy JSON hash for existing histories. Non-UTF-8 paths
+    // cannot be represented by the journal format and must fail before a move.
+    let key = serde_json::to_vec(&vault.root)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "历史记录路径必须是有效 UTF-8"))?;
+    Ok(vault
         .recovery_dir
-        .join(format!("{:x}.history-links", Sha256::digest(key)))
+        .join(format!("{:x}.history-links", Sha256::digest(key))))
 }
 fn invalid() -> VaultError {
     io::Error::new(io::ErrorKind::InvalidData, "invalid history ownership map").into()
@@ -24,7 +27,7 @@ fn invalid() -> VaultError {
 impl Ownership {
     pub(in crate::vault) fn load(vault: &Vault) -> Result<Self, VaultError> {
         intent::reconcile(vault)?;
-        let path = path(vault);
+        let path = path(vault)?;
         let committed = checkpoint::read(vault)?;
         let has_commit = committed.is_some();
         let links = if let Some(links) = committed {
@@ -77,7 +80,7 @@ impl Ownership {
 }
 
 fn lock(vault: &Vault) -> Result<crate::vault::file_lock::FileLock, VaultError> {
-    let lock_path = path(vault).with_extension("history-lock");
+    let lock_path = path(vault)?.with_extension("history-lock");
     if let Ok(meta) = fs::symlink_metadata(&lock_path)
         && (!meta.is_file() || is_reparse(&meta))
     {
@@ -158,7 +161,7 @@ fn rename_with(
                 .insert(entry.journal.with_extension(""), new.to_owned());
         }
     }
-    let target = checkpoint::path(vault);
+    let target = checkpoint::path(vault)?;
     let staged = target.with_extension(format!("{}.pending-links", unique_id()));
     let bytes = checkpoint::encode(&ownership.0)?;
     if let Err(error) = write_new_synced(&staged, &bytes) {
@@ -207,6 +210,65 @@ fn rename_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_history_paths_fail_without_panicking_or_moving_notes() {
+        use std::os::unix::ffi::OsStringExt;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vault");
+        fs::create_dir(&root).unwrap();
+        let vault = Vault::open(&root, dir.path().join("recovery")).unwrap();
+        let bad = std::ffi::OsString::from_vec(b"invalid-\xff.md".to_vec());
+        let old = Path::new("old.md");
+        let new = Path::new("new.md");
+        fs::write(root.join(old), "original").unwrap();
+        // APFS rejects these filenames, so construct the path without asking the
+        // host filesystem to create it. Exercise the actual transaction boundary.
+        for bad_root in [true, false] {
+            let mut invalid = vault.clone();
+            if bad_root {
+                invalid.root = dir.path().join(&bad);
+            } else {
+                invalid.recovery_dir = dir.path().join(&bad);
+            }
+            if bad_root {
+                assert!(Ownership::load(&invalid).is_err());
+                assert!(path(&invalid).is_err());
+            }
+            assert!(
+                rename_with(
+                    &invalid,
+                    old,
+                    new,
+                    &root.join(old),
+                    &root.join(new),
+                    |_, _| panic!("must not publish invalid paths")
+                )
+                .is_err()
+            );
+            assert_eq!(fs::read_to_string(root.join(old)).unwrap(), "original");
+            assert!(!root.join(new).exists());
+        }
+        // Non-UTF-8 journal/member paths are also rejected by the persisted format.
+        let links = Links {
+            version: 1,
+            root: vault.root.clone(),
+            owners: BTreeMap::from([(vault.recovery_dir.join("a"), PathBuf::from(bad))]),
+        };
+        assert!(checkpoint::encode(&links).is_err());
+    }
+    #[test]
+    fn ownership_path_keeps_legacy_json_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("中文 vault");
+        fs::create_dir(&root).unwrap();
+        let vault = Vault::open(root, dir.path().join("recovery")).unwrap();
+        let expected = vault.recovery_dir.join(format!(
+            "{:x}.history-links",
+            Sha256::digest(serde_json::to_vec(&vault.root).unwrap())
+        ));
+        assert_eq!(path(&vault).unwrap(), expected);
+    }
     #[test]
     fn dotted_legacy_journal_names_keep_ownership_after_rename_and_reopen() {
         let root = tempfile::tempdir().unwrap();
@@ -270,8 +332,8 @@ mod tests {
         assert_eq!(vault.read(a).unwrap().as_deref(), Some("different note"));
         assert!(vault.read_history(c, &first.recovery).is_ok());
         // Bad ownership metadata fails closed before the file can move.
-        fs::write(checkpoint::path(&vault), b"broken").unwrap();
-        fs::write(path(&vault), b"broken mirror").unwrap();
+        fs::write(checkpoint::path(&vault).unwrap(), b"broken").unwrap();
+        fs::write(path(&vault).unwrap(), b"broken mirror").unwrap();
         assert!(vault.rename_note(c, Path::new("d.md"), "second").is_err());
         assert!(vault.read(c).unwrap().is_some());
         assert!(vault.read(Path::new("d.md")).unwrap().is_none());
