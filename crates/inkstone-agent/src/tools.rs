@@ -105,7 +105,10 @@ impl ToolHost {
             let text = if let Some((text, range)) = overrides.get(&path) {
                 text[range.clone()].to_owned()
             } else {
-                vault.read(&path)?.unwrap_or_default()
+                let Some(text) = vault.read(&path)? else {
+                    continue;
+                };
+                text
             };
             if text.len() <= 4 * 1024 * 1024 {
                 updates.push((path, text));
@@ -435,6 +438,85 @@ pub fn definitions() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn notes_scope_distinguishes_missing_and_empty_files_and_rechecks_creation() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vault");
+        std::fs::create_dir(&root).unwrap();
+        let vault = Vault::open(&root, dir.path().join("history")).unwrap();
+        vault.create(Path::new("empty.md"), "").unwrap();
+        let mut host = ToolHost::new(
+            vault.clone(),
+            Scope::Notes(vec!["new.md".into(), "empty.md".into()]),
+            vec![],
+            None,
+        )
+        .unwrap();
+        assert!(host.call("read_note", json!({"path":"new.md"})).is_err());
+        assert_eq!(
+            host.call("read_note", json!({"path":"empty.md"})).unwrap()["text"],
+            ""
+        );
+        host.call(
+            "propose_changes",
+            json!({"changes":[
+                {"path":"new.md","content":"new note"},
+                {"path":"empty.md","content":"updated empty note"}
+            ]}),
+        )
+        .unwrap();
+        let proposal = &host.proposals[0];
+        assert_eq!(proposal.changes[0].before, None);
+        assert_eq!(proposal.changes[1].before.as_deref(), Some(""));
+        proposal.validate(&vault).unwrap();
+        assert_eq!(vault.read(Path::new("new.md")).unwrap(), None);
+        vault
+            .create(Path::new("new.md"), "external content")
+            .unwrap();
+        assert!(proposal.validate(&vault).is_err());
+        proposal.apply(&vault, || false);
+        assert_eq!(
+            vault.read(Path::new("new.md")).unwrap().as_deref(),
+            Some("external content")
+        );
+        assert_eq!(
+            vault.read(Path::new("empty.md")).unwrap().as_deref(),
+            Some("")
+        );
+    }
+    #[test]
+    fn notes_scope_new_note_proposal_applies_without_overwriting_other_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vault");
+        std::fs::create_dir(&root).unwrap();
+        let vault = Vault::open(&root, dir.path().join("history")).unwrap();
+        let mut host = ToolHost::new(
+            vault.clone(),
+            Scope::Notes(vec!["new.md".into()]),
+            vec![],
+            None,
+        )
+        .unwrap();
+        assert!(
+            host.call(
+                "propose_changes",
+                json!({"changes":[{"path":"other.md","content":"outside"}]})
+            )
+            .is_err()
+        );
+        host.call(
+            "propose_changes",
+            json!({"changes":[{"path":"new.md","content":"new note"}]}),
+        )
+        .unwrap();
+        host.proposals[0].validate(&vault).unwrap();
+        host.proposals[0].apply(&vault, || false);
+        assert_eq!(
+            vault.read(Path::new("new.md")).unwrap().as_deref(),
+            Some("new note")
+        );
+        assert_eq!(vault.read(Path::new("other.md")).unwrap(), None);
+    }
     #[test]
     fn scope_blocks_escape_and_exclusions() {
         let s = Scope::Folder("work".into());
