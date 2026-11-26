@@ -6670,6 +6670,130 @@ fn tree_blank_space_selects_root_for_new_notes_and_folders(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn newly_created_folder_can_be_trashed_from_first_context_menu(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("vault");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("note.md"), "saved text").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.vault = Some(Vault::open(&root, temp.path().join("recovery")).unwrap());
+            w.add_tab(
+                "note.md".into(),
+                Some("saved text".into()),
+                false,
+                window,
+                cx,
+            );
+            w.tabs[0].save.editor.update(cx, |input, cx| {
+                input.replace_all("unsaved text", window, cx);
+            });
+            w.begin_tree_name(ui::NameMode::Folder, PathBuf::new(), window, cx);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1100.), px(800.)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.simulate_input("new folder");
+    visual.simulate_platform_keystrokes("enter");
+    visual.run_until_parked();
+    assert!(root.join("new folder").is_dir());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let row = visual.debug_bounds("tree-name-0").unwrap();
+    visual.simulate_mouse_down(row.center(), MouseButton::Right, Modifiers::default());
+    visual.simulate_mouse_up(row.center(), MouseButton::Right, Modifiers::default());
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let delete = visual.debug_bounds("popup-menu-item-Integer(3)").unwrap();
+    visual.simulate_click(delete.center(), Modifiers::default());
+    visual.run_until_parked();
+    handle
+        .update(&mut visual, |w, _, cx| {
+            assert!(
+                !root.join("new folder").exists(),
+                "{}",
+                w.notifications.text()
+            );
+            assert!(
+                w.tree
+                    .read(cx)
+                    .index_of(&SharedString::from("new folder"))
+                    .is_none()
+            );
+            assert!(w.tabs[0].save.persistence.is_dirty());
+            assert_eq!(w.tabs[0].save.editor.read(cx).value(), "unsaved text");
+            let entries = w.vault.as_ref().unwrap().trash_entries().unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].original, PathBuf::from("new folder"));
+        })
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("note.md")).unwrap(),
+        "saved text"
+    );
+}
+
+#[gpui::test]
+fn folder_operations_still_guard_affected_drafts_and_rename_links(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("vault");
+    std::fs::create_dir_all(root.join("folder")).unwrap();
+    std::fs::write(root.join("folder/note.md"), "saved text").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.vault = Some(Vault::open(&root, temp.path().join("recovery")).unwrap());
+            w.add_tab(
+                "folder/note.md".into(),
+                Some("saved text".into()),
+                false,
+                window,
+                cx,
+            );
+            w.tabs[0].save.editor.update(cx, |input, cx| {
+                input.replace_all("unsaved text", window, cx);
+            });
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |w, window, cx| {
+            assert!(w.tabs[0].save.persistence.is_dirty());
+            w.manage_folder("folder".into(), None, window, cx);
+            assert!(w.notifications.text().contains("请先保存"));
+            assert!(!w.file_writes.operation_active());
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(
+        std::fs::read_to_string(root.join("folder/note.md")).unwrap(),
+        "unsaved text"
+    );
+    std::fs::create_dir(root.join("unrelated")).unwrap();
+    handle
+        .update(cx, |w, window, cx| {
+            w.tabs[0].save.editor.update(cx, |input, cx| {
+                input.replace_all("another edit", window, cx);
+            });
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |w, window, cx| {
+            assert!(w.tabs[0].save.persistence.is_dirty());
+            w.manage_folder("unrelated".into(), Some("renamed".into()), window, cx);
+            assert!(w.notifications.text().contains("请先保存"));
+            assert!(!w.file_writes.operation_active());
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(root.join("unrelated").is_dir());
+    assert!(!root.join("renamed").exists());
+}
+
+#[gpui::test]
 fn trash_reports_pending_writes_and_succeeds_after_retry(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let root = std::env::temp_dir().join(format!("inkstone-trash-retry-{}", std::process::id()));

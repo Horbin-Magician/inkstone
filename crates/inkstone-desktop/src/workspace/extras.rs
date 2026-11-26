@@ -245,18 +245,29 @@ impl Workspace {
         if !self.file_operation_ready(cx) {
             return;
         }
+        // Renames may update links in any note. Trash only affects documents
+        // at the target path, so unrelated drafts must not consume the action.
+        let needs_guard = |path: &std::path::Path| {
+            new.is_some() || path == old || (folder && path.starts_with(&old))
+        };
         if self.tabs.iter().any(|t| {
-            t.save.persistence.is_dirty()
-                || t.save.persistence.is_saving()
-                || t.save.persistence.has_conflict()
+            needs_guard(&t.path)
+                && (t.save.persistence.is_dirty()
+                    || t.save.persistence.is_saving()
+                    || t.save.persistence.has_conflict())
         }) {
             self.notifications
                 .publish("请先保存打开的笔记，再移动或删除文件。".into());
             self.save_all(window, cx);
             return;
         }
-        let ids: Vec<_> = self.tabs.iter().map(|t| t.id).collect();
-        if ids
+        let guarded_ids: Vec<_> = self
+            .tabs
+            .iter()
+            .filter(|tab| needs_guard(&tab.path))
+            .map(|tab| tab.id)
+            .collect();
+        if guarded_ids
             .into_iter()
             .any(|id| self.has_pending_input(id, window, cx))
         {
