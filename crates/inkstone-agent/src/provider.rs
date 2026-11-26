@@ -94,15 +94,8 @@ impl ModelProvider for CompatibleProvider {
                 .timeout(Duration::from_secs(180))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?;
-            let responses =
-                reqwest::Url::parse(&self.config.base_url)?.host_str() == Some("api.openai.com");
-            let mut body = json!({"model":self.config.model,"messages":messages,"stream":true,"max_completion_tokens":self.config.output_tokens});
-            if !tools.is_empty() {
-                body["tools"] = tools.into();
-            }
-            if responses {
-                body = responses_body(&self.config, messages, tools)?;
-            }
+            let responses = uses_responses(&self.config)?;
+            let body = request_body(&self.config, messages, tools)?;
             let endpoint = if responses {
                 "responses"
             } else {
@@ -198,6 +191,36 @@ fn service_error(status: u16, bytes: &[u8], key: &str) -> String {
         }
     }
     message
+}
+
+fn uses_responses(config: &ModelConfig) -> Result<bool> {
+    Ok(reqwest::Url::parse(&config.base_url)?.host_str() == Some("api.openai.com"))
+}
+
+/// The context budget and HTTP transport must use the same protocol projection.
+pub(crate) fn request_body(
+    config: &ModelConfig,
+    messages: &[Value],
+    tools: &[Value],
+) -> Result<Value> {
+    if uses_responses(config)? {
+        return responses_body(config, messages, tools);
+    }
+    let messages: Vec<_> = messages
+        .iter()
+        .cloned()
+        .map(|mut message| {
+            if let Some(object) = message.as_object_mut() {
+                object.remove("response_items");
+            }
+            message
+        })
+        .collect();
+    let mut body = json!({"model":config.model,"messages":messages,"stream":true,"max_completion_tokens":config.output_tokens});
+    if !tools.is_empty() {
+        body["tools"] = tools.into();
+    }
+    Ok(body)
 }
 
 fn responses_body(config: &ModelConfig, messages: &[Value], tools: &[Value]) -> Result<Value> {
