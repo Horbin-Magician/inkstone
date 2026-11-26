@@ -191,6 +191,7 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
         Some(
             regex::RegexBuilder::new(&pattern)
                 .case_insensitive(!spec.case_sensitive)
+                .size_limit(crate::search::REGEX_SIZE_LIMIT)
                 .build()
                 .map_err(|e| e.to_string())?,
         )
@@ -281,6 +282,17 @@ mod tests {
             descendants: true,
             folder: String::new(),
         }
+    }
+    #[test]
+    fn batch_and_search_reject_oversized_compiled_regexes() {
+        let pattern = r"\w{100}";
+        // This fits the regex crate's default budget but exceeds our shared budget.
+        assert!(regex::Regex::new(pattern).is_ok());
+        let mut s = spec();
+        s.regex = true;
+        s.find = pattern.into();
+        assert!(plan(&Index::default(), &s).is_err());
+        assert!(crate::search::Query::parse(&format!("/{pattern}/")).is_err());
     }
     #[test]
     fn tag_renaming_preserves_unicode_hierarchy_boundaries() {

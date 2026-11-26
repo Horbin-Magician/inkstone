@@ -6,6 +6,8 @@ mod property;
 mod regions;
 mod sections;
 
+pub(crate) const REGEX_SIZE_LIMIT: usize = 2 * 1024 * 1024;
+
 enum Pattern {
     Text(String),
     Exact(String),
@@ -366,7 +368,7 @@ impl Query {
                     RegexBuilder::new(&value[1..value.len() - 1])
                         .case_insensitive(!term_case_sensitive)
                         .multi_line(true)
-                        .size_limit(2 * 1024 * 1024)
+                        .size_limit(REGEX_SIZE_LIMIT)
                         .build()
                         .map_err(|e| format!("无效的正则表达式：{e}"))?,
                 )
