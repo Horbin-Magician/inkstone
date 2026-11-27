@@ -6858,3 +6858,53 @@ fn trash_named_note_uses_target_instead_of_active_blank_tab(cx: &mut TestAppCont
         .unwrap();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[gpui::test]
+fn heading_numbering_is_per_note_and_shared_with_split_views(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.add_tab("a.md".into(), Some("# A".into()), false, window, cx);
+            let a = w.current_pane().unwrap();
+            w.execute_command(115, window, cx);
+            assert!(a.read(cx).heading_numbering);
+            assert!(
+                w.ui.prefs
+                    .numbered_notes
+                    .contains(std::path::Path::new("a.md"))
+            );
+            w.split_active(false, window, cx);
+            let split = w.views.split.as_ref().unwrap().pane.clone();
+            assert!(split.read(cx).heading_numbering);
+            w.execute_command(115, window, cx);
+            assert!(!a.read(cx).heading_numbering);
+            assert!(!split.read(cx).heading_numbering);
+            w.execute_command(115, window, cx);
+            w.views.secondary_focused = false;
+            w.add_tab("b.md".into(), Some("# B".into()), false, window, cx);
+            assert!(!w.current_pane().unwrap().read(cx).heading_numbering);
+            assert!(a.read(cx).heading_numbering);
+            w.relocate_navigation(
+                std::path::Path::new("a.md"),
+                Some(std::path::Path::new("renamed.md")),
+                false,
+                cx,
+            );
+            assert!(
+                w.ui.prefs
+                    .numbered_notes
+                    .contains(std::path::Path::new("renamed.md"))
+            );
+            assert!(
+                !w.ui
+                    .prefs
+                    .numbered_notes
+                    .contains(std::path::Path::new("a.md"))
+            );
+            w.relocate_navigation(std::path::Path::new("renamed.md"), None, false, cx);
+            assert!(w.ui.prefs.numbered_notes.is_empty());
+            assert_eq!(a.read(cx).editor.read(cx).value().as_ref(), "# A");
+        })
+        .unwrap();
+}

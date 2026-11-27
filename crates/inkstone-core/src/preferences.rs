@@ -163,6 +163,7 @@ pub struct Preferences {
     pub sort_descending: bool,
     pub sort_by: crate::file_order::SortBy,
     pub bookmarks: Vec<PathBuf>,
+    pub numbered_notes: std::collections::BTreeSet<PathBuf>,
     pub anchor_bookmarks: Vec<AnchorBookmark>,
     pub pinned_paths: Vec<PathBuf>,
     pub open_paths: Vec<PathBuf>,
@@ -228,6 +229,7 @@ impl Default for Preferences {
             sort_descending: false,
             sort_by: Default::default(),
             bookmarks: vec![],
+            numbered_notes: Default::default(),
             anchor_bookmarks: vec![],
             pinned_paths: vec![],
             open_paths: vec![],
@@ -392,6 +394,25 @@ impl Navigation {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn heading_numbering_preferences_default_off_and_round_trip_per_note() {
+        let mut prefs: Preferences = serde_json::from_str("{}").unwrap();
+        assert!(prefs.numbered_notes.is_empty());
+        prefs.numbered_notes.insert("目录/文章.md".into());
+        let recovered: Preferences =
+            serde_json::from_str(&serde_json::to_string(&prefs).unwrap()).unwrap();
+        assert!(
+            recovered
+                .numbered_notes
+                .contains(std::path::Path::new("目录/文章.md"))
+        );
+        assert!(
+            !recovered
+                .numbered_notes
+                .contains(std::path::Path::new("其他.md"))
+        );
+    }
+
     #[test]
     fn saving_owns_its_temporary_file_and_cleans_up_failed_replacements() {
         let root = tempfile::tempdir().unwrap();

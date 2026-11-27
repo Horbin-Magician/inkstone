@@ -4087,3 +4087,120 @@ fn equal_text_revision_does_not_lose_pending_initial_projection(cx: &mut TestApp
         })
         .unwrap();
 }
+
+#[gpui::test]
+fn heading_numbering_tracks_edits_and_toggle_without_changing_source(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let source = "# 第一章\n\n## 子节\n\n# 第二章\n\nend";
+    let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+    cx.run_until_parked();
+    handle
+        .update(cx, |p, _, cx| {
+            p.set_heading_numbering(true, cx);
+            p.editor.update(cx, |s, cx| {
+                s.set_selected_range(source.len()..source.len(), cx)
+            });
+            p.update_presentation(cx);
+            assert_eq!(
+                p.heading_labels
+                    .iter()
+                    .map(|l| l.text.as_str())
+                    .collect::<Vec<_>>(),
+                ["1 ", "1.1 ", "2 "]
+            );
+            assert_eq!(p.editor.read(cx).value().as_ref(), source);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    for _ in 0..3 {
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+    }
+    assert!(visual.debug_bounds("heading-number-0").is_some());
+    handle
+        .update(&mut visual, |p, w, cx| {
+            assert!(p.rendered.markdown.contains("# 1 第一章"));
+            p.editor.update(cx, |s, cx| {
+                s.replace_all(source.replace("## 子节", "# 子节"), w, cx)
+            });
+            p.update_presentation(cx);
+            assert_eq!(
+                p.heading_labels
+                    .iter()
+                    .map(|l| l.text.as_str())
+                    .collect::<Vec<_>>(),
+                ["1 ", "2 ", "3 "]
+            );
+            p.editor
+                .update(cx, |s, cx| s.undo(&gpui_component::input::Undo, w, cx));
+            p.update_presentation(cx);
+            assert_eq!(p.editor.read(cx).value().as_ref(), source);
+            assert_eq!(p.heading_labels[1].text, "1.1 ");
+            p.live = false;
+            p.update_presentation(cx);
+            assert!(p.heading_labels.is_empty());
+            p.live = true;
+            p.set_heading_numbering(false, cx);
+            p.update_presentation(cx);
+            assert!(p.heading_labels.is_empty());
+        })
+        .unwrap();
+    visual.run_until_parked();
+    handle
+        .update(&mut visual, |p, _, cx| {
+            assert!(!p.rendered.markdown.contains("# 1 第一章"));
+            assert_eq!(p.editor.read(cx).value().as_ref(), source);
+        })
+        .unwrap();
+}
+
+#[gpui::test]
+fn heading_numbering_layout_reserves_space_for_wrapped_setext_and_quote_headings(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let source = format!(
+        "# {}\n\nSetext 标题\n多行\n===\n\n> ## 引用标题\n\nend",
+        "长标题".repeat(40)
+    );
+    let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+    cx.run_until_parked();
+    handle
+        .update(cx, |p, _, cx| {
+            p.set_heading_numbering(true, cx);
+            p.editor.update(cx, |s, cx| {
+                s.set_selected_range(source.len()..source.len(), cx)
+            });
+            p.update_presentation(cx);
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    for _ in 0..3 {
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+    }
+    let first = visual.debug_bounds("heading-number-0").unwrap();
+    handle
+        .update(&mut visual, |p, _, cx| {
+            let viewport = p.editor.read(cx).input_bounds();
+            let title = p.editor.read(cx).range_to_bounds(&(2..5)).unwrap();
+            assert!(first.left() >= viewport.left());
+            assert!(first.right() <= title.left() + px(1.));
+            assert_eq!(p.heading_labels.len(), 3);
+            assert_eq!(p.editor.read(cx).value().as_ref(), source);
+        })
+        .unwrap();
+    let quote = source.find("> ##").unwrap();
+    let number = visual
+        .debug_bounds(Box::leak(
+            format!("heading-number-{quote}").into_boxed_str(),
+        ))
+        .unwrap();
+    let rail = visual
+        .debug_bounds(Box::leak(format!("live-quote-{quote}").into_boxed_str()))
+        .unwrap();
+    assert!(
+        number.left() >= rail.right(),
+        "number {number:?}, rail {rail:?}"
+    );
+}

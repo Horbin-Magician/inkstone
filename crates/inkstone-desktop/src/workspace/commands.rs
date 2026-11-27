@@ -110,6 +110,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (112, "发送当前笔记或选区给 Agent", ""),
     (113, "Agent 润色选区或当前笔记", ""),
     (114, "Agent 摘要选区或当前笔记", ""),
+    (115, "切换当前文章标题自动编号", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -117,6 +118,37 @@ pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'stat
 }
 
 impl Workspace {
+    fn toggle_heading_numbering(&mut self, cx: &mut Context<Self>) {
+        let Some(pane) = self.current_pane() else {
+            return;
+        };
+        let path = pane.read(cx).current_path.clone();
+        if path.as_os_str().is_empty() {
+            self.notifications
+                .publish("请先保存文章，再开启标题自动编号。".into());
+            cx.notify();
+            return;
+        }
+        let enabled = !self.ui.prefs.numbered_notes.remove(&path);
+        if enabled {
+            self.ui.prefs.numbered_notes.insert(path.clone());
+        }
+        let panes: Vec<_> = self
+            .tabs
+            .iter()
+            .map(|t| t.pane.clone())
+            .chain(self.views.split.iter().map(|s| s.pane.clone()))
+            .collect();
+        for pane in panes {
+            pane.update(cx, |p, cx| {
+                if p.current_path == path {
+                    p.set_heading_numbering(enabled, cx);
+                }
+            });
+        }
+        self.persist_workspace(cx);
+        cx.notify();
+    }
     pub(super) fn filtered_commands(&self, cx: &App) -> Vec<(usize, &'static str, &'static str)> {
         let query = self.ui.command.read(cx).value().to_lowercase();
         COMMANDS
@@ -363,6 +395,7 @@ impl Workspace {
         self.command_open = false;
         match id {
             112..=114 => self.open_agent(id, window, cx),
+            115 => self.toggle_heading_numbering(cx),
             0 => self.focus_new(window, cx),
             1 => self.choose_vault(window, cx),
             2 => self.focus_search(false, window, cx),

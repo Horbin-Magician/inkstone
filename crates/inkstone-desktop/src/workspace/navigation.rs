@@ -237,6 +237,30 @@ impl Workspace {
             .map(|tab| tab.pane.clone())
             .chain(self.views.split.iter().map(|split| split.pane.clone()))
             .collect();
+        self.ui.prefs.numbered_notes = self
+            .ui
+            .prefs
+            .numbered_notes
+            .iter()
+            .filter_map(|path| {
+                let affected = if folder {
+                    path.starts_with(old)
+                } else {
+                    path == old
+                };
+                if !affected {
+                    Some(path.clone())
+                } else {
+                    new.map(|new| {
+                        if folder {
+                            new.join(path.strip_prefix(old).unwrap())
+                        } else {
+                            new.to_owned()
+                        }
+                    })
+                }
+            })
+            .collect();
         let relocate = |history: &mut Navigation| {
             let mut before = 0;
             let cursor = history.cursor;

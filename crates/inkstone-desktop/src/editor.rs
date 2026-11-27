@@ -20,6 +20,7 @@ mod font_zoom;
 mod footnotes;
 #[cfg(test)]
 mod frame_benchmark;
+mod heading_numbers;
 mod live_lists;
 mod live_objects;
 mod live_quotes;
@@ -49,6 +50,7 @@ struct PresentationSnapshot {
     live: bool,
     light: bool,
     search: Option<String>,
+    text_font: SharedString,
     font_size: f32,
     line_spacing: f32,
 }
@@ -79,6 +81,8 @@ pub struct EditorPane {
     quote_rem_size: Pixels,
     live_rules: Vec<std::ops::Range<usize>>,
     live_lists: Vec<std::ops::Range<usize>>,
+    heading_labels: Vec<heading_numbers::Label>,
+    pub heading_numbering: bool,
     pub editor: Entity<EditorState>,
     decorations: TextDecorationCollection,
     pub live: bool,
@@ -301,6 +305,8 @@ impl EditorPane {
             quote_rem_size: window.rem_size(),
             live_rules: vec![],
             live_lists: vec![],
+            heading_labels: vec![],
+            heading_numbering: false,
             font_size: 16.,
             line_spacing: 1.5,
             quick_font_size: false,

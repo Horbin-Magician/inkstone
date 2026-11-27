@@ -92,14 +92,16 @@ impl Workspace {
             .unwrap_or_default();
         for tab in &self.tabs {
             tab.pane.update(cx, |p, cx| {
-                p.set_reference_context(tab.path.clone(), root.clone(), self.index.clone(), cx)
+                p.set_reference_context(tab.path.clone(), root.clone(), self.index.clone(), cx);
+                p.set_heading_numbering(self.ui.prefs.numbered_notes.contains(&tab.path), cx);
             });
         }
         if let Some(split) = &self.views.split
             && let Some(tab) = self.tabs.iter().find(|t| t.id == split.source)
         {
             split.pane.update(cx, |p, cx| {
-                p.set_reference_context(tab.path.clone(), root, self.index.clone(), cx)
+                p.set_reference_context(tab.path.clone(), root, self.index.clone(), cx);
+                p.set_heading_numbering(self.ui.prefs.numbered_notes.contains(&tab.path), cx);
             });
         }
     }

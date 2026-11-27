@@ -256,9 +256,21 @@ impl Workspace {
         let (fold_key, headings) = if self.ui.right_mode == 0 {
             if let Some(pane) = &pane {
                 let pane = pane.read(cx);
+                let mut headings = pane.parsed.headings.clone();
+                if pane.heading_numbering {
+                    for (heading, prefix) in
+                        headings
+                            .iter_mut()
+                            .zip(inkstone_core::heading_numbers::prefixes(
+                                &pane.parsed.headings,
+                            ))
+                    {
+                        heading.title = format!("{prefix} {}", heading.title);
+                    }
+                }
                 self.ui
                     .outline
-                    .project(&pane.current_path, &pane.parsed.headings, &outline_query)
+                    .project(&pane.current_path, &headings, &outline_query)
             } else {
                 self.ui
                     .outline

@@ -212,12 +212,15 @@ impl EditorPane {
                         // carry dependencies (or brackets in their source). Resolve
                         // the fragment again before retaining its measured view;
                         // byte equality alone cannot validate reference definitions.
-                        let document = inkstone_core::preview::content_document(
+                        let mut document = inkstone_core::preview::content_document(
                             &self.reference_index,
                             &self.current_path,
                             snapshot.clone(),
                             range.clone(),
                         );
+                        if self.heading_numbering {
+                            document.number_headings();
+                        }
                         (document.markdown == widget.document.markdown
                             && document.references.len() == widget.document.references.len()
                             && document

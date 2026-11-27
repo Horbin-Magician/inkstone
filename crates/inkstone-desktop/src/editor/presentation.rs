@@ -79,6 +79,7 @@ impl EditorPane {
             let cached_snapshot = self.syntax_snapshot.clone();
             let graphics = crate::native_graphics::Service::get(cx);
             let light = self.light;
+            let heading_numbering = self.heading_numbering;
             let job = projection::Job::default();
             let token = job.token();
             self.projection_job = Some(job);
@@ -103,7 +104,7 @@ impl EditorPane {
                 if cancelled() {
                     return None;
                 }
-                let reading = inkstone_core::rendering::reading_snapshot(
+                let mut reading = inkstone_core::rendering::reading_snapshot(
                     &references,
                     &path,
                     snapshot.clone(),
@@ -117,9 +118,17 @@ impl EditorPane {
                     cancelled,
                 )?
                 .into_iter()
-                .map(|fragment| {
+                .map(|mut fragment| {
                     if cancelled() {
                         return None;
+                    }
+                    if heading_numbering
+                        && matches!(
+                            fragment.candidate.role,
+                            inkstone_core::preview::Role::Content
+                        )
+                    {
+                        fragment.document.number_headings();
                     }
                     let measured = fragment
                         .graphic
@@ -128,6 +137,9 @@ impl EditorPane {
                     Some((fragment, measured))
                 })
                 .collect::<Option<Vec<_>>>()?;
+                if heading_numbering {
+                    reading.number_headings();
+                }
                 (!cancelled()).then_some((initial, reading, fragments))
             });
             self.parse_task = Some(cx.spawn(async move |this, cx| {
@@ -180,6 +192,7 @@ impl EditorPane {
             live: self.live,
             light: self.light,
             search: search_query.clone(),
+            text_font: self.text_font.clone(),
             font_size: self.font_size,
             line_spacing: self.line_spacing,
         };
@@ -595,6 +608,7 @@ impl EditorPane {
                 );
             }
         }
+        self.prepare_heading_labels(&text, &object_ranges, &mut typography, cx);
         styles = Some(typography);
         let was_visible = self.last_geometry.is_some_and(|(_, visible)| visible);
         if let Some(styles) = styles
@@ -667,6 +681,8 @@ impl EditorPane {
                 false
             }
         };
+        self.heading_labels
+            .retain_mut(|label| rebase(&mut label.anchor));
         self.live_lists.retain_mut(rebase);
         self.live_rules.retain_mut(rebase);
         self.live_tasks.retain_mut(|task| rebase(&mut task.range));

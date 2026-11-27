@@ -1892,9 +1892,10 @@ impl Workspace {
             })
             .unwrap_or_default();
         let reading = pane.as_ref().is_some_and(|p| p.read(cx).reading);
+        let numbered = pane.as_ref().is_some_and(|p| p.read(cx).heading_numbering);
         let menu_weak = cx.entity().downgrade();
         let menu_items: Vec<_> = [
-            6, 7, 31, 32, 8, 15, 11, 23, 111, 99, 100, 103, 104, 19, 18, 10, 16,
+            6, 7, 115, 31, 32, 8, 15, 11, 23, 111, 99, 100, 103, 104, 19, 18, 10, 16,
         ]
         .into_iter()
         .filter_map(|id| command(id).map(|entry| (entry, self.hotkey_label(id))))
@@ -2000,6 +2001,12 @@ impl Workspace {
                                                 } else {
                                                     "阅读视图"
                                                 }
+                                            } else if id == 115 {
+                                                if numbered {
+                                                    "关闭标题自动编号"
+                                                } else {
+                                                    "开启标题自动编号"
+                                                }
                                             } else if id == 16 {
                                                 "文件恢复"
                                             } else {
@@ -2014,6 +2021,7 @@ impl Workspace {
                                                     }
                                                 }
                                                 7 => "code",
+                                                115 => "list",
                                                 31 => "split-horizontal",
                                                 32 => "split-vertical",
                                                 8 => "pencil",

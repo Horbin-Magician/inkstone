@@ -52,6 +52,97 @@ struct SourceMap {
     source_end: usize,
 }
 impl ReadingDocument {
+    /// Decorate the rendered Markdown while retaining original navigation/task offsets.
+    pub fn number_headings(&mut self) {
+        let snapshot = crate::syntax::Snapshot::new(&self.markdown);
+        let parsed = index::parse_snapshot(&snapshot);
+        let spans: BTreeMap<_, _> = crate::markdown::spans_snapshot(&snapshot)
+            .into_iter()
+            .filter(|s| s.kind == crate::markdown::Kind::Heading)
+            .map(|s| (s.source.start, s))
+            .collect();
+        if parsed.headings.is_empty() {
+            return;
+        }
+        // Number against each original article, so embeds and partial live widgets
+        // cannot renumber the host article or restart midway through a section.
+        let mut numbers = BTreeMap::new();
+        for (path, source) in &self.sources {
+            let headings = index::parse(source).headings;
+            for (heading, prefix) in headings
+                .iter()
+                .zip(crate::heading_numbers::prefixes(&headings))
+            {
+                numbers.insert((path.clone(), heading.offset), prefix);
+            }
+        }
+        let mut insertions = Vec::new();
+        for heading in &parsed.headings {
+            let Some(number) = self
+                .origin(heading.offset)
+                .and_then(|origin| numbers.get(&origin))
+            else {
+                continue;
+            };
+            if let Some(span) = spans.get(&heading.offset) {
+                let (offset, prefix) = if span.content.is_empty() {
+                    let hashes = self.markdown[span.source.clone()]
+                        .bytes()
+                        .take_while(|b| *b == b'#')
+                        .count();
+                    (span.source.start + hashes, format!(" {number} "))
+                } else {
+                    (span.content.start, format!("{number} "))
+                };
+                insertions.push((offset, prefix));
+            }
+        }
+        if insertions.is_empty() {
+            return;
+        }
+        let mut output = String::with_capacity(self.markdown.len());
+        let mut previous = 0;
+        let mut shifts = Vec::new();
+        let mut shift = 0;
+        for (offset, prefix) in &insertions {
+            output.push_str(&self.markdown[previous..*offset]);
+            output.push_str(prefix);
+            shift += prefix.len();
+            shifts.push((*offset, shift));
+            previous = *offset;
+        }
+        output.push_str(&self.markdown[previous..]);
+        let shift_at = |offset| {
+            let i = shifts.partition_point(|(at, _)| *at <= offset);
+            if i == 0 { 0 } else { shifts[i - 1].1 }
+        };
+        let mut locations = Vec::new();
+        for map in &self.locations {
+            let mut start = map.output.start;
+            let first = insertions.partition_point(|(at, _)| *at <= start);
+            let ends = insertions[first..]
+                .iter()
+                .map(|(at, _)| *at)
+                .take_while(|at| *at < map.output.end)
+                .chain(std::iter::once(map.output.end));
+            for end in ends {
+                let mut next = map.clone();
+                if map.output.len() == map.source_end - map.start {
+                    next.start += start - map.output.start;
+                    next.source_end = next.start + end - start;
+                }
+                next.output = start + shift_at(start)..end + shift_at(start);
+                locations.push(next);
+                start = end;
+            }
+        }
+        for task in &mut self.tasks {
+            task.rendered_start += shift_at(task.rendered_start);
+        }
+        self.markdown = output;
+        self.locations = locations;
+    }
+
     /// Keep selected output spans while preserving their source and action maps.
     /// Callers supply ordered, disjoint UTF-8 ranges from parsed Markdown nodes.
     pub(crate) fn select_output(&self, ranges: &[Range<usize>]) -> Self {
@@ -1056,6 +1147,66 @@ pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Opti
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn heading_numbering_uses_original_article_numbers_for_embeds_and_fragments() {
+        let path = Path::new("host.md");
+        let source = "# First\n\n![[child]]\n\n# Second\n\n> [!note]\n> ## Nested\n";
+        let mut index = Index::default();
+        index.update(path.into(), source.into());
+        index.update("child.md".into(), "# Child\n\n## Sub".into());
+        let mut doc = reading_document(&index, path, source);
+        doc.number_headings();
+        let titles: Vec<_> = index::parse(&doc.markdown)
+            .headings
+            .into_iter()
+            .map(|h| h.title)
+            .collect();
+        assert_eq!(
+            titles,
+            ["1 First", "1 Child", "1.1 Sub", "2 Second", "2.1 Nested"]
+        );
+        let snapshot = Arc::new(crate::syntax::Snapshot::new(source));
+        let start = source.find("> [!note]").unwrap();
+        let mut fragment = reading_snapshot(&index, path, snapshot, start..source.len());
+        fragment.number_headings();
+        assert!(fragment.markdown.contains("2.1 Nested"));
+    }
+
+    #[test]
+    fn heading_numbering_preserves_source_maps_tasks_and_markdown_structure() {
+        let path = Path::new("note.md");
+        let source = "---\ntitle: test\n---\n# **中文**\r\n\r\n## 子节\r\n- [ ] task\r\n\r\n```md\r\n# code\r\n```\r\n\r\nSetext\r\n======\r\n\r\n#\r\n";
+        let mut index = Index::default();
+        index.update(path.into(), source.into());
+        let mut document = reading_document(&index, path, source);
+        let original = document.clone();
+        document.number_headings();
+        assert!(document.markdown.contains("# 1 **中文**"));
+        assert!(document.markdown.contains("## 1.1 子节"));
+        assert!(document.markdown.contains("2 Setext"));
+        assert!(document.markdown.contains("# code"));
+        assert_eq!(index::parse(&document.markdown).headings.len(), 4);
+        assert_eq!(index::parse(&document.markdown).headings[3].title, "3");
+        assert!(document.source_matches(path, source));
+        for word in ["中文", "子节", "task", "code", "Setext"] {
+            let before = original.markdown.find(word).unwrap();
+            let after = document.markdown.find(word).unwrap();
+            assert_eq!(document.origin(after), original.origin(before), "{word}");
+        }
+        let task = &document.tasks[0];
+        assert_eq!(task.marker, original.tasks[0].marker);
+        assert_eq!(task.baseline.as_ref(), source);
+        assert_eq!(
+            &document.markdown[task.rendered_start..task.rendered_start + 1],
+            "-"
+        );
+        let task_before = original.tasks[0].rendered_start;
+        assert_eq!(
+            document.origin(task.rendered_start),
+            original.origin(task_before)
+        );
+    }
+
     #[test]
     fn local_fragment_rebase_rejects_dependencies_and_invalid_provenance() {
         use super::{ReadingDocument, Reference, TaskTarget};

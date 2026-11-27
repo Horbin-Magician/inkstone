@@ -490,6 +490,14 @@ impl Render for EditorPane {
             )
             .child(font_zoom::capture(cx.entity().downgrade()))
             .when(!self.reading && self.live, |view| {
+                view.child(heading_numbers::overlay(
+                    self.editor.clone(),
+                    self.heading_labels.clone(),
+                    self.text_font.clone(),
+                    self.light,
+                ))
+            })
+            .when(!self.reading && self.live, |view| {
                 view.child(live_objects::overlay(
                     cx.entity().downgrade(),
                     self.editor.clone(),

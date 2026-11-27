@@ -478,6 +478,7 @@ impl Workspace {
             p.light = prefs.light;
             p.readable_width = prefs.readable_width;
             p.strict_line_breaks = prefs.strict_line_breaks;
+            p.set_heading_numbering(prefs.numbered_notes.contains(&tab_path), cx);
             p.smart_lists = prefs.smart_lists;
             p.set_fold_options(prefs.fold_headings, prefs.fold_indentation, window, cx);
             p.set_auto_pairing(prefs.auto_pair_brackets, prefs.auto_pair_markdown, cx);

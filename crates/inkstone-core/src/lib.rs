@@ -4,6 +4,7 @@ pub mod changes;
 pub mod comments;
 pub mod file_order;
 pub mod graphics;
+pub mod heading_numbers;
 pub mod index;
 pub mod line_edit;
 pub mod link_audit;
