@@ -6956,3 +6956,46 @@ fn heading_numbering_is_per_note_and_shared_with_split_views(cx: &mut TestAppCon
         })
         .unwrap();
 }
+
+#[gpui::test]
+fn text_width_changes_sync_tabs_split_and_new_views(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.add_tab("width.md".into(), Some("正文".into()), false, window, cx);
+            w.split_active(true, window, cx);
+        })
+        .unwrap();
+    for (secondary, width) in [(false, 520.), (true, 840.)] {
+        handle
+            .update(cx, |w, _, cx| {
+                let pane = if secondary {
+                    w.views.split.as_ref().unwrap().pane.clone()
+                } else {
+                    w.tabs[0].pane.clone()
+                };
+                pane.update(cx, |_, cx| cx.emit(EditorEvent::TextWidthChanged(width)));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, _, cx| {
+                assert_eq!(w.ui.prefs.text_width, width);
+                assert!(w.ui.prefs.readable_width);
+                assert_eq!(w.tabs[0].pane.read(cx).text_width, width);
+                assert_eq!(
+                    w.views.split.as_ref().unwrap().pane.read(cx).text_width,
+                    width
+                );
+            })
+            .unwrap();
+    }
+    handle
+        .update(cx, |w, window, cx| {
+            w.focus_primary(0, window, cx);
+            w.add_tab("new.md".into(), Some("新正文".into()), false, window, cx);
+            assert_eq!(w.tabs.last().unwrap().pane.read(cx).text_width, 840.);
+        })
+        .unwrap();
+}

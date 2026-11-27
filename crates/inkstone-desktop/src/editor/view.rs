@@ -118,6 +118,9 @@ impl Render for EditorPane {
                 cx.notify();
             });
         }
+        if !self.reading {
+            self.width_drag = None;
+        }
         let paste_weak = cx.entity().downgrade();
         let preview = self.reading.then(|| {
             let image_dir = self.image_dir.clone();
@@ -391,11 +394,16 @@ impl Render for EditorPane {
                     .min_h_0()
                     .child(
                         div()
+                            .relative()
                             .w_full()
                             .h_full()
                             .min_w_0()
-                            .when(self.readable_width, |s| s.max_w(px(700.)))
+                            .when(self.readable_width, |s| s.max_w(px(self.text_width)))
                             .children(preview)
+                            .when(self.reading, |s| {
+                                s.child(self.text_width_handle(true, cx))
+                                    .child(self.text_width_handle(false, cx))
+                            })
                             .when(!self.reading, |s| {
                                 // The gutter narrows the wrap. Extend the editor by
                                 // the gutter and shift it left, so the text column
@@ -475,6 +483,9 @@ impl Render for EditorPane {
                                 )
                             }),
                     )
+                    .when(self.reading, |s| {
+                        s.child(text_width::capture(cx.entity().downgrade()))
+                    })
                     .child(
                         div()
                             .id("editor-pane-scrollbar")

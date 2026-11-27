@@ -477,6 +477,7 @@ impl Workspace {
             p.text_font = text_font;
             p.light = prefs.light;
             p.readable_width = prefs.readable_width;
+            p.text_width = prefs.text_width;
             p.strict_line_breaks = prefs.strict_line_breaks;
             p.set_heading_numbering(prefs.numbered_notes.contains(&tab_path), cx);
             p.smart_lists = prefs.smart_lists;
@@ -572,7 +573,9 @@ impl Workspace {
             let from = this.tabs[index].path.clone();
             if !matches!(
                 event,
-                EditorEvent::CountsChanged | EditorEvent::FontSizeDelta(_)
+                EditorEvent::CountsChanged
+                    | EditorEvent::FontSizeDelta(_)
+                    | EditorEvent::TextWidthChanged(_)
             ) {
                 if split_source.is_some() {
                     this.focus_secondary(cx);
@@ -586,6 +589,11 @@ impl Workspace {
                 }
                 EditorEvent::CountsChanged => cx.notify(),
                 EditorEvent::FontSizeDelta(delta) => this.adjust_font_size(*delta, w, cx),
+                EditorEvent::TextWidthChanged(width) => {
+                    this.ui.prefs.text_width = *width;
+                    this.ui.prefs.readable_width = true;
+                    this.apply_editor_preferences(w, cx);
+                }
                 EditorEvent::FollowLink(target) | EditorEvent::FollowLinkInNewTab(target) => this
                     .follow_link(
                         from,

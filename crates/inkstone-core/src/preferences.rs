@@ -136,6 +136,7 @@ pub struct Preferences {
     pub monospace_font: String,
     pub line_numbers: bool,
     pub readable_width: bool,
+    pub text_width: f32,
     pub strict_line_breaks: bool,
     pub default_live_preview: bool,
     pub default_reading: bool,
@@ -202,6 +203,7 @@ impl Default for Preferences {
             monospace_font: String::new(),
             line_numbers: false,
             readable_width: true,
+            text_width: 700.,
             strict_line_breaks: false,
             default_live_preview: true,
             default_reading: false,
@@ -278,6 +280,7 @@ impl Preferences {
             };
         }
         value.font_size = value.font_size.clamp(10., 30.);
+        value.text_width = value.text_width.clamp(240., 2400.);
         value.line_spacing = value.line_spacing.clamp(1., 3.);
         value.tab_size = value.tab_size.clamp(2, 8);
         value.left_width = value.left_width.clamp(180., 500.);
@@ -629,6 +632,7 @@ mod tests {
         assert_eq!(p.link_format, crate::locations::LinkFormat::Shortest);
         assert_eq!(p.font_size, 20.);
         assert_eq!(p.line_spacing, 1.5);
+        assert_eq!(p.text_width, 700.);
         assert!(!p.quick_font_size);
         assert!(p.webdav.auto);
     }
@@ -640,6 +644,7 @@ mod tests {
         prefs.save(&path).unwrap();
         prefs.font_size = 10.;
         prefs.line_spacing = 2.;
+        prefs.text_width = 840.;
         prefs.quick_font_size = true;
         prefs.interface_font = "Segoe UI".into();
         prefs.text_font = "Microsoft YaHei UI".into();
@@ -693,6 +698,7 @@ mod tests {
         prefs.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).font_size, 10.);
         assert_eq!(Preferences::load(&path).line_spacing, 2.);
+        assert_eq!(Preferences::load(&path).text_width, 840.);
         assert!(Preferences::load(&path).quick_font_size);
         assert_eq!(Preferences::load(&path).interface_font, "Segoe UI");
         assert_eq!(Preferences::load(&path).text_font, "Microsoft YaHei UI");

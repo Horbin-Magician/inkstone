@@ -7,6 +7,7 @@ mod projection;
 mod reading;
 #[cfg(test)]
 mod tests;
+mod text_width;
 mod view;
 
 use crate::editor_links::{self, ParsedCache, PathCache, WikiCompletions, WikiDefinitions};
@@ -32,6 +33,7 @@ pub enum EditorEvent {
     PreviewImage(inkstone_core::rendering::Reference),
     CountsChanged,
     FontSizeDelta(i8),
+    TextWidthChanged(f32),
     FollowLink(String),
     FollowLinkInNewTab(String),
     FollowMarkdownLink(String),
@@ -101,6 +103,8 @@ pub struct EditorPane {
     font_zoom: font_zoom::WheelZoom,
     pub text_font: SharedString,
     pub readable_width: bool,
+    pub text_width: f32,
+    width_drag: Option<text_width::Drag>,
     pub strict_line_breaks: bool,
     pub indentation: gpui_base::input::TabSize,
     pub smart_lists: bool,
@@ -314,6 +318,8 @@ impl EditorPane {
             font_zoom: Default::default(),
             text_font: ".SystemUIFont".into(),
             readable_width: true,
+            text_width: 700.,
+            width_drag: None,
             strict_line_breaks: false,
             indentation,
             smart_lists: true,

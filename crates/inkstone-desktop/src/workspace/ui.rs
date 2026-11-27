@@ -912,6 +912,7 @@ impl Workspace {
                 pane.quick_font_size = p.quick_font_size;
                 pane.text_font = text_font.clone();
                 pane.readable_width = p.readable_width;
+                pane.text_width = p.text_width;
                 pane.strict_line_breaks = p.strict_line_breaks;
                 pane.light = p.light;
                 pane.smart_lists = p.smart_lists;

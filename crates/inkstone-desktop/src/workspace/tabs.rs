@@ -85,6 +85,11 @@ impl Workspace {
                     }
                     EditorEvent::CountsChanged => cx.notify(),
                     EditorEvent::FontSizeDelta(delta) => this.adjust_font_size(*delta, window, cx),
+                    EditorEvent::TextWidthChanged(width) => {
+                        this.ui.prefs.text_width = *width;
+                        this.ui.prefs.readable_width = true;
+                        this.apply_editor_preferences(window, cx);
+                    }
                     EditorEvent::FollowLink(target) | EditorEvent::FollowLinkInNewTab(target) => {
                         this.follow_link(
                             from,
