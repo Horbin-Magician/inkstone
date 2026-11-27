@@ -1126,6 +1126,66 @@ impl Workspace {
         }
     }
 
+    fn view_mode_menu(
+        &self,
+        pane: Entity<EditorPane>,
+        secondary: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        // None selects reading and preserves the last editing mode for the keyboard toggle.
+        let current = (!pane.read(cx).reading).then_some(pane.read(cx).live);
+        let choices = [
+            (Some(false), "源码"),
+            (Some(true), "实时预览"),
+            (None, "阅读"),
+        ];
+        let label = choices.iter().find(|(mode, _)| *mode == current).unwrap().1;
+        let weak = cx.entity().downgrade();
+        Button::new(if secondary {
+            "secondary-view-mode"
+        } else {
+            "primary-view-mode"
+        })
+        .ghost()
+        .compact()
+        .debug_selector(move || {
+            if secondary {
+                "secondary-view-mode".into()
+            } else {
+                "primary-view-mode".into()
+            }
+        })
+        .label(label)
+        .child(icon("chevron-down").size(px(12.)))
+        .accessibility_label(format!("当前视图：{label}，切换视图"))
+        .dropdown_menu(move |mut menu, _, _| {
+            for (mode, label) in choices {
+                let weak = weak.clone();
+                let pane = pane.clone();
+                menu = menu.item(PopupMenuItem::new(label).checked(current == mode).on_click(
+                    move |_, window, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            if this.focus_navigation_pane(&pane, window, cx) {
+                                pane.update(cx, |pane, cx| {
+                                    pane.reading = mode.is_none();
+                                    if let Some(live) = mode {
+                                        pane.live = live;
+                                    }
+                                    pane.focus_view(window, cx);
+                                    cx.notify();
+                                });
+                                this.persist_workspace(cx);
+                                cx.notify();
+                            }
+                        });
+                    },
+                ));
+            }
+            menu
+        })
+        .into_any_element()
+    }
+
     fn navigation_button(
         &self,
         pane: Option<Entity<EditorPane>>,
@@ -1964,21 +2024,9 @@ impl Workspace {
                                         },
                                     ))
                             })
-                            .child(
-                                tool(
-                                    "read-mode",
-                                    if reading { "pencil" } else { "book-open" },
-                                    format!(
-                                        "切换{}视图 {}",
-                                        if reading { "编辑" } else { "阅读" },
-                                        self.hotkey_label(6)
-                                    ),
-                                )
-                                .when(active.is_none(), |s| s.hidden())
-                                .on_click(
-                                    cx.listener(|this, _, w, cx| this.execute_command(6, w, cx)),
-                                ),
-                            )
+                            .when_some(pane.clone(), |row, pane| {
+                                row.child(self.view_mode_menu(pane, secondary, cx))
+                            })
                             .child(
                                 tool(
                                     if secondary {
@@ -2624,6 +2672,38 @@ impl Render for Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn view_mode_menu_targets_its_split_and_preserves_editing_mode(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("a.md".into(), Some("A".into()), false, window, cx);
+                w.split_active(false, window, cx);
+                w.focus_primary(0, window, cx);
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1400.), px(900.)));
+        for (index, reading, live) in [(0usize, false, false), (2, true, false), (1, false, true)] {
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let position = visual.debug_bounds("secondary-view-mode").unwrap().center();
+            visual.simulate_click(position, Modifiers::default());
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let item =
+                Box::leak(format!("popup-menu-item-{:?}", ElementId::from(index)).into_boxed_str());
+            let position = visual.debug_bounds(item).unwrap().center();
+            visual.simulate_click(position, Modifiers::default());
+            handle
+                .update(&mut visual, |w, _, cx| {
+                    let split = w.views.split.as_ref().unwrap().pane.read(cx);
+                    assert_eq!((split.reading, split.live), (reading, live));
+                    assert!(!w.tabs[0].pane.read(cx).reading);
+                })
+                .unwrap();
+        }
+    }
 
     #[gpui::test]
     fn file_menu_does_not_retarget_when_its_pane_disappears(cx: &mut TestAppContext) {
