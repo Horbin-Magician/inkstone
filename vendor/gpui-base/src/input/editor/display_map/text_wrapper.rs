@@ -614,13 +614,19 @@ impl TextWrapper {
             if let Some(wrap_width) = wrap_width {
                 // Borrowed for lines within a single rope chunk.
                 let line_str: Cow<str> = line.into();
+                let line_start = changed_text.line_start_offset(row);
+                // slice_line removes LF only. Keep the CR byte in the final row's
+                // source range, but exclude the CRLF terminator from wrap decisions.
+                let wrap_text = if line_start + line_str.len() < changed_text.len() {
+                    line_str.strip_suffix('\r').unwrap_or(&line_str)
+                } else {
+                    &line_str
+                };
                 match self.wrapping_indent {
                     WrappingIndent::Same => {
                         // Here only have wrapped line, if there is no wrap meet, the `line_wraps`
                         // result will empty.
-                        for boundary in
-                            wrap_line(&line_str, wrap_width, changed_text.line_start_offset(row))
-                        {
+                        for boundary in wrap_line(wrap_text, wrap_width, line_start) {
                             wrapped_lines.push(prev_boundary_ix..boundary.ix);
                             prev_boundary_ix = boundary.ix;
                             indent_chars = boundary.next_indent;
@@ -629,17 +635,14 @@ impl TextWrapper {
                     WrappingIndent::None => {
                         // The first visual line keeps the line's leading indentation, so it is
                         // wrapped as is.
-                        let boundaries =
-                            wrap_line(&line_str, wrap_width, changed_text.line_start_offset(row));
+                        let boundaries = wrap_line(wrap_text, wrap_width, line_start);
                         if let Some(first_ix) = boundaries.first().map(|b| b.ix) {
                             wrapped_lines.push(prev_boundary_ix..first_ix);
                             prev_boundary_ix = first_ix;
 
-                            for boundary in wrap_line(
-                                &line_str[first_ix..],
-                                wrap_width,
-                                changed_text.line_start_offset(row) + first_ix,
-                            ) {
+                            for boundary in
+                                wrap_line(&wrap_text[first_ix..], wrap_width, line_start + first_ix)
+                            {
                                 let ix = first_ix + boundary.ix;
                                 wrapped_lines.push(prev_boundary_ix..ix);
                                 prev_boundary_ix = ix;

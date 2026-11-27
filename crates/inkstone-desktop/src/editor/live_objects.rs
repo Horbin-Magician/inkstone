@@ -2060,6 +2060,48 @@ mod tests {
     }
 
     #[gpui::test]
+    fn full_width_table_leaves_one_blank_line_before_quote(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        for ending in ["\n", "\r\n"] {
+            let source = [
+                "正文",
+                "",
+                "| 挑战 | 应对策略 |",
+                "| --- | --- |",
+                "| 上下文 | 检查调用方 |",
+                "| 评测 | 验证结果 |",
+                "",
+                "> 引用",
+            ]
+            .join(ending);
+            let table = source.find('|').unwrap();
+            let quote = source.find('>').unwrap();
+            let handle = cx.add_window(|w, cx| EditorPane::new(&source, w, cx));
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            for width in [800., 480.] {
+                visual.simulate_resize(size(px(width), px(600.)));
+                for _ in 0..4 {
+                    visual.run_until_parked();
+                    visual.update(|w, cx| w.draw(cx).clear(cx));
+                }
+                handle
+                    .update(&mut visual, |pane, _, cx| {
+                        let editor = pane.editor.read(cx);
+                        let bounds = editor.display_object_bounds(table as u64).unwrap();
+                        let next = editor.range_to_bounds(&(quote..quote)).unwrap();
+                        assert_eq!(
+                            next.top() - bounds.bottom(),
+                            editor.line_height().unwrap(),
+                            "ending={ending:?}, width={width}"
+                        );
+                        assert_eq!(editor.value().as_ref(), source);
+                    })
+                    .unwrap();
+            }
+        }
+    }
+
+    #[gpui::test]
     fn live_objects_measure_reveal_selection_and_leave_copy_and_undo_as_source(
         cx: &mut TestAppContext,
     ) {
