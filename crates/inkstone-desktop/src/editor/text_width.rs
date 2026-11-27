@@ -36,18 +36,15 @@ impl EditorPane {
                 "调整正文宽度（右侧）"
             })
             .absolute()
-            .top(relative(0.5))
-            .mt(px(-40.))
+            .top_0()
+            .bottom_0()
             .w(px(16.))
-            .h(px(80.))
             .when(left, |s| s.left(-inset - px(22.)))
             .when(!left, |s| s.right(-inset - px(22.)))
             .flex()
             .items_center()
             .justify_center()
             .cursor_col_resize()
-            .rounded(px(8.))
-            .hover(|s| s.bg(palette.surface))
             .tooltip(|window, cx| {
                 gpui_component::tooltip::Tooltip::new("拖动调整正文宽度，双击恢复默认")
                     .build(window, cx)
@@ -81,16 +78,21 @@ impl EditorPane {
             )
             .child(
                 div()
-                    .w(px(3.))
-                    .h(px(40.))
-                    .rounded_full()
+                    .w(px(16.))
+                    .h(px(80.))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(8.))
+                    .bg(palette.surface)
                     .opacity(if dragging { 1. } else { 0. })
                     .group_hover(group, |s| s.opacity(1.))
-                    .bg(if dragging {
+                    .child(div().w(px(3.)).h(px(40.)).rounded_full().bg(if dragging {
                         palette.accent
                     } else {
                         palette.border
-                    }),
+                    })),
             )
     }
 
@@ -176,7 +178,17 @@ mod tests {
             ("text-width-right", -1000., 240.),
             ("text-width-left", -2000., 1096.),
         ] {
-            let from = visual.debug_bounds(id).unwrap().center();
+            let bar = visual.debug_bounds(id).unwrap();
+            assert_eq!(bar.top(), original.top());
+            assert_eq!(bar.bottom(), original.bottom());
+            let from = point(
+                bar.center().x,
+                if id == "text-width-left" {
+                    original.top() + px(8.)
+                } else {
+                    original.bottom() - px(8.)
+                },
+            );
             visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
             let to = from + point(px(dx), px(0.));
             visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
@@ -288,7 +300,15 @@ mod tests {
                         );
                     })
                     .unwrap();
-                let from = bar.center();
+                // Both ends of the text viewport are draggable, far from the centered grip.
+                let from = point(
+                    bar.center().x,
+                    if id == "text-width-left" {
+                        px(20.)
+                    } else {
+                        px(642.)
+                    },
+                );
                 let to = from + point(px(dx), px(0.));
                 visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
                 visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
