@@ -1402,6 +1402,7 @@ impl Workspace {
     }
 
     pub(super) fn close_review_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.agent.review = None;
         self.ui.trash_open = false;
         self.ui.history = None;
         self.ui.history_catalog = Default::default();

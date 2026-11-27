@@ -13,6 +13,7 @@ impl Workspace {
             || self.ui.quick_open
             || self.ui.property_open
             || self.ui.settings
+            || self.agent.review.is_some()
             || self.ui.trash_open
             || self.ui.link_update.is_some()
     }
@@ -51,7 +52,8 @@ impl Workspace {
     pub(super) fn modal(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let recovery = self.recovery_hub_is_open() || self.ui.history.is_some();
         let picker = self.command_open || self.ui.quick_open;
-        let centered = self.ui.settings;
+        let review = self.agent.review.is_some();
+        let centered = self.ui.settings || review;
         let top = px(if recovery { 48. } else { 100. })
             .min(window.viewport_size().height * if picker { 0.12 } else { 0.15 })
             .max(px(16.));
@@ -121,12 +123,12 @@ impl Workspace {
             .flex_col()
             .w(px(if self.ui.settings { 900. } else { 580. }))
             .when(self.recovery_hub_is_open(), |s| s.w(px(1000.)))
-            .when(self.ui.history.is_some(), |s| s.w(px(1080.)))
+            .when(self.ui.history.is_some() || review, |s| s.w(px(1080.)))
             .when(self.ui.conflict_review.is_some(), |s| s.w(px(900.)))
             .when(picker, |s| s.w(px(700.)))
             .max_w((window.viewport_size().width - px(32.)).max(px(280.)))
             .max_h(px(if self.ui.settings { 700. } else { 650. }).min(available_height))
-            .when(self.ui.settings, |s| s.h(px(700.).min(available_height)))
+            .when(centered, |s| s.h(px(700.).min(available_height)))
             .when(recovery, |s| {
                 s.h(px(700.).min(available_height)).max_h(available_height)
             })
@@ -221,6 +223,8 @@ impl Workspace {
                                 "编辑属性"
                             } else if self.ui.settings {
                                 "设置"
+                            } else if review {
+                                "审阅完整修改"
                             } else if self.ui.conflict_review.is_some() {
                                 "比较并处理外部修改"
                             } else if self.ui.attachment_manager.is_some() {
@@ -405,6 +409,7 @@ impl Workspace {
             .when(self.ui.bulk_edit.is_some(), |s| {
                 s.child(self.bulk_edit_panel(cx))
             })
+            .when(review, |s| s.child(self.proposal_review_panel(cx)))
             .when(self.ui.table_editor.is_some(), |s| {
                 s.child(self.table_editor_panel(cx))
             })

@@ -46,7 +46,15 @@ const SUGGESTIONS: [(&str, &str, &str); 4] = [
     ),
 ];
 
+pub(super) struct Review {
+    proposal: usize,
+    file: usize,
+    page: usize,
+    lines: Option<Vec<String>>,
+    _load: Task<()>,
+}
 pub(super) struct State {
+    pub(super) review: Option<Review>,
     settings: Settings,
     secrets: BTreeMap<String, String>,
     fields: Vec<Entity<InputState>>,
@@ -104,6 +112,7 @@ impl State {
                 .placeholder("向 Agent 提问或描述任务")
         });
         let mut state = Self {
+            review: None,
             settings,
             secrets: secrets.unwrap_or_default(),
             fields,
@@ -204,6 +213,7 @@ impl Workspace {
     pub(super) fn poll_agent(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let root = self.vault.as_ref().map(|v| v.root.clone());
         if self.agent.root != root || self.agent.generation != self.generation {
+            self.agent.review = None;
             self.agent.run.take();
             if let Some(cancel) = self.agent.applying.take() {
                 cancel.cancel();
@@ -583,6 +593,7 @@ impl Workspace {
         if self.agent.busy() {
             return;
         }
+        self.agent.review = None;
         // Reuse an untouched session instead of piling up empty entries.
         if !self.agent.session().messages.is_empty() {
             self.agent.sessions.push(Session::default());
@@ -597,6 +608,7 @@ impl Workspace {
         if self.agent.busy() || index >= self.agent.sessions.len() {
             return;
         }
+        self.agent.review = None;
         self.agent.selected = index;
         self.agent.error.clear();
         self.agent.scroll.scroll_to_bottom();
@@ -606,6 +618,7 @@ impl Workspace {
         if self.agent.busy() {
             return;
         }
+        self.agent.review = None;
         self.agent.sessions.remove(self.agent.selected);
         if self.agent.sessions.is_empty() {
             self.agent.sessions.push(Session::default());
@@ -1321,6 +1334,171 @@ impl Workspace {
         }
         row
     }
+    fn open_proposal_file(
+        &mut self,
+        proposal: usize,
+        file: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(change) = self
+            .agent
+            .session()
+            .proposals
+            .get(proposal)
+            .and_then(|p| p.changes.changes.get(file))
+            .cloned()
+        else {
+            return;
+        };
+        let diff = cx
+            .background_executor()
+            .spawn(async move { change.unified_diff().lines().map(str::to_owned).collect() });
+        let load = cx.spawn(async move |this, cx| {
+            let lines = diff.await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(review) = &mut this.agent.review {
+                    review.lines = Some(lines);
+                    cx.notify();
+                }
+            });
+        });
+        self.agent.review = Some(Review {
+            proposal,
+            file,
+            page: 0,
+            lines: None,
+            _load: load,
+        });
+        window.focus(&self.ui.modal_focus, cx);
+        cx.notify();
+    }
+
+    pub(super) fn proposal_review_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        const PAGE: usize = 100;
+        let review = self.agent.review.as_ref().unwrap();
+        let index = review.proposal;
+        let proposal = &self.agent.session().proposals[index];
+        let files = &proposal.changes.changes;
+        let file = review.file;
+        let path = files[file].path.display().to_string();
+        let weak = cx.entity().downgrade();
+        let file_menu = Button::new("review-file")
+            .ghost()
+            .label(path)
+            .child(icon("chevron-down"))
+            .dropdown_menu(move |mut menu, _, cx| {
+                let Some(this) = weak.upgrade() else {
+                    return menu;
+                };
+                let this = this.read(cx);
+                let Some(proposal) = this.agent.session().proposals.get(index) else {
+                    return menu;
+                };
+                menu = menu.max_h(px(360.)).scrollable(true);
+                for (i, change) in proposal.changes.changes.iter().enumerate() {
+                    let weak = weak.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(change.path.display().to_string())
+                            .checked(i == file)
+                            .on_click(move |_, window, cx| {
+                                let _ = weak.update(cx, |this, cx| {
+                                    this.open_proposal_file(index, i, window, cx)
+                                });
+                            }),
+                    );
+                }
+                menu
+            });
+        let colors = crate::theme::palette(self.ui.prefs.light);
+        let lines = review.lines.as_deref().unwrap_or_default();
+        let page = review.page;
+        let pages = lines.len().div_ceil(PAGE).max(1);
+        div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(format!("文件 {}/{}", file + 1, files.len()))
+                    .child(file_menu),
+            )
+            .child(
+                div()
+                    .id(("review-diff", page))
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_2()
+                    .bg(colors.surface)
+                    .font_family(gpui_component::Theme::global(cx).mono_font_family.clone())
+                    .when(review.lines.is_none(), |s| s.child("正在生成差异…"))
+                    .when(review.lines.is_some() && lines.is_empty(), |s| {
+                        s.child("正文内容相同")
+                    })
+                    .children(lines.iter().skip(page * PAGE).take(PAGE).map(|line| {
+                        div()
+                            .whitespace_normal()
+                            .when(line.starts_with('+'), |row| row.text_color(colors.accent))
+                            .when(line.starts_with('-'), |row| row.text_color(colors.danger))
+                            .child(line.clone())
+                    })),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .flex_wrap()
+                    .gap_2()
+                    .when(pages > 1, |row| {
+                        row.child(
+                            Button::new("review-prev")
+                                .small()
+                                .label("上一页")
+                                .disabled(page == 0)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if let Some(r) = &mut this.agent.review {
+                                        r.page = r.page.saturating_sub(1);
+                                        cx.notify();
+                                    }
+                                })),
+                        )
+                        .child(format!("{}/{}", page + 1, pages))
+                        .child(
+                            Button::new("review-next")
+                                .small()
+                                .label("下一页")
+                                .disabled(page + 1 >= pages)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(r) = &mut this.agent.review {
+                                        r.page = (r.page + 1).min(pages - 1);
+                                        cx.notify();
+                                    }
+                                })),
+                        )
+                    })
+                    .child(div().flex_1())
+                    .when(proposal.status == "等待审阅", |row| {
+                        row.child(
+                            Button::new("review-apply")
+                                .primary()
+                                .label(format!("应用这 {} 篇修改", files.len()))
+                                .disabled(self.agent.busy() || review.lines.is_none())
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.close_overlays(window, cx);
+                                    this.agent_apply(index, window, cx);
+                                })),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+
     fn agent_proposal(
         &self,
         i: usize,
@@ -1491,6 +1669,15 @@ impl Workspace {
                     ),
             );
         }
+        if !proposal.changes.changes.is_empty() {
+            body = body.child(
+                Button::new(("agent-full-review", i))
+                    .label("查看完整修改")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_proposal_file(i, 0, window, cx)
+                    })),
+            );
+        }
         if let Some(report) = &proposal.report {
             body = body.child(
                 div()
@@ -1523,7 +1710,7 @@ impl Workspace {
                             .primary()
                             .small()
                             .icon(icon("check"))
-                            .label("接受并应用")
+                            .label(format!("应用这 {} 篇修改", proposal.changes.changes.len()))
                             .disabled(busy)
                             .on_click(
                                 cx.listener(move |this, _, w, cx| this.agent_apply(i, w, cx)),
@@ -1874,7 +2061,7 @@ impl Workspace {
             .into_any_element()
     }
 }
-const DIFF_LINES: usize = 400;
+const DIFF_LINES: usize = 8;
 fn pill(text: impl Into<SharedString>, fg: Rgba, bg: Rgba) -> Div {
     div()
         .flex_shrink_0()
@@ -2216,6 +2403,50 @@ mod tests {
         visual.simulate_resize(size(px(1100.), px(800.)));
         visual.update(|window, cx| window.draw(cx).clear(cx));
     }
+    #[gpui::test]
+    fn complete_review_reads_changes_past_preview_limits_and_switches_files(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                let after = "A".repeat(140_000) + &"\nline".repeat(420) + "\nlast change";
+                let mut p = proposal("old", &after);
+                let mut other = p.changes.changes[0].clone();
+                other.path = "other.md".into();
+                other.after = "different file".into();
+                p.changes.changes.push(other);
+                w.agent.session_mut().proposals.push(p);
+                w.open_proposal_file(0, 0, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let lines = w.agent.review.as_ref().unwrap().lines.as_ref().unwrap();
+                assert!(lines.len() > 400 && lines.iter().any(|line| line == "+last change"));
+                w.open_proposal_file(0, 1, window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| {
+                let review = w.agent.review.as_ref().unwrap();
+                assert!(
+                    review
+                        .lines
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .any(|line| line == "+different file")
+                );
+                w.close_overlays(window, cx);
+                assert!(w.agent.review.is_none());
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn agent_proposal_actions_fit_inside_card_with_long_conversation(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

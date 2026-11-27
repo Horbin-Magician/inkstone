@@ -26,19 +26,25 @@ pub enum ApplyStatus {
 pub struct ApplyReport {
     pub files: Vec<(PathBuf, ApplyStatus)>,
 }
+impl Change {
+    pub fn unified_diff(&self) -> String {
+        similar::TextDiff::configure()
+            .timeout(std::time::Duration::from_millis(50))
+            .diff_lines(self.before.as_deref().unwrap_or_default(), &self.after)
+            .unified_diff()
+            .context_radius(2)
+            .header("修改前", "修改后")
+            .to_string()
+    }
+}
+
 impl ChangeSet {
     /// Bounded display-only previews; application always uses the full reviewed text.
     pub fn previews(&self) -> Vec<String> {
         self.changes
             .iter()
             .map(|change| {
-                let diff = similar::TextDiff::configure()
-                    .timeout(std::time::Duration::from_millis(50))
-                    .diff_lines(change.before.as_deref().unwrap_or_default(), &change.after)
-                    .unified_diff()
-                    .context_radius(2)
-                    .header("修改前", "修改后")
-                    .to_string();
+                let diff = change.unified_diff();
                 let mut end = diff.len().min(128 * 1024);
                 while !diff.is_char_boundary(end) {
                     end -= 1;
