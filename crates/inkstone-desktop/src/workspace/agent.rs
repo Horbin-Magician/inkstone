@@ -92,6 +92,7 @@ impl State {
             "上下文容量",
             "输出上限",
             "排除目录，逗号分隔",
+            "DeepSeek 联网 API Key（可选）",
         ]
         .into_iter()
         .map(|label| cx.new(|cx| InputState::new(window, cx).placeholder(label)))
@@ -127,6 +128,7 @@ impl State {
             scroll: ScrollHandle::new(),
         };
         state.fields[3].update(cx, |s, cx| s.set_masked(true, window, cx));
+        state.fields[7].update(cx, |s, cx| s.set_masked(true, window, cx));
         state.fill_fields(window, cx);
         state
     }
@@ -148,6 +150,10 @@ impl State {
                 .map(|p| p.to_string_lossy())
                 .collect::<Vec<_>>()
                 .join(","),
+            self.secrets
+                .get(inkstone_agent::web::SECRET_ID)
+                .cloned()
+                .unwrap_or_default(),
         ];
         for (field, value) in self.fields.iter().zip(values) {
             field.update(cx, |s, cx| s.set_value(value, window, cx));
@@ -366,6 +372,10 @@ impl Workspace {
         self.agent
             .secrets
             .insert(config.id, values[3].trim().to_owned());
+        self.agent.secrets.insert(
+            inkstone_agent::web::SECRET_ID.into(),
+            values[7].trim().to_owned(),
+        );
         let result = storage::save_secrets(&app_dir(), &self.agent.secrets).and_then(|_| {
             storage::write(&app_dir().join("agent-settings.json"), &self.agent.settings)
         });
@@ -522,6 +532,12 @@ impl Workspace {
             vault,
             config,
             key,
+            web_key: self
+                .agent
+                .secrets
+                .get(inkstone_agent::web::SECRET_ID)
+                .cloned()
+                .unwrap_or_default(),
             scope,
             excluded: self.agent.settings.excluded.clone(),
             snapshot,
@@ -841,6 +857,11 @@ impl Workspace {
                 "agent-config-excluded",
                 "排除目录",
                 "库内相对路径，以逗号分隔；对所有范围生效。",
+            ),
+            (
+                "agent-web-key",
+                "DeepSeek 联网 API Key",
+                "用于网页搜索与读取，所有模型共用；留空时仅 DeepSeek 官方模型复用模型密钥。按调用计费，密钥在本机独立保存。",
             ),
         ]
         .into_iter()
@@ -2184,6 +2205,11 @@ mod tests {
                 w.open_agent_settings(window, cx);
                 assert!(w.ui.settings);
                 assert_eq!(w.ui.settings_tab, 10);
+                w.agent
+                    .secrets
+                    .insert(inkstone_agent::web::SECRET_ID.into(), "web-test-key".into());
+                w.agent.fill_fields(window, cx);
+                assert_eq!(w.agent.fields[7].read(cx).value().as_str(), "web-test-key");
             })
             .unwrap();
         let mut visual = VisualTestContext::from_window(handle.into(), cx);

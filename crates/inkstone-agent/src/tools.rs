@@ -59,6 +59,7 @@ impl Scope {
 }
 /// Immutable per-run snapshot. All tool paths pass scope and Vault validation.
 pub struct ToolHost {
+    pub web: crate::web::WebTools,
     pub vault: Vault,
     pub scope: Scope,
     pub excluded: Vec<PathBuf>,
@@ -116,6 +117,7 @@ impl ToolHost {
         }
         index.update_many(updates);
         Ok(Self {
+            web: Default::default(),
             vault,
             scope,
             excluded,
@@ -216,6 +218,17 @@ impl ToolHost {
         };
         self.sources.push(source.clone());
         Ok(source)
+    }
+    pub async fn call_async(
+        &mut self,
+        name: &str,
+        args: Value,
+        cancel: &crate::runtime::Cancel,
+    ) -> Result<Value> {
+        match name {
+            "search_web" | "read_webpage" => self.web.call(name, args, cancel).await,
+            _ => self.call(name, args),
+        }
     }
     pub fn call(&mut self, name: &str, args: Value) -> Result<Value> {
         let offset = args["offset"].as_u64().unwrap_or(0).min(1_000_000) as usize;
@@ -390,6 +403,18 @@ impl ToolHost {
 }
 pub fn definitions() -> Vec<Value> {
     let entries = [
+        (
+            "search_web",
+            "使用 DeepSeek 搜索公开网页，返回标题、URL、摘要和发布日期。query 支持 site:、lang:、after:、before:。需要配置 DeepSeek 联网密钥。不要发送笔记原文或敏感资料，只发送完成任务所需的关键词。",
+            json!({"query":{"type":"string","minLength":1,"maxLength":128},"count":{"type":"integer","minimum":1,"maximum":10}}),
+            vec!["query"],
+        ),
+        (
+            "read_webpage",
+            "使用 DeepSeek 抓取公开网页的 Markdown 正文。start/limit 是 Unicode 字符偏移/数量（不是字节）；单次默认 12000、最多 20000 字符。next_start 非空时继续读取。网页 URL 用于引用，不能替代 read_note 的笔记读取来源。",
+            json!({"url":{"type":"string","maxLength":8192},"start":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":20000}}),
+            vec!["url"],
+        ),
         (
             "list_notes",
             "分页列出授权范围内笔记",

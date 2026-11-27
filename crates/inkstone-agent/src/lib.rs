@@ -3,6 +3,7 @@ pub mod provider;
 pub mod runtime;
 pub mod storage;
 pub mod tools;
+pub mod web;
 pub use provider::{ModelConfig, ModelProvider};
 pub use runtime::{AgentEvent, AgentRun, RunState};
 pub use tools::{Scope, ToolHost};
