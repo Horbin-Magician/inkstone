@@ -226,43 +226,135 @@ impl Workspace {
             return div().into_any_element();
         };
         let filtered = m.filtered(cx);
-        let unused_images = m.unused_images(cx);
-        let unused_bytes: u64 = unused_images.iter().map(|e| e.bytes).sum();
-        let selected = m
-            .selected
-            .as_ref()
-            .and_then(|p| m.inventory.entries.iter().find(|e| &e.path == p));
-        div().id("attachments-panel").flex().flex_col().gap_2().min_h_0().overflow_y_scroll()
-            .child(Input::new(&m.query))
-            .child(div().flex().gap_1().children([(None,"全部"),(Some(Kind::Image),"图片"),(Some(Kind::Pdf),"PDF"),(Some(Kind::Media),"音视频"),(Some(Kind::Other),"其他")].into_iter().map(|(kind,label)|Button::new(format!("attachment-kind-{label}")).label(label).when(m.kind==kind,|b|b.primary()).on_click(cx.listener(move|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.kind=kind;}cx.notify();})))))
-            .child(div().flex().gap_2()
-                .child(Button::new("attachment-large").label("至少 1 MiB").when(m.large,|b|b.primary()).on_click(cx.listener(|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.large = !m.large;}cx.notify();})))
-                .child(Button::new("attachment-unused").label("疑似未引用").when(m.unused,|b|b.primary()).on_click(cx.listener(|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.unused = !m.unused;}cx.notify();})))
-                .child(Button::new("attachment-refresh").label("刷新").disabled(m.loading).on_click(cx.listener(|this,_,w,cx|this.refresh_attachments(w,cx)))))
-            .child(label("attachment-summary", format!("显示 {} / {} 个附件 · 按大小排序 · 引用包含打开笔记的编辑快照",filtered.len(),m.inventory.entries.len())))
-            .child(div().flex().flex_wrap().items_center().gap_2()
-                .child(label("image-cleanup-summary", format!("当前列表中未使用图片：{} 张 · {:.1} KiB", unused_images.len(), unused_bytes as f64 / 1024.)))
-                .child(Button::new("image-cleanup-review").label("清理列表中的未使用图片…")
-                    .disabled(m.loading || m.inventory.unreadable > 0 || unused_images.is_empty() || !self.file_writes.can_start_exclusive_operation())
-                    .on_click(cx.listener(|this, _, window, cx| this.request_unused_image_cleanup(window, cx)))))
-            .when(!m.loading && m.inventory.unreadable == 0 && m.kind == Some(Kind::Image) && m.unused && filtered.is_empty(), |s|
-                s.child(label("image-cleanup-empty", "当前筛选范围内没有未使用的图片。")))
-            .when(m.loading,|s|s.child(label("attachment-loading", "正在扫描或处理……")))
-            .when(!m.message.is_empty(),|s|s.child(label("attachment-message", m.message.clone())))
-            .child(uniform_list("attachment-list",filtered.len(),cx.processor(move |this,range:std::ops::Range<usize>,_,cx| {
-                let Some(m)=&this.ui.attachment_manager else{return vec![];};
-                range.filter_map(|i|{let entry=m.inventory.entries.get(*filtered.get(i)?)?;let path=entry.path.clone();Some(Button::new(("attachment",i)).ghost().when(m.selected.as_ref()==Some(&path),|b|b.primary()).label(format!("{} · {:.1} KiB · {} 篇引用 · {}",entry.kind.label(),entry.bytes as f64/1024.,entry.references.len(),path.display())).on_click(cx.listener(move|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.selected=Some(path.clone());}cx.notify();})).into_any_element())}).collect()
-            })).h(px(200.)).w_full())
+        let colors = crate::theme::palette(self.ui.prefs.light);
+        let total = m.inventory.entries.len();
+        let count = filtered.len();
+        let (images, bytes) = filtered
+            .iter()
+            .map(|&i| &m.inventory.entries[i])
+            .filter(|entry| entry.kind == Kind::Image && entry.references.is_empty())
+            .fold((0usize, 0u64), |(n, bytes), e| (n + 1, bytes + e.bytes));
+        let selected = filtered
+            .iter()
+            .map(|&i| &m.inventory.entries[i])
+            .find(|e| Some(&e.path) == m.selected.as_ref());
+        let kinds = [
+            (None, "全部"),
+            (Some(Kind::Image), "图片"),
+            (Some(Kind::Pdf), "PDF"),
+            (Some(Kind::Media), "音视频"),
+            (Some(Kind::Other), "其他"),
+        ];
+        let types =
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_1()
+                .children(kinds.into_iter().map(|(kind, name)| {
+                    Button::new(format!("attachment-kind-{name}"))
+                        .label(name)
+                        .compact()
+                        .ghost()
+                        .when(m.kind == kind, |b| b.primary())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(manager) = &mut this.ui.attachment_manager {
+                                manager.kind = kind;
+                            }
+                            cx.notify();
+                        }))
+                }));
+        let filters = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap_1()
+            .child(
+                Button::new("attachment-large")
+                    .label("至少 1 MiB")
+                    .compact()
+                    .when(m.large, |b| b.primary())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(m) = &mut this.ui.attachment_manager {
+                            m.large = !m.large;
+                        }
+                        cx.notify();
+                    })),
+            )
+            .child(
+                Button::new("attachment-unused")
+                    .label("疑似未引用")
+                    .compact()
+                    .when(m.unused, |b| b.primary())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(m) = &mut this.ui.attachment_manager {
+                            m.unused = !m.unused;
+                        }
+                        cx.notify();
+                    })),
+            );
+        let empty_title = if total == 0 {
+            "笔记库中还没有附件"
+        } else if m.kind == Some(Kind::Image) && m.unused {
+            "当前筛选下没有待清理图片"
+        } else {
+            "没有匹配的附件"
+        };
+        div().id("attachments-panel").flex().flex_col().gap_3().min_h_0().overflow_y_scroll()
+            .child(div().flex().gap_2().items_center()
+                .child(div().flex_1().min_w_0().child(Input::new(&m.query)))
+                .child(Button::new("attachment-refresh").label("刷新").compact().ghost().disabled(m.loading)
+                    .on_click(cx.listener(|this, _, w, cx| this.refresh_attachments(w, cx)))))
+            .child(div().flex().flex_wrap().justify_between().gap_2().child(types).child(filters))
+            .when(m.loading, |s| s.child(label("attachment-loading", "正在扫描或处理附件……").text_color(colors.muted)))
+            .when(!m.message.is_empty(), |s| s.child(label("attachment-message", m.message.clone())))
+            .when(!m.loading && m.inventory.unreadable == 0 && count == 0, |s| {
+                s.child(div().debug_selector(|| "attachment-empty".into()).flex().flex_col().items_center()
+                    .py_5().px_3().gap_1().rounded_md().bg(colors.surface)
+                    .child(label("attachment-empty-title", empty_title).font_weight(FontWeight::SEMIBOLD))
+                    .when(total > 0, |s| s.child(label("attachment-empty-detail",
+                        format!("库中共 {total} 个附件，可调整筛选条件查看。")).text_sm().text_color(colors.muted))))
+            })
+            .when(count > 0, |s| {
+                let summary = format!("{count} / {total} 个附件 · 按大小排序");
+                s.child(div().flex().items_center().flex_wrap().justify_between().gap_2()
+                    .child(label("attachment-summary", summary).text_color(colors.muted).text_sm())
+                    .when(images > 0, |s| s.child(Button::new("image-cleanup-review").compact()
+                        .label(format!("清理 {images} 张图片…")).tooltip(format!("合计 {:.1} KiB，点击核对清单", bytes as f64 / 1024.))
+                        .disabled(m.loading || m.inventory.unreadable > 0 || !self.file_writes.can_start_exclusive_operation())
+                        .on_click(cx.listener(|this, _, w, cx| this.request_unused_image_cleanup(w, cx))))))
+                .child(uniform_list("attachment-list", count, cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                    let Some(m) = &this.ui.attachment_manager else { return vec![]; };
+                    range.filter_map(|i| {
+                        let entry = m.inventory.entries.get(*filtered.get(i)?)?;
+                        let path = entry.path.clone();
+                        let metadata = format!("{} · {:.1} KiB · {} 篇引用", entry.kind.label(), entry.bytes as f64 / 1024., entry.references.len());
+                        Some(Button::new(("attachment", i)).ghost().w_full().h(px(36.))
+                            .when(m.selected.as_ref() == Some(&path), |b| b.primary())
+                            .accessibility_label(format!("{}，{metadata}", path.display()))
+                            .tooltip(path.display().to_string())
+                            .child(div().w_full().min_w_0().flex().items_center().justify_between().gap_2()
+                                .child(div().flex_1().min_w_0().truncate().child(path.display().to_string()))
+                                .child(div().flex_shrink_0().text_sm().child(metadata)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(m) = &mut this.ui.attachment_manager { m.selected = Some(path.clone()); }
+                                cx.notify();
+                            })).into_any_element())
+                    }).collect()
+                })).h(px(count.min(6) as f32 * 36.)).flex_shrink_0().w_full())
+            })
             .when_some(selected,|s,e| {
                 let path=e.path.clone();let reveal=path.clone();let open=path.clone();let cleanup=e.clone();
-                s.child(label("attachment-selected-path", path.to_string_lossy().to_string())).child(div().flex().gap_2()
+                s.child(label("attachment-selected-path", path.to_string_lossy().to_string())).child(div().flex().flex_wrap().gap_2()
                     .child(Button::new("attachment-preview").label("打开 / 预览").on_click(cx.listener(move|this,_,w,cx|{if let Some(v)=&this.vault{let path=v.root.join(&open);this.open_attachment(path,w,cx);}})))
                     .child(Button::new("attachment-reveal").label("显示文件位置").on_click(cx.listener(move|this,_,_,cx|{if let Some(v)=&this.vault{cx.reveal_path(&v.root.join(&reveal));}})))
                     .child(Button::new("attachment-trash").label("移入回收站").disabled(m.loading||m.inventory.unreadable>0||!e.references.is_empty()||self.file_writes.pending()>0).on_click(cx.listener(move|this,_,w,cx|this.request_attachment_cleanup(cleanup.clone(),w,cx)))))
-                    .child(label("attachment-reference-heading", "引用来源（点击打开）："))
+                    .when(!e.references.is_empty(), |s| s.child(label("attachment-reference-heading", "引用来源")))
                     .child(div().id("attachment-references").max_h(px(140.)).overflow_y_scroll().children(e.references.iter().cloned().enumerate().map(|(i,path)|Button::new(("attachment-source",i)).ghost().label(path.to_string_lossy().to_string()).on_click(cx.listener(move|this,_,w,cx|{this.close_overlays(w,cx);this.open_note(path.clone(),w,cx);})))) )
             })
-            .child(label("attachment-cleanup-description", "疑似未引用不等于无用。仅检查笔记中的双链、Markdown 与 HTML 直接引用；不分析脚本、其他附件内容或库外引用。清理前会重新扫描，文件仍可从回收站恢复。").text_sm())
+            .child(div().debug_selector(|| "attachment-footer".into()).border_t_1().border_color(colors.border).pt_2().child(
+                label("attachment-cleanup-description", "检查笔记及未保存编辑中的双链、Markdown 和 HTML 引用。脚本和库外引用不在检查范围内。已清理的文件可从回收站恢复。")
+                    .text_sm().text_color(colors.muted)))
             .into_any_element()
     }
 }
@@ -271,6 +363,34 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn empty_image_filter_keeps_footer_next_to_result(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("book.pdf"), "book").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.path().into(), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.open_unused_image_cleanup(window, cx))
+            .unwrap();
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        for width in [1000., 400.] {
+            visual.simulate_resize(size(px(width), px(760.)));
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let result = visual.debug_bounds("attachment-empty").unwrap();
+            let footer = visual.debug_bounds("attachment-footer").unwrap();
+            let gap = footer.top() - result.bottom();
+            assert!((px(0.)..=px(24.)).contains(&gap), "gap: {gap:?}");
+            assert!(footer.right() <= px(width) && footer.bottom() <= px(760.));
+        }
+    }
+
     #[gpui::test]
     fn manager_filters_preserves_referenced_drafts_and_restores_cleanup(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
