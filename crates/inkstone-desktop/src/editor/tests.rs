@@ -595,6 +595,7 @@ fn slash_menu_inserts_blocks_and_preserves_surrounding_text(cx: &mut TestAppCont
             ("callout", "> [!note]\n> "),
             ("quote", "> "),
             ("code", "```\n\n```"),
+            ("math", "$$\n\n$$"),
             ("divider", "---\n\n"),
         ] {
             let prefix = "中文😀\n\n";
@@ -630,6 +631,172 @@ fn slash_menu_inserts_blocks_and_preserves_surrounding_text(cx: &mut TestAppCont
             editor.read_with(&visual, |state, _| assert_eq!(state.value(), expected));
         }
     }
+}
+
+#[gpui::test]
+fn article_context_menu_can_read_selection_after_right_mouse_up(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|w, cx| EditorPane::new("右键菜单", w, cx));
+    let editor = handle.update(cx, |p, _, _| p.editor.clone()).unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.update(|w, cx| w.draw(cx).clear(cx));
+    let position = editor.read_with(&visual, |s, _| s.input_bounds().center());
+    visual.simulate_mouse_down(position, MouseButton::Right, Modifiers::default());
+    visual.simulate_mouse_up(position, MouseButton::Right, Modifiers::default());
+    visual.run_until_parked();
+    editor.read_with(&visual, |s, _| assert_eq!(s.value(), "右键菜单"));
+}
+
+#[gpui::test]
+fn article_context_commands_dispatch_preserve_text_and_undo(cx: &mut TestAppContext) {
+    use super::context_menu::Command;
+    use inkstone_core::{markdown_edit::BlockFormat, tables::Operation};
+    cx.update(gpui_kit::init);
+    for live in [false, true] {
+        for (command, body) in [
+            (Command::Block(BlockFormat::Heading(1)), "# 中文😀"),
+            (Command::Block(BlockFormat::Heading(6)), "###### 中文😀"),
+            (Command::Block(BlockFormat::Code), "```\n中文😀\n```"),
+            (Command::Block(BlockFormat::Math), "$$\n中文😀\n$$"),
+            (Command::Block(BlockFormat::Rule), "---\n\n中文😀"),
+            (Command::Block(BlockFormat::Bullet), "- 中文😀"),
+            (Command::Block(BlockFormat::Numbered), "1. 中文😀"),
+            (Command::Block(BlockFormat::Quote), "> 中文😀"),
+            (Command::Block(BlockFormat::Callout), "> [!note]\n> 中文😀"),
+            (Command::Inline("**"), "**中文😀**"),
+            (Command::Inline("$"), "$中文😀$"),
+            (Command::Task, "- [ ] 中文😀"),
+            (
+                Command::Table(Operation::Insert),
+                "|  |  |\n| --- | --- |\n| 中文😀 |  |",
+            ),
+        ] {
+            let source = "before\n\n中文😀\n\nafter";
+            let selected = 8..8 + "中文😀".len();
+            let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
+            let editor = handle
+                .update(cx, |p, w, cx| {
+                    p.live = live;
+                    p.editor.update(cx, |s, cx| {
+                        s.focus(w, cx);
+                        s.set_selected_range(selected.clone(), cx);
+                    });
+                    p.editor.clone()
+                })
+                .unwrap();
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            visual.update(|w, cx| w.dispatch_action(Box::new(command.clone()), cx));
+            let expected = format!("before\n\n{body}\n\nafter");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), expected, "{command:?}")
+            });
+            visual.simulate_platform_keystrokes("ctrl-z");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), source, "{command:?}");
+                assert_eq!(s.selected_range(), selected, "{command:?}");
+            });
+            visual.simulate_platform_keystrokes("ctrl-y");
+            editor.read_with(&visual, |s, _| {
+                assert_eq!(s.value(), expected, "{command:?}")
+            });
+        }
+    }
+}
+
+#[gpui::test]
+fn article_context_blocks_place_caret_inside_and_allow_typing(cx: &mut TestAppContext) {
+    use super::context_menu::Command;
+    use inkstone_core::markdown_edit::BlockFormat;
+    cx.update(gpui_kit::init);
+    for (format, expected, offset) in [
+        (BlockFormat::Code, "```\nhello\n```", 4),
+        (BlockFormat::Math, "$$\nhello\n$$", 3),
+        (BlockFormat::Heading(2), "## hello", 3),
+        (BlockFormat::Rule, "---\n\nhello", 5),
+    ] {
+        let handle = cx.add_window(|w, cx| EditorPane::new("", w, cx));
+        handle
+            .update(cx, |p, w, cx| {
+                p.context_command(&Command::Block(format), w, cx);
+                p.editor.update(cx, |s, cx| {
+                    assert_eq!(s.selected_range(), offset..offset);
+                    assert!(s.focus_handle(cx).is_focused(w));
+                    s.replace_text_in_range(None, "hello", w, cx);
+                    assert_eq!(s.value(), expected);
+                });
+            })
+            .unwrap();
+    }
+}
+
+#[gpui::test]
+fn article_context_commands_target_the_focused_split_pane(cx: &mut TestAppContext) {
+    use super::context_menu::Command;
+    use inkstone_core::markdown_edit::BlockFormat;
+    struct Split {
+        left: Entity<EditorPane>,
+        right: Entity<EditorPane>,
+    }
+    impl Render for Split {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .flex()
+                .size_full()
+                .child(div().w_1_2().h_full().child(self.left.clone()))
+                .child(div().w_1_2().h_full().child(self.right.clone()))
+        }
+    }
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|w, cx| Split {
+        left: cx.new(|cx| EditorPane::new("左侧文章", w, cx)),
+        right: cx.new(|cx| EditorPane::new("右侧文章", w, cx)),
+    });
+    let (left, right) = handle
+        .update(cx, |split, w, cx| {
+            split
+                .right
+                .read(cx)
+                .editor
+                .clone()
+                .update(cx, |s, cx| s.focus(w, cx));
+            (split.left.clone(), split.right.clone())
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.update(|w, cx| w.draw(cx).clear(cx));
+    visual.update(|w, cx| w.dispatch_action(Box::new(Command::Block(BlockFormat::Heading(2))), cx));
+    left.read_with(&visual, |p, cx| {
+        assert_eq!(p.editor.read(cx).value(), "左侧文章")
+    });
+    right.read_with(&visual, |p, cx| {
+        assert_eq!(p.editor.read(cx).value(), "## 右侧文章")
+    });
+}
+
+#[gpui::test]
+fn article_context_commands_leave_readonly_and_composing_text_untouched(cx: &mut TestAppContext) {
+    use super::context_menu::Command;
+    use inkstone_core::markdown_edit::BlockFormat;
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(|w, cx| EditorPane::new("中文", w, cx));
+    handle
+        .update(cx, |p, w, cx| {
+            p.editor.update(cx, |s, cx| s.set_readonly(true, cx));
+            p.context_command(&Command::Block(BlockFormat::Math), w, cx);
+            assert_eq!(p.editor.read(cx).value(), "中文");
+            p.editor.update(cx, |s, cx| {
+                s.set_readonly(false, cx);
+                s.set_selected_range(6..6, cx);
+                s.replace_and_mark_text_in_range(None, "ni", Some(2..2), w, cx);
+            });
+            let before = p.editor.read(cx).value();
+            p.context_command(&Command::Block(BlockFormat::Math), w, cx);
+            assert_eq!(p.editor.read(cx).value(), before);
+            p.editor
+                .update(cx, |s, cx| assert!(s.marked_text_range(w, cx).is_some()));
+        })
+        .unwrap();
 }
 
 #[gpui::test]

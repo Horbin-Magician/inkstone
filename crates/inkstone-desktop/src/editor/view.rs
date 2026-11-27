@@ -307,8 +307,10 @@ impl Render for EditorPane {
         let text_safety = px(self.font_size.max(16.));
         let left_inset = px(32.).max(gutter);
         let right_inset = px(32.) + text_safety;
+        let menu_editor = self.editor.downgrade();
         div()
             .id("editor-pane")
+            .on_action(cx.listener(Self::context_command))
             .relative()
             .capture_action(cx.listener(
                 |this, action: &gpui_component::input::Enter, window, cx| {
@@ -410,22 +412,11 @@ impl Render for EditorPane {
                                         .h_full()
                                         .child(
                                             Editor::new(&self.editor)
-                                                .context_menu(|menu, _, _| {
-                                                    menu.separator()
-                                                        .menu(
-                                                            "发送给 Agent",
-                                                            Box::new(crate::workspace::AgentAsk),
-                                                        )
-                                                        .menu(
-                                                            "Agent 润色",
-                                                            Box::new(crate::workspace::AgentPolish),
-                                                        )
-                                                        .menu(
-                                                            "Agent 摘要",
-                                                            Box::new(
-                                                                crate::workspace::AgentSummary,
-                                                            ),
-                                                        )
+                                                .context_menu(move |_, _, cx| {
+                                                    menu_editor.upgrade().map_or_else(
+                                                        gpui_component::native_menu::NativeMenu::new,
+                                                        |editor| super::context_menu::build(editor.read(cx)),
+                                                    )
                                                 })
                                                 .w_full()
                                                 .on_paste(move |item, _, cx| {

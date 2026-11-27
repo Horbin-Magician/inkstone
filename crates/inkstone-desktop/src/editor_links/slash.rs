@@ -15,6 +15,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("Callout 提示块", "callout note 提示", "> [!note]\n> "),
     ("引用", "quote", "> "),
     ("代码块", "code fence", "```\n\n```"),
+    ("公式块", "math latex equation 公式", "$$\n\n$$"),
     ("分隔线", "divider horizontal rule", "---\n\n"),
 ];
 
