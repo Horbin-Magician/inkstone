@@ -32,11 +32,13 @@ pub fn hash(text: &str) -> String {
 }
 fn relative(path: &Path) -> bool {
     !path.as_os_str().is_empty()
-        && path.components().all(|c| matches!(c, Component::Normal(_)))
-        && !path.to_string_lossy().contains(['\\', ':'])
-        && !path
-            .components()
-            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        && path.components().all(|part| {
+            let Component::Normal(name) = part else {
+                return false;
+            };
+            let name = name.to_string_lossy();
+            !name.starts_with('.') && !name.contains(['\\', ':'])
+        })
 }
 impl Scope {
     pub fn allows(&self, path: &Path, excluded: &[PathBuf]) -> bool {
@@ -557,6 +559,28 @@ mod tests {
         }
         assert!(s.allows(Path::new("work/a.md"), &[]));
     }
+    #[test]
+    fn agent_reads_nested_notes_using_native_directory_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vault");
+        let folder = PathBuf::from("项目").join("记录");
+        let note = folder.join("周报.md");
+        std::fs::create_dir_all(root.join(&folder)).unwrap();
+        std::fs::write(root.join(&note), "进展").unwrap();
+        let vault = Vault::open(&root, dir.path().join("history")).unwrap();
+        for scope in [
+            Scope::Vault,
+            Scope::Folder(folder),
+            Scope::Notes(vec![note.clone()]),
+        ] {
+            let mut host = ToolHost::new(vault.clone(), scope, vec![], None).unwrap();
+            assert_eq!(
+                host.call("read_note", json!({"path": note})).unwrap()["text"],
+                "进展"
+            );
+        }
+    }
+
     #[test]
     fn selection_cannot_read_surroundings_and_proposal_never_writes() {
         let dir = tempfile::tempdir().unwrap();
