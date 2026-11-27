@@ -11,6 +11,7 @@ type OutlineRows = Rc<Vec<(inkstone_core::index::Heading, bool, bool)>>;
 
 struct OutlineProjection {
     key: OutlineKey,
+    numbered: bool,
     query: String,
     collapsed: std::collections::BTreeSet<usize>,
     rows: OutlineRows,
@@ -30,6 +31,7 @@ impl OutlineState {
         path: &std::path::Path,
         headings: &[inkstone_core::index::Heading],
         query: &str,
+        numbered: bool,
     ) -> (OutlineKey, OutlineRows) {
         let empty = Default::default();
         let collapsed = if self
@@ -44,6 +46,7 @@ impl OutlineState {
         if let Some(cached) = &self.projection
             && cached.key.0 == path
             && cached.key.1 == headings
+            && cached.numbered == numbered
             && cached.query == query
             && cached.collapsed == *collapsed
         {
@@ -52,9 +55,20 @@ impl OutlineState {
         // Keep only the current projection. Compare content rather than length:
         // edits may rename headings or move source offsets without changing count.
         let key = Rc::new((path.to_path_buf(), headings.to_vec()));
-        let rows = Rc::new(outline_rows(headings, collapsed, query));
+        let mut display = std::borrow::Cow::Borrowed(headings);
+        if numbered {
+            for (heading, prefix) in display
+                .to_mut()
+                .iter_mut()
+                .zip(inkstone_core::heading_numbers::prefixes(headings))
+            {
+                heading.title = format!("{prefix} {}", heading.title);
+            }
+        }
+        let rows = Rc::new(outline_rows(&display, collapsed, query));
         self.projection = Some(OutlineProjection {
             key: key.clone(),
+            numbered,
             query: query.to_owned(),
             collapsed: collapsed.clone(),
             rows: rows.clone(),
@@ -256,25 +270,16 @@ impl Workspace {
         let (fold_key, headings) = if self.ui.right_mode == 0 {
             if let Some(pane) = &pane {
                 let pane = pane.read(cx);
-                let mut headings = pane.parsed.headings.clone();
-                if pane.heading_numbering {
-                    for (heading, prefix) in
-                        headings
-                            .iter_mut()
-                            .zip(inkstone_core::heading_numbers::prefixes(
-                                &pane.parsed.headings,
-                            ))
-                    {
-                        heading.title = format!("{prefix} {}", heading.title);
-                    }
-                }
-                self.ui
-                    .outline
-                    .project(&pane.current_path, &headings, &outline_query)
+                self.ui.outline.project(
+                    &pane.current_path,
+                    &pane.parsed.headings,
+                    &outline_query,
+                    pane.heading_numbering,
+                )
             } else {
                 self.ui
                     .outline
-                    .project(std::path::Path::new(""), &[], &outline_query)
+                    .project(std::path::Path::new(""), &[], &outline_query, false)
             }
         } else {
             (Rc::new((PathBuf::new(), Vec::new())), Rc::new(Vec::new()))
@@ -1342,36 +1347,43 @@ mod outline_tests {
                 title: "Child".into(),
             },
         ];
-        let (key, rows) = state.project(path, &headings, "");
+        let (key, rows) = state.project(path, &headings, "", false);
         for _ in 0..10 {
-            let (same_key, same_rows) = state.project(path, &headings, "");
+            let (same_key, same_rows) = state.project(path, &headings, "", false);
             assert!(Rc::ptr_eq(&key, &same_key));
             assert!(Rc::ptr_eq(&rows, &same_rows));
         }
         state.key = Some(key);
         state.collapsed.insert(0);
-        let (_, folded) = state.project(path, &headings, "");
+        let (_, folded) = state.project(path, &headings, "", false);
         assert_eq!(folded.len(), 1);
         assert!(folded[0].2);
-        let (_, filtered) = state.project(path, &headings, "child");
+        let (_, filtered) = state.project(path, &headings, "child", false);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].0.offset, 12);
-        let (_, restored) = state.project(path, &headings, "");
+        let (_, numbered) = state.project(path, &headings, "1.1", true);
+        assert_eq!(numbered.len(), 1);
+        assert_eq!(numbered[0].0.title, "1.1 Child");
+        let (_, cached) = state.project(path, &headings, "1.1", true);
+        assert!(Rc::ptr_eq(&cached, &numbered));
+        let (_, unnumbered) = state.project(path, &headings, "1.1", false);
+        assert!(unnumbered.is_empty());
+        let (_, restored) = state.project(path, &headings, "", false);
         assert_eq!(*restored, *folded);
         // A different note must not inherit the old note's folded parent.
-        let (_, other) = state.project(std::path::Path::new("two.md"), &headings, "");
+        let (_, other) = state.project(std::path::Path::new("two.md"), &headings, "", false);
         assert_eq!(other.len(), 2);
         // Same-count and same-length title edits must invalidate cached rows.
         headings[1].title = "Other".into();
         headings[1].offset = 14;
-        let (_, edited) = state.project(path, &headings, "");
+        let (_, edited) = state.project(path, &headings, "", false);
         assert_eq!(edited.len(), 2);
         assert_eq!(edited[1].0.title, "Other");
         assert_eq!(edited[1].0.offset, 14);
         headings[1].level = 1;
-        let (_, siblings) = state.project(path, &headings, "");
+        let (_, siblings) = state.project(path, &headings, "", false);
         assert!(!siblings[0].1);
-        let (_, empty) = state.project(path, &[], "");
+        let (_, empty) = state.project(path, &[], "", false);
         assert!(empty.is_empty());
     }
 
