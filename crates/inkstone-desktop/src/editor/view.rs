@@ -301,6 +301,12 @@ impl Render for EditorPane {
             .editor
             .read(cx)
             .gutter_width(px(self.font_size), _window);
+        // Wrapping measures advances, while painted glyphs can overhang them.
+        // Keep at least one body glyph inside the editor's clipping boundary,
+        // in addition to the pane inset (which is outside that boundary).
+        let text_safety = px(self.font_size.max(16.));
+        let left_inset = px(32.).max(gutter);
+        let right_inset = px(32.) + text_safety;
         div()
             .id("editor-pane")
             .relative()
@@ -370,8 +376,8 @@ impl Render for EditorPane {
             .text_color(crate::theme::palette(self.light).foreground)
             // Both modes share the text column. Keep the entire gutter inside
             // the pane even when line numbers, folding or larger fonts widen it.
-            .pl(px(32.).max(gutter))
-            .pr(px(32.))
+            .pl(left_inset)
+            .pr(right_inset)
             .pt(px(12.))
             .children(self.footnote_panel(_window, cx))
             .child(
@@ -392,13 +398,15 @@ impl Render for EditorPane {
                                 // The gutter narrows the wrap. Extend the editor by
                                 // the gutter and shift it left, so the text column
                                 // starts and wraps where the reading view's does,
-                                // while the gutter sits in the pane inset.
+                                // while the gutter sits in the pane inset. Extend
+                                // the paint area on the right too, then reserve
+                                // that extension from wrapping as a safety margin.
                                 s.relative().child(div().size_full()).child(
                                     div()
                                         .absolute()
                                         .top_0()
                                         .left(-gutter)
-                                        .right_0()
+                                        .right(-text_safety)
                                         .h_full()
                                         .child(
                                             Editor::new(&self.editor)
@@ -467,7 +475,7 @@ impl Render for EditorPane {
                                                 .appearance(false)
                                                 .bordered(false)
                                                 .flush(true)
-                                                .trailing_margin(px(0.))
+                                                .trailing_margin(text_safety)
                                                 .font_family(self.text_font.clone())
                                                 .h_full()
                                                 .text_size(px(self.font_size))
@@ -483,8 +491,8 @@ impl Render for EditorPane {
                             .absolute()
                             .top_0()
                             .bottom_0()
-                            .left(px(-32.))
-                            .right(px(-32.))
+                            .left(-left_inset)
+                            .right(-right_inset)
                             .child(scrollbar),
                     ),
             )

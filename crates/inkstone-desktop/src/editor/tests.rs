@@ -167,6 +167,8 @@ fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
         (520., true, true, 16.),
         (290., true, true, 16.),
         (290., false, true, 30.),
+        (520., false, false, 30.),
+        (900., true, false, 10.),
     ] {
         handle
             .update(&mut visual, |pane, window, cx| {
@@ -186,12 +188,13 @@ fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
         // and read the settled column.
         visual.update(|w, cx| w.draw(cx).clear(cx));
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        let (editing_wrap, editing_bounds) = handle
-            .update(&mut visual, |pane, _, cx| {
+        let (editing_wrap, editing_bounds, gutter_width) = handle
+            .update(&mut visual, |pane, window, cx| {
                 let editor = pane.editor.read(cx);
                 (
                     editor.wrap_width().expect("the editor must lay out"),
                     editor.text_bounds().expect("the editor must lay out"),
+                    editor.gutter_width(px(font_size), window),
                 )
             })
             .unwrap();
@@ -222,7 +225,16 @@ fn editing_text_column_matches_the_reading_view(cx: &mut TestAppContext) {
             editing_bounds.left() >= px(0.) && editing_bounds.right() <= px(width),
             "editor/gutter escapes the pane at {width}px, font {font_size}: {editing_bounds:?}"
         );
-        let gutter = editing_bounds.left() + (editing_bounds.size.width - editing_wrap);
+        let gutter = editing_bounds.left() + gutter_width;
+        let paint_margin = editing_bounds.right() - (gutter + editing_wrap);
+        assert!(
+            paint_margin >= px(font_size.max(16.)) - px(1.),
+            "line-end glyphs need a safety margin inside the clip: {paint_margin:?}"
+        );
+        assert!(
+            editing_bounds.right() <= px(width - 32.),
+            "the paint safety margin must not consume the pane inset"
+        );
         assert!(
             (gutter - reading_bounds.left()).abs() <= px(1.)
                 && (gutter + editing_wrap - reading_bounds.right()).abs() <= px(1.),
