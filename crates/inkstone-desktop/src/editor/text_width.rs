@@ -8,7 +8,12 @@ pub(super) struct Drag {
 }
 
 impl EditorPane {
-    pub(super) fn text_width_handle(&self, left: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn text_width_handle(
+        &self,
+        left: bool,
+        inset: Pixels,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let id = if left {
             "text-width-left"
         } else {
@@ -29,8 +34,8 @@ impl EditorPane {
             .mt(px(-40.))
             .w(px(16.))
             .h(px(80.))
-            .when(left, |s| s.left(px(-22.)))
-            .when(!left, |s| s.right(px(-22.)))
+            .when(left, |s| s.left(-inset - px(22.)))
+            .when(!left, |s| s.right(-inset - px(22.)))
             .flex()
             .items_center()
             .justify_center()
@@ -54,7 +59,14 @@ impl EditorPane {
                     } else {
                         this.width_drag = Some(Drag {
                             start: event.position.x,
-                            width: this.preview.read(cx).bounds().size.width,
+                            width: if this.reading {
+                                this.preview.read(cx).bounds().size.width
+                            } else {
+                                this.editor
+                                    .read(cx)
+                                    .wrap_width()
+                                    .unwrap_or(px(this.text_width))
+                            },
                             left,
                         });
                     }
@@ -154,7 +166,7 @@ mod tests {
             ("text-width-left", 50., 600.),
             ("text-width-right", 80., 760.),
             ("text-width-right", -1000., 240.),
-            ("text-width-left", -2000., 1120.),
+            ("text-width-left", -2000., 1096.),
         ] {
             let from = visual.debug_bounds(id).unwrap().center();
             visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
@@ -175,13 +187,13 @@ mod tests {
                 .unwrap();
         }
         // Reflow in a narrow split, then restore the user's preferred width.
-        for (width, expected) in [(400., 320.), (1200., 1120.)] {
+        for (width, expected) in [(400., 296.), (1200., 1096.)] {
             visual.simulate_resize(size(px(width), px(650.)));
             visual.update(|w, cx| w.draw(cx).clear(cx));
             handle
                 .update(&mut visual, |p, _, cx| {
                     assert_eq!(p.reading_bounds(cx).size.width, px(expected));
-                    assert_eq!(p.text_width, 1120.);
+                    assert_eq!(p.text_width, 1096.);
                 })
                 .unwrap();
             for id in ["text-width-left", "text-width-right"] {
@@ -205,7 +217,7 @@ mod tests {
         handle
             .update(&mut visual, |p, _, _| {
                 assert!(p.readable_width);
-                assert_eq!(p.text_width, 920.);
+                assert_eq!(p.text_width, 896.);
             })
             .unwrap();
         visual.update(|w, cx| w.draw(cx).clear(cx));
@@ -228,7 +240,66 @@ mod tests {
             })
             .unwrap();
         visual.update(|w, cx| w.draw(cx).clear(cx));
-        assert!(visual.debug_bounds("text-width-left").is_none());
-        assert!(visual.debug_bounds("text-width-right").is_none());
+        assert!(visual.debug_bounds("text-width-left").is_some());
+        assert!(visual.debug_bounds("text-width-right").is_some());
+    }
+    #[gpui::test]
+    fn text_width_handles_resize_editing_modes_without_changing_selection(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let source = "# 标题\n正文 content 😀\n".repeat(40);
+        for (live, width) in [(false, 1200.), (true, 1200.), (false, 440.), (true, 440.)] {
+            let handle = cx.add_window(|w, cx| {
+                let mut pane = EditorPane::new(&source, w, cx);
+                pane.live = live;
+                pane.editor.update(cx, |state, cx| {
+                    state.set_line_number(true, w, cx);
+                    state.set_selected_range(0..8, cx);
+                });
+                pane
+            });
+            let mut visual = VisualTestContext::from_window(handle.into(), cx);
+            visual.simulate_resize(size(px(width), px(650.)));
+            visual.run_until_parked();
+            for _ in 0..2 {
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+            }
+            for (id, dx) in [("text-width-left", 20.), ("text-width-right", 10.)] {
+                let before = handle
+                    .update(&mut visual, |p, _, cx| {
+                        p.editor.read(cx).wrap_width().unwrap()
+                    })
+                    .unwrap();
+                let bar = visual.debug_bounds(id).unwrap();
+                assert!(bar.left() >= px(0.) && bar.right() <= px(width));
+                handle
+                    .update(&mut visual, |p, _, cx| {
+                        let editor_bounds = p.editor.read(cx).text_bounds().unwrap();
+                        assert!(
+                            !bar.intersects(&editor_bounds),
+                            "handle overlaps the editor gutter or text"
+                        );
+                    })
+                    .unwrap();
+                let from = bar.center();
+                let to = from + point(px(dx), px(0.));
+                visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+                visual.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+                visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+                visual.update(|w, cx| w.draw(cx).clear(cx));
+                let delta = if id == "text-width-left" { -40. } else { 20. };
+                handle
+                    .update(&mut visual, |p, _, cx| {
+                        let expected = (f32::from(before) + delta).max(240.);
+                        assert!(p.width_drag.is_none());
+                        assert_eq!(p.text_width, expected);
+                        let state = p.editor.read(cx);
+                        assert_eq!(state.wrap_width(), Some(px(expected)));
+                        assert_eq!(state.selected_range(), 0..8);
+                        assert_eq!(state.value().as_ref(), source);
+                    })
+                    .unwrap();
+            }
+        }
     }
 }

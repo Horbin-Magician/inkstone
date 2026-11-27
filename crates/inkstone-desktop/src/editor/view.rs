@@ -118,9 +118,6 @@ impl Render for EditorPane {
                 cx.notify();
             });
         }
-        if !self.reading {
-            self.width_drag = None;
-        }
         let paste_weak = cx.entity().downgrade();
         let preview = self.reading.then(|| {
             let image_dir = self.image_dir.clone();
@@ -308,7 +305,8 @@ impl Render for EditorPane {
         // Keep at least one body glyph inside the editor's clipping boundary,
         // in addition to the pane inset (which is outside that boundary).
         let text_safety = px(self.font_size.max(16.));
-        let left_inset = px(32.).max(gutter);
+        // Keep a separate resize-handle lane outside the gutter and glyph safety margin.
+        let left_inset = px(32.) + gutter;
         let right_inset = px(32.) + text_safety;
         let menu_editor = self.editor.downgrade();
         div()
@@ -400,10 +398,6 @@ impl Render for EditorPane {
                             .min_w_0()
                             .when(self.readable_width, |s| s.max_w(px(self.text_width)))
                             .children(preview)
-                            .when(self.reading, |s| {
-                                s.child(self.text_width_handle(true, cx))
-                                    .child(self.text_width_handle(false, cx))
-                            })
                             .when(!self.reading, |s| {
                                 // The gutter narrows the wrap. Extend the editor by
                                 // the gutter and shift it left, so the text column
@@ -481,11 +475,11 @@ impl Render for EditorPane {
                                                 .line_height(relative(self.line_spacing)),
                                         ),
                                 )
-                            }),
+                            })
+                            .child(self.text_width_handle(true, gutter, cx))
+                            .child(self.text_width_handle(false, text_safety, cx)),
                     )
-                    .when(self.reading, |s| {
-                        s.child(text_width::capture(cx.entity().downgrade()))
-                    })
+                    .child(text_width::capture(cx.entity().downgrade()))
                     .child(
                         div()
                             .id("editor-pane-scrollbar")
