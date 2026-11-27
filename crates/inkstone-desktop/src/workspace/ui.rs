@@ -74,6 +74,9 @@ fn active_tab_background(background: Rgba, border: Rgba) -> impl IntoElement {
     )
     .absolute()
     .inset_0()
+    // Center the tab contents in the header while keeping the active outline
+    // joined to the divider, three pixels below the centered tab bounds.
+    .bottom(px(-3.))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1519,7 +1522,7 @@ impl Workspace {
                     .h_full()
                     .overflow_x_scroll()
                     .track_scroll(&self.ui.tab_scroll)
-                    .items_end()
+                    .items_center()
                     .px_1()
                     .gap_0()
                     .children(self.tabs.iter().enumerate().map(|(i, t)| {
@@ -1601,7 +1604,10 @@ impl Workspace {
                             .w(px(180.))
                             .min_w(px(120.))
                             .max_w(px(180.))
-                            .px(px(14.))
+                            .pl(px(14.))
+                            // Account for both button padding and the SVG's
+                            // inset so the visible close glyph balances the title.
+                            .pr(px(6.))
                             .gap_2()
                             .text_color(if selected {
                                 colors.foreground
@@ -1674,6 +1680,7 @@ impl Workspace {
                                             .min_w_0()
                                             .truncate()
                                             .text_size(px(MIN_UI_FONT_SIZE))
+                                            .line_height(px(20.))
                                             .when(selected, |d| d.font_weight(FontWeight::MEDIUM))
                                             .child(title),
                                     )
