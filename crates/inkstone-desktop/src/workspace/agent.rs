@@ -1386,6 +1386,8 @@ impl Workspace {
         let weak = cx.entity().downgrade();
         let file_menu = Button::new("review-file")
             .ghost()
+            .min_w_0()
+            .tooltip(path.clone())
             .label(path)
             .child(icon("chevron-down"))
             .dropdown_menu(move |mut menu, _, cx| {
@@ -1431,7 +1433,7 @@ impl Workspace {
             )
             .child(
                 div()
-                    .id(("review-diff", page))
+                    .id(SharedString::from(format!("review-diff-{file}-{page}")))
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
@@ -1472,6 +1474,7 @@ impl Workspace {
                         .child(format!("{}/{}", page + 1, pages))
                         .child(
                             Button::new("review-next")
+                                .debug_selector(|| "review-next".into())
                                 .small()
                                 .label("下一页")
                                 .disabled(page + 1 >= pages)
@@ -1580,8 +1583,8 @@ impl Workspace {
             let diff = proposal
                 .previews
                 .get(j)
-                .cloned()
-                .unwrap_or_else(|| "旧会话未保存差异预览，请重新生成提案。".into());
+                .map(String::as_str)
+                .unwrap_or("点击「查看完整修改」可读取这篇笔记的差异。");
             let mut lines = div().flex().flex_col().min_w_0();
             let total = diff.lines().count();
             for line in diff.lines().take(DIFF_LINES) {
@@ -1673,6 +1676,7 @@ impl Workspace {
         if !proposal.changes.changes.is_empty() {
             body = body.child(
                 Button::new(("agent-full-review", i))
+                    .debug_selector(move || format!("agent-full-review-{i}"))
                     .label("查看完整修改")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_proposal_file(i, 0, window, cx)
@@ -2463,7 +2467,7 @@ mod tests {
                     role: "assistant".into(),
                     text: "这是较长的修改说明。\n\n".repeat(50),
                 });
-                let mut pending = proposal("old\n", &"new\n".repeat(100));
+                let mut pending = proposal("old\n", &"new\n".repeat(220));
                 pending.previews = pending.changes.previews();
                 session.proposals.push(pending);
             })
@@ -2484,6 +2488,20 @@ mod tests {
             actions.top() >= card.top() && actions.bottom() <= card.bottom(),
             "proposal actions {actions:?} clipped by card {card:?}"
         );
+        let open = visual.debug_bounds("agent-full-review-0").unwrap().center();
+        visual.simulate_click(open, Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let dialog = visual.debug_bounds("modal-body").unwrap();
+        assert!(dialog.size.width > card.size.width);
+        let next = visual.debug_bounds("review-next").unwrap().center();
+        visual.simulate_click(next, Modifiers::default());
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.agent.review.as_ref().unwrap().page, 1);
+                assert_eq!(w.agent.session().proposals[0].status, "等待审阅");
+            })
+            .unwrap();
     }
     #[gpui::test]
     fn agent_composer_sends_on_enter_and_keeps_shift_enter_newline(cx: &mut TestAppContext) {
