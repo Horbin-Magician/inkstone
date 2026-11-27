@@ -67,6 +67,7 @@ fn main() {
     let start = Instant::now();
     let index = Index::build(&vault).unwrap();
     println!("index_build_ms={}", start.elapsed().as_millis());
+    measure("vault_scan_tree", || vault.scan_tree().unwrap());
     // Compare the previous owned-note representation with shared snapshots on
     // identical data, in the same process. Drop work is outside the timed region.
     let owned_notes: std::collections::BTreeMap<_, _> = index

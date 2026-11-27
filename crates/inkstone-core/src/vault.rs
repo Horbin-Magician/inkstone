@@ -763,18 +763,26 @@ impl Vault {
                     continue;
                 }
                 let path = entry.path();
-                let meta = fs::symlink_metadata(&path)?;
-                if is_reparse(&meta) {
-                    continue;
-                }
-                if meta.is_dir() {
+                let kind = entry.file_type()?;
+                // Most entries are regular files. Recheck directories before
+                // descent, and inspect Windows attributes for other reparse points.
+                let kind = if cfg!(windows) || kind.is_dir() {
+                    let meta = fs::symlink_metadata(&path)?;
+                    if is_reparse(&meta) {
+                        continue;
+                    }
+                    meta.file_type()
+                } else {
+                    kind
+                };
+                if kind.is_dir() {
                     if name.to_string_lossy().starts_with('.') {
                         continue;
                     }
                     tree.folders
                         .push(path.strip_prefix(root).unwrap().to_path_buf());
                     walk(root, &path, tree)?;
-                } else if meta.is_file() {
+                } else if kind.is_file() {
                     tree.files
                         .push(path.strip_prefix(root).unwrap().to_path_buf());
                 }
@@ -1233,6 +1241,24 @@ mod tests {
                 .is_err()
         );
         assert!(s.1.trash_file(Path::new("../escape")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tree_scan_skips_links_and_hidden_directories_but_keeps_regular_assets() {
+        let s = Sandbox::new();
+        let root = &s.1.root;
+        fs::create_dir(root.join("folder")).unwrap();
+        fs::create_dir(root.join(".hidden")).unwrap();
+        fs::write(root.join(".hidden/private.md"), "").unwrap();
+        fs::write(root.join("folder/note.md"), "").unwrap();
+        fs::write(root.join(".env"), "").unwrap();
+        fs::write(root.join(".inkstone-settings.json"), "").unwrap();
+        std::os::unix::fs::symlink(root, root.join("folder/loop")).unwrap();
+        std::os::unix::fs::symlink(root.join(".env"), root.join("alias.md")).unwrap();
+        let tree = s.1.scan_tree().unwrap();
+        assert_eq!(tree.files, [PathBuf::from(".env"), "folder/note.md".into()]);
+        assert_eq!(tree.folders, [PathBuf::from("folder")]);
     }
 
     #[test]
