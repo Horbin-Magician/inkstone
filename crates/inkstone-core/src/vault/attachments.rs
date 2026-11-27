@@ -1,7 +1,7 @@
 //! Attachment inventory and recoverable cleanup of suspected unused files.
 use super::*;
 use crate::{
-    index::Index,
+    index,
     rendering::{self, Reference},
 };
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -52,30 +52,25 @@ fn kind(path: &Path) -> Kind {
     }
 }
 pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Inventory, VaultError> {
-    let mut index = Index::build(vault)?;
     for path in drafts.keys() {
         Vault::validate_relative(path)?;
     }
-    index.update_many(
-        drafts
-            .iter()
-            .map(|(path, text)| (path.clone(), text.clone())),
-    );
+    let files = vault.scan_files()?;
     let mut uses: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
-    for (path, note) in &index.notes {
-        let refs = note
-            .parsed
+    let mut collect_references = |path: &Path, text: &str| {
+        let parsed = index::parse(text);
+        let refs = parsed
             .links
             .iter()
             .map(|link| (link.target.as_str(), true))
             .chain(
-                note.parsed
+                parsed
                     .markdown_references
                     .iter()
                     .map(|(_, url)| (url.as_str(), false)),
             )
             .chain(
-                note.parsed
+                parsed
                     .html_destinations
                     .iter()
                     .map(|(_, url)| (url.as_str(), false)),
@@ -85,25 +80,42 @@ pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Invento
             if let Some(full) = rendering::asset_path(
                 &vault.root,
                 &Reference {
-                    from: path.clone(),
+                    from: path.to_owned(),
                     target: target.to_owned(),
                     wiki,
                 },
-                &index.files,
+                &files,
             ) && let Ok(relative) = full.strip_prefix(&vault.root)
             {
                 uses.entry(relative.into())
                     .or_default()
-                    .insert(path.clone());
+                    .insert(path.to_owned());
             }
         }
-    }
+    };
+    let mut pending_drafts: BTreeMap<_, _> = drafts.iter().collect();
+    let mut unreadable = 0;
     let mut entries = vec![];
-    for path in &index.files {
+    for path in &files {
         if path
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("md"))
         {
+            let disk = match vault.read(path) {
+                Ok(text) => text,
+                Err(_) => {
+                    unreadable += 1;
+                    None
+                }
+            };
+            if let Some(text) = &disk {
+                collect_references(path, text);
+            }
+            if let Some(draft) = pending_drafts.remove(path)
+                && Some(draft) != disk.as_ref()
+            {
+                collect_references(path, draft);
+            }
             continue;
         }
         let full = vault.regular_file_path(path)?;
@@ -116,13 +128,21 @@ pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Invento
             bytes: meta.len(),
             modified: meta.modified()?,
             kind: kind(path),
-            references: uses.remove(path).unwrap_or_default().into_iter().collect(),
+            references: Vec::new(),
         });
+    }
+    for (path, draft) in pending_drafts {
+        collect_references(path, draft);
+    }
+    for entry in &mut entries {
+        if let Some(references) = uses.remove(&entry.path) {
+            entry.references.extend(references);
+        }
     }
     entries.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.path.cmp(&b.path)));
     Ok(Inventory {
         entries,
-        unreadable: index.errors.len(),
+        unreadable,
     })
 }
 /// Re-scan before moving; the whole captured file remains recoverable in owned trash.
@@ -135,7 +155,10 @@ pub fn trash_unused(
     if current.unreadable > 0 {
         return Err(io::Error::other("存在无法读取的笔记，不能可靠判断附件引用").into());
     }
-    validate_unused(&current, expected)?;
+    validate_unused(
+        current.entries.iter().find(|e| e.path == expected.path),
+        expected,
+    )?;
     move_unused(vault, expected)
 }
 
@@ -156,24 +179,18 @@ pub fn trash_unused_images(
     if expected.is_empty() {
         return Ok(CleanupResult::default());
     }
-    let disk = scan(vault, &BTreeMap::new())?;
-    let current = if drafts.is_empty() {
-        None
-    } else {
-        Some(scan(vault, drafts)?)
-    };
-    if disk.unreadable > 0 || current.as_ref().is_some_and(|i| i.unreadable > 0) {
+    let current = scan(vault, drafts)?;
+    if current.unreadable > 0 {
         return Err(io::Error::other("存在无法读取的笔记，不能可靠判断图片引用").into());
     }
+    let by_path: BTreeMap<_, _> = current.entries.iter().map(|e| (&e.path, e)).collect();
     let mut seen = BTreeSet::new();
     for entry in expected {
         if kind(&entry.path) != Kind::Image || !seen.insert(&entry.path) {
             return Err(io::Error::other("清理列表包含非图片或重复路径，请刷新").into());
         }
-        for inventory in std::iter::once(&disk).chain(current.as_ref()) {
-            validate_unused(inventory, entry)
-                .map_err(|error| io::Error::other(format!("{}：{error}", entry.path.display())))?;
-        }
+        validate_unused(by_path.get(&entry.path).copied(), entry)
+            .map_err(|error| io::Error::other(format!("{}：{error}", entry.path.display())))?;
     }
     let mut result = CleanupResult::default();
     for entry in expected {
@@ -185,12 +202,8 @@ pub fn trash_unused_images(
     Ok(result)
 }
 
-fn validate_unused(inventory: &Inventory, expected: &Attachment) -> Result<(), VaultError> {
-    let current = inventory
-        .entries
-        .iter()
-        .find(|e| e.path == expected.path)
-        .ok_or_else(|| io::Error::other("附件已移动或消失，请刷新"))?;
+fn validate_unused(current: Option<&Attachment>, expected: &Attachment) -> Result<(), VaultError> {
+    let current = current.ok_or_else(|| io::Error::other("附件已移动或消失，请刷新"))?;
     if !current.references.is_empty() {
         return Err(io::Error::other("附件已被笔记引用，已取消清理").into());
     }
@@ -378,10 +391,8 @@ mod tests {
         let drafts = BTreeMap::from([("source.md".into(), "![draft](unused.png)".into())]);
         let changed = scan(&vault, &drafts).unwrap();
         for entry in &changed.entries {
-            assert_eq!(
-                entry.references.is_empty(),
-                entry.path != Path::new("unused.png")
-            );
+            assert_eq!(entry.references, vec![PathBuf::from("source.md")]);
+            assert!(trash_unused(&vault, entry, &drafts).is_err());
         }
         fs::remove_dir_all(root).unwrap();
     }
@@ -438,6 +449,8 @@ mod tests {
             .unwrap();
         fs::write(vault.root.join("bad.md"), [255]).unwrap();
         assert!(trash_unused(&vault, &entry, &BTreeMap::new()).is_err());
+        let drafts = BTreeMap::from([("bad.md".into(), "readable draft".into())]);
+        assert!(trash_unused(&vault, &entry, &drafts).is_err());
         fs::write(vault.root.join("bad.md"), "ok").unwrap();
         trash_unused(&vault, &entry, &BTreeMap::new()).unwrap();
         fs::write(vault.root.join("x.pdf"), "new").unwrap();
