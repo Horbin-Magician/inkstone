@@ -1078,6 +1078,57 @@ pub(crate) fn reading_prepared(
 
 /// Resolve local media within the vault, respecting Markdown-relative and wiki-root paths.
 pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Option<PathBuf> {
+    resolve_asset(root, reference, |name| {
+        let mut matches = files.iter().filter(|p| {
+            p.file_name()
+                .is_some_and(|file| file.to_string_lossy().eq_ignore_ascii_case(name))
+        });
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first.as_path())
+    })
+}
+
+/// Share the basename lookup across a scan. Relative and explicit paths still
+/// take priority and do not require materializing the catalog.
+pub(crate) struct AssetResolver<'a> {
+    files: &'a [PathBuf],
+    names: std::cell::OnceCell<std::collections::HashMap<String, Option<&'a Path>>>,
+}
+impl<'a> AssetResolver<'a> {
+    pub(crate) fn new(files: &'a [PathBuf]) -> Self {
+        Self {
+            files,
+            names: Default::default(),
+        }
+    }
+
+    pub(crate) fn resolve(&self, root: &Path, reference: &Reference) -> Option<PathBuf> {
+        resolve_asset(root, reference, |name| {
+            self.names
+                .get_or_init(|| {
+                    let mut names = std::collections::HashMap::new();
+                    for path in self.files {
+                        if let Some(file) = path.file_name() {
+                            names
+                                .entry(file.to_string_lossy().to_ascii_lowercase())
+                                .and_modify(|entry| *entry = None)
+                                .or_insert(Some(path.as_path()));
+                        }
+                    }
+                    names
+                })
+                .get(&name.to_ascii_lowercase())
+                .copied()
+                .flatten()
+        })
+    }
+}
+
+fn resolve_asset<'a>(
+    root: &Path,
+    reference: &Reference,
+    unique_basename: impl FnOnce(&str) -> Option<&'a Path>,
+) -> Option<PathBuf> {
     let target = reference.target.split('#').next()?;
     let decoded = if reference.wiki {
         target.into()
@@ -1130,17 +1181,8 @@ pub fn asset_path(root: &Path, reference: &Reference, files: &[PathBuf]) -> Opti
             return Some(path);
         }
     }
-    // Only consult the whole catalog after direct paths fail. A second match
-    // is enough to reject an ambiguous basename; no candidate list is needed.
     if !decoded.contains(['/', '\\']) {
-        let mut matches = files.iter().filter(|p| {
-            p.file_name()
-                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(&decoded))
-        });
-        let candidate = matches.next()?;
-        if matches.next().is_none() {
-            return resolve(candidate);
-        }
+        return resolve(unique_basename(&decoded)?);
     }
     None
 }
@@ -1412,11 +1454,19 @@ mod tests {
         assert!(index.notes.is_empty());
         assert_eq!(index.files.len(), files.len());
         let from = Path::new("a/note.md");
+        let resolver = AssetResolver::new(&index.files);
         for (origin, target, wiki, expected) in [
             ("a/note.md", "same.png", true, Some("a/same.png")),
             ("a/note.md", "same.png", false, Some("a/same.png")),
             ("other/note.md", "same.png", true, Some("same.png")),
             ("other/note.md", "same.png", false, None),
+            ("other/note.md", "duplicate.png", true, None),
+            (
+                "other/note.md",
+                "UNIQUE.PNG",
+                true,
+                Some("media/unique.png"),
+            ),
             (
                 "other/note.md",
                 "unique.png",
@@ -1429,6 +1479,10 @@ mod tests {
                 target: target.into(),
                 wiki,
             };
+            assert_eq!(
+                resolver.resolve(&vault.root, &reference),
+                asset_path(&vault.root, &reference, &index.files)
+            );
             assert_eq!(
                 asset_path(&vault.root, &reference, &index.files),
                 expected.map(|path| std::fs::canonicalize(root.join(path)).unwrap()),

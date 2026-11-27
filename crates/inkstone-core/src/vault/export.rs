@@ -77,6 +77,7 @@ struct Builder<'a> {
     vault: &'a Vault,
     index: &'a Index,
     asset_catalog: OnceCell<HashSet<&'a Path>>,
+    resolver: rendering::AssetResolver<'a>,
     format: Format,
     queue: VecDeque<PathBuf>,
     scheduled: BTreeSet<PathBuf>,
@@ -146,7 +147,7 @@ impl Builder<'_> {
             target: target.into(),
             wiki,
         };
-        if let Some(asset) = rendering::asset_path(&self.vault.root, &reference, &self.index.files)
+        if let Some(asset) = self.resolver.resolve(&self.vault.root, &reference)
             && let Ok(path) = asset.strip_prefix(&self.vault.root)
             && self
                 .asset_catalog
@@ -434,6 +435,7 @@ pub fn create(
         vault,
         index: &index,
         asset_catalog: OnceCell::new(),
+        resolver: rendering::AssetResolver::new(&index.files),
         format,
         queue: VecDeque::from([entry.into()]),
         scheduled: BTreeSet::from([entry.into()]),
@@ -581,6 +583,7 @@ mod tests {
             vault: &vault,
             index: &index,
             asset_catalog: OnceCell::new(),
+            resolver: rendering::AssetResolver::new(&index.files),
             format: Format::Html,
             queue: Default::default(),
             scheduled: Default::default(),
@@ -671,6 +674,7 @@ mod tests {
             vault: &vault,
             index: &index,
             asset_catalog: OnceCell::new(),
+            resolver: rendering::AssetResolver::new(&index.files),
             format: Format::Markdown,
             queue: VecDeque::from(["a.md".into()]),
             scheduled: BTreeSet::from(["a.md".into()]),

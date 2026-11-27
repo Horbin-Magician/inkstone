@@ -16,6 +16,7 @@ pub struct Issue {
 }
 pub fn scan(root: &Path, index: &Index) -> Vec<Issue> {
     let mut issues = vec![];
+    let resolver = rendering::AssetResolver::new(&index.files);
     for (from, note) in &index.notes {
         let references = note
             .parsed
@@ -68,16 +69,16 @@ pub fn scan(root: &Path, index: &Index) -> Vec<Issue> {
                     Some(format!("存在 {} 个同名目标，请使用完整路径", paths.len()))
                 }
                 _ => {
-                    if rendering::asset_path(
-                        root,
-                        &Reference {
-                            from: from.clone(),
-                            target: target.to_owned(),
-                            wiki,
-                        },
-                        &index.files,
-                    )
-                    .is_some()
+                    if resolver
+                        .resolve(
+                            root,
+                            &Reference {
+                                from: from.clone(),
+                                target: target.to_owned(),
+                                wiki,
+                            },
+                        )
+                        .is_some()
                     {
                         None
                     } else {

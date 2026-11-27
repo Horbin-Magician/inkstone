@@ -175,6 +175,23 @@ fn main() {
         start.elapsed().as_millis(),
         parsed.headings.len()
     );
+    fs::create_dir(notes.join("assets")).unwrap();
+    fs::write(notes.join("assets/chart.png"), b"fixture").unwrap();
+    fs::write(notes.join("attachment-example.md"), "![[chart.png]]").unwrap();
+    let start = Instant::now();
+    let inventory = inkstone_core::vault::attachments::scan(&vault, &Default::default()).unwrap();
+    println!(
+        "attachment_scan_ms={} attachments={}",
+        start.elapsed().as_millis(),
+        inventory.entries.len()
+    );
+    assert_eq!(
+        inventory.entries[0].references,
+        [PathBuf::from("attachment-example.md")]
+    );
+    fs::remove_file(notes.join("attachment-example.md")).unwrap();
+    fs::remove_file(notes.join("assets/chart.png")).unwrap();
+    fs::remove_dir(notes.join("assets")).unwrap();
     // Delete only this process's uniquely created benchmark directory.
     if retained.is_none() {
         fs::remove_dir_all(root).unwrap();

@@ -56,6 +56,7 @@ pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Invento
         Vault::validate_relative(path)?;
     }
     let files = vault.scan_files()?;
+    let resolver = rendering::AssetResolver::new(&files);
     let mut uses: BTreeMap<PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
     let mut collect_references = |path: &Path, text: &str| {
         let parsed = index::parse(text);
@@ -77,14 +78,13 @@ pub fn scan(vault: &Vault, drafts: &BTreeMap<PathBuf, String>) -> Result<Invento
             );
         let mut seen = HashSet::new();
         for (target, wiki) in refs.filter(|reference| seen.insert(*reference)) {
-            if let Some(full) = rendering::asset_path(
+            if let Some(full) = resolver.resolve(
                 &vault.root,
                 &Reference {
                     from: path.to_owned(),
                     target: target.to_owned(),
                     wiki,
                 },
-                &files,
             ) && let Ok(relative) = full.strip_prefix(&vault.root)
             {
                 uses.entry(relative.into())
