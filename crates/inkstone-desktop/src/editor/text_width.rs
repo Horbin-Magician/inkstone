@@ -46,8 +46,7 @@ impl EditorPane {
             .justify_center()
             .cursor_col_resize()
             .tooltip(|window, cx| {
-                gpui_component::tooltip::Tooltip::new("拖动调整正文宽度，双击恢复默认")
-                    .build(window, cx)
+                gpui_component::tooltip::Tooltip::new("拖动调整宽度，双击重置").build(window, cx)
             })
             .on_mouse_down(
                 MouseButton::Left,
@@ -77,22 +76,19 @@ impl EditorPane {
                 }),
             )
             .child(
+                // Keep the full-height hit area generous while the visible grip stays quiet.
                 div()
-                    .w(px(16.))
-                    .h(px(80.))
+                    .w(px(if dragging { 3. } else { 2. }))
+                    .h(px(if dragging { 48. } else { 32. }))
                     .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(8.))
-                    .bg(palette.surface)
-                    .opacity(if dragging { 1. } else { 0. })
-                    .group_hover(group, |s| s.opacity(1.))
-                    .child(div().w(px(3.)).h(px(40.)).rounded_full().bg(if dragging {
+                    .rounded_full()
+                    .bg(if dragging {
                         palette.accent
                     } else {
-                        palette.border
-                    })),
+                        palette.muted
+                    })
+                    .opacity(if dragging { 1. } else { 0. })
+                    .group_hover(group, move |s| s.opacity(if dragging { 1. } else { 0.65 })),
             )
     }
 
