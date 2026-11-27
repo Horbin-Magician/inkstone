@@ -44,7 +44,8 @@ fn kind(path: &Path) -> Kind {
         .to_lowercase()
         .as_str()
     {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" => Kind::Image,
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" | "tif" | "tiff"
+        | "ico" => Kind::Image,
         "pdf" => Kind::Pdf,
         "mp3" | "wav" | "ogg" | "m4a" | "mp4" | "webm" | "mov" | "flac" => Kind::Media,
         _ => Kind::Other,
@@ -134,7 +135,58 @@ pub fn trash_unused(
     if current.unreadable > 0 {
         return Err(io::Error::other("存在无法读取的笔记，不能可靠判断附件引用").into());
     }
-    let current = current
+    validate_unused(&current, expected)?;
+    move_unused(vault, expected)
+}
+
+#[derive(Default, Debug)]
+pub struct CleanupResult {
+    pub trashed: Vec<PathBuf>,
+    pub errors: Vec<(PathBuf, String)>,
+}
+
+/// Validate the complete preview before moving anything. Scan once per batch,
+/// rather than once per image, and retain disk references as well as draft ones.
+/// Individual move failures are reported without losing successful results.
+pub fn trash_unused_images(
+    vault: &Vault,
+    expected: &[Attachment],
+    drafts: &BTreeMap<PathBuf, String>,
+) -> Result<CleanupResult, VaultError> {
+    if expected.is_empty() {
+        return Ok(CleanupResult::default());
+    }
+    let disk = scan(vault, &BTreeMap::new())?;
+    let current = if drafts.is_empty() {
+        None
+    } else {
+        Some(scan(vault, drafts)?)
+    };
+    if disk.unreadable > 0 || current.as_ref().is_some_and(|i| i.unreadable > 0) {
+        return Err(io::Error::other("存在无法读取的笔记，不能可靠判断图片引用").into());
+    }
+    let mut seen = BTreeSet::new();
+    for entry in expected {
+        if kind(&entry.path) != Kind::Image || !seen.insert(&entry.path) {
+            return Err(io::Error::other("清理列表包含非图片或重复路径，请刷新").into());
+        }
+        for inventory in std::iter::once(&disk).chain(current.as_ref()) {
+            validate_unused(inventory, entry)
+                .map_err(|error| io::Error::other(format!("{}：{error}", entry.path.display())))?;
+        }
+    }
+    let mut result = CleanupResult::default();
+    for entry in expected {
+        match move_unused(vault, entry) {
+            Ok(_) => result.trashed.push(entry.path.clone()),
+            Err(error) => result.errors.push((entry.path.clone(), error.to_string())),
+        }
+    }
+    Ok(result)
+}
+
+fn validate_unused(inventory: &Inventory, expected: &Attachment) -> Result<(), VaultError> {
+    let current = inventory
         .entries
         .iter()
         .find(|e| e.path == expected.path)
@@ -145,7 +197,11 @@ pub fn trash_unused(
     if current.bytes != expected.bytes || current.modified != expected.modified {
         return Err(io::Error::other("附件在预览后已变化，请刷新").into());
     }
-    let source = vault.regular_file_path(&current.path)?;
+    Ok(())
+}
+
+fn move_unused(vault: &Vault, expected: &Attachment) -> Result<PathBuf, VaultError> {
+    let source = vault.regular_file_path(&expected.path)?;
     let meta = fs::symlink_metadata(&source)?;
     if !meta.is_file()
         || is_reparse(&meta)
@@ -154,7 +210,7 @@ pub fn trash_unused(
     {
         return Err(io::Error::other("附件在清理前已变化").into());
     }
-    let entry = vault.create_trash_entry(&current.path)?;
+    let entry = vault.create_trash_entry(&expected.path)?;
     write_new_synced(&entry.join("payload-name.json"), b"\"content\"")?;
     let dest = entry.join("content");
     move_no_replace(&source, &dest)?;
@@ -164,6 +220,94 @@ pub fn trash_unused(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_batch_only_moves_previewed_images_and_can_restore_them() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("vault")).unwrap();
+        let vault = Vault::open(root.path().join("vault"), root.path().join("recovery")).unwrap();
+        for name in [
+            "unused.png",
+            "scan.TIFF",
+            "icon.ico",
+            "used.jpg",
+            "book.pdf",
+        ] {
+            fs::write(vault.root.join(name), name).unwrap();
+        }
+        fs::write(vault.root.join("note.md"), "![used](used.jpg)").unwrap();
+        let candidates: Vec<_> = scan(&vault, &BTreeMap::new())
+            .unwrap()
+            .entries
+            .into_iter()
+            .filter(|e| e.kind == Kind::Image && e.references.is_empty())
+            .collect();
+        assert_eq!(candidates.len(), 3);
+        // Files appearing after preview are never silently added to cleanup.
+        fs::write(vault.root.join("new.png"), "new").unwrap();
+        let result = trash_unused_images(&vault, &candidates, &BTreeMap::new()).unwrap();
+        assert_eq!(result.trashed.len(), 3);
+        assert!(result.errors.is_empty());
+        for name in ["used.jpg", "book.pdf", "new.png"] {
+            assert!(vault.root.join(name).exists());
+        }
+        for entry in vault.trash_entries().unwrap() {
+            vault.restore_trash(&entry).unwrap();
+        }
+        for entry in candidates {
+            assert_eq!(
+                fs::read_to_string(vault.root.join(&entry.path)).unwrap(),
+                entry.path.to_str().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn image_batch_rejects_stale_referenced_unreadable_and_invalid_previews_before_moving() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("vault")).unwrap();
+        let vault = Vault::open(root.path().join("vault"), root.path().join("recovery")).unwrap();
+        for name in ["a.png", "b.png", "other.pdf"] {
+            fs::write(vault.root.join(name), "image").unwrap();
+        }
+        let inventory = scan(&vault, &BTreeMap::new()).unwrap();
+        let images: Vec<_> = inventory
+            .entries
+            .iter()
+            .filter(|e| e.kind == Kind::Image)
+            .cloned()
+            .collect();
+        let assert_untouched = || {
+            assert!(vault.root.join("a.png").exists());
+            assert!(vault.root.join("b.png").exists());
+            assert!(vault.trash_entries().unwrap().is_empty());
+        };
+        let drafts = BTreeMap::from([("note.md".into(), "![[b.png]]".into())]);
+        assert!(trash_unused_images(&vault, &images, &drafts).is_err());
+        assert_untouched();
+        fs::write(vault.root.join("note.md"), "![disk](b.png)").unwrap();
+        let drafts = BTreeMap::from([("note.md".into(), "reference removed but not saved".into())]);
+        assert!(trash_unused_images(&vault, &images, &drafts).is_err());
+        assert_untouched();
+        fs::write(vault.root.join("note.md"), [255]).unwrap();
+        assert!(trash_unused_images(&vault, &images, &drafts).is_err());
+        assert_untouched();
+        fs::remove_file(vault.root.join("note.md")).unwrap();
+        assert!(trash_unused_images(&vault, &inventory.entries, &BTreeMap::new()).is_err());
+        assert!(
+            trash_unused_images(
+                &vault,
+                &[images[0].clone(), images[0].clone()],
+                &BTreeMap::new()
+            )
+            .is_err()
+        );
+        assert_untouched();
+        fs::write(vault.root.join("b.png"), "changed image").unwrap();
+        assert!(trash_unused_images(&vault, &images, &BTreeMap::new()).is_err());
+        assert_untouched();
+    }
+
     #[test]
     fn repeated_targets_keep_wiki_and_markdown_resolution_distinct() {
         let root = std::env::temp_dir().join(format!("inkstone-attachment-repeat-{}", unique_id()));
