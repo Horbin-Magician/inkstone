@@ -135,23 +135,6 @@ impl Workspace {
             }
             self.ui.prefs.search_query = query.clone();
         }
-        let index = self.index.clone();
-        let mut seen = std::collections::HashSet::new();
-        let drafts: std::collections::BTreeMap<_, _> = self
-            .tabs
-            .iter()
-            .filter(|t| t.image.is_none() && !t.path.as_os_str().is_empty())
-            .filter(|t| seen.insert(t.save.editor.entity_id()))
-            .filter(|t| !t.save.editor.read(cx).is_composing())
-            .filter_map(|t| {
-                let text = t.save.text_snapshot(cx);
-                (index
-                    .notes
-                    .get(&t.path)
-                    .is_none_or(|n| n.text.as_str() != text.as_ref()))
-                .then(|| (t.path.clone(), text))
-            })
-            .collect();
         let fulltext = self.fulltext;
         let case_sensitive = self.ui.prefs.search_case_sensitive;
         let sort_by = self.ui.prefs.search_sort_by;
@@ -166,18 +149,32 @@ impl Workspace {
         }
         let limit = self.ui.search_limit;
         self.ui.search_loading = true;
-        if fulltext
-            && let Err(error) =
-                inkstone_core::search::Query::parse_with_case(&query, case_sensitive)
-        {
-            self.search_results.clear();
-            self.ui.search_loading = false;
-            self.ui.search_has_more = false;
-            self.ui.search_error = error.clone();
-            self.notifications.publish(error);
-            cx.notify();
-            return;
-        }
+        let parsed = if fulltext {
+            match inkstone_core::search::Query::parse_with_case(&query, case_sensitive) {
+                Ok(parsed) => Some(parsed),
+                Err(error) => {
+                    self.search_results.clear();
+                    self.ui.search_loading = false;
+                    self.ui.search_has_more = false;
+                    self.ui.search_error = error.clone();
+                    self.notifications.publish(error);
+                    cx.notify();
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let index = self.index.clone();
+        let mut seen = std::collections::HashSet::new();
+        let mut drafts: std::collections::BTreeMap<_, _> = self
+            .tabs
+            .iter()
+            .filter(|t| t.image.is_none() && !t.path.as_os_str().is_empty())
+            .filter(|t| seen.insert(t.save.editor.entity_id()))
+            .filter(|t| !t.save.editor.read(cx).is_composing())
+            .map(|t| (t.path.clone(), t.save.text_snapshot(cx)))
+            .collect();
         let active = self
             .active
             .and_then(|i| self.tabs.get(i))
@@ -189,6 +186,13 @@ impl Workspace {
             if cancelled() {
                 return None;
             }
+            drafts.retain(|path, text| {
+                !cancelled()
+                    && index
+                        .notes
+                        .get(path)
+                        .is_none_or(|n| n.text.as_str() != text.as_ref())
+            });
             let mut index = index;
             if !drafts.is_empty() {
                 let index = Arc::make_mut(&mut index);
@@ -205,17 +209,14 @@ impl Workspace {
             let backlinks = active.map(|p| index.backlinks(&p)).unwrap_or_default();
             let hits = if query.trim().is_empty() {
                 Some(vec![])
-            } else if fulltext {
-                index
-                    .search_limited_cancellable(
-                        &query,
-                        case_sensitive,
-                        sort_by,
-                        descending,
-                        limit.saturating_add(1),
-                        cancelled,
-                    )
-                    .unwrap_or_default()
+            } else if let Some(parsed) = parsed {
+                index.search_parsed_cancellable(
+                    &parsed,
+                    sort_by,
+                    descending,
+                    limit.saturating_add(1),
+                    cancelled,
+                )
             } else {
                 index.filenames_cancellable(&query, cancelled)
             };

@@ -165,7 +165,6 @@ impl Index {
         limit: usize,
         cancelled: impl Fn() -> bool,
     ) -> Result<Option<Vec<SearchHit>>, String> {
-        let _span = crate::performance::span(crate::performance::Stage::FulltextSearch);
         if cancelled() {
             return Ok(None);
         }
@@ -173,6 +172,22 @@ impl Index {
             return Ok(Some(vec![]));
         }
         let query = crate::search::Query::parse_with_case(query, case_sensitive)?;
+        Ok(self.search_parsed_cancellable(&query, by, descending, limit, cancelled))
+    }
+
+    /// Search a query that the caller has already parsed for syntax feedback.
+    pub fn search_parsed_cancellable(
+        &self,
+        query: &crate::search::Query,
+        by: crate::file_order::SortBy,
+        descending: bool,
+        limit: usize,
+        cancelled: impl Fn() -> bool,
+    ) -> Option<Vec<SearchHit>> {
+        let _span = crate::performance::span(crate::performance::Stage::FulltextSearch);
+        if limit == 0 {
+            return (!cancelled()).then(Vec::new);
+        }
         let mut hits = vec![];
         // Before reaching the cap, discard nonmatches without sorting them.
         // Once enough documents match, defer the rest of the matching until
@@ -182,7 +197,7 @@ impl Index {
         let mut notes = Vec::new();
         for (path, note) in &self.notes {
             if cancelled() {
-                return Ok(None);
+                return None;
             }
             if confirmed == limit {
                 notes.push((path, note, false));
@@ -192,7 +207,7 @@ impl Index {
             }
         }
         if cancelled() {
-            return Ok(None);
+            return None;
         }
         notes.sort_by(|(a, an, _), (b, bn, _)| {
             crate::file_order::compare(
@@ -204,7 +219,7 @@ impl Index {
         });
         for (path, note, matched) in notes {
             if cancelled() {
-                return Ok(None);
+                return None;
             }
             if !matched && !query.matches(path, &note.text, &note.parsed.tags) {
                 continue;
@@ -245,10 +260,10 @@ impl Index {
                 });
             }
             if hits.len() == limit {
-                return Ok((!cancelled()).then_some(hits));
+                return (!cancelled()).then_some(hits);
             }
         }
-        Ok((!cancelled()).then_some(hits))
+        (!cancelled()).then_some(hits)
     }
 }
 
