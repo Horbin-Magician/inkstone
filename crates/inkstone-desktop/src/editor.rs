@@ -95,7 +95,7 @@ pub struct EditorPane {
     spans: Vec<markdown::Span>,
     parse_task: Option<Task<()>>,
     projection_job: Option<projection::Job>,
-    pub parsed: ParsedNote,
+    pub parsed: Rc<ParsedNote>,
     pub reading: bool,
     pub font_size: f32,
     pub line_spacing: f32,
@@ -233,10 +233,8 @@ impl EditorPane {
                 cx.notify();
             }
         });
-        let link_cache = Rc::new(RefCell::new((
-            SharedString::default(),
-            ParsedNote::default(),
-        )));
+        let parsed = Rc::new(ParsedNote::default());
+        let link_cache = Rc::new(RefCell::new((SharedString::default(), parsed.clone())));
         let path_cache = Rc::new(RefCell::new(Arc::new(vec![])));
         let weak = cx.entity().downgrade();
         editor.update(cx, |state, _| {
@@ -297,7 +295,7 @@ impl EditorPane {
             spans: vec![],
             parse_task: None,
             projection_job: None,
-            parsed: ParsedNote::default(),
+            parsed,
             reading: false,
             navigation: Default::default(),
             live_tasks: vec![],

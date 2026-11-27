@@ -63,7 +63,7 @@ impl EditorPane {
                 );
                 self.retain_live_objects(&snapshot);
                 self.spans = markdown::spans_snapshot(&snapshot);
-                self.parsed = index::parse_snapshot(&snapshot);
+                self.parsed = Rc::new(index::parse_snapshot(&snapshot));
                 self.syntax_snapshot = Some(snapshot);
                 self.typography_ready = true;
                 *self.link_cache.borrow_mut() = (text.clone(), self.parsed.clone());
@@ -162,7 +162,7 @@ impl EditorPane {
                     if let Some((snapshot, spans, parsed)) = initial {
                         this.syntax_snapshot = Some(snapshot);
                         this.spans = spans;
-                        this.parsed = parsed;
+                        this.parsed = Rc::new(parsed);
                         this.typography_ready = true;
                         *this.link_cache.borrow_mut() =
                             (this.parse_source.clone(), this.parsed.clone());

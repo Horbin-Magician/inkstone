@@ -7,7 +7,7 @@ use gpui_component::input::{CompletionProvider, DefinitionProvider, EditorState,
 use inkstone_core::index::ParsedNote;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
-pub type ParsedCache = Rc<RefCell<(SharedString, ParsedNote)>>;
+pub type ParsedCache = Rc<RefCell<(SharedString, Rc<ParsedNote>)>>;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CompletionPath {
     pub label: String,
@@ -878,7 +878,7 @@ mod provider_tests {
         let source = "中😀 [[目录/笔记|标签]]";
         let provider = WikiDefinitions(Rc::new(RefCell::new((
             source.into(),
-            inkstone_core::index::parse(source),
+            Rc::new(inkstone_core::index::parse(source)),
         ))));
         let text = Rope::from(source);
         let task = handle
@@ -895,7 +895,7 @@ mod provider_tests {
         let source = "中文😀[^a]\n\n[^a]: definition";
         let provider = WikiDefinitions(Rc::new(RefCell::new((
             source.into(),
-            inkstone_core::index::parse(source),
+            Rc::new(inkstone_core::index::parse(source)),
         ))));
         let text = Rope::from(source);
         let offset = source.find("[^a]").unwrap() + 2;
