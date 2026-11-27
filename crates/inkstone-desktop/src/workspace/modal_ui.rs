@@ -149,13 +149,21 @@ impl Workspace {
                 if this.command_open && !this.ui.command.read(cx).focus_handle(cx).is_focused(w) {
                     return;
                 }
-                let key = event.keystroke.key.as_str();
-                let n = if this.command_open {
-                    this.filtered_commands(cx).len()
+                let input = if this.command_open {
+                    &this.ui.command
                 } else {
-                    this.visible_search_hits(true, cx).len()
+                    &this.search
                 };
+                if input.read(cx).is_composing() {
+                    return;
+                }
+                let key = event.keystroke.key.as_str();
                 if key == "down" || key == "up" {
+                    let n = if this.command_open {
+                        this.filtered_commands(cx).len()
+                    } else {
+                        this.quick_result_count(cx)
+                    };
                     if n > 0 {
                         this.ui.selected = if key == "down" {
                             (this.ui.selected + 1).min(n - 1)
@@ -174,7 +182,7 @@ impl Workspace {
                             this.execute_command(id, w, cx);
                         }
                     } else {
-                        this.open_selected_result(w, cx);
+                        this.submit_search_result(w, cx);
                     }
                     cx.stop_propagation();
                 }
@@ -305,7 +313,7 @@ impl Workspace {
             })
             .when(self.ui.quick_open, |s| {
                 let result_height =
-                    (self.visible_search_hits(true, cx).len().max(3) as f32 * 38. + 16.).min(360.);
+                    (self.quick_result_count(cx).max(3) as f32 * 38. + 16.).min(360.);
                 s.child(self.picker_search(false, cx)).child(
                     div()
                         .flex()

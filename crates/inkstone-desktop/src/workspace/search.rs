@@ -379,6 +379,47 @@ mod tests {
             .unwrap();
     }
     #[gpui::test]
+    fn quick_picker_enter_opens_the_latest_query_during_debounce(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("notes.md"), "notes").unwrap();
+        std::fs::write(root.path().join("target.md"), "target").unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.load_vault(root.path().into(), window, cx)
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |w, window, cx| w.focus_search(false, window, cx))
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.search.update(cx, |s, cx| {
+                    s.set_value("targ", window, cx);
+                    cx.emit(InputEvent::Change);
+                });
+            })
+            .unwrap();
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, _| assert!(w.search_jobs.wait.is_some()))
+            .unwrap();
+        visual.simulate_keystrokes("enter");
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.tabs[w.active.unwrap()].path, PathBuf::from("target.md"));
+                assert!(!w.ui.quick_open);
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn enter_flushes_debounce_but_new_input_cancels_pending_open(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let root = std::env::temp_dir().join(format!(

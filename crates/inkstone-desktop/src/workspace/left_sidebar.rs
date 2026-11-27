@@ -2,6 +2,8 @@
 use super::commands::command;
 use super::ui::{NameMode, icon, tool};
 use super::*;
+
+const DEFAULT_QUICK_RESULTS: usize = 100;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::menu::{ContextMenuExt, DropdownMenu, PopupMenuItem};
 use gpui_component::{
@@ -868,16 +870,26 @@ impl Workspace {
             self.apply_jump(w, cx);
         }
     }
+    fn showing_default_quick_results(&self, cx: &App) -> bool {
+        self.search.read(cx).value().trim().is_empty()
+    }
+    pub(super) fn quick_result_count(&self, cx: &App) -> usize {
+        if self.showing_default_quick_results(cx) {
+            self.files.len().min(DEFAULT_QUICK_RESULTS)
+        } else {
+            self.search_results.len()
+        }
+    }
     pub(super) fn visible_search_hits(
         &self,
         modal: bool,
         cx: &Context<Self>,
     ) -> std::borrow::Cow<'_, [SearchHit]> {
-        if modal && self.search.read(cx).value().is_empty() {
+        if modal && self.showing_default_quick_results(cx) {
             std::borrow::Cow::Owned(
                 self.files
                     .iter()
-                    .take(100)
+                    .take(DEFAULT_QUICK_RESULTS)
                     .map(|p| SearchHit {
                         path: p.clone(),
                         display_name: None,
@@ -912,13 +924,19 @@ impl Workspace {
             .min_h_0()
             .overflow_y_scroll()
             .p_2()
-            .when(empty, |s| {
-                s.child(self.empty_state(
-                    "search",
-                    "未找到笔记",
-                    "试试其他关键词，或创建一篇新笔记。",
-                ))
+            .when(empty && self.ui.search_loading, |s| {
+                s.child(div().p_2().text_color(colors.muted).child("正在搜索…"))
             })
+            .when(
+                empty && !self.ui.search_loading && !self.search.read(cx).is_composing(),
+                |s| {
+                    s.child(self.empty_state(
+                        "search",
+                        "未找到笔记",
+                        "试试其他关键词，或创建一篇新笔记。",
+                    ))
+                },
+            )
             .children(hits.iter().enumerate().map(|(i, hit)| {
                 let path = hit.path.clone();
                 let offset = hit.offset;
