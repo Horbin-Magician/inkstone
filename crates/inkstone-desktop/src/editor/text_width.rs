@@ -20,9 +20,15 @@ impl EditorPane {
             "text-width-right"
         };
         let palette = crate::theme::palette(self.light);
+        let group = SharedString::from(format!("{:?}-{id}", cx.entity_id()));
+        let dragging = self
+            .width_drag
+            .as_ref()
+            .is_some_and(|drag| drag.left == left);
         div()
             .id(id)
             .debug_selector(move || id.into())
+            .group(group.clone())
             .role(Role::Splitter)
             .aria_label(if left {
                 "调整正文宽度（左侧）"
@@ -78,7 +84,9 @@ impl EditorPane {
                     .w(px(3.))
                     .h(px(40.))
                     .rounded_full()
-                    .bg(if self.width_drag.is_some() {
+                    .opacity(if dragging { 1. } else { 0. })
+                    .group_hover(group, |s| s.opacity(1.))
+                    .bg(if dragging {
                         palette.accent
                     } else {
                         palette.border
