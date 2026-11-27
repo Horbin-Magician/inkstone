@@ -83,38 +83,12 @@ impl Workspace {
         if entries.is_empty() {
             return;
         }
-        if !self.file_writes.can_start_exclusive_operation() {
-            self.notifications
-                .publish("请等待当前文件操作完成后再清理图片。".into());
-            cx.notify();
-            return;
-        }
-        if self
-            .tabs
-            .iter()
-            .any(|tab| self.has_pending_input(tab.id, window, cx))
-        {
-            self.notifications
-                .publish("请完成输入法组词或脚注编辑后再清理图片。".into());
-            cx.notify();
-            return;
-        }
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        self.flush_document_views(window, cx);
-        // An unnamed note has no stable base directory for relative references.
-        if self.tabs.iter().any(|tab| {
-            tab.image.is_none()
-                && tab.path.as_os_str().is_empty()
-                && !tab.save.text_snapshot(cx).trim().is_empty()
-        }) {
-            self.notifications
-                .publish("请先保存未命名笔记，再清理图片，以便检查其中的图片引用。".into());
-            cx.notify();
+        let Some(drafts) = self.attachment_cleanup_drafts(window, cx) else {
             return;
-        }
-        let drafts = self.file_draft_snapshots(cx);
+        };
         let Some(ticket) = self.file_writes.try_begin_exclusive_operation() else {
             return;
         };
@@ -323,6 +297,9 @@ mod tests {
                 blank.save.editor.update(cx, |editor, cx| {
                     editor.replace_all("![draft](image.png)", window, cx)
                 });
+                w.cleanup_attachment(entries[0].clone(), window, cx);
+                assert!(w.notifications.text().contains("先保存未命名笔记"));
+                assert_eq!(w.file_writes.pending(), 0);
                 w.cleanup_unused_images(entries, window, cx);
                 assert!(w.notifications.text().contains("先保存未命名笔记"));
                 assert_eq!(w.file_writes.pending(), 0);

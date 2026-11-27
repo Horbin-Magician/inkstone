@@ -131,9 +131,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
+        if !self.file_writes.can_start_exclusive_operation() {
             return;
         }
+        let request = self.ui.recovery_refresh;
         let generation = self.generation;
         let detail = format!(
             "{}\n大小：{:.1} KiB\n\n扫描未找到直接引用，但其他文件、脚本或外部应用仍可能使用它。移入回收站后可通过“文件恢复”恢复。",
@@ -152,12 +153,50 @@ impl Workspace {
                 return;
             }
             let _ = this.update_in(cx, |this, window, cx| {
-                if this.generation == generation {
+                if this.generation == generation
+                    && this.ui.recovery_refresh == request
+                    && this.ui.attachment_manager.is_some()
+                {
                     this.cleanup_attachment(entry, window, cx);
                 }
             });
         })
         .detach();
+    }
+    fn attachment_cleanup_drafts(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<std::collections::BTreeMap<PathBuf, SharedString>> {
+        if !self.file_writes.can_start_exclusive_operation() {
+            self.notifications
+                .publish("请等待当前文件操作完成后再清理附件。".into());
+            cx.notify();
+            return None;
+        }
+        if self
+            .tabs
+            .iter()
+            .any(|tab| self.has_pending_input(tab.id, window, cx))
+        {
+            self.notifications
+                .publish("请完成输入法组词或脚注编辑后再清理附件。".into());
+            cx.notify();
+            return None;
+        }
+        self.flush_document_views(window, cx);
+        // Unnamed notes have no stable base directory for relative references.
+        if self.tabs.iter().any(|tab| {
+            tab.image.is_none()
+                && tab.path.as_os_str().is_empty()
+                && !tab.save.text_snapshot(cx).trim().is_empty()
+        }) {
+            self.notifications
+                .publish("请先保存未命名笔记，再清理附件，以便检查其中的引用。".into());
+            cx.notify();
+            return None;
+        }
+        Some(self.file_draft_snapshots(cx))
     }
     fn cleanup_attachment(
         &mut self,
@@ -165,25 +204,15 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.file_writes.operation_active() || self.file_writes.pending() > 0 {
-            return;
-        }
-        if self
-            .tabs
-            .iter()
-            .any(|t| self.has_pending_input(t.id, window, cx))
-        {
-            self.notifications
-                .publish("请完成输入法组词或脚注编辑后再清理附件。".into());
-            cx.notify();
-            return;
-        }
         let Some(vault) = self.vault.clone() else {
             return;
         };
-        self.flush_document_views(window, cx);
-        let drafts = self.file_draft_snapshots(cx);
-        let write_ticket = self.file_writes.begin();
+        let Some(drafts) = self.attachment_cleanup_drafts(window, cx) else {
+            return;
+        };
+        let Some(write_ticket) = self.file_writes.try_begin_exclusive_operation() else {
+            return;
+        };
         if let Some(m) = &mut self.ui.attachment_manager {
             m.loading = true;
         }
