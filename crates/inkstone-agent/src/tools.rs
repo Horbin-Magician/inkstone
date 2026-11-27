@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::{ErrorKind, Read},
     ops::Range,
     path::{Component, Path, PathBuf},
 };
@@ -59,6 +60,30 @@ impl Scope {
             }
     }
 }
+const MAX_NOTE_BYTES: usize = 4 * 1024 * 1024;
+
+fn read_indexable_note(vault: &Vault, path: &Path) -> Result<Option<String>> {
+    let file = match std::fs::File::open(vault.path(path)?) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let size = file.metadata()?.len();
+    if size > MAX_NOTE_BYTES as u64 {
+        return Ok(None);
+    }
+    // Bound the actual read as well: the opened file can grow after metadata().
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(MAX_NOTE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_NOTE_BYTES {
+        return Ok(None);
+    }
+    Ok(Some(String::from_utf8(bytes).map_err(|_| {
+        inkstone_core::vault::VaultError::InvalidUtf8
+    })?))
+}
+
 /// Immutable per-run snapshot. All tool paths pass scope and Vault validation.
 pub struct ToolHost {
     pub web: crate::web::WebTools,
@@ -106,16 +131,17 @@ impl ToolHost {
                 continue;
             }
             let text = if let Some((text, range)) = overrides.get(&path) {
+                if range.len() > MAX_NOTE_BYTES {
+                    continue;
+                }
                 text[range.clone()].to_owned()
             } else {
-                let Some(text) = vault.read(&path)? else {
+                let Some(text) = read_indexable_note(&vault, &path)? else {
                     continue;
                 };
                 text
             };
-            if text.len() <= 4 * 1024 * 1024 {
-                updates.push((path, text));
-            }
+            updates.push((path, text));
         }
         index.update_many(updates);
         Ok(Self {
@@ -366,7 +392,7 @@ impl ToolHost {
                             }
                             Some(note.text.clone())
                         } else {
-                            if self.vault.read(&path)?.is_some() {
+                            if self.vault.path(&path)?.try_exists()? {
                                 bail!("目标文件存在但未读取");
                             }
                             None
@@ -465,6 +491,35 @@ pub fn definitions() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn oversized_notes_are_skipped_before_decoding_and_cannot_be_proposed_as_new() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vault");
+        std::fs::create_dir(&root).unwrap();
+        let vault = Vault::open(&root, dir.path().join("history")).unwrap();
+        let large = Path::new("large.md");
+        std::fs::write(root.join(large), [0xff]).unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(root.join(large))
+            .unwrap()
+            .set_len(MAX_NOTE_BYTES as u64 + 1)
+            .unwrap();
+        std::fs::write(root.join("small.md"), "可读取").unwrap();
+        let mut host = ToolHost::new(vault.clone(), Scope::Vault, vec![], None).unwrap();
+        assert_eq!(host.index.note_paths(), [PathBuf::from("small.md")]);
+        let proposal = json!({"changes":[{"path": large, "content":"new"}]});
+        assert!(host.call("propose_changes", proposal).is_err());
+        assert!(host.proposals.is_empty());
+        std::fs::write(root.join(large), vec![b'a'; MAX_NOTE_BYTES]).unwrap();
+        assert_eq!(
+            read_indexable_note(&vault, large).unwrap().unwrap().len(),
+            MAX_NOTE_BYTES
+        );
+        std::fs::write(root.join(large), [0xff]).unwrap();
+        assert!(read_indexable_note(&vault, large).is_err());
+    }
+
     #[test]
     fn notes_scope_distinguishes_missing_and_empty_files_and_rechecks_creation() {
         let dir = tempfile::tempdir().unwrap();
