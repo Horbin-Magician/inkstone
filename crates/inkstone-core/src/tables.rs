@@ -3,7 +3,7 @@ use crate::markdown_edit::Edit;
 use markdown_parser::mdast::{AlignKind, Node};
 use std::ops::Range;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
     Insert,
     AddRow,

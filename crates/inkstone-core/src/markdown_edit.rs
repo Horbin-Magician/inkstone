@@ -161,13 +161,15 @@ pub fn insert_link(text: &str, selection: Range<usize>, wiki: bool) -> Option<Ed
         selection: cursor..cursor,
     })
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockFormat {
     Heading(u8),
     Quote,
     Bullet,
     Numbered,
     Code,
+    Math,
+    Rule,
     Callout,
 }
 
@@ -189,6 +191,28 @@ pub fn block_format(text: &str, selection: Range<usize>, format: BlockFormat) ->
         end -= 1;
     }
     let raw = &text[start..end];
+    if matches!(format, BlockFormat::Math | BlockFormat::Rule) {
+        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        // A blank line keeps the block separate from adjacent paragraphs and
+        // prevents a rule from turning the preceding line into a setext heading.
+        let before = &text[..start];
+        let gap = if before.is_empty() || before.ends_with(&format!("{newline}{newline}")) {
+            ""
+        } else {
+            newline
+        };
+        let (prefix, suffix) = if matches!(format, BlockFormat::Math) {
+            (format!("{gap}$${newline}"), format!("{newline}$$"))
+        } else {
+            (format!("{gap}---{newline}{newline}"), String::new())
+        };
+        return Some(Edit {
+            range: start..end,
+            replacement: format!("{prefix}{raw}{suffix}"),
+            selection: selection.start.min(end) + prefix.len()
+                ..selection.end.min(end) + prefix.len(),
+        });
+    }
     if matches!(format, BlockFormat::Callout) {
         let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
         let prefix = format!("> [!note]{newline}> ");
@@ -299,7 +323,9 @@ pub fn block_format(text: &str, selection: Range<usize>, format: BlockFormat) ->
                     already,
                 )
             }
-            BlockFormat::Code | BlockFormat::Callout => unreachable!(),
+            BlockFormat::Code | BlockFormat::Math | BlockFormat::Rule | BlockFormat::Callout => {
+                unreachable!()
+            }
         };
         if !content.trim().is_empty() || raw.is_empty() {
             changes.push((range, replacement, already));
@@ -1081,6 +1107,33 @@ mod tests {
         let (out, selection) = apply("a\r\nb", 0..4, BlockFormat::Callout);
         assert_eq!(out, "> [!note]\r\n> a\r\n> b");
         assert_eq!(&out[selection], "a\r\n> b");
+    }
+    #[test]
+    fn math_and_rule_blocks_preserve_text_selection_and_line_endings() {
+        for newline in ["\n", "\r\n"] {
+            let text = format!("before{newline}中文😀{newline}after");
+            let start = text.find('中').unwrap();
+            let end = start + "中文😀".len();
+            for kind in [BlockFormat::Math, BlockFormat::Rule] {
+                let edit = block_format(&text, start..end, kind).unwrap();
+                let mut result = text.clone();
+                result.replace_range(edit.range, &edit.replacement);
+                assert_eq!(&result[edit.selection], "中文😀");
+                let expected = if kind == BlockFormat::Math {
+                    format!("before{newline}{newline}$${newline}中文😀{newline}$${newline}after")
+                } else {
+                    format!("before{newline}{newline}---{newline}{newline}中文😀{newline}after")
+                };
+                assert_eq!(result, expected);
+            }
+        }
+        let math = block_format("", 0..0, BlockFormat::Math).unwrap();
+        assert_eq!(math.replacement, "$$\n\n$$");
+        assert_eq!(math.selection, 3..3);
+        let rule = block_format("", 0..0, BlockFormat::Rule).unwrap();
+        assert_eq!(rule.replacement, "---\n\n");
+        assert_eq!(rule.selection, 5..5);
+        assert!(block_format("中文", 1..2, BlockFormat::Math).is_none());
     }
     #[test]
     fn inline_toggles_respect_nested_styles_and_backtick_delimiters() {
