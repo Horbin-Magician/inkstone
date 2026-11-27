@@ -7,6 +7,8 @@ use gpui_component::{
 };
 use inkstone_core::vault::attachments::{self, Attachment, Inventory, Kind};
 
+mod cleanup;
+
 pub(super) struct Manager {
     inventory: Inventory,
     query: Entity<InputState>,
@@ -19,6 +21,15 @@ pub(super) struct Manager {
     message: String,
 }
 impl Manager {
+    fn unused_images(&self, cx: &App) -> Vec<Attachment> {
+        self.filtered(cx)
+            .into_iter()
+            .map(|i| &self.inventory.entries[i])
+            .filter(|e| e.kind == Kind::Image && e.references.is_empty())
+            .cloned()
+            .collect()
+    }
+
     fn filtered(&self, cx: &App) -> Vec<usize> {
         let query = self.query.read(cx).value().to_lowercase();
         self.inventory
@@ -77,6 +88,7 @@ impl Workspace {
             return;
         };
         manager.loading = true;
+        manager.message.clear();
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
         let generation = self.generation;
@@ -94,11 +106,12 @@ impl Workspace {
                     match result {
                         Ok(inventory) => {
                             m.inventory = inventory;
-                            m.message = if m.inventory.unreadable > 0 {
-                                format!("{} 篇笔记无法读取，已禁用清理。", m.inventory.unreadable)
-                            } else {
-                                String::new()
-                            };
+                            if m.inventory.unreadable > 0 {
+                                m.message = format!(
+                                    "{} 篇笔记无法读取，已禁用清理。",
+                                    m.inventory.unreadable
+                                );
+                            }
                         }
                         Err(error) => {
                             m.message = error.to_string();
@@ -213,6 +226,8 @@ impl Workspace {
             return div().into_any_element();
         };
         let filtered = m.filtered(cx);
+        let unused_images = m.unused_images(cx);
+        let unused_bytes: u64 = unused_images.iter().map(|e| e.bytes).sum();
         let selected = m
             .selected
             .as_ref()
@@ -225,6 +240,13 @@ impl Workspace {
                 .child(Button::new("attachment-unused").label("疑似未引用").when(m.unused,|b|b.primary()).on_click(cx.listener(|this,_,_,cx|{if let Some(m)=&mut this.ui.attachment_manager{m.unused = !m.unused;}cx.notify();})))
                 .child(Button::new("attachment-refresh").label("刷新").disabled(m.loading).on_click(cx.listener(|this,_,w,cx|this.refresh_attachments(w,cx)))))
             .child(label("attachment-summary", format!("显示 {} / {} 个附件 · 按大小排序 · 引用包含打开笔记的编辑快照",filtered.len(),m.inventory.entries.len())))
+            .child(div().flex().flex_wrap().items_center().gap_2()
+                .child(label("image-cleanup-summary", format!("当前列表中未使用图片：{} 张 · {:.1} KiB", unused_images.len(), unused_bytes as f64 / 1024.)))
+                .child(Button::new("image-cleanup-review").label("清理列表中的未使用图片…")
+                    .disabled(m.loading || m.inventory.unreadable > 0 || unused_images.is_empty() || !self.file_writes.can_start_exclusive_operation())
+                    .on_click(cx.listener(|this, _, window, cx| this.request_unused_image_cleanup(window, cx)))))
+            .when(!m.loading && m.inventory.unreadable == 0 && m.kind == Some(Kind::Image) && m.unused && filtered.is_empty(), |s|
+                s.child(label("image-cleanup-empty", "当前筛选范围内没有未使用的图片。")))
             .when(m.loading,|s|s.child(label("attachment-loading", "正在扫描或处理……")))
             .when(!m.message.is_empty(),|s|s.child(label("attachment-message", m.message.clone())))
             .child(uniform_list("attachment-list",filtered.len(),cx.processor(move |this,range:std::ops::Range<usize>,_,cx| {

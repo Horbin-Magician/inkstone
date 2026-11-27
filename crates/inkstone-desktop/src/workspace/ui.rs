@@ -1905,7 +1905,7 @@ impl Workspace {
         let numbered = pane.as_ref().is_some_and(|p| p.read(cx).heading_numbering);
         let menu_weak = cx.entity().downgrade();
         let menu_items: Vec<_> = [
-            6, 7, 115, 31, 32, 8, 15, 11, 23, 111, 99, 100, 103, 104, 19, 18, 10, 16,
+            6, 7, 115, 31, 32, 8, 15, 11, 23, 111, 99, 100, 103, 104, 116, 19, 18, 10, 16,
         ]
         .into_iter()
         .filter_map(|id| command(id).map(|entry| (entry, self.hotkey_label(id))))

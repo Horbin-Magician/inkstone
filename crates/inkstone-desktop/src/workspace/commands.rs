@@ -111,6 +111,7 @@ pub(super) const COMMANDS: &[(usize, &str, &str)] = &[
     (113, "Agent 润色选区或当前笔记", ""),
     (114, "Agent 摘要选区或当前笔记", ""),
     (115, "切换当前文章标题自动编号", ""),
+    (116, "清理未使用的图片（先预览）", ""),
 ];
 
 pub(super) fn command(id: usize) -> Option<&'static (usize, &'static str, &'static str)> {
@@ -396,6 +397,7 @@ impl Workspace {
         match id {
             112..=114 => self.open_agent(id, window, cx),
             115 => self.toggle_heading_numbering(cx),
+            116 => self.open_unused_image_cleanup(window, cx),
             0 => self.focus_new(window, cx),
             1 => self.choose_vault(window, cx),
             2 => self.focus_search(false, window, cx),
