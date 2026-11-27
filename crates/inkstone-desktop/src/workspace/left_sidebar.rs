@@ -726,13 +726,25 @@ impl Workspace {
                             .flex()
                             .items_center()
                             .justify_between()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .child(format!("{} 项结果", self.search_results.len())),
-                            )
+                            .child(div().flex_1().min_w_0().truncate().child(if self.fulltext {
+                                let notes = self
+                                    .search_results
+                                    .iter()
+                                    .map(|hit| &hit.path)
+                                    .collect::<std::collections::HashSet<_>>()
+                                    .len();
+                                let prefix = if self.ui.search_has_more {
+                                    "已显示 "
+                                } else {
+                                    ""
+                                };
+                                format!(
+                                    "{prefix}{notes} 篇笔记 · {} 条匹配",
+                                    self.search_results.len()
+                                )
+                            } else {
+                                format!("{} 项结果", self.search_results.len())
+                            }))
                             .child(self.search_sort_button(cx))
                             .child(
                                 tool("search-collapse", "fold-vertical", "展开或折叠全部搜索结果")
@@ -1034,6 +1046,19 @@ impl Workspace {
             });
             groups[position].1.push(hit);
         }
+        let paths: Vec<_> = groups
+            .iter()
+            .map(|(path, _)| {
+                path.to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/")
+            })
+            .collect();
+        let mut suffix_counts = std::collections::HashMap::new();
+        for path in &paths {
+            for suffix in path_suffixes(path) {
+                *suffix_counts.entry(suffix).or_insert(0usize) += 1;
+            }
+        }
         div()
             .id("grouped-search-results")
             .track_scroll(&self.ui.search_group_scroll)
@@ -1069,17 +1094,38 @@ impl Workspace {
                 let fold_path = path.clone();
                 let open_path = path.clone();
                 let offset = hits[0].offset;
-                let mut title = path
-                    .to_string_lossy()
-                    .replace(std::path::MAIN_SEPARATOR, "/");
-                if self
+                let full_path = &paths[i];
+                let title = full_path.rsplit('/').next().unwrap_or(full_path);
+                let name_start = full_path.len() - title.len();
+                let ranges = &hits[0].title_highlights;
+                let directory_match = ranges.iter().any(|r| r.start < name_start);
+                let parent = search_parent_label(full_path, &suffix_counts, directory_match);
+                let dirty = self
                     .tabs
                     .iter()
-                    .any(|t| t.path == path && t.save.persistence.is_dirty())
-                {
-                    title.push_str(" · 未保存");
-                }
-                let title_highlights = hits[0].title_highlights.clone();
+                    .any(|t| t.path == path && t.save.persistence.is_dirty());
+                let highlighted = |label: &str, start: usize| {
+                    StyledText::new(label.to_owned()).with_highlights(ranges.iter().filter_map(
+                        |r| {
+                            let left = r.start.max(start);
+                            let right = r.end.min(start + label.len());
+                            (left < right).then(|| {
+                                (
+                                    left - start..right - start,
+                                    HighlightStyle {
+                                        background_color: Some(
+                                            crate::theme::palette(self.ui.prefs.light)
+                                                .highlight
+                                                .into(),
+                                        ),
+                                        font_weight: Some(FontWeight::SEMIBOLD),
+                                        ..Default::default()
+                                    },
+                                )
+                            })
+                        },
+                    ))
+                };
                 div()
                     .id(("search-group", i))
                     .mb_2()
@@ -1088,7 +1134,7 @@ impl Workspace {
                             .flex()
                             .items_center()
                             .gap_1()
-                            .h(px(32.))
+                            .min_h(px(32.))
                             .child(
                                 Button::new(("search-group-fold", i))
                                     .ghost()
@@ -1112,23 +1158,41 @@ impl Workspace {
                                     .min_w_0()
                                     .justify_start()
                                     .overflow_hidden()
-                                    .accessibility_label(format!("打开 {title}"))
-                                    .child(StyledText::new(title).with_highlights(
-                                        title_highlights.into_iter().map(|range| {
-                                            (
-                                                range,
-                                                HighlightStyle {
-                                                    background_color: Some(
-                                                        crate::theme::palette(self.ui.prefs.light)
-                                                            .highlight
-                                                            .into(),
-                                                    ),
-                                                    font_weight: Some(FontWeight::SEMIBOLD),
-                                                    ..Default::default()
-                                                },
+                                    .h_auto()
+                                    .tooltip(full_path.clone())
+                                    .accessibility_label(format!("打开 {full_path}"))
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .flex()
+                                            .flex_col()
+                                            .child(
+                                                div()
+                                                    .truncate()
+                                                    .child(highlighted(title, name_start))
+                                                    .when(dirty, |row| row.child(" · 未保存")),
                                             )
-                                        }),
-                                    ))
+                                            .when_some(parent, |col, folder| {
+                                                let parent_start =
+                                                    full_path[..name_start].rfind(folder);
+                                                col.child(
+                                                    div()
+                                                        .truncate()
+                                                        .text_size(px(12.))
+                                                        .text_color(
+                                                            crate::theme::palette(
+                                                                self.ui.prefs.light,
+                                                            )
+                                                            .muted,
+                                                        )
+                                                        .child(if let Some(start) = parent_start {
+                                                            highlighted(folder, start)
+                                                        } else {
+                                                            StyledText::new(folder.to_owned())
+                                                        }),
+                                                )
+                                            }),
+                                    )
                                     .on_click(cx.listener(move |this, _, w, cx| {
                                         this.pending_jump =
                                             Some((open_path.clone(), JumpTarget::Offset(offset)));
@@ -1255,6 +1319,33 @@ struct TreeGuide {
 /// A row used to paint its own segment, and that segment only covered the
 /// text line, so every row boundary left a gap. A run is every consecutive
 /// span where `depth` stays strictly above the column.
+fn path_suffixes(path: &str) -> impl Iterator<Item = &str> {
+    std::iter::once(path).chain(path.match_indices('/').map(|(i, _)| &path[i + 1..]))
+}
+
+fn search_parent_label<'a>(
+    path: &'a str,
+    counts: &std::collections::HashMap<&str, usize>,
+    directory_match: bool,
+) -> Option<&'a str> {
+    let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
+    if directory_match {
+        return Some(parent);
+    }
+    if counts[name] == 1 {
+        return None;
+    }
+    if parent.is_empty() {
+        return Some("库根目录");
+    }
+    // Count suffixes including the filename so only its namesakes affect the label.
+    path_suffixes(path)
+        .take_while(|suffix| counts[suffix] == 1)
+        .last()
+        .and_then(|suffix| suffix.rsplit_once('/').map(|(folder, _)| folder))
+        .or(Some(parent))
+}
+
 fn tree_guides(depths: &[usize]) -> Vec<TreeGuide> {
     let mut guides = Vec::new();
     // Start row of the open run in each ancestor column, nearest last.
@@ -1348,8 +1439,40 @@ fn file_tree_guides(
 
 #[cfg(test)]
 mod tree_guide_tests {
-    use super::{TREE_ROW_HEIGHT, tree_guides, visible_tree_guides};
+    use super::{
+        TREE_ROW_HEIGHT, path_suffixes, search_parent_label, tree_guides, visible_tree_guides,
+    };
     use gpui::px;
+
+    #[test]
+    fn grouped_results_disambiguate_names_and_keep_matching_directory_context() {
+        let paths = [
+            "周记.md",
+            "工作/五月/周记.md",
+            "生活/五月/周记.md",
+            "生活/六月/周记.md",
+            "生活/六月/清单.md",
+        ];
+        let mut counts = std::collections::HashMap::new();
+        for path in paths {
+            for suffix in path_suffixes(path) {
+                *counts.entry(suffix).or_default() += 1;
+            }
+        }
+        for (path, label) in paths.into_iter().zip([
+            Some("库根目录"),
+            Some("工作/五月"),
+            Some("生活/五月"),
+            Some("六月"),
+            None,
+        ]) {
+            assert_eq!(search_parent_label(path, &counts, false), label);
+        }
+        assert_eq!(
+            search_parent_label(paths[4], &counts, true),
+            Some("生活/六月")
+        );
+    }
 
     #[test]
     fn tree_guides_join_a_column_and_stop_at_the_next_sibling() {
