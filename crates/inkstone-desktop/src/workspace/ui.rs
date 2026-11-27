@@ -24,7 +24,7 @@ fn active_tab_background(background: Rgba, border: Rgba) -> impl IntoElement {
     gpui::canvas(
         |_, _, _| (),
         move |bounds, _, window, _| {
-            let radius = px(8.);
+            let radius = px(6.);
             let top = bounds.top() + px(0.5);
             let bottom = bounds.bottom() - px(0.5);
             let left = bounds.left() + radius;
@@ -1455,6 +1455,7 @@ impl Workspace {
     }
 
     fn tab_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        let colors = crate::theme::palette(self.ui.prefs.light);
         let menu_tabs: Vec<_> = self
             .tabs
             .iter()
@@ -1524,6 +1525,7 @@ impl Workspace {
                     .children(self.tabs.iter().enumerate().map(|(i, t)| {
                         let tab_id = t.id;
                         let menu_weak = cx.entity().downgrade();
+                        let next_selected = self.tabs.get(i + 1).map(|tab| tab.id) == selected;
                         let selected = selected == Some(tab_id);
                         let pinned = t.pinned;
                         div()
@@ -1596,19 +1598,18 @@ impl Workspace {
                             .group(format!("note-tab-{}", t.id))
                             .items_center()
                             .h(px(34.))
-                            .w(px(200.))
-                            .min_w(px(100.))
-                            .max_w(px(320.))
-                            .px_4()
-                            .gap_1()
+                            .w(px(180.))
+                            .min_w(px(120.))
+                            .max_w(px(180.))
+                            .px(px(14.))
+                            .gap_2()
                             .text_color(if selected {
-                                self.fg()
+                                colors.foreground
                             } else {
-                                crate::theme::palette(self.ui.prefs.light).muted
+                                colors.muted
                             })
                             .cursor_pointer()
                             .when(!selected, |s| {
-                                let hover_bg = crate::theme::palette(self.ui.prefs.light).hover;
                                 s.child(
                                     div()
                                         .absolute()
@@ -1616,17 +1617,34 @@ impl Workspace {
                                         .bottom(px(3.))
                                         .left(px(3.))
                                         .right(px(3.))
-                                        .rounded(px(7.))
+                                        .rounded(px(5.))
                                         .group_hover(format!("note-tab-{}", t.id), move |style| {
-                                            style.bg(hover_bg)
+                                            style.bg(colors.hover)
                                         }),
                                 )
                             })
+                            // The active outline supplies its own separator on both sides.
+                            .when(
+                                !selected && !next_selected && i + 1 < self.tabs.len(),
+                                |s| {
+                                    s.child(
+                                        div()
+                                            .absolute()
+                                            .right_0()
+                                            .top(px(9.))
+                                            .w(px(1.))
+                                            .h(px(16.))
+                                            .bg(colors.border)
+                                            .group_hover(format!("note-tab-{}", t.id), |style| {
+                                                style.opacity(0.)
+                                            }),
+                                    )
+                                },
+                            )
                             .when(selected, |s| {
                                 s.child(active_tab_background(self.bg(), self.border()))
                             })
                             .child({
-                                let colors = crate::theme::palette(self.ui.prefs.light);
                                 let title = if t.path.as_os_str().is_empty() {
                                     "新标签页".to_string()
                                 } else if t.image.is_some() {
@@ -1653,6 +1671,7 @@ impl Workspace {
                                     .min_w_0()
                                     .child(
                                         div()
+                                            .min_w_0()
                                             .truncate()
                                             .text_size(px(MIN_UI_FONT_SIZE))
                                             .when(selected, |d| d.font_weight(FontWeight::MEDIUM))
@@ -1695,7 +1714,11 @@ impl Workspace {
                                     ))
                                     .ghost()
                                     .compact()
-                                    .icon(icon(if pinned { "pin" } else { "x" }))
+                                    .icon(
+                                        icon(if pinned { "pin" } else { "x" })
+                                            .size(px(14.))
+                                            .text_color(colors.muted),
+                                    )
                                     .when(!selected && !pinned, |button| {
                                         button
                                             .opacity(0.)
@@ -1703,8 +1726,10 @@ impl Workspace {
                                                 style.opacity(1.)
                                             })
                                     })
-                                    .w(px(28.))
-                                    .h(px(28.))
+                                    .flex_shrink_0()
+                                    .rounded(px(5.))
+                                    .w(px(24.))
+                                    .h(px(24.))
                                     .on_click(cx.listener(move |this, _, w, cx| {
                                         cx.stop_propagation();
                                         this.close_tab_at(i, w, cx);
