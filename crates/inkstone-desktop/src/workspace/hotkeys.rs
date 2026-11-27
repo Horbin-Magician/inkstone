@@ -434,8 +434,11 @@ impl Workspace {
                             .child(super::focus_reveal::FocusReveal::new(
                                 "hotkey-filter-focus",
                                 &self.ui.settings_scroll,
-                                Input::new(&self.ui.hotkey_filter)
-                                    .prefix(super::ui::icon("search").text_color(palette.muted)),
+                                self.settings_target("hotkey-search", div()).child(
+                                    Input::new(&self.ui.hotkey_filter).prefix(
+                                        super::ui::icon("search").text_color(palette.muted),
+                                    ),
+                                ),
                             ))
                             .when(
                                 self.ui.hotkey_recording.is_some()

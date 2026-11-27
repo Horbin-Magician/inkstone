@@ -729,7 +729,7 @@ impl Workspace {
                 .child(FocusReveal::new(
                     "webdav-actions-focus",
                     &self.ui.settings_scroll,
-                    div()
+                    self.settings_target("webdav-actions", div())
                         .debug_selector(|| "webdav-actions".into())
                         .flex()
                         .gap_2()

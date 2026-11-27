@@ -305,11 +305,13 @@ impl Workspace {
             );
         }
         controls = controls.child(
-            Button::new("check-updates")
-                .icon(super::ui::icon("refresh-cw").size(px(15.)))
-                .label("检查更新")
-                .disabled(state.busy())
-                .on_click(cx.listener(|this, _, _, cx| this.check_updates(cx))),
+            self.settings_target("update-actions", div()).child(
+                Button::new("check-updates")
+                    .icon(super::ui::icon("refresh-cw").size(px(15.)))
+                    .label("检查更新")
+                    .disabled(state.busy())
+                    .on_click(cx.listener(|this, _, _, cx| this.check_updates(cx))),
+            ),
         );
 
         let status_badge = {

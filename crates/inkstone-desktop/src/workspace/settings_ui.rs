@@ -35,6 +35,180 @@ const SETTINGS_SECTIONS: &[(&str, &[SettingsNavItem])] = &[
     ("应用", &[(9, "关于与更新", "info")]),
 ];
 
+pub(super) struct SearchTarget {
+    id: &'static str,
+    pending: std::rc::Rc<std::cell::Cell<bool>>,
+    _timer: Task<()>,
+}
+
+// Each result points to a rendered setting. Aliases include familiar names and shortcuts.
+const SEARCH_SETTINGS: &[(usize, &str, &str, &str)] = &[
+    (
+        5,
+        "theme-row",
+        "基础颜色",
+        "主题 深色 浅色 跟随系统 配色 theme",
+    ),
+    (5, "interface-font-row", "界面字体", "font"),
+    (5, "text-font-row", "正文字体", "font"),
+    (5, "code-font-row", "等宽字体", "代码 font"),
+    (5, "font-size-row", "字体大小", "字号 缩放 zoom"),
+    (
+        5,
+        "quick-font-row",
+        "快速调整字体大小",
+        "字号 缩放 Ctrl 滚轮 zoom",
+    ),
+    (
+        6,
+        "view-header-row",
+        "显示标签页标题栏",
+        "文件标题 导航控件 header",
+    ),
+    (0, "default-view-row", "新标签页的默认视图", "阅读 编辑"),
+    (
+        0,
+        "default-mode-row",
+        "默认编辑模式",
+        "实时预览 源码 Markdown",
+    ),
+    (0, "width-setting", "限制行宽", "可读行宽 显示"),
+    (
+        0,
+        "line-spacing-row",
+        "正文行距",
+        "行间距 倍数 line spacing 显示",
+    ),
+    (0, "strict-line-breaks", "严格换行", "Markdown 显示"),
+    (0, "fold-headings-setting", "折叠标题", "显示"),
+    (0, "fold-indentation-setting", "折叠缩进", "显示"),
+    (0, "line-number-setting", "行号", "显示"),
+    (0, "indent-guides-setting", "缩进参考线", "显示"),
+    (
+        0,
+        "pair-brackets",
+        "自动补全英文标点符号",
+        "括号 引号 自动配对",
+    ),
+    (
+        0,
+        "pair-markdown",
+        "自动补全 Markdown 语法",
+        "强调 代码 自动配对",
+    ),
+    (0, "smart-lists-setting", "智能列表", "换行 编号"),
+    (0, "use-tabs-setting", "使用制表符", "缩进 空格 tab"),
+    (0, "tab-size-row", "制表符宽度", "缩进 空格 tab"),
+    (
+        1,
+        "hotkey-search",
+        "快捷键命令绑定",
+        "键盘 组合键 冲突 修改 重置 恢复默认 hotkey shortcut",
+    ),
+    (
+        2,
+        "note-location-label",
+        "新建笔记的存放位置",
+        "目录 路径 文件夹",
+    ),
+    (
+        2,
+        "attachment-location-label",
+        "附件默认存放路径",
+        "目录 存放位置 文件夹",
+    ),
+    (
+        2,
+        "link-format",
+        "内部链接类型",
+        "格式 最短路径 相对路径 绝对路径",
+    ),
+    (2, "use-wikilinks", "使用双链语法", "格式 Markdown"),
+    (2, "update-links-label", "自动更新内部链接", "重命名 移动"),
+    (
+        7,
+        "backup-directory-row",
+        "备份存放位置",
+        "整库备份 文件夹 backup",
+    ),
+    (
+        7,
+        "backup-now-row",
+        "立即备份并校验",
+        "整库备份 手动 SHA-256 backup",
+    ),
+    (
+        7,
+        "backup-schedule-label",
+        "备份频率",
+        "整库备份 每天 每周 自动 backup",
+    ),
+    (
+        7,
+        "backup-restore-row",
+        "从备份恢复笔记库",
+        "还原 新目录 数据恢复 restore",
+    ),
+    (
+        7,
+        "history-days-row",
+        "版本历史保留时间",
+        "天数 清理 retention",
+    ),
+    (
+        7,
+        "history-size-row",
+        "版本历史容量上限",
+        "限制 清理 retention",
+    ),
+    (
+        8,
+        "webdav-url-label",
+        "服务器目录地址",
+        "WebDAV URL cloud sync",
+    ),
+    (8, "webdav-username-label", "用户名", "WebDAV 账号"),
+    (8, "webdav-password-label", "应用专用密码", "WebDAV 密码"),
+    (8, "webdav-actions", "测试连接与保存配置", "WebDAV 服务器"),
+    (8, "webdav-auto-label", "自动同步", "WebDAV"),
+    (8, "webdav-poll-label", "远端检查间隔", "WebDAV 轮询"),
+    (
+        9,
+        "update-actions",
+        "检查更新",
+        "版本 下载 安装 更新说明 update version",
+    ),
+    (
+        10,
+        "agent-current-config",
+        "当前模型配置",
+        "模型与权限 OpenAI GPT",
+    ),
+    (10, "agent-config-name", "配置名称", "模型"),
+    (10, "agent-config-model", "模型名称", "OpenAI GPT"),
+    (10, "agent-config-url", "模型服务地址", "URL OpenAI"),
+    (10, "agent-config-key", "模型 API Key", "密钥 OpenAI"),
+    (10, "agent-config-context", "上下文容量", "token"),
+    (10, "agent-config-output", "输出上限", "token"),
+    (10, "agent-config-excluded", "排除目录", "权限 范围"),
+    (
+        10,
+        "agent-web-key",
+        "DeepSeek 联网 API Key",
+        "联网搜索 密钥",
+    ),
+    (10, "agent-actions", "测试连接与工具", "新增配置 保存配置"),
+];
+
+fn settings_tab_name(tab: usize) -> &'static str {
+    SETTINGS_SECTIONS
+        .iter()
+        .flat_map(|(_, tabs)| tabs.iter())
+        .find(|(index, _, _)| *index == tab)
+        .unwrap()
+        .1
+}
+
 fn settings_tab_icon(tab: usize) -> &'static str {
     SETTINGS_SECTIONS
         .iter()
@@ -58,6 +232,56 @@ enum EditorSetting {
 }
 
 impl Workspace {
+    pub(super) fn settings_target(&self, id: &'static str, element: Div) -> Div {
+        let Some(target) = self.ui.settings_target.as_ref().filter(|t| t.id == id) else {
+            return element;
+        };
+        let pending = target.pending.clone();
+        let scroll = self.ui.settings_scroll.clone();
+        element
+            .bg(crate::theme::palette(self.ui.prefs.light).accent_tint)
+            .rounded(px(4.))
+            .debug_selector(|| "settings-highlight".into())
+            .on_children_prepainted(move |children, window, _| {
+                let Some(bounds) = children.first() else {
+                    return;
+                };
+                let viewport = scroll.bounds();
+                if viewport.size.height > px(0.) && pending.replace(false) {
+                    let mut offset = scroll.offset();
+                    offset.y += viewport.top() + viewport.size.height * 0.35 - bounds.top();
+                    scroll.set_offset(offset);
+                    window.refresh();
+                }
+            })
+    }
+
+    fn reveal_setting(
+        &mut self,
+        tab: usize,
+        id: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_settings_tab(tab, window, cx);
+        let timer = cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(1600))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.ui.settings_target = None;
+                cx.notify();
+            });
+        });
+        self.ui.settings_target = Some(SearchTarget {
+            id,
+            pending: std::rc::Rc::new(std::cell::Cell::new(true)),
+            _timer: timer,
+        });
+        window.focus(&self.ui.modal_focus, cx);
+        cx.notify();
+    }
+
     pub(super) fn settings_label(
         &self,
         id: &'static str,
@@ -66,7 +290,7 @@ impl Workspace {
     ) -> Stateful<Div> {
         let description = description.to_string();
         let muted = crate::theme::palette(self.ui.prefs.light).muted;
-        div()
+        self.settings_target(id, div())
             .id((ElementId::from(id), "name"))
             .role(gpui::Role::Label)
             .aria_label(name.to_string())
@@ -383,6 +607,7 @@ impl Workspace {
         self.ui
             .settings_filter
             .update(cx, |input, cx| input.set_value("", window, cx));
+        self.ui.settings_target = None;
         self.ui.settings_tab = tab;
         self.ui.settings_scroll.set_offset(Point::default());
         self.ui.hotkey_recording = None;
@@ -483,79 +708,19 @@ impl Workspace {
             .to_lowercase();
         if !query.is_empty() {
             let palette = crate::theme::palette(self.ui.prefs.light);
-            let entries = [
-                (
-                    10,
-                    "Agent · 模型与权限",
-                    "OpenAI GPT 模型 服务地址 URL API Key 密钥 上下文 输出 排除目录 连接测试",
-                ),
-                (5, "外观 · 基础颜色", "主题 深色 浅色 跟随系统 配色 theme"),
-                (5, "外观 · 字体", "界面字体 正文字体 等宽字体 代码 font"),
-                (5, "外观 · 字体大小", "字号 缩放 快速调整 Ctrl 滚轮 zoom"),
-                (6, "界面 · 显示标签页标题栏", "文件标题 导航控件 header"),
-                (
-                    0,
-                    "编辑器 · 默认视图与编辑模式",
-                    "编辑 阅读 实时预览 源码 Markdown",
-                ),
-                (
-                    0,
-                    "编辑器 · 显示",
-                    "可读行宽 行间距 行距 倍数 line spacing 严格换行 折叠标题 折叠缩进 行号 缩进参考线",
-                ),
-                (
-                    0,
-                    "编辑器 · 自动补全",
-                    "英文标点符号 括号 引号 Markdown 语法 强调 代码 自动配对",
-                ),
-                (
-                    0,
-                    "编辑器 · 智能列表与缩进",
-                    "换行 编号 制表符宽度 空格 tab",
-                ),
-                (
-                    9,
-                    "关于与更新 · 检查更新",
-                    "版本 下载 安装 更新说明 update version",
-                ),
-                (2, "文件与链接 · 存放位置", "新笔记 附件 目录 路径 文件夹"),
-                (
-                    2,
-                    "文件与链接 · 链接格式",
-                    "双链 Markdown 最短路径 相对路径 绝对路径 自动更新",
-                ),
-                (
-                    7,
-                    "备份与恢复 · 整库备份",
-                    "存放位置 手动 每天 每周 自动 校验 SHA-256 backup",
-                ),
-                (
-                    8,
-                    "云同步 · WebDAV",
-                    "服务器 账号 密码 连接 同步 cloud sync",
-                ),
-                (7, "备份与恢复 · 恢复笔记库", "还原 新目录 数据恢复 restore"),
-                (
-                    7,
-                    "备份与恢复 · 版本历史保留",
-                    "天数 时间 容量 限制 清理 历史 retention",
-                ),
-                (
-                    1,
-                    "快捷键 · 命令绑定",
-                    "键盘 组合键 冲突 修改 重置 恢复默认 hotkey shortcut",
-                ),
-            ];
-            let rows: Vec<_> = entries
-                .into_iter()
-                .enumerate()
-                .filter(|(_, (_, label, terms))| {
-                    let haystack = format!("{label} {terms}").to_lowercase();
+            let rows: Vec<_> = SEARCH_SETTINGS
+                .iter()
+                .copied()
+                .filter(|(tab, _, name, terms)| {
+                    let haystack =
+                        format!("{} {name} {terms}", settings_tab_name(*tab)).to_lowercase();
                     query.split_whitespace().all(|word| haystack.contains(word))
                 })
-                .map(|(id, (tab, label, _))| {
-                    let (section, item) = label.split_once(" · ").unwrap_or((label, ""));
-                    Button::new(("settings-search-result", id))
+                .map(|(tab, target, item, _)| {
+                    let section = settings_tab_name(tab);
+                    let label = format!("{section} · {item}");
+                    Button::new((ElementId::from("settings-search-result"), target))
+                        .debug_selector(move || format!("settings-result-{target}"))
                         .ghost()
                         .w_full()
                         .h_auto()
@@ -586,7 +751,7 @@ impl Workspace {
                                 .child(icon("chevron-right").text_color(palette.muted)),
                         )
                         .on_click(cx.listener(move |this, _, w, cx| {
-                            this.select_settings_tab(tab, w, cx);
+                            this.reveal_setting(tab, target, w, cx);
                         }))
                 })
                 .collect();
@@ -825,6 +990,51 @@ impl Workspace {
 mod notification_tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn settings_search_reveals_exact_row_and_clears_highlight(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let handle = cx.add_window(Workspace::new);
+        cx.run_until_parked();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(980.), px(540.)));
+        handle
+            .update(&mut visual, |w, window, cx| {
+                w.ui.settings = true;
+                w.ui.settings_filter
+                    .update(cx, |s, cx| s.set_value("行距", window, cx));
+                cx.notify();
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let result = visual
+            .debug_bounds("settings-result-line-spacing-row")
+            .unwrap()
+            .center();
+        visual.simulate_click(result, Modifiers::default());
+        for _ in 0..2 {
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let target = visual.debug_bounds("settings-highlight").unwrap();
+        handle
+            .update(&mut visual, |w, _, cx| {
+                assert!(w.ui.settings_filter.read(cx).value().is_empty());
+                let viewport = w.ui.settings_scroll.bounds();
+                assert!(w.ui.settings_scroll.offset().y < px(0.));
+                assert!(
+                    target.top() >= viewport.top() && target.bottom() <= viewport.bottom(),
+                    "{target:?} {viewport:?}"
+                );
+            })
+            .unwrap();
+        visual.executor().advance_clock(Duration::from_secs(2));
+        visual.run_until_parked();
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert!(w.ui.settings_target.is_none())
+            })
+            .unwrap();
+    }
+
     #[gpui::test]
     fn filters_notify_workspace_only_when_content_changes(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);

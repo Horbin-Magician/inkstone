@@ -158,6 +158,7 @@ pub(super) struct UiState {
     pub settings_tab: usize,
     pub focus_mode: bool,
     pub settings_filter: Entity<InputState>,
+    pub settings_target: Option<super::settings_ui::SearchTarget>,
     _settings_filter_subscription: Subscription,
     pub hotkey_recording: Option<usize>,
     pub hotkey_recording_focus: Option<FocusHandle>,
@@ -522,6 +523,7 @@ impl UiState {
             hotkey_message: String::new(),
             hotkey_filter,
             settings_filter,
+            settings_target: None,
             _settings_filter_subscription: settings_filter_subscription,
             _hotkey_subscription: hotkey_subscription,
             _hotkey_filter_subscription: hotkey_filter_subscription,
@@ -1392,6 +1394,7 @@ impl Workspace {
         self.close_quick_search(window, cx);
         self.cancel_tree_name(cx);
         self.ui.settings = false;
+        self.ui.settings_target = None;
         self.ui.hotkey_recording = None;
         self.ui.hotkey_recording_focus = None;
         self.ui.property_open = false;

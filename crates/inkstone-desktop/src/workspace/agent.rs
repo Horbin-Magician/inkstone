@@ -889,7 +889,8 @@ impl Workspace {
                 16.,
             ));
         }
-        let actions = div()
+        let actions = self
+            .settings_target("agent-actions", div())
             .flex()
             .flex_wrap()
             .gap_2()
