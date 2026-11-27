@@ -39,6 +39,34 @@ fn strip_markdown_extension(target: &str) -> &str {
         .map_or(target, |(stem, _)| stem)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Trigger {
+    Slash,
+    Wiki(usize),
+}
+
+/// Both triggers are local to the text before the caret on its current line.
+/// Keep ordinary typing off the full-document parsing and completion paths.
+pub(super) fn completion_trigger(text: &Rope, offset: usize) -> Option<Trigger> {
+    if offset > text.len() || !text.is_char_boundary(offset) {
+        return None;
+    }
+    let start = offset - text.offset_to_point(offset).column;
+    let prefix = text.slice(start..offset);
+    if prefix.as_str().is_none() && !prefix.chunks().any(|chunk| chunk.contains(['[', '/'])) {
+        return None;
+    }
+    let prefix: std::borrow::Cow<'_, str> = prefix.into();
+    // Rope line metrics use LF. A lone CR also starts a Markdown line.
+    let line = prefix.rsplit('\r').next()?;
+    if slash::query(line, line.len()).is_some() {
+        return Some(Trigger::Slash);
+    }
+    let opener = line.rfind("[[")?;
+    (!line[opener + 2..].contains([']', '|']))
+        .then_some(Trigger::Wiki(offset - line.len() + opener))
+}
+
 fn accepts_wiki_completion(source: &str, start: usize) -> bool {
     if source[..start]
         .bytes()
@@ -152,26 +180,20 @@ impl CompletionProvider for WikiCompletions {
         _: &mut Window,
         cx: &mut App,
     ) -> Task<anyhow::Result<lsp_types::CompletionResponse>> {
+        let Some(trigger) = completion_trigger(text, offset) else {
+            return Task::ready(Ok(lsp_types::CompletionResponse::Array(vec![])));
+        };
         let text = text.clone();
         let snapshot = text.clone();
         let editor = self.1.clone();
         let paths = self.0.borrow().clone();
         let task = cx.background_executor().spawn(async move {
             let source = text.to_string();
-            if let Some(items) = slash::completions(&source, &text, offset) {
+            let Trigger::Wiki(start) = trigger else {
+                let items = slash::completions(&source, &text, offset).unwrap_or_default();
                 return Ok(lsp_types::CompletionResponse::Array(items));
-            }
-            let Some(before) = source.get(..offset) else {
-                return Ok(lsp_types::CompletionResponse::Array(vec![]));
             };
-            let Some(start) = before.rfind("[[") else {
-                return Ok(lsp_types::CompletionResponse::Array(vec![]));
-            };
-            let typed = &before[start + 2..];
-            // Reject a finished link or a different line before parsing the document.
-            if typed.contains([']', '\n', '\r', '|']) {
-                return Ok(lsp_types::CompletionResponse::Array(vec![]));
-            }
+            let typed = &source[start + 2..offset];
             if !accepts_wiki_completion(&source, start) {
                 return Ok(lsp_types::CompletionResponse::Array(vec![]));
             }

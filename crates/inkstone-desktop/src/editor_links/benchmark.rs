@@ -77,3 +77,46 @@ async fn completion_provider_performance(cx: &mut TestAppContext) {
         );
     }
 }
+
+/// Time completion requests during ordinary typing near the end of a long note.
+#[gpui::test]
+#[ignore = "manual same-host completion provider CPU comparison"]
+async fn ordinary_typing_completion_performance(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let window = cx.add_window(|w, cx| crate::editor::EditorPane::new("", w, cx));
+    let provider = WikiCompletions(Default::default(), None);
+    let rope = Rope::from("普通段落 English 😀。\n".repeat(40_000));
+    let offset = rope.len() - 1;
+    let mut samples = Vec::new();
+    for i in 0..35 {
+        let start = Instant::now();
+        let task = window
+            .update(cx, |_, w, cx| {
+                provider.completions(
+                    &rope,
+                    offset,
+                    lsp_types::CompletionContext {
+                        trigger_kind: lsp_types::CompletionTriggerKind::INVOKED,
+                        trigger_character: None,
+                    },
+                    w,
+                    cx,
+                )
+            })
+            .unwrap();
+        let lsp_types::CompletionResponse::Array(items) = task.await.unwrap() else {
+            panic!("expected completion array");
+        };
+        assert!(items.is_empty());
+        if i >= 5 {
+            samples.push(start.elapsed().as_secs_f64() * 1000.);
+        }
+    }
+    samples.sort_by(f64::total_cmp);
+    println!(
+        "ordinary_completion bytes={} samples=30 p50_ms={:.4} p95_ms={:.4}",
+        rope.len(),
+        samples[14],
+        samples[28]
+    );
+}
