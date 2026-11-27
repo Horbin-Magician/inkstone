@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::rc::Rc;
 
-use super::grapheme_wrap::grapheme_safe_boundaries;
+use super::grapheme_wrap::{grapheme_safe_boundaries, measured_wrap_boundaries};
 use gpui::{
     App, Font, LineFragment, Pixels, Point, ShapedLine, Size, TextAlign, Window, point, px, size,
 };
@@ -298,6 +298,7 @@ impl TextWrapper {
         cx: &mut App,
     ) {
         let text_system = cx.text_system().clone();
+        let shaping = gpui::WindowTextSystem::new(text_system.clone());
         let font = self.font.clone();
         let font_size = self.font_size;
         let mut wrappers = std::collections::HashMap::new();
@@ -318,37 +319,100 @@ impl TextWrapper {
                 let line_wrapper = wrappers
                     .entry(scale.to_bits())
                     .or_insert_with(|| text_system.line_wrapper(font.clone(), font_size * scale));
-                let mut fragments = Vec::new();
-                let mut offset = 0;
                 let first = metrics.partition_point(|(r, _)| r.end <= line_start);
-                for (range, width) in &metrics[first..] {
-                    if range.start >= line_start + line_str.len() {
-                        break;
-                    }
-                    if range.start < line_start || range.end > line_start + line_str.len() {
-                        continue;
-                    }
-                    let range = range.start - line_start..range.end - line_start;
-                    if !line_str.is_char_boundary(range.start)
-                        || !line_str.is_char_boundary(range.end)
+                let local_metrics: Vec<_> = metrics[first..]
+                    .iter()
+                    .take_while(|(r, _)| r.start < line_start + line_str.len())
+                    .filter(|(r, _)| r.start >= line_start && r.end <= line_start + line_str.len())
+                    .map(|(r, w)| (r.start - line_start..r.end - line_start, *w))
+                    .filter(|(r, _)| {
+                        line_str.is_char_boundary(r.start) && line_str.is_char_boundary(r.end)
+                    })
+                    .collect();
+                let atomic: Vec<_> = local_metrics.iter().map(|(r, _)| r.clone()).collect();
+                let fragments_for = |range: Range<usize>| {
+                    let mut fragments = Vec::new();
+                    let mut offset = range.start;
+                    let first = local_metrics.partition_point(|(r, _)| r.end <= range.start);
+                    for (r, width) in local_metrics[first..]
+                        .iter()
+                        .take_while(|(r, _)| r.start < range.end)
                     {
-                        continue;
+                        if offset < r.start {
+                            fragments.push(LineFragment::text(&line_str[offset..r.start]));
+                        }
+                        fragments.push(LineFragment::element(*width, r.len()));
+                        offset = r.end;
                     }
-                    if offset < range.start {
-                        fragments.push(LineFragment::text(&line_str[offset..range.start]));
+                    if offset < range.end {
+                        fragments.push(LineFragment::text(&line_str[offset..range.end]));
                     }
-                    fragments.push(LineFragment::element(*width, range.len()));
-                    offset = range.end;
-                }
-                if fragments.is_empty() {
-                    return line_wrapper
-                        .wrap_line(&[LineFragment::text(line_str)], wrap_width)
-                        .collect();
-                }
-                if offset < line_str.len() {
-                    fragments.push(LineFragment::text(&line_str[offset..]));
-                }
-                line_wrapper.wrap_line(&fragments, wrap_width).collect()
+                    fragments
+                };
+                // Reuse a suffix of the original fragment array for estimates.
+                // Rebuilding all remaining inline spans for each visual row
+                // would make long Markdown paragraphs quadratic.
+                let mut fragments = fragments_for(0..line_str.len());
+                let mut offset = 0;
+                let starts: Vec<_> = fragments
+                    .iter()
+                    .map(|fragment| {
+                        let start = offset;
+                        offset += match fragment {
+                            LineFragment::Text { text } => text.len(),
+                            LineFragment::Element { len_utf8, .. } => *len_utf8,
+                        };
+                        start
+                    })
+                    .collect();
+                measured_wrap_boundaries(
+                    line_str,
+                    wrap_width,
+                    &atomic,
+                    |range, width| {
+                        let first = starts
+                            .partition_point(|start| *start <= range.start)
+                            .saturating_sub(1);
+                        let original = match fragments.get_mut(first)? {
+                            LineFragment::Text { text } => {
+                                let original = *text;
+                                *text = &original[range.start - starts[first]..];
+                                Some(original)
+                            }
+                            LineFragment::Element { .. } => None,
+                        };
+                        let boundary = line_wrapper.wrap_line(&fragments[first..], width).next();
+                        if let Some(text) = original {
+                            fragments[first] = LineFragment::text(text);
+                        }
+                        boundary
+                    },
+                    |range| {
+                        fragments_for(range)
+                            .iter()
+                            .map(|fragment| match fragment {
+                                LineFragment::Text { text } => {
+                                    shaping
+                                        .shape_line(
+                                            (*text).to_owned().into(),
+                                            font_size * scale,
+                                            &[gpui::TextRun {
+                                                len: text.len(),
+                                                font: font.clone(),
+                                                color: gpui::black(),
+                                                background_color: None,
+                                                underline: None,
+                                                strikethrough: None,
+                                            }],
+                                            None,
+                                        )
+                                        .width
+                                }
+                                LineFragment::Element { width, .. } => *width,
+                            })
+                            .sum()
+                    },
+                )
             },
         );
     }

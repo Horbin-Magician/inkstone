@@ -2,6 +2,10 @@
 
 两个包均来自 crates.io 的 0.7.0 发布包，上游提交 `0c830f4d257e69fdd17200650533ab4ca9a40cc0`，分别对应 `crates/base` 和 `crates/component`。Apache-2.0 许可证保留在 vendor 包中。以下清单按 2026-10-05 对原始发布包的逐文件比较生成；路径均相对于各 vendor 包。新增文件没有对应上游文件。
 
+2026-11-27 中文行尾裁切：`TextWrapper` 对逐字符估算的换行位置增加整行 shaping 宽度校验，超宽时按字素/行内对象边界提前换行，并重新排列剩余文字；继续保留续行缩进、隐藏标记和制表符宽度。macOS `.SystemUIFont`、16px、700px 正文列的复现行估算可容纳、实际却宽 730.646px，仅增加外边距不能解决。`grapheme_wrap` 回归覆盖估算偏小、文字完整性、续行缩进、emoji/组合字符和超宽行内对象；集成入口直接编译同一 helper。
+
+本轮独立入口通过：Markdown 4 项、Base 默认/`test-support` 1,263/1,264 项（各 1 项既有 ignored）、Component 默认/`test-support` 583/591 项。隔离 macOS 原生窗口复核了 16px 宽列、双侧栏窄列和 30px 窄列，以及 30px 阅读视图：此前被裁掉的文字完整移到下一行，行尾保留安全空间。原始日志为 `target/clip-vendor-tests-final.log`；不代表 Windows 原生验收或性能预算验证。
+
 2026-11-26：独立入口同时复制并 patch `vendor/markdown`，增加轻量的 `markdown-regression` 测试包，验证 CJK 标点邻接、嵌套强调、删除线，以及 ASCII、下划线、代码和 emoji 边界。它通过发布 API 测试当前源码，不引入上游未随发布包提供的测试或其 SWC 开发依赖；原有 Base/Component 四组检查继续执行。独立锁文件中的 markdown 不再来自 crates.io。
 
 ## 独立运行
