@@ -4,7 +4,7 @@
 
 ## 安装与首次使用
 
-Windows x64 可选择安装器或便携 ZIP，Apple Silicon Mac 可下载 DMG。发行包见 [GitHub Releases](https://github.com/Horbin-Magician/inkstone/releases)，版本改动见 [0.5.1 发布说明](docs/releases/0.5.1.md)。
+Windows x64 可选择安装器或便携 ZIP，Apple Silicon Mac 可下载 DMG。发行包见 [GitHub Releases](https://github.com/Horbin-Magician/inkstone/releases)，版本改动见 [0.5.3 发布说明](docs/releases/0.5.3.md)。
 
 1. 启动墨砚，选择已有笔记文件夹，或创建一个新库。
 2. 在左侧文件列表打开一篇笔记，或按 `Ctrl+N`（macOS 为 `Cmd+N`）新建笔记。
