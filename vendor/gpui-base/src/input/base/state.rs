@@ -2927,7 +2927,10 @@ impl<M: InputModeKind> InputBaseState<M> {
 
         if let Some(handler) = self.context_menu_handler.clone() {
             let capabilities = self.context_menu_capabilities();
-            cx.defer_in(window, move |_, window, cx| {
+            // A host menu builder may inspect the input's current selection.
+            // Defer on the window, not this entity, so the callback does not
+            // run with the input still mutably borrowed by Context::defer_in.
+            window.defer(cx, move |window, cx| {
                 handler(NativeMenu::new(), capabilities, position, window, cx);
             });
         }
@@ -6519,7 +6522,12 @@ mod tests {
             input.update(cx, |state, cx| {
                 let calls2 = calls.clone();
                 let items2 = items.clone();
-                state.on_context_menu(Rc::new(move |menu, _, _, _, _| {
+                let input = cx.entity().downgrade();
+                state.on_context_menu(Rc::new(move |menu, _, _, _, cx| {
+                    // Host builders must be able to read the just-updated
+                    // selection without reborrowing an active entity update.
+                    let input = input.upgrade().unwrap();
+                    assert!(input.read(cx).selected_range().is_empty());
                     calls2.set(calls2.get() + 1);
                     items2.set(menu.items.len());
                 }));
