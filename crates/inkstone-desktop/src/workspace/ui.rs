@@ -2421,7 +2421,7 @@ impl Render for Workspace {
                                     .compact()
                                     .w(px(26.))
                                     .h(px(26.))
-                                    .icon(icon("links").size(px(15.)).text_color(colors.muted))
+                                    .icon(icon("links").size(px(15.)))
                                     .accessibility_label(backlink_tip.clone())
                                     .tooltip(backlink_tip)
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -2483,7 +2483,7 @@ impl Render for Workspace {
                             let mark = icon("refresh-cw").size(px(15.)).text_color(if spinning {
                                 colors.accent
                             } else {
-                                colors.muted
+                                colors.foreground
                             });
                             let mark: AnyElement = if spinning {
                                 mark.with_animation(
