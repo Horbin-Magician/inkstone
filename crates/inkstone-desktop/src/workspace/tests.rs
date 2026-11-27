@@ -3729,6 +3729,54 @@ fn reopen_closed_tab_restores_mode_selection_and_folds(cx: &mut TestAppContext) 
 }
 
 #[gpui::test]
+fn all_tabs_menu_opens_selects_and_reopens(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            for name in ["a", "b", "c"] {
+                w.add_tab(
+                    format!("{name}.md").into(),
+                    Some(name.into()),
+                    false,
+                    window,
+                    cx,
+                );
+            }
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    visual.simulate_resize(size(px(1100.), px(800.)));
+    let items = [
+        "popup-menu-item-Integer(0)",
+        "popup-menu-item-Integer(1)",
+        "popup-menu-item-Integer(2)",
+    ];
+    for index in [0, 1] {
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let trigger = visual.debug_bounds("list-tabs").unwrap();
+        visual.simulate_click(trigger.center(), Modifiers::default());
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        for item in items {
+            assert!(
+                visual.debug_bounds(item).is_some(),
+                "the dropdown must show every open tab"
+            );
+        }
+        let item = visual.debug_bounds(items[index]).unwrap();
+        visual.simulate_click(item.center(), Modifiers::default());
+        handle
+            .update(&mut visual, |w, _, _| {
+                assert_eq!(w.main_tab(), Some(index));
+                assert_eq!(w.tabs.len(), 3);
+            })
+            .unwrap();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("popup-menu-item-Integer(0)").is_none());
+    }
+}
+
+#[gpui::test]
 fn middle_click_closes_only_the_pressed_tab_and_preserves_conflicts(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let handle = cx.add_window(Workspace::new);

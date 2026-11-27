@@ -1809,29 +1809,38 @@ impl Workspace {
                 .on_click(cx.listener(|this, _, w, cx| this.new_blank(w, cx))),
             )
             .child(
-                tool("list-tabs", "chevron-down", "显示所有标签页")
+                div()
+                    .debug_selector(|| "list-tabs".into())
+                    // Shield title-bar dragging outside the dropdown's click target.
                     .occlude()
-                    .dropdown_menu(move |mut menu, _, _| {
-                        for (id, label, pinned) in &menu_tabs {
-                            let id = *id;
-                            let weak = weak.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(label.clone())
-                                    .when(*pinned, |item| item.icon(icon("pin")))
-                                    .checked(selected == Some(id))
-                                    .on_click(move |_, window, cx| {
-                                        let _ = weak.update(cx, |this, cx| {
-                                            if let Some(index) =
-                                                this.tabs.iter().position(|tab| tab.id == id)
-                                            {
-                                                this.focus_primary(index, window, cx);
-                                            }
-                                        });
-                                    }),
-                            );
-                        }
-                        menu
-                    }),
+                    .flex_shrink_0()
+                    .child(
+                        tool("list-tabs", "chevron-down", "显示所有标签页").dropdown_menu(
+                            move |mut menu, _, _| {
+                                for (id, label, pinned) in &menu_tabs {
+                                    let id = *id;
+                                    let weak = weak.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::new(label.clone())
+                                            .when(*pinned, |item| item.icon(icon("pin")))
+                                            .checked(selected == Some(id))
+                                            .on_click(move |_, window, cx| {
+                                                let _ = weak.update(cx, |this, cx| {
+                                                    if let Some(index) = this
+                                                        .tabs
+                                                        .iter()
+                                                        .position(|tab| tab.id == id)
+                                                    {
+                                                        this.focus_primary(index, window, cx);
+                                                    }
+                                                });
+                                            }),
+                                    );
+                                }
+                                menu
+                            },
+                        ),
+                    ),
             )
             .when(
                 cfg!(target_os = "windows") || !self.ui.prefs.right_open,
