@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 mod markup_ui;
 use annotations::{Color, Mark, Store, Style};
 mod search;
+mod sidebar;
+use sidebar::Sidebar;
 mod text;
 use super::*;
 use pdfium_render::prelude::{PdfDocument, PdfRenderConfig, Pdfium};
@@ -13,10 +15,11 @@ use search::{Hit, Scan};
 use std::{cell::Cell, collections::VecDeque, ops::Range, path::Path, rc::Rc, sync::OnceLock};
 use text::TextLayer;
 
-actions!(pdf_reader, [FindText]);
+actions!(pdf_reader, [FindText, CloseFind]);
 
 pub(crate) fn init(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new("escape", CloseFind, Some("PdfFind")),
         KeyBinding::new(
             &crate::shortcuts::command_default("ctrl-f"),
             FindText,
@@ -55,7 +58,24 @@ fn render_page(doc: &PdfDocument<'_>, request: Request) -> anyhow::Result<Page> 
         .set_target_width(request.width)
         .set_maximum_height(4096)
         .set_maximum_width(4096);
-    let bitmap = page.render_with_config(&config)?;
+    let image = bitmap(&page, &config)?;
+    Ok(Page {
+        text: TextLayer::read(
+            &page,
+            &config,
+            i32::from(image.size(0).width),
+            i32::from(image.size(0).height),
+        ),
+        image,
+        aspect,
+    })
+}
+
+fn bitmap(
+    page: &pdfium_render::prelude::PdfPage<'_>,
+    config: &PdfRenderConfig,
+) -> anyhow::Result<Arc<RenderImage>> {
+    let bitmap = page.render_with_config(config)?;
     let mut bytes = bitmap.as_rgba_bytes();
     // GPUI uploads BGRA frames to the atlas.
     for pixel in bytes.chunks_exact_mut(4) {
@@ -63,22 +83,20 @@ fn render_page(doc: &PdfDocument<'_>, request: Request) -> anyhow::Result<Page> 
     }
     let buffer = image::RgbaImage::from_raw(bitmap.width() as u32, bitmap.height() as u32, bytes)
         .ok_or_else(|| anyhow::anyhow!("无效的页面位图"))?;
-    Ok(Page {
-        text: TextLayer::read(&page, &config, bitmap.width(), bitmap.height()),
-        image: Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])),
-        aspect,
-    })
+    Ok(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])))
 }
 
 enum Command {
     Layout,
     Render(Request),
+    Thumbnail(i32),
     Search(u64, String),
 }
 enum Response {
     Layout(Result<Layout, String>),
     Page(Request, Result<Arc<Page>, String>),
     Matches(u64, Result<Vec<Hit>, String>),
+    Thumbnail(i32, Result<Arc<RenderImage>, String>),
 }
 
 fn worker(
@@ -122,6 +140,24 @@ fn worker(
                         .map_err(Clone::clone)
                         .and_then(|doc| Layout::read(doc).map_err(|e| e.to_string()));
                     if results.send_blocking(Response::Layout(layout)).is_err() {
+                        return;
+                    }
+                }
+                Command::Thumbnail(index) => {
+                    let image = document.as_ref().map_err(Clone::clone).and_then(|doc| {
+                        let page = doc.pages().get(index).map_err(|e| e.to_string())?;
+                        bitmap(
+                            &page,
+                            &PdfRenderConfig::new()
+                                .set_target_width(170)
+                                .set_maximum_height(200),
+                        )
+                        .map_err(|e| e.to_string())
+                    });
+                    if results
+                        .send_blocking(Response::Thumbnail(index, image))
+                        .is_err()
+                    {
                         return;
                     }
                 }
@@ -200,7 +236,8 @@ pub(super) struct Reader {
     editing: Option<usize>,
     comment: Entity<InputState>,
     color: Color,
-    list_open: bool,
+    sidebar: Sidebar,
+    find_open: bool,
     mark_error: Option<String>,
     search_status: String,
     _query_events: Subscription,
@@ -265,6 +302,11 @@ impl Reader {
                                     reader.pages.insert(request.page, result);
                                 }
                             }
+                            Response::Thumbnail(index, result) => {
+                                if let Some(slot) = reader.sidebar.thumbnails.get_mut(&index) {
+                                    *slot = Some(result);
+                                }
+                            }
                             Response::Matches(id, result) => {
                                 if id == reader.generation {
                                     match result {
@@ -297,6 +339,7 @@ impl Reader {
         .detach();
         cx.on_release(|reader, cx| {
             reader.persist_position();
+            reader.sidebar.clear(cx);
             for page in reader.pages.values().flatten() {
                 cx.drop_image(page.image.clone(), None);
             }
@@ -349,7 +392,8 @@ impl Reader {
             color: Color::Yellow,
             editing: None,
             comment: cx.new(|cx| InputState::new(window, cx).placeholder("批注（可选）")),
-            list_open: false,
+            sidebar: Sidebar::default(),
+            find_open: false,
             query,
             generation: 0,
             hits: Vec::new(),
@@ -514,6 +558,21 @@ impl Render for Reader {
         self.update_pages(logical, window, cx);
         let view = cx.entity().downgrade();
         let mut bar = div()
+            .child(
+                div()
+                    .id("sidebar-toggle")
+                    .debug_selector(|| "sidebar-toggle".into())
+                    .cursor_pointer()
+                    .child(if self.sidebar.open {
+                        "收起侧栏"
+                    } else {
+                        "侧栏"
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.sidebar.open = !this.sidebar.open;
+                        cx.notify();
+                    })),
+            )
             .flex()
             .items_center()
             .gap_2()
@@ -561,6 +620,13 @@ impl Render for Reader {
                     })),
             );
         }
+        bar = bar.child(
+            div()
+                .id("show-find")
+                .cursor_pointer()
+                .child("查找")
+                .on_click(cx.listener(|this, _, w, cx| this.open_find(w, cx))),
+        );
         let mut content = div().relative().w(px(logical)).h(px(self
             .layout
             .as_ref()
@@ -581,11 +647,9 @@ impl Render for Reader {
         div()
             .key_context("PdfReader")
             .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &CloseFind, window, cx| this.close_find(window, cx)))
             .on_action(cx.listener(|this, _: &FindText, window, cx| {
-                this.query.update(cx, |input, cx| {
-                    input.focus(window, cx);
-                    input.select_all(window, cx);
-                });
+                this.open_find(window, cx);
             }))
             .on_action(
                 cx.listener(|this, _: &gpui_component::input::Copy, window, cx| {
@@ -605,76 +669,92 @@ impl Render for Reader {
             .flex_col()
             .child(bar)
             .child(self.markup_bar(cx))
-            .when(self.list_open, |el| el.child(self.markup_list(cx)))
             .children(self.mark_error.clone())
+            .when(self.find_open, |el| {
+                el.child(
+                    div()
+                        .key_context("PdfFind")
+                        .debug_selector(|| "pdf-find".into())
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .px_3()
+                        .flex_shrink_0()
+                        .child(
+                            div()
+                                .on_action(cx.listener(
+                                    |this, action: &gpui_component::input::Enter, _, cx| {
+                                        this.step_match(if action.shift { -1 } else { 1 });
+                                        cx.notify();
+                                    },
+                                ))
+                                .child(Input::new(&self.query).w(px(200.))),
+                        )
+                        .child(if self.hits.is_empty() {
+                            self.search_status.clone()
+                        } else {
+                            format!("{} / {}", self.current + 1, self.hits.len())
+                        })
+                        .children(
+                            [("prev-match", "上一处", -1), ("next-match", "下一处", 1)]
+                                .into_iter()
+                                .map(|(id, label, step)| {
+                                    div().id(id).cursor_pointer().child(label).on_click(
+                                        cx.listener(move |this, _, _, cx| {
+                                            this.step_match(step);
+                                            cx.notify();
+                                        }),
+                                    )
+                                }),
+                        )
+                        .child(
+                            div()
+                                .id("close-find")
+                                .cursor_pointer()
+                                .child("关闭查找")
+                                .on_click(cx.listener(|this, _, w, cx| this.close_find(w, cx))),
+                        ),
+                )
+            })
             .child(
                 div()
                     .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .flex_shrink_0()
-                    .child(
-                        div()
-                            .on_action(cx.listener(
-                                |this, action: &gpui_component::input::Enter, _, cx| {
-                                    this.step_match(if action.shift { -1 } else { 1 });
-                                    cx.notify();
-                                },
-                            ))
-                            .child(Input::new(&self.query).w(px(200.))),
-                    )
-                    .child(if self.hits.is_empty() {
-                        self.search_status.clone()
-                    } else {
-                        format!("{} / {}", self.current + 1, self.hits.len())
-                    })
-                    .children(
-                        [("prev-match", "上一处", -1), ("next-match", "下一处", 1)]
-                            .into_iter()
-                            .map(|(id, label, step)| {
-                                div()
-                                    .id(id)
-                                    .cursor_pointer()
-                                    .child(label)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.step_match(step);
-                                        cx.notify();
-                                    }))
-                            }),
-                    ),
-            )
-            .child(
-                div()
                     .flex_1()
                     .min_h_0()
-                    .relative()
-                    .child(
-                        canvas(
-                            move |bounds, _, cx| {
-                                let width = f32::from(bounds.size.width).floor();
-                                let _ = view.update(cx, |reader, cx| {
-                                    if reader.width != width {
-                                        reader.width = width;
-                                        reader.seek = true;
-                                        cx.notify();
-                                    } else {
-                                        reader.observe_position(cx);
-                                    }
-                                });
-                            },
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .inset_0(),
-                    )
+                    .when(self.sidebar.open, |el| el.child(self.sidebar_view(cx)))
                     .child(
                         div()
-                            .id("pdf-scroll")
-                            .track_scroll(&self.scroll)
-                            .size_full()
-                            .overflow_scroll()
-                            .child(content),
+                            .min_w_0()
+                            .flex_1()
+                            .min_h_0()
+                            .relative()
+                            .child(
+                                canvas(
+                                    move |bounds, _, cx| {
+                                        let width = f32::from(bounds.size.width).floor();
+                                        let _ = view.update(cx, |reader, cx| {
+                                            if reader.width != width {
+                                                reader.width = width;
+                                                reader.seek = true;
+                                                cx.notify();
+                                            } else {
+                                                reader.observe_position(cx);
+                                            }
+                                        });
+                                    },
+                                    |_, _, _, _| {},
+                                )
+                                .absolute()
+                                .inset_0(),
+                            )
+                            .child(
+                                div()
+                                    .id("pdf-scroll")
+                                    .track_scroll(&self.scroll)
+                                    .size_full()
+                                    .overflow_scroll()
+                                    .child(content),
+                            ),
                     ),
             )
     }
@@ -800,6 +880,17 @@ mod tests {
                 assert!(r.selection.is_none());
             })
             .unwrap();
+        visual.simulate_keystrokes("escape");
+        assert!(visual.debug_bounds("pdf-find").is_none());
+        click(&mut visual, "sidebar-toggle");
+        click(&mut visual, "pdf-thumbnails");
+        wait(&mut visual, |r| {
+            r.sidebar
+                .thumbnails
+                .get(&0)
+                .is_some_and(|t| matches!(t, Some(Ok(_))))
+        });
+        click(&mut visual, "pdf-outline");
         click(&mut visual, "pdf-mark-list");
         click(&mut visual, "pdf-mark-0");
         wait(&mut visual, |r| {

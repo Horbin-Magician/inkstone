@@ -82,18 +82,7 @@ impl Reader {
             .gap_2()
             .px_3()
             .py_1()
-            .flex_shrink_0()
-            .child(
-                div()
-                    .id("pdf-mark-list")
-                    .debug_selector(|| "pdf-mark-list".into())
-                    .cursor_pointer()
-                    .child(format!("标记 ({})", self.annotations.len()))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.list_open = !this.list_open;
-                        cx.notify();
-                    })),
-            );
+            .flex_shrink_0();
         for (id, label, color) in [
             ("yellow", "黄", Color::Yellow),
             ("green", "绿", Color::Green),
@@ -161,7 +150,8 @@ impl Reader {
         div()
             .id("pdf-annotations")
             .overflow_y_scroll()
-            .max_h(px(140.))
+            .flex_1()
+            .min_h_0()
             .px_3()
             .when(self.annotations.is_empty(), |el| el.child("暂无标记"))
             .children(self.annotations.iter().enumerate().map(|(i, m)| {
@@ -184,7 +174,7 @@ impl Reader {
                         m.quote
                     )))
                     .when(!m.comment.is_empty(), |el| {
-                        el.child(div().truncate().child(m.comment.clone()))
+                        el.child(div().child(m.comment.clone()))
                     })
                     .on_click(cx.listener(move |this, _, w, cx| {
                         if (0..this.count).contains(&this.annotations[i].page) {

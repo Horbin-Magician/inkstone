@@ -5,6 +5,7 @@ const GAP: f32 = 8.;
 pub(super) struct Layout {
     // Cumulative page heights at unit width; gaps stay constant when zooming.
     heights: Vec<f64>,
+    pub(super) outline: Vec<(String, i32)>,
 }
 
 impl Layout {
@@ -16,7 +17,28 @@ impl Layout {
             heights.push(heights.last().unwrap() + height);
         }
         anyhow::ensure!(heights.len() > 1, "PDF 没有页面");
-        Ok(Self { heights })
+        let outline = doc
+            .bookmarks()
+            .iter()
+            .filter_map(|bookmark| {
+                let index = bookmark
+                    .destination()
+                    .and_then(|d| d.page_index().ok())
+                    .or_else(|| {
+                        bookmark
+                            .action()?
+                            .as_local_destination_action()?
+                            .destination()
+                            .ok()?
+                            .page_index()
+                            .ok()
+                    })?;
+                (0..doc.pages().len())
+                    .contains(&index)
+                    .then_some((bookmark.title()?, index))
+            })
+            .collect();
+        Ok(Self { heights, outline })
     }
 
     pub(super) fn count(&self) -> i32 {
@@ -68,6 +90,7 @@ impl Reader {
         self.page = page;
         self.position.page = page;
         self.position.y = 0.;
+        self.reveal = None;
         self.selection = None;
         self.anchor = None;
         self.editing = None;
