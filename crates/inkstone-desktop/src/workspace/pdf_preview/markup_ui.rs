@@ -2,6 +2,7 @@ use super::*;
 
 impl Reader {
     pub(super) fn reset_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.popup = None;
         self.editing = None;
         self.comment
             .update(cx, |input, cx| input.set_value("", window, cx));
@@ -17,7 +18,12 @@ impl Reader {
         cx.notify();
     }
 
-    fn save_mark(&mut self, style: Option<Style>, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn save_mark(
+        &mut self,
+        style: Option<Style>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let old = self.editing.map(|i| &self.annotations[i]);
         let replacement = if let Some(style) = style {
             let Some(range) = old
@@ -62,6 +68,60 @@ impl Reader {
         cx.notify();
     }
 
+    pub(super) fn selection_tools(
+        &self,
+        at: Point<f32>,
+        width: f32,
+        aspect: f32,
+        cx: &Context<Self>,
+    ) -> Div {
+        let scroll = self.scroll.offset();
+        let viewport = self.scroll.bounds();
+        let left = (-f32::from(scroll.x)).max(0.);
+        let right = (left + f32::from(viewport.size.width)).min(width);
+        let page_top = self
+            .layout
+            .as_ref()
+            .map_or(0., |layout| layout.top(self.selected_page, width));
+        let viewport_top = (-f32::from(scroll.y) - page_top).max(0.);
+        let y = at.y * width / aspect;
+        let top = if y - 32. >= viewport_top {
+            y - 32.
+        } else {
+            y + 8.
+        };
+        let mut menu = div()
+            .absolute()
+            .occlude()
+            .flex()
+            .gap_2()
+            .px_2()
+            .rounded_md()
+            .shadow_md()
+            .bg(rgb(0x29323b))
+            .text_color(rgb(0xffffff))
+            .left(px((at.x * width).clamp(left, (right - 112.).max(left))))
+            .top(px(top.min((width / aspect - 28.).max(0.))))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        for (id, label, style) in [
+            ("local-highlight", "高亮", Style::Highlight),
+            ("local-underline", "下划线", Style::Underline),
+        ] {
+            menu = menu.child(
+                div()
+                    .id(id)
+                    .debug_selector(move || id.into())
+                    .cursor_pointer()
+                    .child(label)
+                    .on_click(
+                        cx.listener(move |this, _, w, cx| this.save_mark(Some(style), w, cx)),
+                    ),
+            );
+        }
+        menu
+    }
+
     pub(super) fn markup_bar(&self, cx: &mut Context<Self>) -> Div {
         let can_save = self.active_page().is_some_and(|page| {
             if let Some(index) = self.editing {
@@ -83,6 +143,27 @@ impl Reader {
             .px_3()
             .py_1()
             .flex_shrink_0();
+        for (id, label, style) in [
+            ("lock-highlight", "连续高亮", Style::Highlight),
+            ("lock-underline", "连续下划线", Style::Underline),
+        ] {
+            bar = bar.child(
+                div()
+                    .id(id)
+                    .debug_selector(move || id.into())
+                    .cursor_pointer()
+                    .when(self.continuous == Some(style), |el| {
+                        el.underline().font_weight(FontWeight::BOLD)
+                    })
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, w, cx| {
+                        this.continuous = (this.continuous != Some(style)).then_some(style);
+                        this.popup = None;
+                        w.focus(&this.focus, cx);
+                        cx.notify();
+                    })),
+            );
+        }
         for (id, label, color) in [
             ("yellow", "黄", Color::Yellow),
             ("green", "绿", Color::Green),

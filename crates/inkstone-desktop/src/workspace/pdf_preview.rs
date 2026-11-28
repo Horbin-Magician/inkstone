@@ -17,10 +17,11 @@ use search::{Hit, Scan};
 use std::{cell::Cell, collections::VecDeque, ops::Range, path::Path, rc::Rc, sync::OnceLock};
 use text::TextLayer;
 
-actions!(pdf_reader, [FindText, CloseFind]);
+actions!(pdf_reader, [FindText, CloseFind, StopMarking]);
 
 pub(crate) fn init(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new("escape", StopMarking, Some("PdfReader")),
         KeyBinding::new("escape", CloseFind, Some("PdfFind")),
         KeyBinding::new(
             &crate::shortcuts::command_default("ctrl-f"),
@@ -238,6 +239,9 @@ pub(super) struct Reader {
     editing: Option<usize>,
     comment: Entity<InputState>,
     color: Color,
+    continuous: Option<Style>,
+    popup: Option<Point<f32>>,
+    press: Point<Pixels>,
     sidebar: Sidebar,
     find_open: bool,
     mark_error: Option<String>,
@@ -415,6 +419,9 @@ impl Reader {
             store,
             annotations,
             mark_error,
+            continuous: None,
+            popup: None,
+            press: Default::default(),
             color: Color::Yellow,
             editing: None,
             comment: cx.new(|cx| InputState::new(window, cx).placeholder("批注（可选）")),
@@ -464,6 +471,7 @@ impl Reader {
         let bounds: Rc<Cell<Bounds<Pixels>>> = Default::default();
         let hit_bounds = bounds.clone();
         let drag_bounds = bounds.clone();
+        let release_bounds = bounds.clone();
         let selection = (index == self.selected_page)
             .then(|| self.selection.clone())
             .flatten();
@@ -494,6 +502,7 @@ impl Reader {
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                     window.focus(&this.focus, cx);
                     this.reset_editor(window, cx);
+                    this.press = event.position;
                     this.selected_page = index;
                     this.anchor = this
                         .active_page()
@@ -521,11 +530,14 @@ impl Reader {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    let click = this
-                        .anchor
-                        .take()
-                        .is_some_and(|a| Some(a) == this.selection);
+                cx.listener(move |this, event: &MouseUpEvent, window, cx| {
+                    if index != this.selected_page || this.anchor.take().is_none() {
+                        return;
+                    }
+                    let click = (this.press.x - event.position.x)
+                        .abs()
+                        .max((this.press.y - event.position.y).abs())
+                        < px(3.);
                     if let Some(i) = this.annotations.iter().rposition(|m| {
                         m.page == this.selected_page
                             && this.selection.as_ref().is_some_and(|r| {
@@ -538,6 +550,23 @@ impl Reader {
                     }) {
                         this.selection = Some(this.annotations[i].bytes.clone());
                         this.edit_mark(i, window, cx);
+                    } else if !click
+                        && this
+                            .selection
+                            .clone()
+                            .and_then(|r| this.active_page()?.text.text.get(r))
+                            .is_some_and(|s| !s.trim().is_empty())
+                    {
+                        if let Some(style) = this.continuous {
+                            this.save_mark(Some(style), window, cx);
+                        } else {
+                            let rect = release_bounds.get();
+                            this.popup = Some(point(
+                                (event.position.x - rect.left()) / rect.size.width,
+                                (event.position.y - rect.top()) / rect.size.height,
+                            ));
+                            cx.notify();
+                        }
                     }
                 }),
             )
@@ -576,6 +605,11 @@ impl Reader {
                 .absolute()
                 .inset_0(),
             )
+            .when(index == self.selected_page, |el| {
+                el.when_some(self.popup, |el, at| {
+                    el.child(self.selection_tools(at, logical, page.aspect, cx))
+                })
+            })
     }
 }
 impl Render for Reader {
@@ -673,6 +707,15 @@ impl Render for Reader {
         div()
             .key_context("PdfReader")
             .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &StopMarking, window, cx| {
+                if this.find_open {
+                    this.close_find(window, cx);
+                } else {
+                    this.continuous = None;
+                    this.popup = None;
+                    cx.notify();
+                }
+            }))
             .on_action(cx.listener(|this, _: &CloseFind, window, cx| this.close_find(window, cx)))
             .on_action(cx.listener(|this, _: &FindText, window, cx| {
                 this.open_find(window, cx);
@@ -871,11 +914,33 @@ mod tests {
             visual.simulate_click(bounds.center(), Modifiers::default());
         };
         click(&mut visual, "green");
-        click(&mut visual, "highlight");
+        click(&mut visual, "local-highlight");
         let saved = Store::new(&dir.path().join("test.pdf")).read().unwrap();
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].quote, "Inkstone");
         assert_eq!(saved[0].color, Color::Green);
+        click(&mut visual, "lock-underline");
+        let (start, end) = handle
+            .update(&mut visual, |r, _, _| {
+                let layer = &r.pages[&0].as_ref().unwrap().text;
+                (
+                    layer.boxes(9..10, bounds).next().unwrap().center(),
+                    layer.boxes(14..15, bounds).next().unwrap().center(),
+                )
+            })
+            .unwrap();
+        visual.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::default());
+        visual.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+        handle
+            .update(&mut visual, |r, _, _| {
+                assert_eq!(r.annotations[1].quote, "reader");
+                assert_eq!(r.annotations[1].style, Style::Underline);
+                assert_eq!(r.continuous, Some(Style::Underline));
+                assert!(r.popup.is_none());
+            })
+            .unwrap();
+        visual.simulate_keystrokes("escape");
         visual.simulate_keystrokes(&crate::shortcuts::command_default("ctrl-f"));
         handle
             .update(&mut visual, |r, w, cx| {
@@ -977,7 +1042,8 @@ mod tests {
             Store::new(&dir.path().join("test.pdf"))
                 .read()
                 .unwrap()
-                .is_empty()
+                .len()
+                == 1
         );
         handle
             .update(&mut visual, |r, _, cx| {

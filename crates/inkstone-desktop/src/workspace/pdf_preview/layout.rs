@@ -102,6 +102,7 @@ impl Reader {
         self.position.page = page;
         self.position.y = 0.;
         self.source_anchor = None;
+        self.popup = None;
         self.reveal = None;
         self.selection = None;
         self.anchor = None;
