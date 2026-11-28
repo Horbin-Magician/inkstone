@@ -17,6 +17,14 @@ impl TryFrom<[u16; 4]> for Area {
 }
 
 impl Area {
+    pub(super) fn text_box(pos: Point<Pixels>, rect: Bounds<Pixels>) -> Self {
+        let x = ((pos.x - rect.left()) / rect.size.width * 65535.).round() as u16;
+        let y = ((pos.y - rect.top()) / rect.size.height * 65535.).round() as u16;
+        let left = x.min(65535 - 16384);
+        let top = y.min(65535 - 6144);
+        Self([left, top, left + 16384, top + 6144])
+    }
+
     pub(super) fn between(
         a: Point<Pixels>,
         b: Point<Pixels>,

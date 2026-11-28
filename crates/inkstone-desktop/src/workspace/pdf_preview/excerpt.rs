@@ -109,7 +109,7 @@ impl Excerpt {
         // Extend the already escaped attachment destination inside its closing parenthesis.
         link.pop();
         let fragment = match mark.style {
-            Style::Area(area) => area.fragment(),
+            Style::Area(area) | Style::PageText(area) => area.fragment(),
             _ => format!(
                 "inkstone={}-{}-{}",
                 mark.bytes.start,

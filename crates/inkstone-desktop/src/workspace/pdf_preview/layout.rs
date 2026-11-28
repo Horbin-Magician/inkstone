@@ -103,6 +103,7 @@ impl Reader {
         self.position.y = 0.;
         self.source_anchor = None;
         self.focused_area = None;
+        self.text_box = None;
         self.area_dragging = false;
         self.area_preview = None;
         self.popup = None;

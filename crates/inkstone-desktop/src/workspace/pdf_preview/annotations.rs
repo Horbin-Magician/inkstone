@@ -14,6 +14,16 @@ pub(super) enum Style {
     Highlight,
     Underline,
     Area(super::Area),
+    PageText(super::Area),
+}
+
+impl Style {
+    pub(super) fn location(self) -> Option<super::Area> {
+        match self {
+            Self::Area(a) | Self::PageText(a) => Some(a),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,8 +57,10 @@ impl Mark {
     pub(super) fn same_target(&self, other: &Mark) -> bool {
         self.page == other.page
             && match (self.style, other.style) {
-                (Style::Area(a), Style::Area(b)) => a == b,
-                (Style::Area(_), _) | (_, Style::Area(_)) => false,
+                (Style::Area(a), Style::Area(b)) | (Style::PageText(a), Style::PageText(b)) => {
+                    a == b
+                }
+                (a, b) if a.location().is_some() || b.location().is_some() => false,
                 _ => self.bytes == other.bytes && self.quote == other.quote,
             }
     }

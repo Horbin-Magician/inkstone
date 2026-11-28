@@ -3,6 +3,7 @@ use super::*;
 impl Reader {
     pub(super) fn reset_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.focused_area = None;
+        self.text_box = None;
         self.area_preview = None;
         self.area_dragging = false;
         self.popup = None;
@@ -14,8 +15,12 @@ impl Reader {
     pub(super) fn edit_mark(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let mark = &self.annotations[index];
         self.editing = Some(index);
-        if let Style::Area(area) = mark.style {
-            self.focused_area = Some(area);
+        self.focused_area = mark.style.location();
+        self.text_box = None;
+        if let Style::PageText(area) = mark.style {
+            self.text_box = Some(area);
+            self.body
+                .update(cx, |s, cx| s.set_value(mark.quote.clone(), window, cx));
         }
         self.color = mark.color;
         self.comment.update(cx, |input, cx| {
@@ -31,12 +36,23 @@ impl Reader {
         cx: &mut Context<Self>,
     ) {
         let old = self.editing.map(|i| &self.annotations[i]);
-        let replacement = if let Some(Style::Area(area)) = style {
+        let replacement = if let Some(style) = style.filter(|s| s.location().is_some()) {
+            let quote = if matches!(style, Style::PageText(_)) {
+                let body = self.body.read(cx).value().to_string();
+                if body.trim().is_empty() {
+                    self.mark_error = Some("请输入文字后再保存。".into());
+                    cx.notify();
+                    return;
+                }
+                body
+            } else {
+                String::new()
+            };
             Some(Mark {
                 page: self.selected_page,
                 bytes: 0..0,
-                quote: String::new(),
-                style: Style::Area(area),
+                quote,
+                style,
                 color: self.color,
                 comment: self.comment.read(cx).value().to_string(),
             })
@@ -76,13 +92,14 @@ impl Reader {
                 self.annotations = marks;
                 self.selection = None;
                 self.reset_editor(window, cx);
-                if let Some(Style::Area(area)) = style
+                if let Some(style) = style.filter(|s| s.location().is_some())
                     && let Some(index) = self
                         .annotations
                         .iter()
-                        .position(|m| m.page == self.selected_page && m.style == Style::Area(area))
+                        .position(|m| m.page == self.selected_page && m.style == style)
                 {
                     self.edit_mark(index, window, cx);
+                    self.text_box = None;
                 }
                 self.mark_error = None;
             }
@@ -150,7 +167,7 @@ impl Reader {
             if let Some(index) = self.editing {
                 let m = &self.annotations[index];
                 m.page == self.selected_page
-                    && (matches!(m.style, Style::Area(_))
+                    && (m.style.location().is_some()
                         || page.text.text.get(m.bytes.clone()) == Some(&m.quote))
             } else {
                 self.selection
@@ -178,6 +195,7 @@ impl Reader {
                 "连续下划线",
                 MarkTool::Continuous(Style::Underline),
             ),
+            ("pdf-text-tool", "文字批注", MarkTool::PageText),
             ("pdf-area-tool", "框选图表", MarkTool::Area),
         ] {
             bar = bar.child(
@@ -225,7 +243,34 @@ impl Reader {
                     })),
             );
         }
-        if can_save {
+        if let Some(area) = self.text_box {
+            bar = bar.child(
+                div()
+                    .id("save-page-text")
+                    .debug_selector(|| "save-page-text".into())
+                    .cursor_pointer()
+                    .child("保存文字")
+                    .on_click(cx.listener(move |this, _, w, cx| {
+                        this.save_mark(Some(Style::PageText(area)), w, cx)
+                    })),
+            );
+        } else if self
+            .editing
+            .is_some_and(|i| matches!(self.annotations[i].style, Style::PageText(_)))
+        {
+            bar = bar.child(
+                div()
+                    .id("edit-page-text")
+                    .cursor_pointer()
+                    .child("编辑文字")
+                    .on_click(cx.listener(|this, _, w, cx| {
+                        if let Some(i) = this.editing {
+                            this.edit_mark(i, w, cx);
+                            this.body.update(cx, |s, cx| s.focus(w, cx));
+                        }
+                    })),
+            );
+        } else if can_save {
             bar = bar.child(Input::new(&self.comment).w(px(150.)));
             let area = self.editing.and_then(|i| match self.annotations[i].style {
                 Style::Area(area) => Some(area),
@@ -265,7 +310,9 @@ impl Reader {
                 }
             }
         } else if self.editing.is_none() {
-            bar = bar.child(if self.tool == MarkTool::Area {
+            bar = bar.child(if self.tool == MarkTool::PageText {
+                "点击页面放置文字"
+            } else if self.tool == MarkTool::Area {
                 "拖动以框选图表"
             } else {
                 "选中文字以添加标记"
@@ -321,6 +368,7 @@ impl Reader {
                     Style::Highlight => "高亮",
                     Style::Underline => "下划线",
                     Style::Area(_) => "区域",
+                    Style::PageText(_) => "文字批注",
                 };
                 div()
                     .id(("pdf-mark", i))
@@ -344,7 +392,7 @@ impl Reader {
                             this.navigate(this.annotations[i].page);
                             this.selected_page = this.annotations[i].page;
                             match this.annotations[i].style {
-                                Style::Area(area) => {
+                                Style::Area(area) | Style::PageText(area) => {
                                     this.source_anchor =
                                         Some(SourceAnchor::area(this.selected_page, area))
                                 }

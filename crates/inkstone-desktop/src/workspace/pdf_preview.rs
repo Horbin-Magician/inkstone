@@ -1,6 +1,7 @@
 //! On-demand PDF page rendering, text search and annotations.
 mod annotations;
 mod area;
+mod page_text;
 use area::Area;
 mod excerpt;
 pub(super) use excerpt::{Excerpt, SourceAnchor};
@@ -14,6 +15,7 @@ mod sidebar;
 use sidebar::Sidebar;
 mod text;
 use super::*;
+use gpui_component::input::{Textarea, TextareaState};
 use pdfium_render::prelude::{PdfDocument, PdfRenderConfig, Pdfium};
 use search::{Hit, Scan};
 use std::{cell::Cell, collections::VecDeque, ops::Range, path::Path, rc::Rc, sync::OnceLock};
@@ -230,6 +232,7 @@ fn worker(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MarkTool {
+    PageText,
     Select,
     Continuous(Style),
     Area,
@@ -252,6 +255,8 @@ pub(super) struct Reader {
     area_dragging: bool,
     area_preview: Option<Area>,
     focused_area: Option<Area>,
+    text_box: Option<Area>,
+    body: Entity<TextareaState>,
     popup: Option<Point<f32>>,
     press: Point<Pixels>,
     sidebar: Sidebar,
@@ -435,6 +440,12 @@ impl Reader {
             area_dragging: false,
             area_preview: None,
             focused_area: None,
+            text_box: None,
+            body: cx.new(|cx| {
+                TextareaState::new(window, cx)
+                    .auto_grow(1, 4)
+                    .placeholder("输入文字批注")
+            }),
             popup: None,
             press: Default::default(),
             color: Color::Yellow,
@@ -503,7 +514,7 @@ impl Reader {
             .iter()
             .filter(|m| {
                 m.page == index
-                    && !matches!(m.style, Style::Area(_))
+                    && m.style.location().is_none()
                     && page.text.text.get(m.bytes.clone()) == Some(m.quote.as_str())
             })
             .map(|m| (m.bytes.clone(), m.style, m.color))
@@ -541,6 +552,19 @@ impl Reader {
                     this.reset_editor(window, cx);
                     this.press = event.position;
                     this.selected_page = index;
+                    if this.tool == MarkTool::PageText {
+                        this.text_box = Some(Area::text_box(event.position, hit_bounds.get()));
+                        this.anchor = None;
+                        this.selection = None;
+                        this.body.update(cx, |s, cx| {
+                            s.set_value("", window, cx);
+                        });
+                        cx.defer_in(window, |this, w, cx| {
+                            this.body.update(cx, |s, cx| s.focus(w, cx))
+                        });
+                        cx.notify();
+                        return;
+                    }
                     if this.tool == MarkTool::Area {
                         this.area_dragging = true;
                         this.anchor = None;
@@ -653,7 +677,7 @@ impl Reader {
                         for (range, style, color) in &annotations {
                             for mut region in shown.text.boxes(range.clone(), rect) {
                                 let alpha = match style {
-                                    Style::Area(_) => continue,
+                                    Style::Area(_) | Style::PageText(_) => continue,
                                     Style::Highlight => 0x66,
                                     Style::Underline => {
                                         let height = region.size.height.min(px(2.));
@@ -681,6 +705,7 @@ impl Reader {
                 .absolute()
                 .inset_0(),
             )
+            .children(self.page_text_boxes(index, logical, page.aspect, cx))
             .when(index == self.selected_page, |el| {
                 el.when_some(self.popup, |el, at| {
                     el.child(self.selection_tools(at, logical, page.aspect, cx))
@@ -788,6 +813,8 @@ impl Render for Reader {
                     this.close_find(window, cx);
                 } else {
                     this.tool = MarkTool::Select;
+                    this.text_box = None;
+                    window.focus(&this.focus, cx);
                     this.area_dragging = false;
                     this.area_preview = None;
                     this.popup = None;
@@ -1242,3 +1269,6 @@ mod tests {
         thread.join().unwrap();
     }
 }
+
+#[cfg(test)]
+mod tool_tests;
