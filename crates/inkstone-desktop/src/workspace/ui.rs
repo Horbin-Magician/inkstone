@@ -2482,23 +2482,6 @@ impl Render for Workspace {
                                     })),
                             )
                         })
-                        .when(self.background_tasks.active_count() > 0, |bar| {
-                            bar.child(
-                                Button::new("status-background-tasks")
-                                    .ghost()
-                                    .compact()
-                                    .icon(icon("list-checks").size(px(15.)))
-                                    .label(format!(
-                                        "后台任务 {}",
-                                        self.background_tasks.active_count()
-                                    ))
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| {
-                                            this.show_background_tasks(cx)
-                                        }),
-                                    ),
-                            )
-                        })
                         .child(div().flex_shrink_0().px_1().child(count))
                         .when(self.settings_save.error().is_some(), |bar| {
                             bar.child(
@@ -2603,6 +2586,20 @@ impl Render for Workspace {
                                     cx.listener(|this, _, w, cx| this.execute_command(16, w, cx)),
                                 ),
                         )
+                        .child({
+                            let active = self.background_tasks.active_count();
+                            tool("status-background-tasks", "list-checks", "后台任务管理")
+                                .h(px(26.))
+                                .when(active == 0, |b| b.w(px(26.)))
+                                .when(active > 0, |b| {
+                                    b.w_auto().label(active.to_string()).accessibility_label(
+                                        format!("后台任务管理，{active} 个活动任务"),
+                                    )
+                                })
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.show_background_tasks(cx)),
+                                )
+                        })
                         .child(
                             tool("status-settings", "settings", "设置")
                                 .w(px(26.))
