@@ -195,14 +195,29 @@ fn diagram(source: &str, light: bool) -> Result<Graphic> {
     }
     let layout =
         mermaid_rs_renderer::compute_layout(&parsed.graph, &options.theme, &options.layout);
-    let svg = mermaid_rs_renderer::render_svg(&layout, &options.theme, &options.layout);
-    static VIEWBOX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r#"viewBox="[\d.\-]+\s+[\d.\-]+\s+([\d.]+)\s+([\d.]+)""#).unwrap()
-    });
-    let dimensions = VIEWBOX.captures(&svg).context("图表没有有效尺寸")?;
-    let width: f32 = dimensions[1].parse()?;
-    let height: f32 = dimensions[2].parse()?;
+    let dimensions = mermaid_rs_renderer::measure_svg_dimensions(&layout, &options.layout, None);
+    let (width, height) = (dimensions.viewbox_width, dimensions.viewbox_height);
     validate_size(width, height)?;
+    let mut svg = mermaid_rs_renderer::render_svg(&layout, &options.theme, &options.layout);
+    // Renderer 0.3.1 also uses theme.background for diagram elements. Remove
+    // only its canvas rectangles, including the extra layer in timeline and XY.
+    let background = &options.theme.background;
+    let mut remove_canvas = |rect: String| -> Result<()> {
+        let start = svg.find(&rect).context("图表缺少预期的画布背景")?;
+        svg.replace_range(start..start + rect.len(), "");
+        Ok(())
+    };
+    remove_canvas(format!(
+        r#"<rect x="{}" y="{}" width="{width}" height="{height}" fill="{background}"/>"#,
+        dimensions.viewbox_x, dimensions.viewbox_y
+    ))?;
+    use mermaid_rs_renderer::DiagramKind;
+    if matches!(layout.kind, DiagramKind::Timeline | DiagramKind::XYChart) {
+        remove_canvas(format!(
+            r#"<rect x="0" y="0" width="{:.2}" height="{:.2}" fill="{background}"/>"#,
+            layout.width, layout.height
+        ))?;
+    }
     Ok(Graphic {
         svg: svg.into_bytes().into(),
         width,
@@ -322,6 +337,42 @@ mod tests {
             }
         }
         assert!(prepare(Kind::Mermaid, "flowchart TD\ninvalid -->", true).is_err());
+    }
+
+    #[test]
+    fn diagram_canvas_is_transparent_and_content_keeps_its_fills() {
+        let flowchart = "flowchart LR\nA -->|label| B\nstyle A fill:#abcdef";
+        for light in [true, false] {
+            for source in [
+                flowchart,
+                "timeline\n2026 : Event",
+                "xychart-beta\nx-axis [a]\nbar [1]",
+            ] {
+                let asset = prepare(Kind::Mermaid, source, light).unwrap();
+                let svg = std::str::from_utf8(&asset.svg).unwrap();
+                let doc = roxmltree::Document::parse(svg).unwrap();
+                let rects = doc.descendants().filter(|node| node.has_tag_name("rect"));
+                for rect in rects.clone() {
+                    let size = |name| rect.attribute(name).and_then(|v| v.parse::<f32>().ok());
+                    assert!(
+                        !(size("width").is_some_and(|w| (w - asset.width).abs() < 0.01)
+                            && size("height").is_some_and(|h| (h - asset.height).abs() < 0.01)
+                            && rect.attribute("fill") != Some("none")),
+                        "opaque canvas in {source}"
+                    );
+                }
+                if source == flowchart {
+                    assert!(
+                        rects
+                            .clone()
+                            .any(|r| r.attribute("fill") == Some("#abcdef"))
+                    );
+                    let label_fill = if light { "#FFFFFF" } else { "#585858" };
+                    assert!(rects.clone().any(|r| r.has_attribute("data-label-kind")
+                        && r.attribute("fill") == Some(label_fill)));
+                }
+            }
+        }
     }
 
     #[test]
