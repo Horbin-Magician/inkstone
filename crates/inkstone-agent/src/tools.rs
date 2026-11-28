@@ -451,7 +451,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         (
             "search_notes",
-            "全文、标签与文件名检索；用不同关键词多轮检索",
+            "按正文或文件名检索笔记，可用不同关键词继续查找",
             json!({"query":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}}),
             vec!["query"],
         ),

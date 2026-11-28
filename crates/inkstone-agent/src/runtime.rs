@@ -618,7 +618,7 @@ mod tests {
         let call = json!({"type":"function_call","call_id":"call1","name":"read_note","arguments":"{\"path\":\"a.md\"}"});
         let original = vec![
             json!({"role":"system","content":SYSTEM}),
-            json!({"role":"user","content":"必须保留原有标签"}),
+            json!({"role":"user","content":"必须保留原有标题"}),
             json!({"role":"assistant","content":prose,"tool_calls":[{"id":"call1","type":"function","function":{"name":"read_note","arguments":"{\"path\":\"a.md\"}"}}],
                 "response_items":[reasoning, {"type":"message","id":"msg1","role":"assistant","content":[{"type":"output_text","text":prose}]}, call]}),
             json!({"role":"tool","tool_call_id":"call1","content":json!({"source":{"id":"S1"},"text":"正文".repeat(5000)}).to_string()}),
@@ -700,13 +700,13 @@ mod tests {
     fn compaction_keeps_user_constraints_and_tool_pairing() {
         let mut messages = vec![
             json!({"role":"system","content":SYSTEM}),
-            json!({"role":"user","content":"必须保留原有标签"}),
+            json!({"role":"user","content":"必须保留原有标题"}),
             json!({"role":"assistant","content":"a".repeat(10000),"tool_calls":[{"id":"call"}]}),
             json!({"role":"tool","tool_call_id":"call","content":json!({"source":{"id":"S1"},"text":"b".repeat(10000)}).to_string()}),
             json!({"role":"user","content":"继续"}),
         ];
         compact(&mut messages);
-        assert_eq!(messages[1]["content"], "必须保留原有标签");
+        assert_eq!(messages[1]["content"], "必须保留原有标题");
         assert_eq!(messages[3]["tool_call_id"], "call");
         assert!(messages[3]["content"].as_str().unwrap().contains("S1"));
         assert!(serde_json::to_vec(&messages).unwrap().len() < 5000);

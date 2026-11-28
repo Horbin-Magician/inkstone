@@ -18,7 +18,7 @@ fn main() -> anyhow::Result<()> {
             format!(
                 "# 项目 {i}\n\n#知识管理\n\n[[note-{}]]\n\n{}",
                 (i + 1) % count,
-                "## 研究记录\n\n讨论笔记检索、标签维护和版本恢复。\n\n".repeat(20)
+                "## 研究记录\n\n讨论笔记检索、属性维护和版本恢复。\n\n".repeat(20)
             ),
         )?;
     }
