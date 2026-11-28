@@ -4,12 +4,7 @@ use std::sync::{Arc, Mutex};
 
 pub const FONT_SIZE: f32 = 20.;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Kind {
-    InlineMath,
-    BlockMath,
-    Mermaid,
-}
+pub use crate::preview::GraphicKind as Kind;
 
 #[derive(Clone, Debug)]
 pub struct Graphic {

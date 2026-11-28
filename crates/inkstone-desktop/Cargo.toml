@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 inkstone-agent.workspace = true
-inkstone-core.workspace = true
+inkstone-core = { workspace = true, features = ["graphics"] }
 gpui.workspace = true
 gpui-component.workspace = true
 gpui-base.workspace = true

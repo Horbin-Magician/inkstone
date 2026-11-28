@@ -18,7 +18,7 @@ semver = "=1.0.28"
 tempfile = "=3.27.0"
 roxmltree = "=0.21.1"
 reqwest = { version = "=0.12.28", default-features = false, features = ["blocking", "rustls-tls"] }
-inkstone-core = { path = "crates/inkstone-core" }
+inkstone-core = { path = "crates/inkstone-core", default-features = false }
 gpui = { package = "gpui-pre", version = "=0.3.7" }
 gpui-component = { version = "=0.7.0", features = [
     "tree-sitter-bash", "tree-sitter-c", "tree-sitter-cpp", "tree-sitter-css",

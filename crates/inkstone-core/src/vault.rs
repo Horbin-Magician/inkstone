@@ -2,6 +2,7 @@
 pub mod attachments;
 pub mod backup;
 pub mod drafts;
+#[cfg(feature = "graphics")]
 pub mod export;
 mod file_lock;
 mod history;

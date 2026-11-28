@@ -48,6 +48,8 @@ cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 ```
 
+单独运行 `cargo test --locked -p inkstone-agent` 可验证 Agent，并跳过公式和 Mermaid 渲染依赖。桌面构建显式启用核心库的 `graphics` 功能，用于原生预览和笔记导出。
+
 只验证核心逻辑可运行 `cargo test --locked -p inkstone-core`。运行万篇笔记的核心基准可用 `cargo run --release --locked -p inkstone-core --example benchmark -- 10000`。桌面 CI 在 macOS 和 Windows 上运行工作区检查。原生验收范围见 [验证指南](docs/TESTING.md)。
 
 macOS 本地开发可运行以下命令生成并打开应用包。发行构建、签名、公证与校验步骤见 [原生打包指南](packaging/README.md)。

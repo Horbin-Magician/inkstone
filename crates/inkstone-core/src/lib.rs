@@ -3,6 +3,7 @@ mod changed_range;
 pub mod changes;
 pub mod comments;
 pub mod file_order;
+#[cfg(feature = "graphics")]
 pub mod graphics;
 pub mod heading_numbers;
 pub mod index;

@@ -8,6 +8,13 @@ use std::{
     sync::Arc,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GraphicKind {
+    InlineMath,
+    BlockMath,
+    Mermaid,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Role {
     Content,
@@ -224,7 +231,7 @@ pub struct Fragment {
     pub document: crate::rendering::ReadingDocument,
     pub numbers: BTreeMap<String, usize>,
     pub targets: Vec<(usize, std::path::PathBuf, usize)>,
-    pub graphic: Option<(crate::graphics::Kind, String)>,
+    pub graphic: Option<(GraphicKind, String)>,
 }
 
 /// Resolve one retained content candidate using the same representation as the
@@ -271,17 +278,16 @@ pub fn content_document(
 // Index once: looking up each formula by walking the entire AST makes opening
 // a note quadratic in its formula count. Exact ranges exclude nested graphics
 // owned by a table, callout, or footnote footer.
-fn graphics(node: &Node, out: &mut BTreeMap<(usize, usize), (crate::graphics::Kind, String)>) {
-    use crate::graphics::Kind;
+fn graphics(node: &Node, out: &mut BTreeMap<(usize, usize), (GraphicKind, String)>) {
     let graphic = match node {
-        Node::InlineMath(n) => Some((Kind::InlineMath, &n.value)),
-        Node::Math(n) => Some((Kind::BlockMath, &n.value)),
+        Node::InlineMath(n) => Some((GraphicKind::InlineMath, &n.value)),
+        Node::Math(n) => Some((GraphicKind::BlockMath, &n.value)),
         Node::Code(n)
             if n.lang
                 .as_deref()
                 .is_some_and(|l| l.eq_ignore_ascii_case("mermaid")) =>
         {
-            Some((Kind::Mermaid, &n.value))
+            Some((GraphicKind::Mermaid, &n.value))
         }
         _ => None,
     };
@@ -782,7 +788,7 @@ mod tests {
         assert!(
             graphics
                 .iter()
-                .any(|f| { f.graphic.as_ref().unwrap().0 == crate::graphics::Kind::Mermaid })
+                .any(|f| { f.graphic.as_ref().unwrap().0 == GraphicKind::Mermaid })
         );
         for fragment in graphics {
             let range = fragment.candidate.source.clone();
@@ -825,9 +831,9 @@ mod tests {
             assert_eq!(
                 fragment.graphic.as_ref().unwrap().0,
                 if block {
-                    crate::graphics::Kind::BlockMath
+                    GraphicKind::BlockMath
                 } else {
-                    crate::graphics::Kind::InlineMath
+                    GraphicKind::InlineMath
                 }
             );
             assert!(fragment.document.source_matches(path, source));
@@ -846,7 +852,7 @@ mod tests {
         assert_eq!(fragments.len(), 3);
         assert_eq!(
             fragments[0].graphic,
-            Some((crate::graphics::Kind::InlineMath, "x".into()))
+            Some((GraphicKind::InlineMath, "x".into()))
         );
         assert!(fragments[1..].iter().all(|f| f.graphic.is_none()));
         assert!(fragments[1].document.markdown.contains("$y$"));

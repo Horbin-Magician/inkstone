@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = ["graphics"]
+graphics = ["dep:mermaid-rs-renderer", "dep:ratex-layout", "dep:ratex-parser", "dep:ratex-svg", "dep:ratex-types"]
+
 [dependencies]
 semver.workspace = true
 tempfile.workspace = true
@@ -22,11 +26,11 @@ regex.workspace = true
 chrono.workspace = true
 similar.workspace = true
 sha2.workspace = true
-ratex-parser.workspace = true
-ratex-layout.workspace = true
-ratex-types.workspace = true
-ratex-svg.workspace = true
-mermaid-rs-renderer.workspace = true
+ratex-parser = { workspace = true, optional = true }
+ratex-layout = { workspace = true, optional = true }
+ratex-types = { workspace = true, optional = true }
+ratex-svg = { workspace = true, optional = true }
+mermaid-rs-renderer = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
