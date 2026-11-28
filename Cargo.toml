@@ -5,7 +5,7 @@ default-members = ["crates/inkstone-core", "crates/inkstone-desktop", "crates/in
 exclude = ["vendor/gpui-base", "vendor/gpui-component", "vendor/markdown"]
 
 [workspace.package]
-version = "0.5.3"
+version = "0.6.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
