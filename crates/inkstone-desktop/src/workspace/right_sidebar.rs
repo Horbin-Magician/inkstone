@@ -1,9 +1,9 @@
-//! Right sidebar: outline, links, tags and properties.
+//! Right sidebar: outline, links and properties.
 use super::ui::{icon, tool};
 use super::*;
 use crate::theme::MIN_UI_FONT_SIZE;
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_component::{Disableable, Selectable, button::*, list::ListItem};
+use gpui_component::{Selectable, button::*, list::ListItem};
 use std::rc::Rc;
 
 type OutlineKey = Rc<(PathBuf, Vec<inkstone_core::index::Heading>)>;
@@ -117,10 +117,9 @@ impl Workspace {
         show_toggle: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        const MODES: [(usize, &str, &str); 5] = [
+        const MODES: [(usize, &str, &str); 4] = [
             (0, "list", "大纲"),
             (1, "links", "链接"),
-            (3, "tags", "标签"),
             (4, "inbox", "属性"),
             (5, "sparkles", "Agent"),
         ];
@@ -193,11 +192,8 @@ impl Workspace {
                             .tooltip(label)
                             .w(px(BUTTON_WIDTH))
                             .h(px(28.))
-                            .on_click(cx.listener(move |this, _, w, cx| {
+                            .on_click(cx.listener(move |this, _, _, cx| {
                                 this.ui.right_mode = i;
-                                if i == 3 {
-                                    w.focus(&this.ui.tags_focus, cx);
-                                }
                                 cx.notify();
                             })),
                     )
@@ -222,12 +218,9 @@ impl Workspace {
                                             PopupMenuItem::new(label)
                                                 .icon(icon(ico))
                                                 .checked(selected == i)
-                                                .on_click(move |_, window, cx| {
+                                                .on_click(move |_, _, cx| {
                                                     let _ = weak.update(cx, |this, cx| {
                                                         this.ui.right_mode = i;
-                                                        if i == 3 {
-                                                            window.focus(&this.ui.tags_focus, cx);
-                                                        }
                                                         cx.notify();
                                                     });
                                                 }),
@@ -244,7 +237,7 @@ impl Workspace {
             })
             .into_any_element()
     }
-    pub(super) fn right_panel(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn right_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
         if self.ui.right_mode == 5 {
             return div()
                 .id("workspace-right-panel")
@@ -608,17 +601,13 @@ impl Workspace {
                                 .get(&name.to_lowercase())
                                 .copied()
                                 .unwrap_or_else(|| inkstone_core::properties::Kind::infer(&value));
-                            let symbol = if name == "tags" {
-                                "tags"
-                            } else {
-                                match kind {
-                                    inkstone_core::properties::Kind::Number => "hash",
-                                    inkstone_core::properties::Kind::Checkbox => "check-square",
-                                    inkstone_core::properties::Kind::Date
-                                    | inkstone_core::properties::Kind::DateTime => "calendar",
-                                    inkstone_core::properties::Kind::List => "list",
-                                    _ => "text",
-                                }
+                            let symbol = match kind {
+                                inkstone_core::properties::Kind::Number => "hash",
+                                inkstone_core::properties::Kind::Checkbox => "check-square",
+                                inkstone_core::properties::Kind::Date
+                                | inkstone_core::properties::Kind::DateTime => "calendar",
+                                inkstone_core::properties::Kind::List => "list",
+                                _ => "text",
                             };
                             let display = match serde_json::from_str::<serde_json::Value>(&value) {
                                 Ok(serde_json::Value::String(text)) => text,
@@ -685,294 +674,7 @@ impl Workspace {
                                     cx.listener(|this, _, w, cx| this.edit_property("", "", w, cx)),
                                 ),
                         )
-                    })
-                    .when(self.ui.right_mode == 3, |s| {
-                        s.child(self.tags_panel(window, cx))
                     }),
-            )
-            .into_any_element()
-    }
-}
-
-impl Workspace {
-    pub(super) fn navigate_tags(
-        &mut self,
-        key: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        self.navigate_tags_modified(key, false, window, cx)
-    }
-    fn navigate_tags_modified(
-        &mut self,
-        key: &str,
-        combine: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        use inkstone_core::tags::{Navigation, rows};
-        let action = inkstone_core::tags::navigate(
-            &rows(&self.index, &self.ui.prefs.tags),
-            self.ui.tags_selected.as_deref(),
-            key,
-        );
-        match action {
-            Navigation::None => return false,
-            Navigation::Select(tag) => self.ui.tags_selected = Some(tag.to_lowercase()),
-            Navigation::Fold(tag, collapsed) => {
-                let key = tag.to_lowercase();
-                self.ui.tags_selected = Some(key.clone());
-                if collapsed {
-                    self.ui.prefs.tags.collapsed.insert(key);
-                } else {
-                    self.ui.prefs.tags.collapsed.remove(&key);
-                }
-                self.persist_workspace(cx);
-            }
-            Navigation::Open(tag) => {
-                self.search_tag(&tag, combine, window, cx);
-            }
-        }
-        if let Some(i) = rows(&self.index, &self.ui.prefs.tags)
-            .iter()
-            .position(|row| Some(row.tag.to_lowercase()) == self.ui.tags_selected)
-        {
-            self.ui.tags_scroll.scroll_to_item(i);
-        }
-        cx.notify();
-        true
-    }
-    pub(super) fn search_tag(
-        &mut self,
-        tag: &str,
-        combine: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let current = if self.fulltext {
-            self.search.read(cx).value().to_string()
-        } else {
-            self.ui.prefs.search_query.clone()
-        };
-        let query = inkstone_core::tags::search_query(&current, tag, combine);
-        self.ui.prefs.search_query = query.clone();
-        self.search
-            .update(cx, |s, cx| s.set_value(query, window, cx));
-        self.focus_search(true, window, cx);
-    }
-    fn tags_panel(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        use inkstone_core::tags::{Sort, rows};
-        let options = &self.ui.prefs.tags;
-        let items = rows(&self.index, options);
-        let sort = options.sort;
-        let weak = cx.entity().downgrade();
-        let sorting =
-            tool("tags-sort", "arrow-up-down", "标签排序").dropdown_menu(move |mut menu, _, _| {
-                for (value, label) in [
-                    (Sort::Name, "标签名（升序）"),
-                    (Sort::NameDescending, "标签名（降序）"),
-                    (Sort::Frequency, "使用次数（从多到少）"),
-                    (Sort::FrequencyAscending, "使用次数（从少到多）"),
-                ] {
-                    let weak = weak.clone();
-                    menu = menu.item(PopupMenuItem::new(label).checked(sort == value).on_click(
-                        move |_, _, cx| {
-                            let _ = weak.update(cx, |this, cx| {
-                                this.ui.prefs.tags.sort = value;
-                                this.persist_workspace(cx);
-                                cx.notify();
-                            });
-                        },
-                    ));
-                }
-                menu
-            });
-        div()
-            .track_focus(&self.ui.tags_focus)
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
-                if this.ui.tags_focus.is_focused(w)
-                    && this.navigate_tags_modified(
-                        &event.keystroke.key,
-                        event.keystroke.modifiers.control,
-                        w,
-                        cx,
-                    )
-                {
-                    cx.stop_propagation();
-                }
-            }))
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .pb_2()
-                    .child(sorting)
-                    .child(
-                        tool("tags-hierarchy", "network", "显示嵌套标签")
-                            .toggled(options.hierarchy)
-                            .selected(options.hierarchy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.ui.prefs.tags.hierarchy = !this.ui.prefs.tags.hierarchy;
-                                this.persist_workspace(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        tool("tags-collapse", "fold-vertical", "全部展开或折叠")
-                            .disabled(!options.hierarchy)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let mut expanded = this.ui.prefs.tags.clone();
-                                expanded.collapsed.clear();
-                                expanded.show_filter = false;
-                                let parents: std::collections::BTreeSet<_> =
-                                    rows(&this.index, &expanded)
-                                        .into_iter()
-                                        .filter(|row| row.children)
-                                        .map(|row| row.tag.to_lowercase())
-                                        .collect();
-                                if parents.is_subset(&this.ui.prefs.tags.collapsed) {
-                                    this.ui.prefs.tags.collapsed.clear();
-                                } else {
-                                    this.ui.prefs.tags.collapsed = parents;
-                                }
-                                this.persist_workspace(cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        tool("tags-filter", "search", "筛选标签")
-                            .toggled(options.show_filter)
-                            .selected(options.show_filter)
-                            .on_click(cx.listener(|this, _, w, cx| {
-                                this.ui.prefs.tags.show_filter = !this.ui.prefs.tags.show_filter;
-                                if this.ui.prefs.tags.show_filter {
-                                    this.ui.tags_filter.update(cx, |s, cx| s.focus(w, cx));
-                                } else {
-                                    this.ui.prefs.tags.query.clear();
-                                    this.ui
-                                        .tags_filter
-                                        .update(cx, |s, cx| s.set_value("", w, cx));
-                                }
-                                this.persist_workspace(cx);
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .when(options.show_filter, |s| {
-                s.child(
-                    div()
-                        .on_key_down(cx.listener(|this, event: &KeyDownEvent, w, cx| {
-                            if event.keystroke.key == "down" {
-                                w.focus(&this.ui.tags_focus, cx);
-                                this.navigate_tags("down", w, cx);
-                                cx.stop_propagation();
-                            }
-                        }))
-                        .child(Input::new(&self.ui.tags_filter)),
-                )
-            })
-            .when_some(
-                if options.show_filter {
-                    inkstone_core::search::Query::parse(&options.query).err()
-                } else {
-                    None
-                },
-                |s, error| {
-                    s.child(
-                        div()
-                            .text_size(px(MIN_UI_FONT_SIZE))
-                            .text_color(crate::theme::palette(self.ui.prefs.light).danger)
-                            .child(error),
-                    )
-                },
-            )
-            .when(items.is_empty(), |s| {
-                s.child(
-                    div()
-                        .text_size(px(MIN_UI_FONT_SIZE))
-                        .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                        .child(if options.show_filter && !options.query.trim().is_empty() {
-                            "未找到匹配标签"
-                        } else {
-                            "没有标签"
-                        }),
-                )
-            })
-            .child(
-                div()
-                    .id("tag-rows")
-                    .max_h((window.viewport_size().height - px(210.)).max(px(100.)))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.ui.tags_scroll)
-                    .children(items.into_iter().enumerate().map(|(i, row)| {
-                        let tag = row.tag;
-                        let fold_key = tag.to_lowercase();
-                        let label = if options.hierarchy {
-                            tag.rsplit('/').next().unwrap_or(&tag).to_string()
-                        } else {
-                            tag.clone()
-                        };
-                        let colors = crate::theme::palette(self.ui.prefs.light);
-                        div()
-                            .id(("tag", i))
-                            .when(
-                                self.ui.tags_selected.as_deref() == Some(fold_key.as_str()),
-                                |s| s.bg(colors.selected),
-                            )
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .h(px(27.))
-                            .text_size(px(MIN_UI_FONT_SIZE))
-                            .rounded(px(4.))
-                            .py_1()
-                            .pl(px(row.depth as f32 * 13.))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(colors.hover))
-                            .child(div().w(px(20.)).flex_shrink_0().when(row.children, |s| {
-                                s.child(
-                                    Button::new(("tag-fold", i))
-                                        .ghost()
-                                        .compact()
-                                        .w(px(20.))
-                                        .h(px(24.))
-                                        .icon(icon(if row.collapsed {
-                                            "chevron-right"
-                                        } else {
-                                            "chevron-down"
-                                        }))
-                                        .accessibility_label(format!("展开或折叠标签 {tag}"))
-                                        .on_click(cx.listener(move |this, _, w, cx| {
-                                            cx.stop_propagation();
-                                            this.ui.tags_selected = Some(fold_key.clone());
-                                            w.focus(&this.ui.tags_focus, cx);
-                                            if !this.ui.prefs.tags.collapsed.remove(&fold_key) {
-                                                this.ui
-                                                    .prefs
-                                                    .tags
-                                                    .collapsed
-                                                    .insert(fold_key.clone());
-                                            }
-                                            this.persist_workspace(cx);
-                                            cx.notify();
-                                        })),
-                                )
-                            }))
-                            .child(div().flex_1().min_w_0().truncate().child(label))
-                            .child(
-                                div()
-                                    .text_size(px(MIN_UI_FONT_SIZE))
-                                    .text_color(crate::theme::palette(self.ui.prefs.light).muted)
-                                    .child(row.count.to_string()),
-                            )
-                            .on_click(cx.listener(move |this, event: &ClickEvent, w, cx| {
-                                this.search_tag(&tag, event.modifiers().control, w, cx);
-                            }))
-                    })),
             )
             .into_any_element()
     }
@@ -1079,13 +781,12 @@ mod outline_tests {
             }
             let toolbar = visual.debug_bounds("right-header-tools").unwrap();
             assert!(visual.debug_bounds("right-mode-2").is_none());
-            let mut buttons: Vec<_> = (0..5)
+            let mut buttons: Vec<_> = (0..4)
                 .filter_map(|i| {
                     visual.debug_bounds(
                         [
                             "right-mode-0",
                             "right-mode-1",
-                            "right-mode-3",
                             "right-mode-4",
                             "right-mode-5",
                         ][i],
@@ -1093,7 +794,7 @@ mod outline_tests {
                 })
                 .collect();
             let more = visual.debug_bounds("right-mode-more");
-            assert_eq!(more.is_some(), buttons.len() < 5);
+            assert_eq!(more.is_some(), buttons.len() < 4);
             if !buttons.is_empty() {
                 assert!(visual.debug_bounds("right-mode-4").is_some());
             }
@@ -1111,7 +812,7 @@ mod outline_tests {
                 assert!(pair[0].right() <= pair[1].left());
             }
             if width == 500. {
-                assert_eq!(buttons.len(), 5);
+                assert_eq!(buttons.len(), 4);
                 assert!(more.is_none());
             }
         }
@@ -1143,13 +844,11 @@ mod outline_tests {
             visual.update(|window, cx| window.draw(cx).clear(cx));
         }
         let more = visual.debug_bounds("right-mode-more");
-        assert!(more.is_some() || !cfg!(target_os = "windows"));
         let Some(more) = more else {
             // If every mode fits, verify direct activation instead.
             for selector in [
                 "right-mode-0",
                 "right-mode-1",
-                "right-mode-3",
                 "right-mode-4",
                 "right-mode-5",
             ] {
@@ -1166,7 +865,6 @@ mod outline_tests {
         let first_hidden = [
             (0, "right-mode-0"),
             (1, "right-mode-1"),
-            (3, "right-mode-3"),
             (4, "right-mode-4"),
             (5, "right-mode-5"),
         ]

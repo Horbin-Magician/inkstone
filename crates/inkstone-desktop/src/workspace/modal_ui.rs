@@ -573,7 +573,7 @@ impl Workspace {
         use inkstone_core::properties::Kind;
         let reserved = matches!(
             self.ui.property_key.read(cx).value().as_ref(),
-            "tags" | "aliases" | "cssclasses"
+            "aliases" | "cssclasses"
         );
         let kind = self.effective_property_kind(cx);
         let weak = cx.entity().downgrade();

@@ -372,15 +372,11 @@ impl Workspace {
                             2 => 1,
                             mode => mode,
                         };
-                        this.ui.tags_selected = None;
                         this.ui.search_collapsed.clear();
                         this.ui.search_signature = None;
                         this.fulltext = this.ui.left_mode == 1;
                         this.search.update(cx, |s, cx| {
                             s.set_value(this.ui.prefs.search_query.clone(), window, cx)
-                        });
-                        this.ui.tags_filter.update(cx, |s, cx| {
-                            s.set_value(this.ui.prefs.tags.query.clone(), window, cx)
                         });
                         this.ui.link_update = None;
                         this.close_review_panels(window, cx);

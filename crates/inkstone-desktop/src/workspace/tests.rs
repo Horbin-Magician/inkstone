@@ -2434,8 +2434,9 @@ fn quick_switch_queries_do_not_replace_fulltext_search(cx: &mut TestAppContext) 
     handle
         .update(cx, |w, window, cx| {
             w.focus_search(true, window, cx);
-            w.search
-                .update(cx, |s, cx| s.set_value("tag:work file:note", window, cx));
+            w.search.update(cx, |s, cx| {
+                s.set_value("content:work file:note", window, cx)
+            });
             w.run_search(cx);
             w.focus_search(false, window, cx);
             assert!(w.search.read(cx).value().is_empty());
@@ -2443,59 +2444,13 @@ fn quick_switch_queries_do_not_replace_fulltext_search(cx: &mut TestAppContext) 
                 .update(cx, |s, cx| s.set_value("filename query", window, cx));
             w.run_search(cx);
             w.close_overlays(window, cx);
-            assert_eq!(w.search.read(cx).value().as_ref(), "tag:work file:note");
+            assert_eq!(w.search.read(cx).value().as_ref(), "content:work file:note");
             assert!(w.fulltext);
             w.focus_search(false, window, cx);
-            assert_eq!(w.ui.prefs.search_query, "tag:work file:note");
+            assert_eq!(w.ui.prefs.search_query, "content:work file:note");
             w.focus_search(false, window, cx);
             w.add_tab("note.md".into(), Some("body".into()), false, window, cx);
-            assert_eq!(w.search.read(cx).value().as_ref(), "tag:work file:note");
-        })
-        .unwrap();
-}
-#[gpui::test]
-fn tag_search_combines_fulltext_filters_but_not_quick_switch_queries(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    let handle = cx.add_window(Workspace::new);
-    handle
-        .update(cx, |w, window, cx| {
-            w.fulltext = true;
-            w.search
-                .update(cx, |s, cx| s.set_value("file:note", window, cx));
-            w.search_tag("work", true, window, cx);
-            assert_eq!(w.search.read(cx).value().as_ref(), "file:note tag:work");
-            w.search_tag("work", true, window, cx);
-            assert_eq!(w.search.read(cx).value().as_ref(), "file:note");
-            w.fulltext = false;
-            w.search
-                .update(cx, |s, cx| s.set_value("temporary filename", window, cx));
-            w.search_tag("home", true, window, cx);
-            assert_eq!(w.search.read(cx).value().as_ref(), "file:note tag:home");
-            assert!(w.fulltext);
-        })
-        .unwrap();
-}
-#[gpui::test]
-fn tag_navigation_folds_and_opens_selected_search(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    let handle = cx.add_window(Workspace::new);
-    handle
-        .update(cx, |w, window, cx| {
-            Arc::make_mut(&mut w.index).update("note.md".into(), "#work/one #work/two".into());
-            w.ui.right_mode = 3;
-            window.focus(&w.ui.tags_focus, cx);
-            assert!(w.navigate_tags("down", window, cx));
-            assert_eq!(w.ui.tags_selected.as_deref(), Some("work"));
-            w.navigate_tags("left", window, cx);
-            assert!(w.ui.prefs.tags.collapsed.contains("work"));
-            w.navigate_tags("right", window, cx);
-            assert!(!w.ui.prefs.tags.collapsed.contains("work"));
-            w.navigate_tags("right", window, cx);
-            assert_eq!(w.ui.tags_selected.as_deref(), Some("work/one"));
-            w.navigate_tags("enter", window, cx);
-            assert_eq!(w.search.read(cx).value().as_ref(), "tag:work/one");
-            assert!(w.fulltext);
-            assert_eq!(w.ui.left_mode, 1);
+            assert_eq!(w.search.read(cx).value().as_ref(), "content:work file:note");
         })
         .unwrap();
 }
@@ -5175,12 +5130,7 @@ fn session_restores_open_tabs_active_note_and_empty_folders(cx: &mut TestAppCont
         font_size: 20.,
         left_panel: 1,
         right_panel: 2, // Legacy outgoing links restore to the combined links panel.
-        search_query: "tag:work".into(),
-        tags: inkstone_core::tags::Options {
-            show_filter: true,
-            query: "work".into(),
-            ..Default::default()
-        },
+        search_query: "content:work".into(),
         ..Default::default()
     };
     prefs.save(&root.join(".inkstone-workspace.json")).unwrap();
@@ -5197,15 +5147,14 @@ fn session_restores_open_tabs_active_note_and_empty_folders(cx: &mut TestAppCont
             assert!(w.ui.prefs.light);
             assert_eq!(w.ui.left_mode, 1);
             assert_eq!(w.ui.right_mode, 1);
-            assert_eq!(w.ui.tags_filter.read(cx).value().as_ref(), "work");
             assert!(w.fulltext);
-            assert_eq!(w.search.read(cx).value().as_ref(), "tag:work");
+            assert_eq!(w.search.read(cx).value().as_ref(), "content:work");
             let tree = w.tree.read(cx);
             let id: SharedString = "空文件夹".into();
             assert!(tree.entry(tree.index_of(&id).unwrap()).unwrap().is_folder());
             w.watcher = None;
             w.ui.left_mode = 2;
-            w.ui.right_mode = 3;
+            w.ui.right_mode = 4;
             w.persist_workspace(cx);
         })
         .unwrap();
@@ -5213,7 +5162,7 @@ fn session_restores_open_tabs_active_note_and_empty_folders(cx: &mut TestAppCont
     let saved =
         inkstone_core::preferences::Preferences::load(&root.join(".inkstone-workspace.json"));
     assert_eq!(saved.left_panel, 2);
-    assert_eq!(saved.right_panel, 3);
+    assert_eq!(saved.right_panel, 4);
     std::fs::remove_dir_all(root).unwrap();
 }
 

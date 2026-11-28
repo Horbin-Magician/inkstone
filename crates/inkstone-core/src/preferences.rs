@@ -118,7 +118,6 @@ pub struct Preferences {
     pub backup: crate::vault::backup::Preferences,
     pub webdav: crate::vault::sync::Settings,
     pub history: crate::vault::Retention,
-    pub tags: crate::tags::Options,
     pub property_types: std::collections::BTreeMap<String, crate::properties::Kind>,
     pub hotkeys: std::collections::BTreeMap<usize, Vec<String>>,
     pub locations: crate::locations::Locations,
@@ -182,7 +181,6 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             saved_searches: vec![],
-            tags: Default::default(),
             backup: Default::default(),
             webdav: Default::default(),
             history: Default::default(),
@@ -288,7 +286,7 @@ impl Preferences {
         if value.left_panel > 2 {
             value.left_panel = 0;
         }
-        if value.right_panel > 4 {
+        if value.right_panel == 3 || value.right_panel > 4 {
             value.right_panel = 0;
         }
         (value, warning)
@@ -497,6 +495,8 @@ mod tests {
                 "templates": {"folder": "模板"},
                 "graph": {"node_size": 2},
                 "local_graph": {"depth": 3},
+                "tags": {"query": "work"},
+                "right_panel": 3,
                 "font_size": 21,
                 "open_paths": ["笔记.md"],
                 "bookmarks": ["收藏.md"],
@@ -507,6 +507,7 @@ mod tests {
         .unwrap();
         let prefs = Preferences::load(&path);
         assert_eq!(prefs.font_size, 21.);
+        assert_eq!(prefs.right_panel, 0);
         assert_eq!(prefs.open_paths, [PathBuf::from("笔记.md")]);
         assert_eq!(prefs.bookmarks, [PathBuf::from("收藏.md")]);
         prefs.save(&path).unwrap();
@@ -517,6 +518,7 @@ mod tests {
             "templates",
             "graph",
             "local_graph",
+            "tags",
             "show_ribbon",
             "ribbon_commands",
         ] {
@@ -663,11 +665,6 @@ mod tests {
         prefs.search_case_sensitive = true;
         prefs.search_sort_by = crate::file_order::SortBy::Modified;
         prefs.search_descending = true;
-        prefs.tags.hierarchy = false;
-        prefs.tags.sort = crate::tags::Sort::NameDescending;
-        prefs.tags.collapsed.insert("work".into());
-        prefs.tags.show_filter = true;
-        prefs.tags.query = "项目".into();
         prefs.left_panel = 2;
         prefs.right_panel = 4;
         prefs
@@ -720,14 +717,6 @@ mod tests {
             crate::file_order::SortBy::Modified
         );
         assert!(Preferences::load(&path).search_descending);
-        assert!(!Preferences::load(&path).tags.hierarchy);
-        assert_eq!(
-            Preferences::load(&path).tags.sort,
-            crate::tags::Sort::NameDescending
-        );
-        assert!(Preferences::load(&path).tags.collapsed.contains("work"));
-        assert!(Preferences::load(&path).tags.show_filter);
-        assert_eq!(Preferences::load(&path).tags.query, "项目");
         assert_eq!(Preferences::load(&path).left_panel, 2);
         assert_eq!(Preferences::load(&path).right_panel, 4);
         assert_eq!(

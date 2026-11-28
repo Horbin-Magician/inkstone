@@ -426,7 +426,7 @@ impl Workspace {
         self.ui
             .property_list_entry
             .update(cx, |s, cx| s.set_value("", w, cx));
-        self.ui.property_kind = if matches!(name, "tags" | "aliases" | "cssclasses") {
+        self.ui.property_kind = if matches!(name, "aliases" | "cssclasses") {
             inkstone_core::properties::Kind::List
         } else {
             self.ui
@@ -468,7 +468,7 @@ impl Workspace {
     ) -> inkstone_core::properties::Kind {
         if matches!(
             self.ui.property_key.read(cx).value().as_ref(),
-            "tags" | "aliases" | "cssclasses"
+            "aliases" | "cssclasses"
         ) {
             inkstone_core::properties::Kind::List
         } else {
@@ -671,7 +671,7 @@ impl Workspace {
                 .and_then(|name| inkstone_core::properties::remove(&text, name))
         } else {
             let key = self.ui.property_key.read(cx).value();
-            let kind = if matches!(key.as_ref(), "tags" | "aliases" | "cssclasses") {
+            let kind = if matches!(key.as_ref(), "aliases" | "cssclasses") {
                 inkstone_core::properties::Kind::List
             } else {
                 self.ui.property_kind
@@ -690,7 +690,7 @@ impl Workspace {
             Ok(text) => {
                 if !delete {
                     let key = self.ui.property_key.read(cx).value().to_lowercase();
-                    let kind = if matches!(key.as_str(), "tags" | "aliases" | "cssclasses") {
+                    let kind = if matches!(key.as_str(), "aliases" | "cssclasses") {
                         inkstone_core::properties::Kind::List
                     } else {
                         self.ui.property_kind

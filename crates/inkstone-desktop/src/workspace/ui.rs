@@ -180,14 +180,10 @@ pub(super) struct UiState {
     pub property_key: Entity<InputState>,
     pub property_value: Entity<InputState>,
     pub property_list_entry: Entity<InputState>,
-    pub tags_filter: Entity<InputState>,
     pub outline_filter: Entity<InputState>,
     pub outline_filter_open: bool,
     pub outline: super::right_sidebar::OutlineState,
     _outline_filter_subscription: Subscription,
-    pub tags_focus: FocusHandle,
-    pub tags_selected: Option<String>,
-    pub tags_scroll: ScrollHandle,
     pub search_collapsed: std::collections::BTreeSet<PathBuf>,
     pub search_group_scroll: ScrollHandle,
     pub search_group_query: String,
@@ -197,7 +193,6 @@ pub(super) struct UiState {
     pub search_drafts_changed: bool,
     pub search_error: String,
     pub search_signature: Option<(String, bool, SortBy, bool)>,
-    _tags_filter_subscription: Subscription,
     _property_list_subscription: Subscription,
     pub trash_open: bool,
     pub recovery_source: super::recovery_ui::Source,
@@ -342,8 +337,8 @@ impl UiState {
         );
         let workspace_focus = cx.focus_handle();
         window.focus(&workspace_focus, cx);
-        let property_key = cx
-            .new(|cx| InputState::new(window, cx).placeholder("属性名，如 tags、aliases、status"));
+        let property_key =
+            cx.new(|cx| InputState::new(window, cx).placeholder("属性名，如 aliases、status"));
         let property_value = cx.new(|cx| {
             InputState::new(window, cx).placeholder("属性值；列表用逗号分隔，项目内含逗号时加引号")
         });
@@ -357,21 +352,10 @@ impl UiState {
                     cx.notify();
                 }
             });
-        let tags_filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛选标签…"));
         let outline_filter = cx.new(|cx| InputState::new(window, cx).placeholder("筛选大纲…"));
         let outline_filter_subscription =
             cx.subscribe(&outline_filter, |_, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
-                    cx.notify();
-                }
-            });
-        let tags_filter_subscription =
-            cx.subscribe(&tags_filter, |this, input, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    this.ui.prefs.tags.query = input.read(cx).value().to_string();
-                    this.ui.tags_selected = None;
-                    this.ui.tags_scroll.set_offset(Point::default());
-                    this.persist_workspace(cx);
                     cx.notify();
                 }
             });
@@ -542,14 +526,10 @@ impl UiState {
             property_key,
             property_value,
             property_list_entry,
-            tags_filter,
             outline_filter,
             outline_filter_open: false,
             outline: Default::default(),
             _outline_filter_subscription: outline_filter_subscription,
-            tags_focus: cx.focus_handle(),
-            tags_selected: None,
-            tags_scroll: ScrollHandle::new(),
             search_collapsed: Default::default(),
             search_group_scroll: ScrollHandle::new(),
             search_group_query: String::new(),
@@ -559,7 +539,6 @@ impl UiState {
             search_has_more: false,
             search_error: String::new(),
             search_signature: None,
-            _tags_filter_subscription: tags_filter_subscription,
             _property_list_subscription: property_list_subscription,
             trash_open: false,
             recovery_source: Default::default(),
@@ -804,7 +783,6 @@ pub(super) fn icon(name: &str) -> Icon {
         ),
         "cloud" => Some("M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6 19z"),
         "info" => Some("M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"),
-        "tags" => Some("M3 3h8l10 10-8 8L3 11zM7 7h.01"),
         "pencil" => Some("M16 3l5 5-13 13H3v-5zM13 6l5 5"),
         "message-square-plus" => {
             Some("M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM12 7v6M9 10h6")
@@ -2315,7 +2293,7 @@ impl Render for Workspace {
                     .size(px(self.ui.prefs.right_width))
                     .flex_none()
                     .size_range(px(right_min)..px(500.))
-                    .child(self.right_panel(_window, cx)),
+                    .child(self.right_panel(cx)),
             )
         })
         .on_resize_end(move |state, divider, position, window, cx| {
