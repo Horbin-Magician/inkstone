@@ -27,18 +27,17 @@ impl Reader {
                 return;
             };
             let Some(quote) = self
-                .visible
-                .as_ref()
+                .active_page()
                 .and_then(|p| p.text.text.get(range.clone()))
                 .filter(|text| !text.trim().is_empty())
             else {
                 return;
             };
-            if old.is_some_and(|m| m.page != self.page || m.quote != quote) {
+            if old.is_some_and(|m| m.page != self.selected_page || m.quote != quote) {
                 return;
             }
             Some(Mark {
-                page: self.page,
+                page: self.selected_page,
                 bytes: range,
                 quote: quote.into(),
                 style,
@@ -64,10 +63,11 @@ impl Reader {
     }
 
     pub(super) fn markup_bar(&self, cx: &mut Context<Self>) -> Div {
-        let can_save = self.visible.as_ref().is_some_and(|page| {
+        let can_save = self.active_page().is_some_and(|page| {
             if let Some(index) = self.editing {
                 let m = &self.annotations[index];
-                m.page == self.page && page.text.text.get(m.bytes.clone()) == Some(&m.quote)
+                m.page == self.selected_page
+                    && page.text.text.get(m.bytes.clone()) == Some(&m.quote)
             } else {
                 self.selection
                     .clone()
@@ -141,7 +141,7 @@ impl Reader {
             }
         } else if self.editing.is_none() {
             bar = bar.child("选中文字以添加标记");
-        } else if self.visible.is_some() {
+        } else if self.active_page().is_some() {
             bar = bar.child("原文已变化");
         }
         if self.editing.is_some() {
@@ -188,7 +188,8 @@ impl Reader {
                     })
                     .on_click(cx.listener(move |this, _, w, cx| {
                         if (0..this.count).contains(&this.annotations[i].page) {
-                            this.page = this.annotations[i].page;
+                            this.navigate(this.annotations[i].page);
+                            this.selected_page = this.annotations[i].page;
                             this.reveal = Some(this.annotations[i].bytes.clone());
                         }
                         this.selection = None;

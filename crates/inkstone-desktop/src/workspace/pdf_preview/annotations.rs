@@ -52,6 +52,23 @@ impl Store {
         Self(pdf.with_file_name(name))
     }
 
+    pub(super) fn position(&self) -> super::Position {
+        File::open(self.0.with_extension("position"))
+            .ok()
+            .and_then(|f| serde_json::from_reader::<_, super::Position>(f).ok())
+            .filter(|p| p.page >= 0 && (0.25..=4.).contains(&p.zoom))
+            .unwrap_or_default()
+    }
+
+    pub(super) fn save_position(&self, position: &super::Position) -> Result<()> {
+        let mut temp = tempfile::Builder::new()
+            .prefix(".inkstone-")
+            .tempfile_in(self.0.parent().unwrap())?;
+        serde_json::to_writer(temp.as_file_mut(), position)?;
+        temp.persist(self.0.with_extension("position"))?;
+        Ok(())
+    }
+
     pub fn read(&self) -> Result<Vec<Mark>> {
         match File::open(&self.0) {
             Ok(file) => Ok(serde_json::from_reader(file)?),

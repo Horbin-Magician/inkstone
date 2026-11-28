@@ -1,5 +1,8 @@
 //! On-demand PDF page rendering, text search and annotations.
 mod annotations;
+mod layout;
+use layout::{Layout, Position};
+use std::collections::BTreeMap;
 mod markup_ui;
 use annotations::{Color, Mark, Store, Style};
 mod search;
@@ -42,7 +45,6 @@ struct Page {
     text: TextLayer,
     image: Arc<RenderImage>,
     aspect: f32,
-    count: i32,
 }
 
 fn render_page(doc: &PdfDocument<'_>, request: Request) -> anyhow::Result<Page> {
@@ -65,15 +67,16 @@ fn render_page(doc: &PdfDocument<'_>, request: Request) -> anyhow::Result<Page> 
         text: TextLayer::read(&page, &config, bitmap.width(), bitmap.height()),
         image: Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])),
         aspect,
-        count: doc.pages().len(),
     })
 }
 
 enum Command {
+    Layout,
     Render(Request),
     Search(u64, String),
 }
 enum Response {
+    Layout(Result<Layout, String>),
     Page(Request, Result<Arc<Page>, String>),
     Matches(u64, Result<Vec<Hit>, String>),
 }
@@ -110,10 +113,19 @@ fn worker(
             let Ok(command) = requests.recv() else { break };
             Some(command)
         };
-        let mut render = None;
+        let mut render = Vec::new();
         for command in first.into_iter().chain(requests.try_iter()) {
             match command {
-                Command::Render(request) => render = Some(request),
+                Command::Layout => {
+                    let layout = document
+                        .as_ref()
+                        .map_err(Clone::clone)
+                        .and_then(|doc| Layout::read(doc).map_err(|e| e.to_string()));
+                    if results.send_blocking(Response::Layout(layout)).is_err() {
+                        return;
+                    }
+                }
+                Command::Render(request) => render.push(request),
                 Command::Search(id, query) => {
                     scan = None;
                     if !query.is_empty() {
@@ -132,7 +144,7 @@ fn worker(
                 }
             }
         }
-        let Some(request) = render else {
+        if render.is_empty() {
             if let Some(mut current) = scan.take() {
                 let done = document
                     .as_ref()
@@ -152,23 +164,25 @@ fn worker(
             }
             continue;
         };
-        let result = document.as_ref().map_err(Clone::clone).and_then(|doc| {
-            if let Some(pos) = cache.iter().position(|(key, _)| *key == request) {
-                let (_, page) = cache.remove(pos).unwrap();
+        for request in render {
+            let result = document.as_ref().map_err(Clone::clone).and_then(|doc| {
+                if let Some(pos) = cache.iter().position(|(key, _)| *key == request) {
+                    let (_, page) = cache.remove(pos).unwrap();
+                    cache.push_front((request, page.clone()));
+                    return Ok(page);
+                }
+                let page =
+                    Arc::new(render_page(doc, request).map_err(|e| format!("无法显示此页：{e}"))?);
+                cache.truncate(1);
                 cache.push_front((request, page.clone()));
-                return Ok(page);
+                Ok(page)
+            });
+            if results
+                .send_blocking(Response::Page(request, result))
+                .is_err()
+            {
+                return;
             }
-            let page =
-                Arc::new(render_page(doc, request).map_err(|e| format!("无法显示此页：{e}"))?);
-            cache.truncate(1);
-            cache.push_front((request, page.clone()));
-            Ok(page)
-        });
-        if results
-            .send_blocking(Response::Page(request, result))
-            .is_err()
-        {
-            break;
         }
     }
 }
@@ -190,16 +204,25 @@ pub(super) struct Reader {
     mark_error: Option<String>,
     search_status: String,
     _query_events: Subscription,
-    bounds: Rc<Cell<Bounds<Pixels>>>,
+    layout: Option<Layout>,
+    pages: BTreeMap<i32, Result<Arc<Page>, String>>,
+    in_flight: std::collections::BTreeSet<i32>,
+    wanted: Range<i32>,
+    render_width: i32,
+    position: Position,
+    position_dirty: bool,
+    save_position: Option<Task<()>>,
+    seek: bool,
+    selected_page: i32,
     selection: Option<Range<usize>>,
     anchor: Option<Range<usize>>,
     requests: std::sync::mpsc::Sender<Command>,
-    pending: Option<Request>,
+
     page: i32,
     count: i32,
     zoom: f32,
     width: f32,
-    visible: Option<Arc<Page>>,
+
     scroll: ScrollHandle,
     error: Option<String>,
 }
@@ -224,8 +247,24 @@ impl Reader {
             while let Ok(response) = results.recv().await {
                 if this
                     .update(cx, |reader: &mut Self, cx| {
-                        let (request, result) = match response {
-                            Response::Page(request, result) => (request, result),
+                        match response {
+                            Response::Layout(result) => match result {
+                                Ok(layout) => {
+                                    reader.count = layout.count();
+                                    reader.page =
+                                        reader.page.clamp(0, reader.count.saturating_sub(1));
+                                    reader.layout = Some(layout);
+                                }
+                                Err(message) => reader.error = Some(message),
+                            },
+                            Response::Page(request, result) => {
+                                if reader.render_width == request.width
+                                    && reader.wanted.contains(&request.page)
+                                {
+                                    reader.in_flight.remove(&request.page);
+                                    reader.pages.insert(request.page, result);
+                                }
+                            }
                             Response::Matches(id, result) => {
                                 if id == reader.generation {
                                     match result {
@@ -247,20 +286,6 @@ impl Reader {
                                 return;
                             }
                         };
-                        if reader.pending != Some(request) {
-                            return;
-                        }
-                        if let Some(old) = reader.visible.take() {
-                            cx.drop_image(old.image.clone(), None);
-                        }
-                        match result {
-                            Ok(page) => {
-                                reader.count = page.count;
-                                reader.visible = Some(page);
-                                reader.error = None;
-                            }
-                            Err(message) => reader.error = Some(message),
-                        }
                         cx.notify();
                     })
                     .is_err()
@@ -271,7 +296,8 @@ impl Reader {
         })
         .detach();
         cx.on_release(|reader, cx| {
-            if let Some(page) = reader.visible.take() {
+            reader.persist_position();
+            for page in reader.pages.values().flatten() {
                 cx.drop_image(page.image.clone(), None);
             }
         })
@@ -304,7 +330,19 @@ impl Reader {
             Ok(marks) => (marks, None),
             Err(e) => (Vec::new(), Some(format!("读取标记失败：{e}"))),
         };
+        let position = store.position();
+        let _ = requests.send(Command::Layout);
         Self {
+            layout: None,
+            pages: Default::default(),
+            in_flight: Default::default(),
+            wanted: 0..0,
+            render_width: 0,
+            position,
+            position_dirty: false,
+            save_position: None,
+            seek: true,
+            selected_page: -1,
             store,
             annotations,
             mark_error,
@@ -322,22 +360,22 @@ impl Reader {
             focus: cx.focus_handle(),
             jump: cx.new(|cx| InputState::new(window, cx).placeholder("页码")),
             requests,
-            bounds: Default::default(),
+
             selection: None,
             anchor: None,
-            pending: None,
-            page: 0,
+
+            page: position.page,
             count: 0,
-            zoom: 1.,
+            zoom: position.zoom,
             width: 0.,
-            visible: None,
+
             scroll: ScrollHandle::new(),
             error: None,
         }
     }
     fn goto_match(&mut self) {
-        if let Some(hit) = self.hits.get(self.current) {
-            self.page = hit.page;
+        if let Some(hit) = self.hits.get(self.current).cloned() {
+            self.navigate(hit.page);
             self.reveal = Some(hit.bytes.clone());
         }
     }
@@ -351,31 +389,129 @@ impl Reader {
     }
 }
 
+impl Reader {
+    fn page_view(&self, index: i32, page: &Arc<Page>, logical: f32, cx: &Context<Self>) -> Div {
+        let bounds: Rc<Cell<Bounds<Pixels>>> = Default::default();
+        let hit_bounds = bounds.clone();
+        let drag_bounds = bounds.clone();
+        let selection = (index == self.selected_page)
+            .then(|| self.selection.clone())
+            .flatten();
+        let start = self.hits.partition_point(|h| h.page < index);
+        let marks: Vec<_> = self.hits[start..]
+            .iter()
+            .take_while(|h| h.page == index)
+            .enumerate()
+            .map(|(i, h)| (h.bytes.clone(), start + i == self.current))
+            .collect();
+        let annotations: Vec<_> = self
+            .annotations
+            .iter()
+            .filter(|m| {
+                m.page == index && page.text.text.get(m.bytes.clone()) == Some(m.quote.as_str())
+            })
+            .map(|m| (m.bytes.clone(), m.style, m.color))
+            .collect();
+        let shown = page.clone();
+        div()
+            .debug_selector(move || format!("pdf-page-{index}").into())
+            .relative()
+            .w(px(logical))
+            .h(px(logical / page.aspect))
+            .cursor_text()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    window.focus(&this.focus, cx);
+                    this.reset_editor(window, cx);
+                    this.selected_page = index;
+                    this.anchor = this
+                        .active_page()
+                        .and_then(|p| p.text.hit(event.position, hit_bounds.get(), false));
+                    this.selection = this.anchor.clone();
+                    cx.notify();
+                }),
+            )
+            .on_mouse_move(cx.listener(move |this, event: &MouseMoveEvent, _, cx| {
+                if this.selected_page != index {
+                    return;
+                }
+                if event.pressed_button != Some(MouseButton::Left) {
+                    this.anchor = None;
+                    return;
+                }
+                if let (Some(anchor), Some(hit)) = (
+                    &this.anchor,
+                    this.active_page()
+                        .and_then(|p| p.text.hit(event.position, drag_bounds.get(), true)),
+                ) {
+                    this.selection = Some(anchor.start.min(hit.start)..anchor.end.max(hit.end));
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    let click = this
+                        .anchor
+                        .take()
+                        .is_some_and(|a| Some(a) == this.selection);
+                    if let Some(i) = this.annotations.iter().rposition(|m| {
+                        m.page == this.selected_page
+                            && this.selection.as_ref().is_some_and(|r| {
+                                r == &m.bytes || (click && m.bytes.contains(&r.start))
+                            })
+                            && this
+                                .active_page()
+                                .and_then(|p| p.text.text.get(m.bytes.clone()))
+                                == Some(m.quote.as_str())
+                    }) {
+                        this.selection = Some(this.annotations[i].bytes.clone());
+                        this.edit_mark(i, window, cx);
+                    }
+                }),
+            )
+            .child(img(page.image.clone()).size_full())
+            .child(
+                canvas(
+                    move |rect, _, _| bounds.set(rect),
+                    move |rect, _, window, _| {
+                        for (range, style, color) in &annotations {
+                            for mut region in shown.text.boxes(range.clone(), rect) {
+                                let alpha = match style {
+                                    Style::Highlight => 0x66,
+                                    Style::Underline => {
+                                        let height = region.size.height.min(px(2.));
+                                        region.origin.y += region.size.height - height;
+                                        region.size.height = height;
+                                        0xff
+                                    }
+                                };
+                                window.paint_quad(fill(region, rgba(color.rgb() << 8 | alpha)));
+                            }
+                        }
+                        for (range, active) in &marks {
+                            let color = if *active { 0xff84149c } else { 0xffdb3075 };
+                            for region in shown.text.boxes(range.clone(), rect) {
+                                window.paint_quad(fill(region, rgba(color)));
+                            }
+                        }
+                        if let Some(range) = &selection {
+                            for region in shown.text.boxes(range.clone(), rect) {
+                                window.paint_quad(fill(region, rgba(0x4097ff70)));
+                            }
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
+    }
+}
 impl Render for Reader {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let logical = self.width * self.zoom;
-        let request = Request {
-            page: self.page,
-            width: (logical * window.scale_factor()).round().clamp(1., 4096.) as i32,
-        };
-        if self.width > 0. && self.pending != Some(request) {
-            if self.pending.is_some_and(|old| old.page != request.page) {
-                if !self
-                    .editing
-                    .is_some_and(|i| self.annotations[i].page == request.page)
-                {
-                    self.reset_editor(window, cx);
-                }
-                self.selection = None;
-                self.anchor = None;
-                self.scroll.set_offset(Point::default());
-                if let Some(old) = self.visible.take() {
-                    cx.drop_image(old.image.clone(), Some(window));
-                }
-            }
-            self.pending = Some(request);
-            let _ = self.requests.send(Command::Render(request));
-        }
+        self.update_pages(logical, window, cx);
         let view = cx.entity().downgrade();
         let mut bar = div()
             .flex()
@@ -405,13 +541,13 @@ impl Render for Reader {
                     .child(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         match id {
-                            "prev" => this.page = (this.page - 1).max(0),
-                            "next" => this.page = (this.page + 1).min((this.count - 1).max(0)),
+                            "prev" => this.navigate((this.page - 1).max(0)),
+                            "next" => this.navigate((this.page + 1).min((this.count - 1).max(0))),
                             "jump" => {
                                 if let Ok(n) = this.jump.read(cx).value().trim().parse::<i32>()
                                     && (1..=this.count).contains(&n)
                                 {
-                                    this.page = n - 1;
+                                    this.navigate(n - 1);
                                 }
                             }
                             "out" => this.zoom = (this.zoom / 1.25).max(0.25),
@@ -425,139 +561,23 @@ impl Render for Reader {
                     })),
             );
         }
-        let content = if let Some(error) = &self.error {
-            div().child(error.clone())
-        } else if let Some(page) = &self.visible {
-            let bounds = self.bounds.clone();
-            let selection = self.selection.clone();
-            let start = self.hits.partition_point(|h| h.page < self.page);
-            let marks: Vec<_> = self.hits[start..]
-                .iter()
-                .take_while(|h| h.page == self.page)
-                .enumerate()
-                .map(|(i, h)| (h.bytes.clone(), start + i == self.current))
-                .collect();
-            let annotations: Vec<_> = self
-                .annotations
-                .iter()
-                .filter(|m| {
-                    m.page == self.page
-                        && page.text.text.get(m.bytes.clone()) == Some(m.quote.as_str())
-                })
-                .map(|m| (m.bytes.clone(), m.style, m.color))
-                .collect();
-            if let Some(range) = self.reveal.take() {
-                let size = size(px(logical), px(logical / page.aspect));
-                let viewport = self.scroll.bounds().size;
-                if let Some(region) = page
-                    .text
-                    .boxes(range, Bounds::new(Point::default(), size))
-                    .next()
-                {
-                    let offset = point(
-                        (viewport.width * 0.5 - region.center().x)
-                            .clamp((viewport.width - size.width).min(px(0.)), px(0.)),
-                        (viewport.height * 0.5 - region.center().y)
-                            .clamp((viewport.height - size.height).min(px(0.)), px(0.)),
-                    );
-                    self.scroll.set_offset(offset);
-                }
+        let mut content = div().relative().w(px(logical)).h(px(self
+            .layout
+            .as_ref()
+            .map_or(0., |l| l.top(self.count, logical))));
+        if self.layout.is_none() {
+            content = div().child(self.error.clone().unwrap_or_else(|| "正在加载 PDF…".into()));
+        }
+        for index in self.wanted.clone() {
+            let top = self.layout.as_ref().unwrap().top(index, logical);
+            let mut slot = div().absolute().top(px(top)).left_0();
+            match self.pages.get(&index) {
+                Some(Ok(page)) => slot = slot.child(self.page_view(index, page, logical, cx)),
+                Some(Err(message)) => slot = slot.child(message.clone()),
+                None => slot = slot.child("正在加载 PDF…"),
             }
-            let shown = page.clone();
-            div()
-                .relative()
-                .w(px(logical))
-                .h(px(logical / page.aspect))
-                .cursor_text()
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                        window.focus(&this.focus, cx);
-                        this.reset_editor(window, cx);
-                        this.anchor = this
-                            .visible
-                            .as_ref()
-                            .and_then(|p| p.text.hit(event.position, this.bounds.get(), false));
-                        this.selection = this.anchor.clone();
-                        cx.notify();
-                    }),
-                )
-                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
-                    if event.pressed_button != Some(MouseButton::Left) {
-                        this.anchor = None;
-                        return;
-                    }
-                    if let (Some(anchor), Some(hit)) = (
-                        &this.anchor,
-                        this.visible
-                            .as_ref()
-                            .and_then(|p| p.text.hit(event.position, this.bounds.get(), true)),
-                    ) {
-                        this.selection = Some(anchor.start.min(hit.start)..anchor.end.max(hit.end));
-                        cx.notify();
-                    }
-                }))
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, _, window, cx| {
-                        let click = this
-                            .anchor
-                            .take()
-                            .is_some_and(|a| Some(a) == this.selection);
-                        if let Some(i) = this.annotations.iter().rposition(|m| {
-                            m.page == this.page
-                                && this.selection.as_ref().is_some_and(|r| {
-                                    r == &m.bytes || (click && m.bytes.contains(&r.start))
-                                })
-                                && this
-                                    .visible
-                                    .as_ref()
-                                    .and_then(|p| p.text.text.get(m.bytes.clone()))
-                                    == Some(m.quote.as_str())
-                        }) {
-                            this.selection = Some(this.annotations[i].bytes.clone());
-                            this.edit_mark(i, window, cx);
-                        }
-                    }),
-                )
-                .child(img(page.image.clone()).size_full())
-                .child(
-                    canvas(
-                        move |rect, _, _| bounds.set(rect),
-                        move |rect, _, window, _| {
-                            for (range, style, color) in &annotations {
-                                for mut region in shown.text.boxes(range.clone(), rect) {
-                                    let alpha = match style {
-                                        Style::Highlight => 0x66,
-                                        Style::Underline => {
-                                            let height = region.size.height.min(px(2.));
-                                            region.origin.y += region.size.height - height;
-                                            region.size.height = height;
-                                            0xff
-                                        }
-                                    };
-                                    window.paint_quad(fill(region, rgba(color.rgb() << 8 | alpha)));
-                                }
-                            }
-                            for (range, active) in &marks {
-                                let color = if *active { 0xff84149c } else { 0xffdb3075 };
-                                for region in shown.text.boxes(range.clone(), rect) {
-                                    window.paint_quad(fill(region, rgba(color)));
-                                }
-                            }
-                            if let Some(range) = &selection {
-                                for region in shown.text.boxes(range.clone(), rect) {
-                                    window.paint_quad(fill(region, rgba(0x4097ff70)));
-                                }
-                            }
-                        },
-                    )
-                    .absolute()
-                    .inset_0(),
-                )
-        } else {
-            div().child("正在加载 PDF…")
-        };
+            content = content.child(slot);
+        }
         div()
             .key_context("PdfReader")
             .track_focus(&self.focus)
@@ -571,8 +591,7 @@ impl Render for Reader {
                 cx.listener(|this, _: &gpui_component::input::Copy, window, cx| {
                     if this.focus.is_focused(window)
                         && let Some(text) = this
-                            .visible
-                            .as_ref()
+                            .active_page()
                             .and_then(|p| p.text.text.get(this.selection.clone()?))
                     {
                         cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
@@ -637,7 +656,10 @@ impl Render for Reader {
                                 let _ = view.update(cx, |reader, cx| {
                                     if reader.width != width {
                                         reader.width = width;
+                                        reader.seek = true;
                                         cx.notify();
+                                    } else {
+                                        reader.observe_position(cx);
                                     }
                                 });
                             },
@@ -694,15 +716,36 @@ mod tests {
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
-            panic!("reader did not reach expected state");
+            handle.update(visual, |r,_,_| panic!("reader timeout: page {}, width {}, range {:?}, offset {:?}, search hits {}, error {:?}",r.page,r.width,r.wanted,r.scroll.offset(),r.hits.len(),r.error)).unwrap();
         };
-        wait(&mut visual, |r| r.visible.is_some());
+        wait(&mut visual, |r| r.pages.contains_key(&r.page));
+        let viewport = handle
+            .update(&mut visual, |r, _, _| r.scroll.bounds())
+            .unwrap();
+        visual.simulate_event(ScrollWheelEvent {
+            position: viewport.center(),
+            delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-850.))),
+            modifiers: Default::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        wait(&mut visual, |r| r.wanted == (0..2) && r.pages.len() == 2);
+        let first_bounds = visual.debug_bounds("pdf-page-0").unwrap();
+        let next_bounds = visual.debug_bounds("pdf-page-1").unwrap();
+        assert!(viewport.top() < first_bounds.bottom() && next_bounds.top() < viewport.bottom());
+        visual.simulate_event(ScrollWheelEvent {
+            position: viewport.center(),
+            delta: gpui::ScrollDelta::Pixels(point(px(0.), px(850.))),
+            modifiers: Default::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        wait(&mut visual, |r| r.scroll.offset().y == px(0.));
+        let bounds = visual.debug_bounds("pdf-page-0").unwrap();
         let (first, last) = handle
             .update(&mut visual, |r, _, _| {
-                let layer = &r.visible.as_ref().unwrap().text;
+                let layer = &r.pages[&r.page].as_ref().unwrap().text;
                 (
-                    layer.boxes(0..1, r.bounds.get()).next().unwrap().center(),
-                    layer.boxes(7..8, r.bounds.get()).next().unwrap().center(),
+                    layer.boxes(0..1, bounds).next().unwrap().center(),
+                    layer.boxes(7..8, bounds).next().unwrap().center(),
                 )
             })
             .unwrap();
@@ -737,17 +780,20 @@ mod tests {
         wait(&mut visual, |r| r.hits.len() == 2);
         visual.simulate_keystrokes("enter");
         wait(&mut visual, |r| {
-            r.page == 1
-                && r.visible
-                    .as_ref()
+            r.current == 1
+                && r.reveal.is_none()
+                && r.pages
+                    .get(&1)
+                    .and_then(|p| p.as_ref().ok())
                     .is_some_and(|p| p.text.text == "INKSTONE notes")
         });
+        let bounds = visual.debug_bounds("pdf-page-1").unwrap();
         handle
             .update(&mut visual, |r, _, _| {
-                let p = r.visible.as_ref().unwrap();
+                let p = r.pages[&1].as_ref().unwrap();
                 let region = p
                     .text
-                    .boxes(r.hits[r.current].bytes.clone(), r.bounds.get())
+                    .boxes(r.hits[r.current].bytes.clone(), bounds)
                     .next()
                     .unwrap();
                 assert!(r.scroll.bounds().contains(&region.center()));
@@ -756,7 +802,9 @@ mod tests {
             .unwrap();
         click(&mut visual, "pdf-mark-list");
         click(&mut visual, "pdf-mark-0");
-        wait(&mut visual, |r| r.page == 0 && r.visible.is_some());
+        wait(&mut visual, |r| {
+            r.page == 0 && r.pages.contains_key(&r.page)
+        });
         handle
             .update(&mut visual, |r, w, cx| {
                 r.comment
@@ -774,12 +822,20 @@ mod tests {
             })
             .unwrap();
         wait(&mut visual, |r| {
-            r.visible.as_ref().is_some_and(|p| {
-                r.pending
-                    .is_some_and(|req| i32::from(p.image.size(0).width) == req.width)
-                    && p.text.text.get(r.annotations[0].bytes.clone()) == Some("Inkstone")
-            })
+            r.pages
+                .get(&r.page)
+                .and_then(|p| p.as_ref().ok())
+                .is_some_and(|p| {
+                    i32::from(p.image.size(0).width) == r.render_width
+                        && p.text.text.get(r.annotations[0].bytes.clone()) == Some("Inkstone")
+                })
         });
+        handle
+            .update(&mut visual, |r, _, _| r.persist_position())
+            .unwrap();
+        let expected = handle
+            .update(&mut visual, |r, _, _| (r.position, r.zoom))
+            .unwrap();
         let (requests, _rx) = std::sync::mpsc::channel();
         let (_tx, results) = async_channel::bounded(1);
         let reopened = cx.add_window(|w, cx| {
@@ -792,7 +848,11 @@ mod tests {
             )
         });
         reopened
-            .update(cx, |r, _, _| assert_eq!(r.annotations, saved))
+            .update(cx, |r, _, _| {
+                assert_eq!(r.annotations, saved);
+                assert!(r.position == expected.0);
+                assert_eq!(r.zoom, expected.1);
+            })
             .unwrap();
         click(&mut visual, "pdf-mark-0");
         click(&mut visual, "delete-mark");
@@ -819,7 +879,7 @@ mod tests {
             result.unwrap()
         };
         let first = get(0, 300);
-        assert_eq!(first.count, 2);
+
         assert_eq!(first.text.text, "Inkstone reader");
         let screen = Bounds::new(point(px(-17.), px(44.)), size(px(600.), px(800.)));
         let glyph = first.text.boxes(0..1, screen).next().unwrap();
