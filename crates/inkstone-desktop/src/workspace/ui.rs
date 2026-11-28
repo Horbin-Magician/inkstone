@@ -194,6 +194,7 @@ pub(super) struct UiState {
     pub search_error: String,
     pub search_signature: Option<(String, bool, SortBy, bool)>,
     _property_list_subscription: Subscription,
+    pub background_tasks_open: bool,
     pub trash_open: bool,
     pub recovery_source: super::recovery_ui::Source,
     pub recovery_filter: Entity<InputState>,
@@ -540,6 +541,7 @@ impl UiState {
             search_error: String::new(),
             search_signature: None,
             _property_list_subscription: property_list_subscription,
+            background_tasks_open: false,
             trash_open: false,
             recovery_source: Default::default(),
             recovery_filter,
@@ -848,7 +850,7 @@ impl Workspace {
     pub(super) fn side(&self) -> Rgba {
         crate::theme::palette(self.ui.prefs.light).sidebar
     }
-    pub(super) fn fg(&self) -> Rgba {
+    fn fg(&self) -> Rgba {
         crate::theme::palette(self.ui.prefs.light).foreground
     }
     pub(super) fn border(&self) -> Rgba {
@@ -1326,6 +1328,7 @@ impl Workspace {
     pub(super) fn close_review_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.ui.diagram_preview = None;
         self.agent.review = None;
+        self.ui.background_tasks_open = false;
         self.ui.trash_open = false;
         self.ui.history = None;
         self.ui.history_catalog = Default::default();

@@ -9,7 +9,7 @@ use gpui_component::{Disableable, button::*};
 
 impl Workspace {
     pub(super) fn modal_is_open(&self) -> bool {
-        self.ui.diagram_preview.is_some() || self.panel_is_open()
+        self.ui.diagram_preview.is_some() || self.ui.background_tasks_open || self.panel_is_open()
     }
 
     fn panel_is_open(&self) -> bool {
@@ -62,7 +62,8 @@ impl Workspace {
             .diagram_preview
             .as_ref()
             .filter(|_| !self.panel_is_open());
-        let centered = self.ui.settings || review || diagram.is_some();
+        let tasks = self.ui.background_tasks_open && !self.panel_is_open() && diagram.is_none();
+        let centered = tasks || self.ui.settings || review || diagram.is_some();
         let top = px(if recovery { 48. } else { 100. })
             .min(window.viewport_size().height * if picker { 0.12 } else { 0.15 })
             .max(px(16.));
@@ -138,6 +139,7 @@ impl Workspace {
             .max_w((window.viewport_size().width - px(32.)).max(px(280.)))
             .max_h(px(if self.ui.settings { 700. } else { 650. }).min(available_height))
             .when(centered, |s| s.h(px(700.).min(available_height)))
+            .when(tasks, |s| s.h(px(420.).min(available_height)))
             .when(recovery, |s| {
                 s.h(px(700.).min(available_height)).max_h(available_height)
             })
@@ -150,7 +152,7 @@ impl Workspace {
             })
             .p_5()
             .gap_3()
-            .when(picker || self.ui.settings || recovery, |s| {
+            .when(picker || self.ui.settings || tasks || recovery, |s| {
                 s.p_0().gap_0().overflow_hidden()
             })
             .rounded(px(14.))
@@ -220,7 +222,7 @@ impl Workspace {
                             .border_color(self.border())
                             .font_weight(FontWeight::SEMIBOLD)
                     })
-                    .when(self.ui.settings, |s| {
+                    .when(self.ui.settings || tasks, |s| {
                         s.h(px(50.))
                             .flex_shrink_0()
                             .px_5()
@@ -259,6 +261,8 @@ impl Workspace {
                                 } else {
                                     "笔记版本历史"
                                 }
+                            } else if tasks {
+                                "后台任务管理"
                             } else if self.ui.trash_open {
                                 "文件恢复中心"
                             } else {
@@ -424,6 +428,7 @@ impl Workspace {
                     })
             })
             .children(diagram.cloned())
+            .when(tasks, |s| s.child(self.task_list(cx)))
             .when(self.ui.settings, |s| s.child(self.settings_panel(cx)))
             .when(self.ui.bulk_edit.is_some(), |s| {
                 s.child(self.bulk_edit_panel(cx))

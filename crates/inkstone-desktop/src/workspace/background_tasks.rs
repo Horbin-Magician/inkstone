@@ -44,7 +44,6 @@ struct Job {
 }
 #[derive(Default)]
 pub(super) struct Queue {
-    window: Option<WindowHandle<gpui_component::Root>>,
     next: usize,
     running: usize,
     waiting: VecDeque<usize>,
@@ -92,28 +91,6 @@ impl Queue {
             State::Running(_) => job.state = State::Cancelling,
             _ => {}
         }
-    }
-}
-
-struct TaskWindow {
-    _owner_closed: Subscription,
-    workspace: WeakEntity<Workspace>,
-    owner: AnyWindowHandle,
-}
-
-impl Render for TaskWindow {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.workspace
-            .update(cx, |workspace, cx| {
-                div()
-                    .size_full()
-                    .flex()
-                    .flex_col()
-                    .bg(workspace.bg())
-                    .text_color(workspace.fg())
-                    .child(workspace.task_list(self.owner, cx))
-            })
-            .unwrap_or_else(|_| div())
     }
 }
 
@@ -217,61 +194,13 @@ impl Workspace {
         }
     }
 
-    pub(super) fn show_background_tasks(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let owner = window.window_handle();
-        let workspace = cx.weak_entity();
-        // Opening a GPUI window draws it immediately. Release the workspace borrow first.
-        cx.defer(move |cx| {
-            let Some(workspace) = workspace.upgrade() else {
-                return;
-            };
-            if let Some(handle) = workspace.read(cx).background_tasks.window
-                && handle
-                    .update(cx, |_, window, _| window.activate_window())
-                    .is_ok()
-            {
-                return;
-            }
-            let result = cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::centered(size(px(560.), px(420.)), cx)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("后台任务管理".into()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    let view = cx.new(|cx| {
-                        cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
-                        let handle = window.window_handle();
-                        let owner_closed = cx.on_window_closed(move |cx, closed| {
-                            if closed == owner.window_id() {
-                                let _ = handle.update(cx, |_, window, _| window.remove_window());
-                            }
-                        });
-                        TaskWindow {
-                            _owner_closed: owner_closed,
-                            workspace: workspace.downgrade(),
-                            owner,
-                        }
-                    });
-                    cx.new(|cx| gpui_component::Root::new(view, window, cx))
-                },
-            );
-            workspace.update(cx, |workspace, cx| match result {
-                Ok(handle) => workspace.background_tasks.window = Some(handle),
-                Err(error) => {
-                    workspace
-                        .notifications
-                        .publish(format!("无法打开后台任务窗口：{error}"));
-                    cx.notify();
-                }
-            });
-        });
+    pub(super) fn show_background_tasks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.ui.background_tasks_open = true;
+        window.focus(&self.ui.modal_focus, cx);
+        cx.notify();
     }
 
-    fn task_list(&self, owner: AnyWindowHandle, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn task_list(&self, cx: &mut Context<Self>) -> AnyElement {
         let queue = &self.background_tasks;
         let mut ids = Vec::with_capacity(queue.jobs.len());
         ids.extend(
@@ -294,29 +223,22 @@ impl Workspace {
             .p_2()
             .min_h_0()
             .flex_1()
-            .child(
-                div()
-                    .p_2()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child("后台任务")
-                    .when(!queue.history.is_empty(), |s| {
-                        s.child(
-                            Button::new("clear-task-history")
-                                .ghost()
-                                .label("清除记录")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    let queue = &mut this.background_tasks;
-                                    for id in queue.history.drain(..) {
-                                        queue.jobs.remove(&id);
-                                    }
-                                    cx.notify();
-                                })),
-                        )
-                    }),
-            )
+            .when(!queue.history.is_empty(), |s| {
+                s.child(
+                    div().flex().justify_end().child(
+                        Button::new("clear-task-history")
+                            .ghost()
+                            .label("清除记录")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let queue = &mut this.background_tasks;
+                                for id in queue.history.drain(..) {
+                                    queue.jobs.remove(&id);
+                                }
+                                cx.notify();
+                            })),
+                    ),
+                )
+            })
             .when(ids.is_empty(), |s| {
                 s.child(div().p_2().child("暂无后台任务"))
             })
@@ -338,7 +260,6 @@ impl Workspace {
                                     State::Failed(message) => message.as_str(),
                                 };
                                 let retry = job.retry.clone();
-                                let workspace = cx.weak_entity();
                                 Some(
                                     div()
                                         .debug_selector(move || format!("background-task-row-{id}"))
@@ -389,20 +310,11 @@ impl Workspace {
                                                     Button::new(("retry-task", id))
                                                         .ghost()
                                                         .label("重试")
-                                                        .on_click(move |_, _, cx| {
-                                                            let _ = owner.update(
-                                                                cx,
-                                                                |_, window, cx| {
-                                                                    window.activate_window();
-                                                                    let _ = workspace.update(
-                                                                        cx,
-                                                                        |this, cx| {
-                                                                            retry(this, window, cx)
-                                                                        },
-                                                                    );
-                                                                },
-                                                            );
-                                                        }),
+                                                        .on_click(cx.listener(
+                                                            move |this, _, window, cx| {
+                                                                retry(this, window, cx)
+                                                            },
+                                                        )),
                                                 )
                                             },
                                         )
@@ -424,7 +336,7 @@ mod tests {
     use core::prelude::v1::test;
 
     #[gpui::test]
-    fn task_window_reuses_the_window_and_retries_in_its_workspace(cx: &mut TestAppContext) {
+    fn task_dialog_retries_in_place_and_closes_with_escape(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let owner = cx.add_window(Workspace::new);
         let retried = Rc::new(std::cell::Cell::new(false));
@@ -433,13 +345,13 @@ mod tests {
                 w.ui.focus_mode = true;
                 w.ui.prefs.right_open = false;
                 w.ui.right_mode = 4;
-                w.show_background_tasks(window, cx);
+                w.startup_pending = false;
                 w.show_background_tasks(window, cx);
             })
             .unwrap();
         cx.run_until_parked();
-        assert_eq!(cx.windows().len(), 2);
-        let tasks = owner
+        assert_eq!(cx.windows().len(), 1);
+        owner
             .update(cx, |w, _, cx| {
                 assert!(w.ui.focus_mode);
                 assert!(!w.ui.prefs.right_open);
@@ -456,11 +368,11 @@ mod tests {
                     },
                     cx,
                 );
-                w.background_tasks.window.unwrap()
+                assert!(w.modal_is_open());
             })
             .unwrap();
         cx.run_until_parked();
-        let mut visual = VisualTestContext::from_window(tasks.into(), cx);
+        let mut visual = VisualTestContext::from_window(owner.into(), cx);
         visual.update(|window, cx| window.draw(cx).clear(cx));
         let row = visual.debug_bounds("background-task-row-0").unwrap();
         visual.simulate_click(
@@ -468,19 +380,16 @@ mod tests {
             Modifiers::default(),
         );
         assert!(retried.get());
-        tasks
-            .update(cx, |_, window, _| window.remove_window())
-            .unwrap();
-        owner
-            .update(cx, |w, window, cx| w.show_background_tasks(window, cx))
-            .unwrap();
+        cx.update(|cx| cx.bind_keys([KeyBinding::new("escape", ClosePalette, None)]));
+        cx.simulate_keystrokes(owner.into(), "escape");
         cx.run_until_parked();
-        assert_eq!(cx.windows().len(), 2);
         owner
-            .update(cx, |_, window, _| window.remove_window())
+            .update(cx, |w, _, _| {
+                assert!(!w.modal_is_open());
+                assert!(w.ui.focus_mode);
+                assert!(!w.ui.prefs.right_open);
+            })
             .unwrap();
-        cx.run_until_parked();
-        assert!(cx.windows().is_empty());
     }
 
     #[gpui::test]
