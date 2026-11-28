@@ -205,7 +205,18 @@ impl Workspace {
         {
             self.views.last_note = Some(id);
         }
+        let attachment_properties = preview
+            .as_ref()
+            .filter(|_| !inkstone_core::rendering::is_remote_image(&path.to_string_lossy()))
+            .map(|_| {
+                let full = self
+                    .vault
+                    .as_ref()
+                    .map_or_else(|| path.clone(), |v| v.root.join(&path));
+                attachment_properties::AttachmentProperties::open(&full)
+            });
         self.tabs.push(Tab {
+            attachment_properties,
             preview,
             id,
             pinned: self.loading && self.ui.prefs.pinned_paths.contains(&path),

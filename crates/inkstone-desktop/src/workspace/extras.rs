@@ -421,6 +421,17 @@ impl Workspace {
         if !self.ensure_active_note(w, cx) {
             return;
         }
+        let Some(tab) = self.active.and_then(|i| self.tabs.get(i)) else {
+            return;
+        };
+        let text = if let Some(pane) = self.current_pane() {
+            pane.read(cx).editor.read(cx).value().to_string()
+        } else if let Some(Ok(text)) = tab.attachment_properties.as_ref().map(|p| &p.source) {
+            text.clone().unwrap_or_default()
+        } else {
+            return;
+        };
+        self.ui.property_baseline = Some((tab.id, text));
         self.ui.property_open = true;
         self.ui.property_error.clear();
         self.ui
@@ -437,10 +448,6 @@ impl Workspace {
                 .unwrap_or_else(|| inkstone_core::properties::Kind::infer(value))
         };
         self.ui.property_original = (!name.is_empty()).then(|| name.to_owned());
-        self.ui.property_baseline = self.active.and_then(|i| self.tabs.get(i)).and_then(|tab| {
-            self.current_pane()
-                .map(|pane| (tab.id, pane.read(cx).editor.read(cx).value().to_string()))
-        });
         let display = self.ui.property_kind.editor_value(value);
         self.ui
             .property_key
@@ -642,24 +649,35 @@ impl Workspace {
         self.apply_property(true, w, cx);
     }
     fn apply_property(&mut self, delete: bool, w: &mut Window, cx: &mut Context<Self>) {
-        let Some(pane) = self.current_pane() else {
+        let pane = self.current_pane();
+        let Some(tab) = self.active.and_then(|i| self.tabs.get_mut(i)) else {
             return;
         };
-        let text = pane.read(cx).editor.read(cx).value();
-        if !self
-            .ui
-            .property_baseline
-            .as_ref()
-            .is_some_and(|(id, baseline)| {
-                self.active
-                    .and_then(|i| self.tabs.get(i))
-                    .is_some_and(|tab| tab.id == *id)
-                    && baseline == text.as_ref()
-            })
+        let Some((id, text)) = &self.ui.property_baseline else {
+            return;
+        };
+        let attachment_changed = tab.attachment_properties.as_ref().is_some_and(|p| {
+            p.source.as_ref().is_err()
+                || p.source
+                    .as_ref()
+                    .ok()
+                    .and_then(|s| s.as_deref())
+                    .unwrap_or_default()
+                    != text
+        });
+        if tab.id != *id
+            || attachment_changed
+            || pane
+                .as_ref()
+                .is_some_and(|p| p.read(cx).editor.read(cx).value().as_ref() != text)
         {
-            self.notifications
-                .publish("笔记已变更，请重新打开属性编辑。".into());
-            self.ui.property_error = self.notifications.text().to_owned();
+            self.ui.property_error = if pane.is_some() {
+                "笔记已变更，请重新打开属性编辑。"
+            } else {
+                "附件属性已变更，请重新打开属性编辑。"
+            }
+            .into();
+            self.notifications.publish(self.ui.property_error.clone());
             cx.notify();
             return;
         }
@@ -668,7 +686,7 @@ impl Workspace {
                 .property_original
                 .as_deref()
                 .ok_or_else(|| "没有可删除的属性。".to_string())
-                .and_then(|name| inkstone_core::properties::remove(&text, name))
+                .and_then(|name| inkstone_core::properties::remove(text, name))
         } else {
             let key = self.ui.property_key.read(cx).value();
             let kind = if matches!(key.as_ref(), "aliases" | "cssclasses") {
@@ -679,15 +697,30 @@ impl Workspace {
             kind.encode(&self.ui.property_value.read(cx).value())
                 .and_then(|value| {
                     inkstone_core::properties::edit(
-                        &text,
+                        text,
                         self.ui.property_original.as_deref(),
                         &key,
                         &value,
                     )
                 })
         };
+        let result = result.and_then(|text| {
+            if let Some(pane) = pane {
+                pane.read(cx).editor.clone().update(cx, |s, cx| {
+                    s.replace_all(text, w, cx);
+                    s.focus(w, cx);
+                });
+            } else {
+                tab.attachment_properties
+                    .as_mut()
+                    .ok_or("当前文件无法保存属性。")?
+                    .save(text)
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        });
         match result {
-            Ok(text) => {
+            Ok(()) => {
                 if !delete {
                     let key = self.ui.property_key.read(cx).value().to_lowercase();
                     let kind = if matches!(key.as_str(), "aliases" | "cssclasses") {
@@ -698,10 +731,6 @@ impl Workspace {
                     self.ui.prefs.property_types.insert(key, kind);
                     self.persist_workspace(cx);
                 }
-                pane.read(cx).editor.clone().update(cx, |s, cx| {
-                    s.replace_all(text, w, cx);
-                    s.focus(w, cx);
-                });
                 self.ui.property_open = false;
                 self.ui.property_error.clear();
                 self.ui.property_baseline = None;

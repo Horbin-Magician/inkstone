@@ -28,6 +28,7 @@ use file_sync::make_tree;
 #[cfg(test)]
 use file_sync::refresh_created_index;
 mod appearance;
+mod attachment_properties;
 mod attachments;
 mod backup_capacity;
 mod backups;
@@ -116,6 +117,7 @@ enum TabPreview {
 }
 
 struct Tab {
+    attachment_properties: Option<attachment_properties::AttachmentProperties>,
     preview: Option<TabPreview>,
     id: usize,
     pinned: bool,

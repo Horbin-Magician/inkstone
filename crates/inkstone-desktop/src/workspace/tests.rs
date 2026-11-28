@@ -6948,3 +6948,41 @@ fn text_width_changes_sync_tabs_split_and_new_views(cx: &mut TestAppContext) {
         })
         .unwrap();
 }
+
+#[gpui::test]
+fn attachment_property_edits_persist_and_reject_stale_retries(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("figure.png");
+    std::fs::write(&path, b"original bytes").unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.open_preview_tab(path.clone(), window, cx);
+            w.edit_property("", "", window, cx);
+            w.ui.property_key
+                .update(cx, |s, cx| s.set_value("caption", window, cx));
+            w.ui.property_value
+                .update(cx, |s, cx| s.set_value("Figure A", window, cx));
+            w.save_property(window, cx);
+            assert!(!w.ui.property_open);
+            let mut other = attachment_properties::AttachmentProperties::open(&path);
+            let text = other.source.clone().unwrap().unwrap();
+            let field = inkstone_core::properties::parse(&text).remove(0);
+            w.edit_property(&field.name, &field.value, window, cx);
+            let newer = inkstone_core::properties::set(&text, "caption", "Figure B").unwrap();
+            other.save(newer.clone()).unwrap();
+            for _ in 0..2 {
+                w.delete_property(window, cx);
+                assert!(w.ui.property_open);
+                assert_eq!(
+                    attachment_properties::AttachmentProperties::open(&path)
+                        .source
+                        .unwrap(),
+                    Some(newer.clone())
+                );
+            }
+            assert_eq!(std::fs::read(&path).unwrap(), b"original bytes");
+        })
+        .unwrap();
+}

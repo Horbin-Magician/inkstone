@@ -282,10 +282,26 @@ impl Workspace {
             .filter(|_| self.ui.right_mode == 1)
             .map(|p| p.read(cx).parsed.links.clone())
             .unwrap_or_default();
+        let attachment = self
+            .active
+            .and_then(|i| self.tabs.get(i))
+            .and_then(|t| t.attachment_properties.as_ref());
+        let property_error = attachment.and_then(|a| a.source.as_ref().err()).cloned();
+        let can_edit_properties =
+            pane.is_some() || attachment.is_some() && property_error.is_none();
         let properties = pane
             .as_ref()
             .filter(|_| self.ui.right_mode == 4)
             .map(|p| p.update(cx, |pane, cx| pane.properties(cx).to_vec()))
+            .or_else(|| {
+                attachment
+                    .filter(|_| self.ui.right_mode == 4)?
+                    .source
+                    .as_ref()
+                    .ok()?
+                    .as_deref()
+                    .map(inkstone_core::properties::parse)
+            })
             .unwrap_or_default();
         let tab_path = self
             .active
@@ -591,89 +607,96 @@ impl Workspace {
                         }))
                     })
                     .when(self.ui.right_mode == 4, |s| {
-                        s.children(properties.iter().enumerate().map(|(i, p)| {
-                            let name = p.name.clone();
-                            let value = p.value.clone();
-                            let kind = self
-                                .ui
-                                .prefs
-                                .property_types
-                                .get(&name.to_lowercase())
-                                .copied()
-                                .unwrap_or_else(|| inkstone_core::properties::Kind::infer(&value));
-                            let symbol = match kind {
-                                inkstone_core::properties::Kind::Number => "hash",
-                                inkstone_core::properties::Kind::Checkbox => "check-square",
-                                inkstone_core::properties::Kind::Date
-                                | inkstone_core::properties::Kind::DateTime => "calendar",
-                                inkstone_core::properties::Kind::List => "list",
-                                _ => "text",
-                            };
-                            let display = match serde_json::from_str::<serde_json::Value>(&value) {
-                                Ok(serde_json::Value::String(text)) => text,
-                                Ok(serde_json::Value::Null) => String::new(),
-                                Ok(serde_json::Value::Array(items)) => items
-                                    .iter()
-                                    .map(|item| {
-                                        item.as_str()
-                                            .map(str::to_owned)
-                                            .unwrap_or_else(|| item.to_string())
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                                _ => value.clone(),
-                            };
-                            let colors = crate::theme::palette(self.ui.prefs.light);
-                            div()
-                                .id(("property", i))
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .min_h(px(34.))
-                                .px_2p5()
-                                .py_1()
-                                .rounded(px(6.))
-                                .text_size(px(MIN_UI_FONT_SIZE))
-                                .cursor_pointer()
-                                .hover(move |s| s.bg(colors.hover))
-                                .child(icon(symbol).size(px(15.)).text_color(colors.muted))
-                                .child(
-                                    div()
-                                        .w(px(100.))
-                                        .flex_shrink_0()
-                                        .truncate()
-                                        .text_color(colors.muted)
-                                        .child(name.clone()),
-                                )
-                                .child(div().flex_1().min_w_0().truncate().child(display))
-                                .on_click(cx.listener(move |this, _, w, cx| {
-                                    this.edit_property(&name, &value, w, cx)
-                                }))
-                        }))
-                        .child(
-                            Button::new("new-property")
-                                .ghost()
-                                .w_full()
-                                .justify_start()
-                                .h(px(34.))
-                                .accessibility_label("添加笔记属性")
-                                .child(
-                                    div()
+                        s.children(property_error)
+                            .children(properties.iter().enumerate().map(|(i, p)| {
+                                let name = p.name.clone();
+                                let value = p.value.clone();
+                                let kind = self
+                                    .ui
+                                    .prefs
+                                    .property_types
+                                    .get(&name.to_lowercase())
+                                    .copied()
+                                    .unwrap_or_else(|| {
+                                        inkstone_core::properties::Kind::infer(&value)
+                                    });
+                                let symbol = match kind {
+                                    inkstone_core::properties::Kind::Number => "hash",
+                                    inkstone_core::properties::Kind::Checkbox => "check-square",
+                                    inkstone_core::properties::Kind::Date
+                                    | inkstone_core::properties::Kind::DateTime => "calendar",
+                                    inkstone_core::properties::Kind::List => "list",
+                                    _ => "text",
+                                };
+                                let display =
+                                    match serde_json::from_str::<serde_json::Value>(&value) {
+                                        Ok(serde_json::Value::String(text)) => text,
+                                        Ok(serde_json::Value::Null) => String::new(),
+                                        Ok(serde_json::Value::Array(items)) => items
+                                            .iter()
+                                            .map(|item| {
+                                                item.as_str()
+                                                    .map(str::to_owned)
+                                                    .unwrap_or_else(|| item.to_string())
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .join(", "),
+                                        _ => value.clone(),
+                                    };
+                                let colors = crate::theme::palette(self.ui.prefs.light);
+                                div()
+                                    .id(("property", i))
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .min_h(px(34.))
+                                    .px_2p5()
+                                    .py_1()
+                                    .rounded(px(6.))
+                                    .text_size(px(MIN_UI_FONT_SIZE))
+                                    .cursor_pointer()
+                                    .hover(move |s| s.bg(colors.hover))
+                                    .child(icon(symbol).size(px(15.)).text_color(colors.muted))
+                                    .child(
+                                        div()
+                                            .w(px(100.))
+                                            .flex_shrink_0()
+                                            .truncate()
+                                            .text_color(colors.muted)
+                                            .child(name.clone()),
+                                    )
+                                    .child(div().flex_1().min_w_0().truncate().child(display))
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.edit_property(&name, &value, w, cx)
+                                    }))
+                            }))
+                            .when(can_edit_properties, |s| {
+                                s.child(
+                                    Button::new("new-property")
+                                        .ghost()
                                         .w_full()
-                                        .flex()
-                                        .items_center()
-                                        .gap_2()
-                                        .text_size(px(MIN_UI_FONT_SIZE))
-                                        .text_color(
-                                            crate::theme::palette(self.ui.prefs.light).muted,
+                                        .justify_start()
+                                        .h(px(34.))
+                                        .accessibility_label("添加文件属性")
+                                        .child(
+                                            div()
+                                                .w_full()
+                                                .flex()
+                                                .items_center()
+                                                .gap_2()
+                                                .text_size(px(MIN_UI_FONT_SIZE))
+                                                .text_color(
+                                                    crate::theme::palette(self.ui.prefs.light)
+                                                        .muted,
+                                                )
+                                                .child(icon("plus"))
+                                                .child("添加文件属性"),
                                         )
-                                        .child(icon("plus"))
-                                        .child("添加笔记属性"),
+                                        .on_click(cx.listener(|this, _, w, cx| {
+                                            this.edit_property("", "", w, cx)
+                                        })),
                                 )
-                                .on_click(
-                                    cx.listener(|this, _, w, cx| this.edit_property("", "", w, cx)),
-                                ),
-                        )
+                            })
                     }),
             )
             .into_any_element()
