@@ -534,18 +534,17 @@ fn element(
         .as_ref()
         .and_then(|g| g.as_ref().as_ref().ok());
     let sprite_element = sprite.map(|g| {
-        let scale = if g.kind == inkstone_core::graphics::Kind::Mermaid {
-            (f32::from(available) / g.width).min(1.)
-        } else {
-            1.
-        };
-        let image = img(g.image.clone())
-            .w(px(g.width * scale))
-            .h(px(g.height * scale))
-            .when(
-                g.kind == inkstone_core::graphics::Kind::BlockMath,
-                |image| image.flex_shrink_0().mx_auto(),
-            );
+        if g.kind == inkstone_core::graphics::Kind::Mermaid {
+            let scale = (f32::from(available) / g.width).min(1.);
+            return crate::native_graphics::diagram_image(g, pane.clone(), start)
+                .w(px(g.width * scale))
+                .h(px(g.height * scale))
+                .into_any_element();
+        }
+        let image = img(g.image.clone()).w(px(g.width)).h(px(g.height)).when(
+            g.kind == inkstone_core::graphics::Kind::BlockMath,
+            |image| image.flex_shrink_0().mx_auto(),
+        );
         if !widget.block
             && let Some(baseline) = g.baseline
         {
@@ -635,17 +634,6 @@ fn element(
             });
         })
         .when_some(sprite_element, |view, image| view.child(image))
-        .when_some(
-            sprite.filter(|g| g.kind == inkstone_core::graphics::Kind::Mermaid),
-            |view, g| {
-                view.relative()
-                    .child(crate::native_graphics::diagram_zoom_button(
-                        g,
-                        pane.clone(),
-                        start,
-                    ))
-            },
-        )
         .when(sprite.is_none(), |view| {
             view.child(
                 TextView::new(&widget.view)

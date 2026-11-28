@@ -285,33 +285,46 @@ impl Service {
     }
 }
 
-pub(crate) fn diagram_zoom_button(
+pub(crate) fn diagram_image(
     graphic: &Prepared,
     pane: WeakEntity<crate::editor::EditorPane>,
     offset: usize,
-) -> impl IntoElement {
-    use gpui_component::{Sizable, button::Button};
+) -> Stateful<Div> {
+    use gpui_component::{IconName, Sizable, button::Button};
+    const HOVER_GROUP: &str = "mermaid-diagram";
     let graphic = graphic.clone();
     div()
-        .id(("diagram-zoom-control", offset))
-        .debug_selector(move || format!("diagram-zoom-{offset}"))
-        .absolute()
-        .top_0()
-        .right_0()
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .id(("native-graphic-image", offset))
+        .debug_selector(move || format!("native-graphic-image-{offset}"))
+        .group(HOVER_GROUP)
+        .relative()
+        .child(img(graphic.image.clone()).absolute().inset_0().size_full())
         .child(
-            Button::new(("diagram-zoom", offset))
-                .small()
-                .label("放大")
-                .accessibility_label("放大查看 Mermaid 图表")
-                .tooltip("放大查看 Mermaid 图表")
-                .on_click(move |_, window, cx| {
-                    cx.stop_propagation();
-                    window.prevent_default();
-                    let _ = pane.update(cx, |_, cx| {
-                        cx.emit(crate::editor::EditorEvent::PreviewDiagram(graphic.clone()));
-                    });
-                }),
+            div()
+                .id(("diagram-zoom-control", offset))
+                .absolute()
+                .top_0()
+                .right_0()
+                .invisible()
+                .group_hover(HOVER_GROUP, |style| style.visible())
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(
+                    Button::new(("diagram-zoom", offset))
+                        .debug_selector(move || format!("diagram-zoom-{offset}"))
+                        .small()
+                        .icon(IconName::Search)
+                        .accessibility_label("放大查看 Mermaid 图表")
+                        .tooltip("放大查看 Mermaid 图表")
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            window.prevent_default();
+                            let _ = pane.update(cx, |_, cx| {
+                                cx.emit(crate::editor::EditorEvent::PreviewDiagram(
+                                    graphic.clone(),
+                                ));
+                            });
+                        }),
+                ),
         )
 }
 
@@ -429,15 +442,10 @@ impl MarkdownPlugin for Plugin {
         }
         if let Some(Ok(prepared)) = cached.as_deref() {
             view = view.child(if prepared.kind == Kind::Mermaid {
-                div()
-                    .id(("native-graphic-image", offset))
-                    .debug_selector(move || format!("native-graphic-image-{offset}"))
-                    .relative()
+                diagram_image(prepared, self.pane.clone(), offset)
                     .w_full()
                     .max_w(px(prepared.width))
                     .aspect_ratio(prepared.width / prepared.height)
-                    .child(img(prepared.image.clone()).absolute().inset_0().size_full())
-                    .child(diagram_zoom_button(prepared, self.pane.clone(), offset))
                     .into_any_element()
             } else {
                 img(prepared.image.clone())

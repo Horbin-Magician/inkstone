@@ -397,9 +397,22 @@ mod tests {
                 visual.run_until_parked();
                 visual.update(|window, cx| window.draw(cx).clear(cx));
             }
-            let button = visual
-                .debug_bounds("diagram-zoom-0")
-                .unwrap_or_else(|| panic!("missing zoom control, reading={reading}"));
+            let diagram = visual.debug_bounds("native-graphic-image-0").unwrap();
+            for hovered in [false, true, false, true] {
+                let position = if hovered {
+                    diagram.center()
+                } else {
+                    point(px(1.), px(1.))
+                };
+                visual.simulate_mouse_move(position, None, Modifiers::default());
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+                assert_eq!(
+                    visual.debug_bounds("diagram-zoom-0").is_some(),
+                    hovered,
+                    "zoom control visibility, reading={reading}"
+                );
+            }
+            let button = visual.debug_bounds("diagram-zoom-0").unwrap();
             visual.simulate_click(button.center(), Modifiers::default());
             visual.run_until_parked();
             visual.update(|window, cx| window.draw(cx).clear(cx));
