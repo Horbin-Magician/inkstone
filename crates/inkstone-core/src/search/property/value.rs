@@ -37,7 +37,7 @@ impl Expected {
             Self::True => value == &Value::Bool(true),
             Self::False => value == &Value::Bool(false),
             Self::Empty => value.is_null(),
-            Self::Query(query) => query.matches(Path::new(""), &super::value_text(value), &[]),
+            Self::Query(query) => query.matches(Path::new(""), &super::value_text(value)),
             Self::All(items) => items.iter().all(|item| item.matches(value)),
             Self::Any(items) => items.iter().any(|item| item.matches(value)),
             Self::Not(item) => !item.matches(value),

@@ -132,7 +132,7 @@ impl Property {
                 .filter(|(name, value)| {
                     let key_matches = match &self.key {
                         Key::Exact(key) => key.to_lowercase() == name.to_lowercase(),
-                        Key::Query(query) => query.matches(Path::new(""), name, &[]),
+                        Key::Query(query) => query.matches(Path::new(""), name),
                     };
                     if !key_matches {
                         return false;

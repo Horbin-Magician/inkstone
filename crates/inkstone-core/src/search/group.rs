@@ -14,20 +14,15 @@ pub(super) enum Expression {
     Property(Box<super::property::Property>),
 }
 impl Expression {
-    pub(super) fn title_highlights(
-        &self,
-        path: &Path,
-        text: &str,
-        tags: &[String],
-    ) -> Vec<std::ops::Range<usize>> {
-        if !self.matches(path, text, tags) {
+    pub(super) fn title_highlights(&self, path: &Path, text: &str) -> Vec<std::ops::Range<usize>> {
+        if !self.matches(path, text) {
             return vec![];
         }
         match self {
-            Self::Leaf(query) => query.title_highlights(path, text, tags),
+            Self::Leaf(query) => query.title_highlights(path, text),
             Self::All(items) | Self::Any(items) => items
                 .iter()
-                .flat_map(|item| item.title_highlights(path, text, tags))
+                .flat_map(|item| item.title_highlights(path, text))
                 .collect(),
             Self::Always
             | Self::Not(_)
@@ -39,35 +34,34 @@ impl Expression {
             }
         }
     }
-    pub(super) fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
-        self.matches_in(path, text, tags, None, text)
+    pub(super) fn matches(&self, path: &Path, text: &str) -> bool {
+        self.matches_in(path, text, None, text)
     }
     fn matches_in<'t>(
         &self,
         path: &Path,
         text: &'t str,
-        tags: &[String],
+
         context: Option<&super::sections::Context<'t>>,
         original: &'t str,
     ) -> bool {
         match self {
             Self::Always => true,
             Self::Property(property) => property.matches(original),
-            Self::Leaf(query) => query.matches(path, text, tags),
+            Self::Leaf(query) => query.matches(path, text),
             Self::All(items) => items
                 .iter()
-                .all(|item| item.matches_in(path, text, tags, context, original)),
+                .all(|item| item.matches_in(path, text, context, original)),
             Self::Any(items) => items
                 .iter()
-                .any(|item| item.matches_in(path, text, tags, context, original)),
-            Self::Not(item) => !item.matches_in(path, text, tags, context, original),
+                .any(|item| item.matches_in(path, text, context, original)),
+            Self::Not(item) => !item.matches_in(path, text, context, original),
             Self::Section(cache, item) => {
                 let view = super::sections::View::new(cache, text, context);
                 view.candidates.clone().any(|i| {
                     item.matches_in(
                         path,
                         &view.source[view.sections[i].range.clone()],
-                        tags,
                         Some(&view.context(i)),
                         original,
                     )
@@ -75,52 +69,47 @@ impl Expression {
             }
             Self::Line(item) => text
                 .split('\n')
-                .any(|line| item.matches_in(path, line, tags, None, original)),
+                .any(|line| item.matches_in(path, line, None, original)),
             Self::Region(regions, item) => regions
                 .ranges(text)
                 .iter()
-                .any(|range| item.matches_in(path, &text[range.clone()], tags, None, original)),
+                .any(|range| item.matches_in(path, &text[range.clone()], None, original)),
         }
     }
-    pub(super) fn patterns<'a>(
-        &'a self,
-        path: &Path,
-        text: &str,
-        tags: &[String],
-    ) -> Vec<ScopedPattern<'a>> {
-        self.patterns_in(path, text, tags, None, text)
+    pub(super) fn patterns<'a>(&'a self, path: &Path, text: &str) -> Vec<ScopedPattern<'a>> {
+        self.patterns_in(path, text, None, text)
     }
     fn patterns_in<'a, 't>(
         &'a self,
         path: &Path,
         text: &'t str,
-        tags: &[String],
+
         context: Option<&super::sections::Context<'t>>,
         original: &'t str,
     ) -> Vec<ScopedPattern<'a>> {
-        if !self.matches_in(path, text, tags, context, original) {
+        if !self.matches_in(path, text, context, original) {
             return vec![];
         }
-        self.matched_patterns_in(path, text, tags, context, original)
+        self.matched_patterns_in(path, text, context, original)
     }
     // The caller has already verified this expression in the same scope.
     fn matched_patterns_in<'a, 't>(
         &'a self,
         path: &Path,
         text: &'t str,
-        tags: &[String],
+
         context: Option<&super::sections::Context<'t>>,
         original: &'t str,
     ) -> Vec<ScopedPattern<'a>> {
         match self {
-            Self::Leaf(query) => query.patterns(path, text, tags),
+            Self::Leaf(query) => query.patterns(path, text),
             Self::All(items) => items
                 .iter()
-                .flat_map(|item| item.matched_patterns_in(path, text, tags, context, original))
+                .flat_map(|item| item.matched_patterns_in(path, text, context, original))
                 .collect(),
             Self::Any(items) => items
                 .iter()
-                .flat_map(|item| item.patterns_in(path, text, tags, context, original))
+                .flat_map(|item| item.patterns_in(path, text, context, original))
                 .collect(),
             Self::Always | Self::Not(_) => vec![],
             Self::Property(property) => {
@@ -137,9 +126,9 @@ impl Expression {
                     let section = &view.sections[i];
                     let body = &view.source[section.range.clone()];
                     let context = view.context(i);
-                    if item.matches_in(path, body, tags, Some(&context), original) {
+                    if item.matches_in(path, body, Some(&context), original) {
                         let mut patterns =
-                            item.matched_patterns_in(path, body, tags, Some(&context), original);
+                            item.matched_patterns_in(path, body, Some(&context), original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
@@ -159,9 +148,8 @@ impl Expression {
                 let mut result = vec![];
                 for range in regions.ranges(text).iter() {
                     let body = &text[range.clone()];
-                    if item.matches_in(path, body, tags, None, original) {
-                        let mut patterns =
-                            item.matched_patterns_in(path, body, tags, None, original);
+                    if item.matches_in(path, body, None, original) {
+                        let mut patterns = item.matched_patterns_in(path, body, None, original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
@@ -181,9 +169,8 @@ impl Expression {
                 let mut result = vec![];
                 let mut offset = 0;
                 for line in text.split('\n') {
-                    if item.matches_in(path, line, tags, None, original) {
-                        let mut patterns =
-                            item.matched_patterns_in(path, line, tags, None, original);
+                    if item.matches_in(path, line, None, original) {
+                        let mut patterns = item.matched_patterns_in(path, line, None, original);
                         if patterns.is_empty() {
                             patterns.push(ScopedPattern {
                                 pattern: None,
@@ -347,9 +334,7 @@ fn scope_parts(word: &str) -> Option<(&str, &str, Scope)> {
             "task" => return Some((&word[..start], rest, Scope::Task(None))),
             "task-todo" => return Some((&word[..start], rest, Scope::Task(Some(false)))),
             "task-done" => return Some((&word[..start], rest, Scope::Task(Some(true)))),
-            "match-case" | "ignore-case" | "file" | "path" | "content" | "tag" => {
-                start += prefix.len() + 1
-            }
+            "match-case" | "ignore-case" | "file" | "path" | "content" => start += prefix.len() + 1,
             _ => break,
         }
     }
@@ -477,7 +462,7 @@ impl Parser {
                     prefix.split(':').all(|part| {
                         matches!(
                             part.to_ascii_lowercase().as_str(),
-                            "file" | "path" | "content" | "tag" | "match-case" | "ignore-case"
+                            "file" | "path" | "content" | "match-case" | "ignore-case"
                         )
                     })
                 });

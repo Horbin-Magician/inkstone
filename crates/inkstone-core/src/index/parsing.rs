@@ -39,9 +39,6 @@ pub struct ParsedNote {
     #[serde(default)]
     pub markdown_embeds: Vec<MarkdownEmbed>,
     pub headings: Vec<Heading>,
-    pub tags: Vec<String>,
-    pub tag_counts: BTreeMap<String, usize>,
-    pub inline_tags: Vec<(Range<usize>, String)>,
     pub aliases: Vec<String>,
     pub standard_links: Vec<(String, usize)>,
     pub destinations: Vec<(Range<usize>, String)>,
@@ -182,9 +179,9 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
                 .push((link.url.clone(), position.start.offset));
         }
         if let Node::Yaml(yaml) = node {
-            let (tags, aliases) = crate::properties::metadata(&yaml.value);
-            result.tags.extend(tags);
-            result.aliases.extend(aliases);
+            result
+                .aliases
+                .extend(crate::properties::aliases(&yaml.value));
         }
         if let Node::Heading(heading) = node
             && let Some(position) = &heading.position
@@ -194,36 +191,6 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
                 title: label(node),
                 offset: position.start.offset,
             });
-        }
-        if let Node::Text(text) = node
-            && let Some(position) = &text.position
-        {
-            let range = position.start.offset..position.end.offset;
-            if let Some(raw) = source.get(range.clone()) {
-                for (i, _) in raw.match_indices('#') {
-                    if range.start + i > 0
-                        && source[..range.start + i]
-                            .chars()
-                            .next_back()
-                            .is_some_and(|c| {
-                                c.is_alphanumeric() || matches!(c, '\\' | '/' | '[' | '#')
-                            })
-                    {
-                        continue;
-                    }
-                    let tag: String = raw[i + 1..]
-                        .chars()
-                        .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '/'))
-                        .collect();
-                    if !tag.is_empty() && tag.chars().any(|c| !c.is_numeric()) {
-                        result.inline_tags.push((
-                            range.start + i + 1..range.start + i + 1 + tag.len(),
-                            tag.clone(),
-                        ));
-                        result.tags.push(tag);
-                    }
-                }
-            }
         }
         if let Some(children) = node.children() {
             for child in children {
@@ -392,11 +359,6 @@ pub fn parse_snapshot(snapshot: &crate::syntax::Snapshot) -> ParsedNote {
         definitions(root, &mut defs);
         references(root, &defs, &mut result.standard_links);
     }
-    for tag in &result.tags {
-        *result.tag_counts.entry(tag.clone()).or_default() += 1;
-    }
-    result.tags.sort();
-    result.tags.dedup();
     result
 }
 

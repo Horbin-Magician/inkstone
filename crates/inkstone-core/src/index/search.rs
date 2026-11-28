@@ -201,7 +201,7 @@ impl Index {
             }
             if confirmed == limit {
                 notes.push((path, note, false));
-            } else if query.matches(path, &note.text, &note.parsed.tags) {
+            } else if query.matches(path, &note.text) {
                 confirmed += 1;
                 notes.push((path, note, true));
             }
@@ -221,14 +221,12 @@ impl Index {
             if cancelled() {
                 return None;
             }
-            if !matched && !query.matches(path, &note.text, &note.parsed.tags) {
+            if !matched && !query.matches(path, &note.text) {
                 continue;
             }
-            let title_highlights = query.title_highlights(path, &note.text, &note.parsed.tags);
+            let title_highlights = query.title_highlights(path, &note.text);
             let before = hits.len();
-            for found in
-                query.matching_lines(path, &note.text, &note.parsed.tags, limit - hits.len())
-            {
+            for found in query.matching_lines(path, &note.text, limit - hits.len()) {
                 hits.push(SearchHit {
                     path: path.clone(),
                     display_name: None,

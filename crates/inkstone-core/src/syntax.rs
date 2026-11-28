@@ -755,7 +755,6 @@ mod tests {
         assert_eq!(parsed.links.len(), 1);
         assert_eq!(parsed.links[0].target, "真实");
         assert!(parsed.tasks.is_empty());
-        assert!(parsed.tags.is_empty());
         let styles = crate::markdown::spans_snapshot(&snapshot);
         assert!(
             !styles

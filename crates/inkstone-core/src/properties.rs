@@ -97,51 +97,33 @@ fn encode_list(input: &str) -> Result<String, String> {
         .iter()
         .map(|item| {
             item.as_str()
-                .ok_or("标签和别名必须是文本；数字等内容请用引号包围。")
+                .ok_or("列表项必须是文本；数字等内容请用引号包围。")
         })
         .collect::<Result<Vec<_>, _>>()?;
     serde_json::to_string(&values).map_err(|e| e.to_string())
 }
 
-/// Read reserved metadata through YAML, preserving commas, quoting and escapes in list items.
-pub fn metadata(yaml: &str) -> (Vec<String>, Vec<String>) {
+/// Read note aliases from YAML, preserving commas, quoting and escapes in list items.
+pub fn aliases(yaml: &str) -> Vec<String> {
     use serde_json::Value;
     let Ok(Value::Object(values)) = serde_saphyr::from_str::<Value>(yaml) else {
-        return (vec![], vec![]);
+        return vec![];
     };
-    let strings = |name: &str, legacy: &str| -> Vec<String> {
-        let find = |key: &str| {
-            values.get(key).or_else(|| {
-                values
-                    .iter()
-                    .find(|(name, _)| name.eq_ignore_ascii_case(key))
-                    .map(|(_, value)| value)
-            })
-        };
-        match find(name).or_else(|| find(legacy)) {
-            Some(Value::String(value)) => vec![value.clone()],
-            Some(Value::Array(items)) => items
+    let find = |key: &str| {
+        values.get(key).or_else(|| {
+            values
                 .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect(),
-            _ => vec![],
-        }
+                .find(|(name, _)| name.eq_ignore_ascii_case(key))
+                .map(|(_, value)| value)
+        })
     };
-    let mut tags = vec![];
-    for value in strings("tags", "tag") {
-        let value = value.trim().strip_prefix('#').unwrap_or(value.trim());
-        if !value.is_empty()
-            && value
-                .chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '/'))
-            && value.chars().any(|c| !c.is_numeric())
-        {
-            tags.push(value.to_owned());
-        }
-    }
+    let items = match find("aliases").or_else(|| find("alias")) {
+        Some(value @ Value::String(_)) => std::slice::from_ref(value),
+        Some(Value::Array(items)) => items.as_slice(),
+        _ => return vec![],
+    };
     let mut aliases = vec![];
-    for value in strings("aliases", "alias") {
+    for value in items.iter().filter_map(Value::as_str) {
         let value = value.trim();
         if !value.is_empty()
             && !value.contains(['\n', '\r'])
@@ -150,7 +132,7 @@ pub fn metadata(yaml: &str) -> (Vec<String>, Vec<String>) {
             aliases.push(value.to_owned());
         }
     }
-    (tags, aliases)
+    aliases
 }
 
 #[derive(Clone, Debug)]
@@ -218,7 +200,7 @@ pub fn set(source: &str, key: &str, value: &str) -> Result<String, String> {
     {
         return Err("属性名只能包含文字、数字、下划线或连字符".into());
     }
-    let value = if matches!(key, "tags" | "aliases") {
+    let value = if key == "aliases" {
         encode_list(value)?
     } else {
         match serde_json::from_str::<serde_json::Value>(value) {
@@ -427,24 +409,19 @@ mod tests {
     }
     #[test]
     fn reserved_metadata_uses_yaml_values_without_splitting_aliases() {
-        let (tags, aliases) = metadata(
-            "aliases: [\"Smith, John\", 'It''s a note', \"\\u4e2d文\", '#名称', 'Smith, John']\ntags: ['#工作/项目', valid-tag, 123, '123', true, {nested: bad}]\n",
-        );
-        assert_eq!(aliases, ["Smith, John", "It's a note", "中文", "#名称"]);
-        assert_eq!(tags, ["工作/项目", "valid-tag"]);
         assert_eq!(
-            metadata(
-                "aliases:\n  - '名称: 带冒号' # comment\n  - \"引号\\\"测试\"\ntags:\n  - 标签\n"
-            )
-            .1,
+            aliases(
+                "aliases: [\"Smith, John\", 'It''s a note', \"\\u4e2d文\", '#名称', 'Smith, John']"
+            ),
+            ["Smith, John", "It's a note", "中文", "#名称"]
+        );
+        assert_eq!(
+            aliases("aliases:\n  - '名称: 带冒号' # comment\n  - \"引号\\\"测试\""),
             ["名称: 带冒号", "引号\"测试"]
         );
-        assert_eq!(
-            metadata("alias: 单个别名\ntag: old-tag\n"),
-            (vec!["old-tag".into()], vec!["单个别名".into()])
-        );
-        assert!(metadata("aliases: []\nalias: ignored\n").1.is_empty());
-        assert_eq!(metadata("aliases: [broken\ntags: [bad]"), (vec![], vec![]));
+        assert_eq!(aliases("alias: 单个别名"), ["单个别名"]);
+        assert!(aliases("aliases: []\nalias: ignored").is_empty());
+        assert!(aliases("aliases: [broken").is_empty());
     }
     #[test]
     fn property_changes_preserve_body_and_unrelated_yaml() {
@@ -453,8 +430,8 @@ mod tests {
         assert!(result.contains("unknown:\r\n  nested: yes\r\n"));
         assert!(result.ends_with("# 原文😀\r\n"));
         assert!(result.contains("title: \"新标题\"\r\n"));
-        let result = set(&result, "tags", "工作, 中文").unwrap();
-        assert!(result.contains("tags: [\"工作\",\"中文\"]\r\n"));
+        let result = set(&result, "aliases", "工作, 中文").unwrap();
+        assert!(result.contains("aliases: [\"工作\",\"中文\"]\r\n"));
         assert!(set(source, "bad\nkey", "x").is_err());
     }
 }

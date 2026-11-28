@@ -687,16 +687,13 @@ fn metadata_only_search_uses_a_bounded_first_line_preview() {
         format!("{}\n#work second line", "前😀e\u{301}".repeat(10_000)),
     ] {
         index.update("folder/note.md".into(), text.clone());
-        let mut queries = vec![
+        let queries = [
             "file:note",
             "path:folder",
             "-absent",
             "note",
             "file:note OR absent",
         ];
-        if text.contains("#work") {
-            queries.push("tag:work");
-        }
         for query in queries {
             let hits = index.search(query);
             assert_eq!(hits.len(), 1, "{query}");
@@ -744,12 +741,19 @@ fn search_excerpt_context_is_bounded_in_unicode_characters() {
     }
 }
 #[test]
-fn tag_index_keeps_occurrences_separate_from_search_tags() {
-    let parsed =
-        parse("---\ntags: [work, work]\nAliases: ['Case Alias']\n---\n#work #work `#work` \\#work");
-    assert_eq!(parsed.tags, ["work"]);
-    assert_eq!(parsed.tag_counts["work"], 4);
-    assert_eq!(parsed.aliases, ["Case Alias"]);
+fn former_tag_syntax_is_searchable_as_ordinary_text_and_properties() {
+    let mut index = Index::default();
+    index.update("note.md".into(), "---\ntags: [archive]\n---\n#work".into());
+    index.update("query.md".into(), "example tag:work".into());
+    for (query, path) in [
+        ("#work", "note.md"),
+        ("[tags: archive]", "note.md"),
+        ("tag:work", "query.md"),
+    ] {
+        let hits = index.search(query);
+        assert_eq!(hits.len(), 1, "{query}");
+        assert_eq!(hits[0].path, Path::new(path));
+    }
 }
 #[test]
 fn yaml_aliases_with_punctuation_participate_in_search_and_backlinks() {
@@ -770,10 +774,6 @@ fn yaml_aliases_with_punctuation_participate_in_search_and_backlinks() {
     assert_eq!(
         index.backlinks(Path::new("target.md")),
         vec![PathBuf::from("entry.md")]
-    );
-    assert_eq!(
-        index.search("tag:工作/项目")[0].path,
-        Path::new("target.md")
     );
 }
 #[test]
@@ -956,18 +956,10 @@ fn reference_style_links_participate_in_backlinks() {
     );
 }
 #[test]
-fn tags_aliases_and_standard_backlinks_ignore_code() {
+fn aliases_and_standard_backlinks_ignore_code() {
     let source = "---\naliases: [别名, 'Second']\ntags:\n  - 工作/项目\n---\n# 标题\n\n#中文 #123 #work/sub `#code` \\#escaped\n\n[目标](目标.md#章节)\n\n```md\n#not-a-tag [[目标]]\n```\n";
     let note = parse(source);
     assert_eq!(note.aliases, vec!["别名", "Second"]);
-    assert!(note.tags.contains(&"中文".into()));
-    assert!(note.tags.contains(&"工作/项目".into()));
-    assert!(
-        !note
-            .tags
-            .iter()
-            .any(|t| matches!(t.as_str(), "123" | "code" | "escaped" | "not-a-tag"))
-    );
     let mut index = Index::default();
     index.update("来源.md".into(), source.into());
     index.update("目标.md".into(), "".into());

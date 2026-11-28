@@ -18,7 +18,6 @@ enum Field {
     Content,
     File,
     Path,
-    Tag,
 }
 struct Term {
     field: Field,
@@ -141,13 +140,8 @@ impl Pattern {
         }
     }
 }
-fn tag_prefix_matches(tag: &str, prefix: &str) -> bool {
-    tag.strip_prefix(prefix)
-        .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
-}
-
 impl Term {
-    fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
+    fn matches(&self, path: &Path, text: &str) -> bool {
         let found = match self.field {
             Field::Text => {
                 self.pattern.matches(text)
@@ -164,11 +158,6 @@ impl Term {
                     .to_string_lossy()
                     .replace(std::path::MAIN_SEPARATOR, "/"),
             ),
-            Field::Tag => tags.iter().any(|tag| match &self.pattern {
-                Pattern::Exact(s) => tag_prefix_matches(tag, s),
-                Pattern::Text(s) => tag_prefix_matches(&tag.to_lowercase(), s),
-                Pattern::Regex(r) => r.find_iter(tag).any(|found| !found.is_empty()),
-            }),
         };
         found != self.exclude
     }
@@ -298,7 +287,7 @@ impl Query {
                     prefix.trim_start_matches('-').split(':').all(|part| {
                         matches!(
                             part.to_ascii_lowercase().as_str(),
-                            "file" | "path" | "tag" | "content" | "match-case" | "ignore-case"
+                            "file" | "path" | "content" | "match-case" | "ignore-case"
                         )
                     })
                 })
@@ -335,15 +324,14 @@ impl Query {
                     match prefix.to_ascii_lowercase().as_str() {
                         "match-case" => term_case_sensitive = true,
                         "ignore-case" => term_case_sensitive = false,
-                        "file" | "path" | "tag" | "content" => {
+                        "file" | "path" | "content" => {
                             if field_set {
-                                return Err("文件、路径、标签和正文条件不能互相嵌套。".into());
+                                return Err("文件、路径和正文条件不能互相嵌套。".into());
                             }
                             field_set = true;
                             field = match prefix.to_ascii_lowercase().as_str() {
                                 "file" => Field::File,
                                 "path" => Field::Path,
-                                "tag" => Field::Tag,
                                 _ => Field::Content,
                             };
                         }
@@ -351,10 +339,6 @@ impl Query {
                     }
                     value = rest;
                 }
-            }
-            if matches!(field, Field::Tag) {
-                value = value.trim_start_matches('#');
-                term_case_sensitive = false;
             }
             if value.is_empty() {
                 return Err("搜索条件不能为空".into());
@@ -391,28 +375,23 @@ impl Query {
             expression: None,
         })
     }
-    pub fn matches(&self, path: &Path, text: &str, tags: &[String]) -> bool {
+    pub fn matches(&self, path: &Path, text: &str) -> bool {
         if let Some(expression) = &self.expression {
-            return expression.matches(path, text, tags);
+            return expression.matches(path, text);
         }
-        self.groups.iter().any(|group| {
-            !group.is_empty() && group.iter().all(|term| term.matches(path, text, tags))
-        })
+        self.groups
+            .iter()
+            .any(|group| !group.is_empty() && group.iter().all(|term| term.matches(path, text)))
     }
-    pub fn first_offset(&self, path: &Path, text: &str, tags: &[String]) -> Option<usize> {
-        self.patterns(path, text, tags)
+    pub fn first_offset(&self, path: &Path, text: &str) -> Option<usize> {
+        self.patterns(path, text)
             .into_iter()
             .filter_map(|pattern| pattern.first_offset(text))
             .min()
     }
-    pub fn title_highlights(
-        &self,
-        path: &Path,
-        text: &str,
-        tags: &[String],
-    ) -> Vec<std::ops::Range<usize>> {
+    pub fn title_highlights(&self, path: &Path, text: &str) -> Vec<std::ops::Range<usize>> {
         let mut ranges = if let Some(expression) = &self.expression {
-            expression.title_highlights(path, text, tags)
+            expression.title_highlights(path, text)
         } else {
             let label = path
                 .to_string_lossy()
@@ -422,7 +401,7 @@ impl Query {
             for group in self
                 .groups
                 .iter()
-                .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
+                .filter(|group| group.iter().all(|term| term.matches(path, text)))
             {
                 for term in group.iter().filter(|term| !term.exclude) {
                     let start = match term.field {
@@ -451,13 +430,13 @@ impl Query {
         }
         merged
     }
-    fn patterns<'a>(&'a self, path: &Path, text: &str, tags: &[String]) -> Vec<ScopedPattern<'a>> {
+    fn patterns<'a>(&'a self, path: &Path, text: &str) -> Vec<ScopedPattern<'a>> {
         if let Some(expression) = &self.expression {
-            return expression.patterns(path, text, tags);
+            return expression.patterns(path, text);
         }
         self.groups
             .iter()
-            .filter(|group| group.iter().all(|term| term.matches(path, text, tags)))
+            .filter(|group| group.iter().all(|term| term.matches(path, text)))
             .flat_map(|group| group.iter())
             .filter(|term| !term.exclude && matches!(term.field, Field::Text | Field::Content))
             .map(|term| ScopedPattern {
@@ -467,14 +446,8 @@ impl Query {
             .collect()
     }
     /// Only terms from Boolean branches satisfied by the whole document may produce hits.
-    pub fn matching_lines(
-        &self,
-        path: &Path,
-        text: &str,
-        tags: &[String],
-        limit: usize,
-    ) -> Vec<LineMatch> {
-        let patterns = self.patterns(path, text, tags);
+    pub fn matching_lines(&self, path: &Path, text: &str, limit: usize) -> Vec<LineMatch> {
+        let patterns = self.patterns(path, text);
         if patterns.is_empty() || limit == 0 {
             return vec![];
         }
@@ -584,7 +557,7 @@ mod tests {
             "-[missing]",
         ] {
             assert!(
-                Query::parse(input).unwrap().matches(path, source, &[]),
+                Query::parse(input).unwrap().matches(path, source),
                 "{input}"
             );
         }
@@ -597,7 +570,7 @@ mod tests {
             "match-case:[status: Done]",
         ] {
             assert!(
-                !Query::parse(input).unwrap().matches(path, source, &[]),
+                !Query::parse(input).unwrap().matches(path, source),
                 "{input}"
             );
         }
@@ -605,8 +578,8 @@ mod tests {
             assert!(Query::parse(input).is_err(), "{input}");
         }
         let cached = Query::parse("[status:done]").unwrap();
-        assert!(cached.matches(path, source, &[]));
-        assert!(!cached.matches(path, &source.replace("status: done", "status: draft"), &[]));
+        assert!(cached.matches(path, source));
+        assert!(!cached.matches(path, &source.replace("status: done", "status: draft")));
     }
     #[test]
     fn property_comparisons_retain_type_specific_ordering() {
@@ -628,7 +601,7 @@ mod tests {
             ("[no: >invalid]", false),
         ] {
             assert_eq!(
-                Query::parse(input).unwrap().matches(path, source, &[]),
+                Query::parse(input).unwrap().matches(path, source),
                 matches,
                 "{input}"
             );
@@ -638,22 +611,18 @@ mod tests {
     fn section_queries_handle_headingless_setext_and_code_content() {
         let path = Path::new("note.md");
         let query = Query::parse("section:(alpha beta)").unwrap();
-        assert!(query.matches(path, "alpha\n\nbeta", &[]));
+        assert!(query.matches(path, "alpha\n\nbeta"));
         assert!(
             !Query::parse("section:(alpha section:beta)")
                 .unwrap()
-                .matches(path, "alpha\n\nbeta", &[])
+                .matches(path, "alpha\n\nbeta")
         );
-        assert!(query.matches(
-            path,
-            "Title\n=====\nalpha\n\nbeta\n\nOther\n=====\ngamma",
-            &[]
-        ));
-        assert!(!query.matches(path, "Title\n=====\nalpha\n\nOther\n=====\nbeta", &[]));
+        assert!(query.matches(path, "Title\n=====\nalpha\n\nbeta\n\nOther\n=====\ngamma"));
+        assert!(!query.matches(path, "Title\n=====\nalpha\n\nOther\n=====\nbeta"));
         assert!(
             !Query::parse("section:(Parent section:marker)")
                 .unwrap()
-                .matches(path, "# Parent\n```\n## Phantom\nmarker\n```", &[])
+                .matches(path, "# Parent\n```\n## Phantom\nmarker\n```")
         );
         assert!(Query::parse("file:section:alpha").is_err());
     }
@@ -661,18 +630,18 @@ mod tests {
     fn block_scopes_refresh_ranges_and_respect_case_and_negation() {
         let path = Path::new("alpha beta.md");
         let query = Query::parse("block:(alpha beta)").unwrap();
-        assert!(query.matches(path, "alpha\nbeta", &[]));
-        assert!(!query.matches(path, "alpha\n\nbeta", &[]));
-        assert!(!query.matches(path, "unrelated body", &[]));
+        assert!(query.matches(path, "alpha\nbeta"));
+        assert!(!query.matches(path, "alpha\n\nbeta"));
+        assert!(!query.matches(path, "unrelated body"));
         assert!(
             Query::parse("-block:(alpha beta)")
                 .unwrap()
-                .matches(path, "alpha\n\nbeta", &[])
+                .matches(path, "alpha\n\nbeta")
         );
         assert!(
             !Query::parse("match-case:block:Alpha")
                 .unwrap()
-                .matches(path, "alpha", &[])
+                .matches(path, "alpha")
         );
         assert!(Query::parse("file:block:alpha").is_err());
     }
@@ -680,42 +649,42 @@ mod tests {
     fn task_queries_refresh_cached_ranges_when_completion_changes() {
         let query = Query::parse("task-todo:foo").unwrap();
         let path = Path::new("note.md");
-        assert!(query.matches(path, "1. [ ] foo", &[]));
-        assert!(!query.matches(path, "1. [X] foo", &[]));
+        assert!(query.matches(path, "1. [ ] foo"));
+        assert!(!query.matches(path, "1. [X] foo"));
         assert!(
             Query::parse("task-done:foo")
                 .unwrap()
-                .matches(path, "1. [>] foo", &[])
+                .matches(path, "1. [>] foo")
         );
         assert!(
             Query::parse("-task-todo:foo")
                 .unwrap()
-                .matches(path, "1. [X] foo", &[])
+                .matches(path, "1. [X] foo")
         );
         assert!(Query::parse("task:").is_err());
         assert!(Query::parse("file:task:\"\"").is_err());
         assert!(
             Query::parse("task-done:foo")
                 .unwrap()
-                .matches(path, "- [完] foo", &[])
+                .matches(path, "- [完] foo")
         );
     }
     #[test]
     fn line_scope_accepts_single_terms_groups_and_case_prefixes() {
         let path = Path::new("Alpha.md");
         let query = Query::parse("match-case:line:(Alpha beta)").unwrap();
-        assert!(query.matches(path, "Alpha beta", &[]));
-        assert!(!query.matches(path, "alpha beta", &[]));
-        assert!(!query.matches(path, "Alpha\nbeta", &[]));
+        assert!(query.matches(path, "Alpha beta"));
+        assert!(!query.matches(path, "alpha beta"));
+        assert!(!query.matches(path, "Alpha\nbeta"));
         assert!(
             Query::parse("line: beta")
                 .unwrap()
-                .matches(path, "Alpha\nbeta", &[])
+                .matches(path, "Alpha\nbeta")
         );
         assert!(
             Query::parse("\"line:alpha\"")
                 .unwrap()
-                .matches(path, "line:alpha", &[])
+                .matches(path, "line:alpha")
         );
         assert!(Query::parse("line:").is_err());
         assert!(Query::parse("file:line:Alpha").is_err());
@@ -724,26 +693,26 @@ mod tests {
     fn grouped_boolean_queries_support_precedence_negation_and_scoped_prefixes() {
         let path = Path::new("Note.md");
         let grouped = Query::parse("(alpha OR beta) project").unwrap();
-        assert!(grouped.matches(path, "alpha project", &[]));
-        assert!(grouped.matches(path, "beta project", &[]));
-        assert!(!grouped.matches(path, "alpha", &[]));
+        assert!(grouped.matches(path, "alpha project"));
+        assert!(grouped.matches(path, "beta project"));
+        assert!(!grouped.matches(path, "alpha"));
         assert!(
             Query::parse("alpha OR (beta project)")
                 .unwrap()
-                .matches(path, "alpha", &[])
+                .matches(path, "alpha")
         );
         let excluded = Query::parse("-(draft OR archive) project").unwrap();
-        assert!(excluded.matches(path, "project", &[]));
-        assert!(!excluded.matches(path, "draft project", &[]));
+        assert!(excluded.matches(path, "project"));
+        assert!(!excluded.matches(path, "draft project"));
         let scoped =
             Query::parse("file:(Note OR Other) match-case:(Alpha OR ignore-case:beta)").unwrap();
-        assert!(scoped.matches(path, "Alpha", &[]));
-        assert!(scoped.matches(path, "BETA", &[]));
-        assert!(!scoped.matches(path, "alpha", &[]));
+        assert!(scoped.matches(path, "Alpha"));
+        assert!(scoped.matches(path, "BETA"));
+        assert!(!scoped.matches(path, "alpha"));
         assert!(
             Query::parse("(\"literal (value)\" OR /a(b|c)/)")
                 .unwrap()
-                .matches(path, "literal (value)", &[])
+                .matches(path, "literal (value)")
         );
         for invalid in ["(alpha", "alpha)", "()", "(alpha OR)", "OR (alpha)"] {
             assert!(Query::parse(invalid).is_err(), "{invalid}");
@@ -756,32 +725,28 @@ mod tests {
         assert!(
             Query::parse("match-case:Alpha ignore-case:BETA")
                 .unwrap()
-                .matches(path, "Alpha beta", &[])
+                .matches(path, "Alpha beta")
         );
         assert!(
             !Query::parse("match-case:alpha")
                 .unwrap()
-                .matches(path, "Alpha", &[])
+                .matches(path, "Alpha")
         );
         assert!(
             Query::parse_with_case("ignore-case:alpha", true)
                 .unwrap()
-                .matches(path, "Alpha", &[])
+                .matches(path, "Alpha")
         );
         assert!(
             Query::parse("match-case:file: Note")
                 .unwrap()
-                .matches(path, "", &[])
+                .matches(path, "")
         );
-        assert!(
-            !Query::parse("content:Note")
-                .unwrap()
-                .matches(path, "body", &[])
-        );
+        assert!(!Query::parse("content:Note").unwrap().matches(path, "body"));
         assert!(
             Query::parse("content:/alpha beta/")
                 .unwrap()
-                .matches(path, "ALPHA BETA", &[])
+                .matches(path, "ALPHA BETA")
         );
         for (query, text) in [
             ("\"OR\"", "OR"),
@@ -789,116 +754,74 @@ mod tests {
             ("content:\"/foo/\"", "/foo/"),
             ("match-case: \"file:\"", "file:"),
         ] {
-            assert!(
-                Query::parse(query).unwrap().matches(path, text, &[]),
-                "{query}"
-            );
+            assert!(Query::parse(query).unwrap().matches(path, text), "{query}");
         }
         assert!(
             !Query::parse("content:\"/foo/\"")
                 .unwrap()
-                .matches(path, "foo", &[])
+                .matches(path, "foo")
         );
         assert!(Query::parse("match-case:").is_err());
         assert!(Query::parse("file:path:note").is_err());
         assert!(
             Query::parse("myfile: value")
                 .unwrap()
-                .matches(path, "myfile: other value", &[])
+                .matches(path, "myfile: other value")
         );
         assert!(
             Query::parse(r#""say \"hi\"""#)
                 .unwrap()
-                .matches(path, "say \"hi\"", &[])
+                .matches(path, "say \"hi\"")
         );
         assert!(
             Query::parse("\"-blocked\"")
                 .unwrap()
-                .matches(path, "-blocked", &[])
+                .matches(path, "-blocked")
         );
     }
     #[test]
-    fn case_setting_affects_content_regex_and_paths_but_not_tags() {
+    fn case_setting_affects_content_regex_and_paths() {
         let path = Path::new("Folder/Note.md");
-        let tags = vec!["Work/Task".into()];
         assert!(
             Query::parse("alpha file:note path:folder")
                 .unwrap()
-                .matches(path, "Alpha", &tags)
+                .matches(path, "Alpha")
         );
         assert!(
             !Query::parse_with_case("alpha", true)
                 .unwrap()
-                .matches(path, "Alpha", &tags)
+                .matches(path, "Alpha")
         );
         assert!(
             !Query::parse_with_case("file:note", true)
                 .unwrap()
-                .matches(path, "Alpha", &tags)
+                .matches(path, "Alpha")
         );
         assert!(
             !Query::parse_with_case("path:folder", true)
                 .unwrap()
-                .matches(path, "Alpha", &tags)
-        );
-        assert!(
-            Query::parse_with_case("tag:work", true)
-                .unwrap()
-                .matches(path, "Alpha", &tags)
+                .matches(path, "Alpha")
         );
         let regex = Query::parse_with_case("/^Alpha/", true).unwrap();
-        assert_eq!(
-            regex.matching_lines(path, "Alpha\nalpha", &tags, 10).len(),
-            1
-        );
+        assert_eq!(regex.matching_lines(path, "Alpha\nalpha", 10).len(), 1);
         assert_eq!(
             Query::parse_with_case("x", true)
                 .unwrap()
-                .first_offset(path, "İx", &tags),
+                .first_offset(path, "İx"),
             Some("İ".len())
         );
-    }
-    #[test]
-    fn tag_search_respects_hierarchy_boundaries_and_unicode_case() {
-        let path = Path::new("note.md");
-        for (query, tag, expected) in [
-            ("work", "Work", true),
-            ("work", "WORK/Task/Nested", true),
-            ("work", "Workshop/Task", false),
-            ("work", "Other/Work", false),
-            ("工作", "工作/会议", true),
-            ("工作", "工作室/会议", false),
-            ("İ", "İ/项目", true),
-            ("i", "İ/项目", false),
-            ("ΟΣ", "ΟΣ/项目", true),
-            ("ος", "ΟΣΑ/项目", false),
-        ] {
-            for case_sensitive in [false, true] {
-                for excluded in [false, true] {
-                    let prefix = if excluded { "-" } else { "" };
-                    let search =
-                        Query::parse_with_case(&format!("{prefix}tag:{query}"), case_sensitive)
-                            .unwrap();
-                    assert_eq!(
-                        search.matches(path, "", &[tag.into()]),
-                        expected != excluded,
-                        "{prefix}tag:{query}, {tag}, case={case_sensitive}"
-                    );
-                }
-            }
-        }
     }
     #[test]
     fn line_matching_limit_counts_lines_and_keeps_earliest_across_terms() {
         let text = format!("early İx\n{}\nlate\n", "word ".repeat(300));
         let query = Query::parse("late OR x OR word").unwrap();
-        let matches = query.matching_lines(Path::new("note"), &text, &[], 2);
+        let matches = query.matching_lines(Path::new("note"), &text, 2);
         assert_eq!(matches.iter().map(|m| m.line).collect::<Vec<_>>(), [1, 2]);
         assert_eq!(matches[0].offset, "early İ".len());
         assert_eq!(
             Query::parse("word OR late")
                 .unwrap()
-                .matching_lines(Path::new("note"), &text, &[], 2)
+                .matching_lines(Path::new("note"), &text, 2)
                 .len(),
             2
         );
@@ -909,54 +832,50 @@ mod tests {
         assert_eq!(
             Query::parse("目标")
                 .unwrap()
-                .first_offset(path, "😀前缀目标", &[]),
+                .first_offset(path, "😀前缀目标"),
             Some("😀前缀".len())
         );
         assert_eq!(
-            Query::parse("x").unwrap().first_offset(path, "İx", &[]),
+            Query::parse("x").unwrap().first_offset(path, "İx"),
             Some("İ".len())
         );
-        assert_eq!(
-            Query::parse("i").unwrap().first_offset(path, "İx", &[]),
-            Some(0)
-        );
+        assert_eq!(Query::parse("i").unwrap().first_offset(path, "İx"), Some(0));
         assert_eq!(
             Query::parse("/目标\\d+/ OR missing")
                 .unwrap()
-                .first_offset(path, "前缀目标42", &[]),
+                .first_offset(path, "前缀目标42"),
             Some("前缀".len())
         );
         assert_eq!(
             Query::parse("absent prefix OR real")
                 .unwrap()
-                .first_offset(path, "prefix real", &[]),
+                .first_offset(path, "prefix real"),
             Some(7)
         );
         assert_eq!(
             Query::parse("file:note -absent")
                 .unwrap()
-                .first_offset(path, "body", &[]),
+                .first_offset(path, "body"),
             None
         );
     }
     #[test]
-    fn phrases_paths_tags_boolean_and_regex() {
+    fn phrases_paths_boolean_and_regex() {
         let p = Path::new("项目/会议.md");
-        let tags = vec!["工作/会议".into()];
         assert!(
-            Query::parse("path:项目 tag:工作 \"hello world\" -取消")
+            Query::parse("path:项目 \"hello world\" -取消")
                 .unwrap()
-                .matches(p, "hello world 今天", &tags)
+                .matches(p, "hello world 今天")
         );
         assert!(
-            !Query::parse("file:日记 OR tag:私人")
+            !Query::parse("file:日记 OR content:私人")
                 .unwrap()
-                .matches(p, "hello world", &tags)
+                .matches(p, "hello world")
         );
         assert!(
             Query::parse("/会议\\d+/ OR file:会议")
                 .unwrap()
-                .matches(p, "", &tags)
+                .matches(p, "")
         );
         assert!(Query::parse("/[invalid/").is_err());
         assert!(Query::parse("\"unclosed").is_err());
