@@ -34,35 +34,40 @@ impl Workspace {
         });
         self.ui.trash_open = true;
         window.focus(&self.ui.modal_focus, cx);
-        let generation = self.generation;
         let request = self.ui.recovery_refresh;
         let previous_index = self.index.clone();
-        let task = cx.background_executor().spawn(async move {
-            let mut index = previous_index.refresh_from_disk(&vault)?;
-            index.update_many(
-                drafts
-                    .into_iter()
-                    .map(|(path, text)| (path, text.to_string())),
-            );
-            Ok::<_, VaultError>(inkstone_core::link_audit::scan(&vault.root, &index))
-        });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                if this.generation != generation || this.ui.recovery_refresh != request {
-                    return;
-                }
-                if let Some(review) = &mut this.ui.link_health {
+        self.enqueue_task(
+            format!("link-audit-{request}"),
+            "检查笔记库链接".into(),
+            move |_| {
+                let mut index = previous_index.refresh_from_disk(&vault)?;
+                index.update_many(
+                    drafts
+                        .into_iter()
+                        .map(|(path, text)| (path, text.to_string())),
+                );
+                Ok(inkstone_core::link_audit::scan(&vault.root, &index))
+            },
+            move |this, result, _| {
+                if this.ui.recovery_refresh == request
+                    && let Some(review) = &mut this.ui.link_health
+                {
                     review.loading = false;
                     match result {
                         Ok(issues) => review.issues = issues,
-                        Err(error) => review.message = error.to_string(),
+                        Err(error) => {
+                            review.message = error.to_string();
+                            return Err(error);
+                        }
                     }
+                } else {
+                    result?;
                 }
-                cx.notify();
-            });
-        })
-        .detach();
+                Ok(())
+            },
+            |this, w, cx| this.open_link_health(w, cx),
+            cx,
+        );
         cx.notify();
     }
     fn open_link_issue(&mut self, issue: &Issue, window: &mut Window, cx: &mut Context<Self>) {

@@ -30,6 +30,7 @@ use file_sync::refresh_created_index;
 mod appearance;
 mod attachment_properties;
 mod attachments;
+mod background_tasks;
 mod backup_capacity;
 mod backups;
 mod bookmarks;
@@ -139,6 +140,7 @@ enum JumpTarget {
 }
 
 pub struct Workspace {
+    background_tasks: background_tasks::Queue,
     agent: agent::State,
     updates: updates::State,
     activity_trace: Option<activity_trace::ActivityTrace>,

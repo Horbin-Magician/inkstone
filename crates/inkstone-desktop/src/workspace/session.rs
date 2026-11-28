@@ -112,6 +112,7 @@ impl Workspace {
             activity_trace: activity_trace::ActivityTrace::from_env(),
             settings_save: Default::default(),
             file_writes: Default::default(),
+            background_tasks: Default::default(),
             ui,
             #[cfg(target_os = "macos")]
             quit_requested: false,
@@ -256,6 +257,7 @@ impl Workspace {
         self.search_jobs.cancel();
         self.cancel_tree_name(cx);
         self.ui.tree_active = None;
+        self.background_tasks.reset();
         self.generation += 1;
         // Pending navigation belongs to the old vault, even if the new one has
         // the same relative paths or the load eventually fails.

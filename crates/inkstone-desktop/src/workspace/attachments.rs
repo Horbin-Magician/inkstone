@@ -91,17 +91,14 @@ impl Workspace {
         manager.message.clear();
         self.ui.recovery_refresh = self.ui.recovery_refresh.wrapping_add(1);
         let request = self.ui.recovery_refresh;
-        let generation = self.generation;
-        let task = cx
-            .background_executor()
-            .spawn(async move { attachments::scan(&vault, &document::owned_drafts(drafts)) });
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                if this.generation != generation || this.ui.recovery_refresh != request {
-                    return;
-                }
-                if let Some(m) = &mut this.ui.attachment_manager {
+        self.enqueue_task(
+            format!("attachment-scan-{request}"),
+            "扫描笔记库附件".into(),
+            move |_| Ok(attachments::scan(&vault, &document::owned_drafts(drafts))?),
+            move |this, result, _| {
+                if this.ui.recovery_refresh == request
+                    && let Some(m) = &mut this.ui.attachment_manager
+                {
                     m.loading = false;
                     match result {
                         Ok(inventory) => {
@@ -116,13 +113,17 @@ impl Workspace {
                         Err(error) => {
                             m.message = error.to_string();
                             m.inventory.unreadable = 1;
+                            return Err(error);
                         }
                     }
+                } else {
+                    result?;
                 }
-                cx.notify();
-            });
-        })
-        .detach();
+                Ok(())
+            },
+            |this, w, cx| this.open_attachment_manager(w, cx),
+            cx,
+        );
         cx.notify();
     }
     fn request_attachment_cleanup(

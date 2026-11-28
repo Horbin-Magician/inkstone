@@ -286,7 +286,7 @@ impl Preferences {
         if value.left_panel > 2 {
             value.left_panel = 0;
         }
-        if value.right_panel == 3 || value.right_panel > 4 {
+        if value.right_panel == 3 || (value.right_panel > 4 && value.right_panel != 6) {
             value.right_panel = 0;
         }
         (value, warning)
