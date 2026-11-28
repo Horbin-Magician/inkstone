@@ -216,6 +216,7 @@ fn validate_reply(root_url: &Url, token: &HeaderValue, bytes: &[u8]) -> Result<u
         roxmltree::ParsingOptions {
             allow_dtd: false,
             nodes_limit: 2048,
+            entity_resolver: None,
         },
     )
     .context("维护锁响应 XML 无效")?;

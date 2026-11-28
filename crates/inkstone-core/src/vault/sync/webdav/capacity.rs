@@ -105,6 +105,7 @@ pub(super) fn parse_objects(directory: &Url, bytes: &[u8]) -> Result<Listing> {
         roxmltree::ParsingOptions {
             allow_dtd: false,
             nodes_limit: 1_000_000,
+            entity_resolver: None,
         },
     )
     .context("WebDAV 对象列表格式无效或超过限制")?;
