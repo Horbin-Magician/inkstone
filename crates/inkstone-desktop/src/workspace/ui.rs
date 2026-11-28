@@ -770,7 +770,6 @@ pub(super) fn icon(name: &str) -> Icon {
         ),
         "folder-plus" => Some("M3 7V4h6l2 3h10v13H3zM12 10v7M8.5 13.5h7"),
         "bookmark" => Some("M6 3h12v18l-6-4-6 4z"),
-        "network" => Some("M5 5h4v4H5zM16 15h4v4h-4zM3 17h4v4H3zM9 8l7 7M7 9l-2 8M7 19l9-2"),
         "arrow-up-down" => Some("M8 3v18M4 7l4-4 4 4M16 21V3M12 17l4 4 4-4"),
         "locate" => Some("M12 2v4M12 18v4M2 12h4M18 12h4M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0"),
         "fold-vertical" => Some("M4 12h16M8 3l4 4 4-4M12 1v6M8 21l4-4 4 4M12 17v6"),

@@ -781,6 +781,7 @@ mod outline_tests {
             }
             let toolbar = visual.debug_bounds("right-header-tools").unwrap();
             assert!(visual.debug_bounds("right-mode-2").is_none());
+            assert!(visual.debug_bounds("right-mode-3").is_none());
             let mut buttons: Vec<_> = (0..4)
                 .filter_map(|i| {
                     visual.debug_bounds(

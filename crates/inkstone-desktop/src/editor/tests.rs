@@ -3763,7 +3763,7 @@ fn reading_undo_action_uses_the_document_history(cx: &mut TestAppContext) {
 #[gpui::test]
 fn reading_task_toggle_preserves_source_mode_cursor_and_undo(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
-    let source = "---\ntags: [测试]\n---\n[[长目标|短名]]\n\n- [ ] 中文😀\n";
+    let source = "---\nprojects: [测试]\n---\n[[长目标|短名]]\n\n- [ ] 中文😀\n";
     let handle = cx.add_window(|w, cx| EditorPane::new(source, w, cx));
     handle
         .update(cx, |p, _, cx| {
