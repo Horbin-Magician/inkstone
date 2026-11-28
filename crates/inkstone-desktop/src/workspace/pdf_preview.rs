@@ -2,6 +2,7 @@
 mod annotations;
 mod area;
 mod page_text;
+mod pen;
 use area::Area;
 mod excerpt;
 pub(super) use excerpt::{Excerpt, SourceAnchor};
@@ -232,6 +233,7 @@ fn worker(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MarkTool {
+    Pen,
     PageText,
     Select,
     Continuous(Style),
@@ -257,6 +259,7 @@ pub(super) struct Reader {
     focused_area: Option<Area>,
     text_box: Option<Area>,
     body: Entity<TextareaState>,
+    pen_stroke: Vec<pen::Sample>,
     popup: Option<Point<f32>>,
     press: Point<Pixels>,
     sidebar: Sidebar,
@@ -441,6 +444,7 @@ impl Reader {
             area_preview: None,
             focused_area: None,
             text_box: None,
+            pen_stroke: Vec::new(),
             body: cx.new(|cx| {
                 TextareaState::new(window, cx)
                     .auto_grow(1, 4)
@@ -535,20 +539,41 @@ impl Reader {
                 areas.push((area, self.color.rgb()));
             }
         }
+        let reader = cx.entity();
         let shown = page.clone();
         div()
             .debug_selector(move || format!("pdf-page-{index}").into())
             .relative()
             .w(px(logical))
             .h(px(logical / page.aspect))
-            .when(self.tool == MarkTool::Area, |el| {
+            .when(matches!(self.tool, MarkTool::Area | MarkTool::Pen), |el| {
                 el.cursor(CursorStyle::Crosshair)
             })
-            .when(self.tool != MarkTool::Area, |el| el.cursor_text())
+            .when(!matches!(self.tool, MarkTool::Area | MarkTool::Pen), |el| {
+                el.cursor_text()
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                     window.focus(&this.focus, cx);
+                    if this.tool == MarkTool::Pen {
+                        let continuing = this.editing.is_some_and(|i| {
+                            let m = &this.annotations[i];
+                            matches!(m.style, Style::Ink(_))
+                                && m.page == index
+                                && m.color == this.color
+                        });
+                        if !continuing {
+                            this.reset_editor(window, cx);
+                        }
+                        this.selected_page = index;
+                        this.selection = None;
+                        this.anchor = None;
+                        this.pen_stroke.clear();
+                        this.push_ink(event.position, hit_bounds.get());
+                        cx.notify();
+                        return;
+                    }
                     this.reset_editor(window, cx);
                     this.press = event.position;
                     this.selected_page = index;
@@ -587,6 +612,11 @@ impl Reader {
                     this.anchor = None;
                     return;
                 }
+                if !this.pen_stroke.is_empty() {
+                    this.push_ink(event.position, drag_bounds.get());
+                    cx.notify();
+                    return;
+                }
                 if this.area_dragging {
                     this.area_preview =
                         Area::between(this.press, event.position, drag_bounds.get());
@@ -606,6 +636,11 @@ impl Reader {
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseUpEvent, window, cx| {
                     if index != this.selected_page {
+                        return;
+                    }
+                    if !this.pen_stroke.is_empty() {
+                        this.push_ink(event.position, release_bounds.get());
+                        this.finish_ink(window, cx);
                         return;
                     }
                     if this.area_dragging {
@@ -659,6 +694,10 @@ impl Reader {
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseUpEvent, w, cx| {
+                    if this.selected_page == index && !this.pen_stroke.is_empty() {
+                        this.push_ink(event.position, outside_bounds.get());
+                        this.finish_ink(w, cx);
+                    }
                     if this.selected_page == index && this.area_dragging {
                         this.finish_area(event.position, outside_bounds.get(), w, cx);
                     }
@@ -677,7 +716,7 @@ impl Reader {
                         for (range, style, color) in &annotations {
                             for mut region in shown.text.boxes(range.clone(), rect) {
                                 let alpha = match style {
-                                    Style::Area(_) | Style::PageText(_) => continue,
+                                    Style::Area(_) | Style::PageText(_) | Style::Ink(_) => continue,
                                     Style::Highlight => 0x66,
                                     Style::Underline => {
                                         let height = region.size.height.min(px(2.));
@@ -706,6 +745,28 @@ impl Reader {
                 .inset_0(),
             )
             .children(self.page_text_boxes(index, logical, page.aspect, cx))
+            .child(
+                canvas(
+                    |_, _, _| (),
+                    move |rect, _, w, cx| {
+                        let reader = reader.read(cx);
+                        for mark in reader
+                            .annotations
+                            .iter()
+                            .filter(|m| m.page == index && matches!(m.style, Style::Ink(_)))
+                        {
+                            for stroke in &mark.strokes {
+                                pen::draw_stroke(stroke, rect, mark.color, w);
+                            }
+                        }
+                        if reader.selected_page == index {
+                            pen::draw_stroke(&reader.pen_stroke, rect, reader.color, w);
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
             .when(index == self.selected_page, |el| {
                 el.when_some(self.popup, |el, at| {
                     el.child(self.selection_tools(at, logical, page.aspect, cx))
@@ -813,6 +874,7 @@ impl Render for Reader {
                     this.close_find(window, cx);
                 } else {
                     this.tool = MarkTool::Select;
+                    this.pen_stroke.clear();
                     this.text_box = None;
                     window.focus(&this.focus, cx);
                     this.area_dragging = false;

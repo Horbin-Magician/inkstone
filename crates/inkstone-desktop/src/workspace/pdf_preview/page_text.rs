@@ -45,14 +45,16 @@ impl Reader {
                     .px_1()
                     .text_size(px((width / 65.).max(8.)))
                     .child(mark.quote.clone())
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(cx.listener(move |this, _, w, cx| {
-                        this.selected_page = page;
-                        this.selection = None;
-                        this.edit_mark(index, w, cx);
-                        this.body.update(cx, |s, cx| s.focus(w, cx));
-                    }))
+                    .when(self.tool != MarkTool::Pen, |el| {
+                        el.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(move |this, _, w, cx| {
+                                this.selected_page = page;
+                                this.selection = None;
+                                this.edit_mark(index, w, cx);
+                                this.body.update(cx, |s, cx| s.focus(w, cx));
+                            }))
+                    })
                     .into_any_element(),
             );
         }

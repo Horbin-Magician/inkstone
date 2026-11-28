@@ -15,12 +15,13 @@ pub(super) enum Style {
     Underline,
     Area(super::Area),
     PageText(super::Area),
+    Ink(super::Area),
 }
 
 impl Style {
     pub(super) fn location(self) -> Option<super::Area> {
         match self {
-            Self::Area(a) | Self::PageText(a) => Some(a),
+            Self::Area(a) | Self::PageText(a) | Self::Ink(a) => Some(a),
             _ => None,
         }
     }
@@ -51,12 +52,15 @@ pub(super) struct Mark {
     pub style: Style,
     pub color: Color,
     pub comment: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub strokes: Vec<Vec<super::pen::Sample>>,
 }
 
 impl Mark {
     pub(super) fn same_target(&self, other: &Mark) -> bool {
         self.page == other.page
             && match (self.style, other.style) {
+                (Style::Ink(_), Style::Ink(_)) => self.strokes == other.strokes,
                 (Style::Area(a), Style::Area(b)) | (Style::PageText(a), Style::PageText(b)) => {
                     a == b
                 }
@@ -146,6 +150,7 @@ mod tests {
             page: 0,
             bytes: 0..3,
             quote: "文".into(),
+            strokes: Vec::new(),
             style: Style::Underline,
             color: Color::Pink,
             comment: "备注".into(),

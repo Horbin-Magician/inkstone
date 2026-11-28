@@ -76,7 +76,7 @@ impl Reader {
 pub(in crate::workspace) struct Excerpt {
     target: usize,
     mark: Mark,
-    png: Option<Vec<u8>>,
+    image: Option<Vec<u8>>,
 }
 
 impl EventEmitter<Excerpt> for Reader {}
@@ -87,7 +87,11 @@ impl Excerpt {
         mark: &Mark,
         page: Option<&Arc<Page>>,
     ) -> anyhow::Result<Self> {
-        let png = match mark.style {
+        let image = match mark.style {
+            Style::Ink(area) => {
+                let page = page.ok_or_else(|| anyhow::anyhow!("请先定位到手写所在页"))?;
+                Some(pen::svg(&mark.strokes, area, page.aspect, mark.color))
+            }
             Style::Area(area) => {
                 let page = page.ok_or_else(|| anyhow::anyhow!("请先定位到区域所在页"))?;
                 Some(area.png(&page.image)?)
@@ -97,7 +101,7 @@ impl Excerpt {
         Ok(Self {
             target,
             mark: mark.clone(),
-            png,
+            image,
         })
     }
 
@@ -109,7 +113,7 @@ impl Excerpt {
         // Extend the already escaped attachment destination inside its closing parenthesis.
         link.pop();
         let fragment = match mark.style {
-            Style::Area(area) | Style::PageText(area) => area.fragment(),
+            Style::Area(area) | Style::PageText(area) | Style::Ink(area) => area.fragment(),
             _ => format!(
                 "inkstone={}-{}-{}",
                 mark.bytes.start,
@@ -213,10 +217,10 @@ impl Workspace {
             cx.notify();
             return;
         }
-        let image_path = if let Some(bytes) = &excerpt.png {
+        let image_path = if let Some(bytes) = &excerpt.image {
             if self.file_writes.operation_active() || self.ui.link_update.is_some() {
                 self.notifications
-                    .publish("当前正在修改库文件，请稍后插入图表。".into());
+                    .publish("当前正在修改库文件，请稍后插入批注附件。".into());
                 cx.notify();
                 return;
             }
@@ -230,13 +234,18 @@ impl Workspace {
                     .locations
                     .directory(Some(&note_path), true)
                     .map_err(|e| anyhow::anyhow!(e))?;
-                let name = format!("图表-第{}页.png", i64::from(excerpt.mark.page) + 1);
+                let page = i64::from(excerpt.mark.page) + 1;
+                let name = if matches!(excerpt.mark.style, Style::Ink(_)) {
+                    format!("手写-第{page}页.svg")
+                } else {
+                    format!("图表-第{page}页.png")
+                };
                 Ok(vault.store_attachment_to(&folder, &name, bytes)?)
             })();
             match result {
                 Ok(path) => Some(path),
                 Err(e) => {
-                    self.notifications.publish(format!("保存图表附件失败：{e}"));
+                    self.notifications.publish(format!("保存批注附件失败：{e}"));
                     cx.notify();
                     return;
                 }
@@ -312,6 +321,7 @@ mod tests {
             page: 1,
             bytes: 0..8,
             quote: "INKSTONE".into(),
+            strokes: Vec::new(),
             style: Style::Highlight,
             color: Color::Pink,
             comment: "两行\n[评论]".into(),
@@ -349,7 +359,7 @@ mod tests {
 
     #[gpui::test]
     #[ignore = "requires packaged PDFium beside the test executable"]
-    fn pdf_area_drag_inserts_a_crop_and_reopens_the_region(cx: &mut TestAppContext) {
+    fn pdf_area_and_ink_excerpts_embed_images_and_reopen_the_source(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(init);
         let dir = tempfile::tempdir().unwrap();
@@ -461,5 +471,41 @@ mod tests {
             assert_eq!(r.focused_area, Some(area));
             assert!(r.scroll.bounds().contains(&area.bounds(shown).center()));
         });
+        click(&mut visual, "pdf-pen-tool");
+        let page = visual.debug_bounds("pdf-page-0").unwrap();
+        let a = page.origin + point(px(150.), px(190.));
+        let b = a + point(px(60.), px(35.));
+        visual.simulate_mouse_down(a, MouseButton::Left, Modifiers::default());
+        visual.simulate_mouse_up(b, MouseButton::Left, Modifiers::default());
+        click(&mut visual, "pdf-insert-excerpt");
+        visual.run_until_parked();
+        let note_text = pane.read_with(&visual, |p, cx| p.editor.read(cx).value().to_string());
+        assert!(note_text.contains(".svg)"));
+        let svg = vault
+            .scan_files()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.extension().is_some_and(|e| e == "svg"))
+            .unwrap();
+        let data = std::fs::read_to_string(root.join(svg)).unwrap();
+        assert!(data.contains("<path d=\"M") && data.contains('L'));
+        let pen_area = reader.read_with(&visual, |r, _| r.focused_area.unwrap());
+        let link = inkstone_core::index::parse(&note_text)
+            .standard_links
+            .into_iter()
+            .find(|(s, _)| s.ends_with(&pen_area.fragment()))
+            .unwrap()
+            .0;
+        click(&mut visual, "delete-mark");
+        workspace
+            .update(&mut visual, |w, win, cx| {
+                w.focus_primary(0, win, cx);
+                pane.update(cx, |_, cx| cx.emit(EditorEvent::FollowMarkdownLink(link)));
+            })
+            .unwrap();
+        wait(&mut visual, |r| {
+            r.focused_area.is_some() && r.source_anchor.is_none()
+        });
+        reader.read_with(&visual, |r, _| assert_eq!(r.focused_area, Some(pen_area)));
     }
 }

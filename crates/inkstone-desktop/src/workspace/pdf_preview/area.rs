@@ -121,7 +121,14 @@ impl Reader {
     pub(super) fn area_at(&self, position: Point<Pixels>, bounds: Bounds<Pixels>) -> Option<usize> {
         self.annotations.iter().rposition(|m| {
             m.page == self.selected_page
-                && matches!(m.style, Style::Area(area) if area.bounds(bounds).contains(&position))
+                && match m.style {
+                    Style::Area(area) => area.bounds(bounds).contains(&position),
+                    Style::Ink(area) => {
+                        area.bounds(bounds).dilate(px(3.)).contains(&position)
+                            && pen::hit(&m.strokes, position, bounds)
+                    }
+                    _ => false,
+                }
         })
     }
 }

@@ -2,6 +2,7 @@ use super::*;
 
 impl Reader {
     pub(super) fn reset_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pen_stroke.clear();
         self.focused_area = None;
         self.text_box = None;
         self.area_preview = None;
@@ -52,6 +53,7 @@ impl Reader {
                 page: self.selected_page,
                 bytes: 0..0,
                 quote,
+                strokes: old.map(|m| m.strokes.clone()).unwrap_or_default(),
                 style,
                 color: self.color,
                 comment: self.comment.read(cx).value().to_string(),
@@ -77,6 +79,7 @@ impl Reader {
                 page: self.selected_page,
                 bytes: range,
                 quote: quote.into(),
+                strokes: Vec::new(),
                 style,
                 color: self.color,
                 comment: self.comment.read(cx).value().to_string(),
@@ -87,16 +90,27 @@ impl Reader {
             }
             None
         };
+        self.commit_mark(replacement, window, cx);
+    }
+
+    pub(super) fn commit_mark(
+        &mut self,
+        replacement: Option<Mark>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let old = self.editing.map(|i| &self.annotations[i]);
+        let selected = replacement
+            .as_ref()
+            .filter(|m| m.style.location().is_some())
+            .cloned();
         match self.store.change(old, replacement) {
             Ok(marks) => {
                 self.annotations = marks;
                 self.selection = None;
                 self.reset_editor(window, cx);
-                if let Some(style) = style.filter(|s| s.location().is_some())
-                    && let Some(index) = self
-                        .annotations
-                        .iter()
-                        .position(|m| m.page == self.selected_page && m.style == style)
+                if let Some(saved) = selected
+                    && let Some(index) = self.annotations.iter().position(|m| m.same_target(&saved))
                 {
                     self.edit_mark(index, window, cx);
                     self.text_box = None;
@@ -195,6 +209,7 @@ impl Reader {
                 "连续下划线",
                 MarkTool::Continuous(Style::Underline),
             ),
+            ("pdf-pen-tool", "手写", MarkTool::Pen),
             ("pdf-text-tool", "文字批注", MarkTool::PageText),
             ("pdf-area-tool", "框选图表", MarkTool::Area),
         ] {
@@ -272,20 +287,24 @@ impl Reader {
             );
         } else if can_save {
             bar = bar.child(Input::new(&self.comment).w(px(150.)));
-            let area = self.editing.and_then(|i| match self.annotations[i].style {
-                Style::Area(area) => Some(area),
-                _ => None,
-            });
-            if let Some(area) = area {
+            let spatial = self
+                .editing
+                .map(|i| self.annotations[i].style)
+                .filter(|s| s.location().is_some());
+            if let Some(style) = spatial {
                 bar = bar.child(
                     div()
                         .id("save-area")
                         .debug_selector(|| "save-area".into())
                         .cursor_pointer()
-                        .child("保存区域批注")
-                        .on_click(cx.listener(move |this, _, w, cx| {
-                            this.save_mark(Some(Style::Area(area)), w, cx)
-                        })),
+                        .child(if matches!(style, Style::Ink(_)) {
+                            "保存手写批注"
+                        } else {
+                            "保存区域批注"
+                        })
+                        .on_click(
+                            cx.listener(move |this, _, w, cx| this.save_mark(Some(style), w, cx)),
+                        ),
                 );
             } else {
                 for (id, label, style) in [
@@ -310,7 +329,9 @@ impl Reader {
                 }
             }
         } else if self.editing.is_none() {
-            bar = bar.child(if self.tool == MarkTool::PageText {
+            bar = bar.child(if self.tool == MarkTool::Pen {
+                "在页面上拖动书写"
+            } else if self.tool == MarkTool::PageText {
                 "点击页面放置文字"
             } else if self.tool == MarkTool::Area {
                 "拖动以框选图表"
@@ -369,6 +390,7 @@ impl Reader {
                     Style::Underline => "下划线",
                     Style::Area(_) => "区域",
                     Style::PageText(_) => "文字批注",
+                    Style::Ink(_) => "手写",
                 };
                 div()
                     .id(("pdf-mark", i))
@@ -392,7 +414,7 @@ impl Reader {
                             this.navigate(this.annotations[i].page);
                             this.selected_page = this.annotations[i].page;
                             match this.annotations[i].style {
-                                Style::Area(area) | Style::PageText(area) => {
+                                Style::Area(area) | Style::PageText(area) | Style::Ink(area) => {
                                     this.source_anchor =
                                         Some(SourceAnchor::area(this.selected_page, area))
                                 }

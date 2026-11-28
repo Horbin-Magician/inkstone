@@ -104,6 +104,7 @@ impl Reader {
         self.source_anchor = None;
         self.focused_area = None;
         self.text_box = None;
+        self.pen_stroke.clear();
         self.area_dragging = false;
         self.area_preview = None;
         self.popup = None;
