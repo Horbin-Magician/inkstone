@@ -1,4 +1,7 @@
-//! Read-only, on-demand PDF page rendering.
+//! On-demand PDF page rendering, text search and annotations.
+mod annotations;
+mod markup_ui;
+use annotations::{Color, Mark, Store, Style};
 mod search;
 mod text;
 use super::*;
@@ -177,7 +180,14 @@ pub(super) struct Reader {
     generation: u64,
     hits: Vec<Hit>,
     current: usize,
-    reveal: bool,
+    reveal: Option<Range<usize>>,
+    store: Store,
+    annotations: Vec<Mark>,
+    editing: Option<usize>,
+    comment: Entity<InputState>,
+    color: Color,
+    list_open: bool,
+    mark_error: Option<String>,
     search_status: String,
     _query_events: Subscription,
     bounds: Rc<Cell<Bounds<Pixels>>>,
@@ -198,11 +208,13 @@ impl Reader {
     pub(super) fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (requests, rx) = std::sync::mpsc::channel();
         let (tx, results) = async_channel::bounded(1);
+        let store = Store::new(&path);
         std::thread::spawn(move || worker(path, rx, tx));
-        Self::with_worker(requests, results, window, cx)
+        Self::with_worker(store, requests, results, window, cx)
     }
 
     fn with_worker(
+        store: Store,
         requests: std::sync::mpsc::Sender<Command>,
         results: async_channel::Receiver<Response>,
         window: &mut Window,
@@ -272,7 +284,7 @@ impl Reader {
                     InputEvent::Change => {
                         reader.generation += 1;
                         reader.hits.clear();
-                        reader.reveal = false;
+                        reader.reveal = None;
                         let query = input.read(cx).value().to_string();
                         reader.search_status = if query.is_empty() {
                             String::new()
@@ -288,12 +300,23 @@ impl Reader {
                 cx.notify();
             },
         );
+        let (annotations, mark_error) = match store.read() {
+            Ok(marks) => (marks, None),
+            Err(e) => (Vec::new(), Some(format!("读取标记失败：{e}"))),
+        };
         Self {
+            store,
+            annotations,
+            mark_error,
+            color: Color::Yellow,
+            editing: None,
+            comment: cx.new(|cx| InputState::new(window, cx).placeholder("批注（可选）")),
+            list_open: false,
             query,
             generation: 0,
             hits: Vec::new(),
             current: 0,
-            reveal: false,
+            reveal: None,
             search_status: String::new(),
             _query_events: events,
             focus: cx.focus_handle(),
@@ -315,7 +338,7 @@ impl Reader {
     fn goto_match(&mut self) {
         if let Some(hit) = self.hits.get(self.current) {
             self.page = hit.page;
-            self.reveal = true;
+            self.reveal = Some(hit.bytes.clone());
         }
     }
 
@@ -337,6 +360,12 @@ impl Render for Reader {
         };
         if self.width > 0. && self.pending != Some(request) {
             if self.pending.is_some_and(|old| old.page != request.page) {
+                if !self
+                    .editing
+                    .is_some_and(|i| self.annotations[i].page == request.page)
+                {
+                    self.reset_editor(window, cx);
+                }
                 self.selection = None;
                 self.anchor = None;
                 self.scroll.set_offset(Point::default());
@@ -389,6 +418,9 @@ impl Render for Reader {
                             "in" => this.zoom = (this.zoom * 1.25).min(4.),
                             _ => this.zoom = 1.,
                         }
+                        if matches!(id, "prev" | "next" | "jump") {
+                            this.reveal = None;
+                        }
                         cx.notify();
                     })),
             );
@@ -405,15 +437,21 @@ impl Render for Reader {
                 .enumerate()
                 .map(|(i, h)| (h.bytes.clone(), start + i == self.current))
                 .collect();
-            if self.reveal
-                && let Some(hit) = self.hits.get(self.current)
-                && hit.page == self.page
-            {
+            let annotations: Vec<_> = self
+                .annotations
+                .iter()
+                .filter(|m| {
+                    m.page == self.page
+                        && page.text.text.get(m.bytes.clone()) == Some(m.quote.as_str())
+                })
+                .map(|m| (m.bytes.clone(), m.style, m.color))
+                .collect();
+            if let Some(range) = self.reveal.take() {
                 let size = size(px(logical), px(logical / page.aspect));
                 let viewport = self.scroll.bounds().size;
                 if let Some(region) = page
                     .text
-                    .boxes(hit.bytes.clone(), Bounds::new(Point::default(), size))
+                    .boxes(range, Bounds::new(Point::default(), size))
                     .next()
                 {
                     let offset = point(
@@ -424,7 +462,6 @@ impl Render for Reader {
                     );
                     self.scroll.set_offset(offset);
                 }
-                self.reveal = false;
             }
             let shown = page.clone();
             div()
@@ -436,6 +473,7 @@ impl Render for Reader {
                     MouseButton::Left,
                     cx.listener(|this, event: &MouseDownEvent, window, cx| {
                         window.focus(&this.focus, cx);
+                        this.reset_editor(window, cx);
                         this.anchor = this
                             .visible
                             .as_ref()
@@ -461,13 +499,46 @@ impl Render for Reader {
                 }))
                 .on_mouse_up(
                     MouseButton::Left,
-                    cx.listener(|this, _, _, _| this.anchor = None),
+                    cx.listener(|this, _, window, cx| {
+                        let click = this
+                            .anchor
+                            .take()
+                            .is_some_and(|a| Some(a) == this.selection);
+                        if let Some(i) = this.annotations.iter().rposition(|m| {
+                            m.page == this.page
+                                && this.selection.as_ref().is_some_and(|r| {
+                                    r == &m.bytes || (click && m.bytes.contains(&r.start))
+                                })
+                                && this
+                                    .visible
+                                    .as_ref()
+                                    .and_then(|p| p.text.text.get(m.bytes.clone()))
+                                    == Some(m.quote.as_str())
+                        }) {
+                            this.selection = Some(this.annotations[i].bytes.clone());
+                            this.edit_mark(i, window, cx);
+                        }
+                    }),
                 )
                 .child(img(page.image.clone()).size_full())
                 .child(
                     canvas(
                         move |rect, _, _| bounds.set(rect),
                         move |rect, _, window, _| {
+                            for (range, style, color) in &annotations {
+                                for mut region in shown.text.boxes(range.clone(), rect) {
+                                    let alpha = match style {
+                                        Style::Highlight => 0x66,
+                                        Style::Underline => {
+                                            let height = region.size.height.min(px(2.));
+                                            region.origin.y += region.size.height - height;
+                                            region.size.height = height;
+                                            0xff
+                                        }
+                                    };
+                                    window.paint_quad(fill(region, rgba(color.rgb() << 8 | alpha)));
+                                }
+                            }
                             for (range, active) in &marks {
                                 let color = if *active { 0xff84149c } else { 0xffdb3075 };
                                 for region in shown.text.boxes(range.clone(), rect) {
@@ -514,6 +585,9 @@ impl Render for Reader {
             .flex()
             .flex_col()
             .child(bar)
+            .child(self.markup_bar(cx))
+            .when(self.list_open, |el| el.child(self.markup_list(cx)))
+            .children(self.mark_error.clone())
             .child(
                 div()
                     .flex()
@@ -591,16 +665,21 @@ mod tests {
 
     #[gpui::test]
     #[ignore = "requires packaged PDFium beside the test executable"]
-    fn select_copy_and_navigate_matches(cx: &mut TestAppContext) {
+    fn annotate_selection_and_navigate_search_results(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         cx.update(init);
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/two-pages.pdf");
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("test.pdf");
+        std::fs::copy(path, &pdf).unwrap();
+        let store = Store::new(&pdf);
         let (requests, rx) = std::sync::mpsc::channel();
         let (tx, worker_results) = async_channel::bounded(1);
-        std::thread::spawn(move || worker(path, rx, tx));
+        std::thread::spawn(move || worker(pdf, rx, tx));
         // Deliver native worker responses on the deterministic GPUI test scheduler.
         let (dispatch, results) = async_channel::unbounded();
-        let handle = cx.add_window(|window, cx| Reader::with_worker(requests, results, window, cx));
+        let handle =
+            cx.add_window(|window, cx| Reader::with_worker(store, requests, results, window, cx));
         let mut visual = VisualTestContext::from_window(handle.into(), cx);
         visual.simulate_resize(size(px(800.), px(600.)));
         let wait = |visual: &mut VisualTestContext, predicate: fn(&Reader) -> bool| {
@@ -637,6 +716,17 @@ mod tests {
                 Some("Inkstone")
             )
         });
+        let click = |visual: &mut VisualTestContext, selector: &'static str| {
+            visual.update(|w, cx| w.draw(cx).clear(cx));
+            let bounds = visual.debug_bounds(selector).unwrap();
+            visual.simulate_click(bounds.center(), Modifiers::default());
+        };
+        click(&mut visual, "green");
+        click(&mut visual, "highlight");
+        let saved = Store::new(&dir.path().join("test.pdf")).read().unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].quote, "Inkstone");
+        assert_eq!(saved[0].color, Color::Green);
         visual.simulate_keystrokes(&crate::shortcuts::command_default("ctrl-f"));
         handle
             .update(&mut visual, |r, w, cx| {
@@ -664,6 +754,54 @@ mod tests {
                 assert!(r.selection.is_none());
             })
             .unwrap();
+        click(&mut visual, "pdf-mark-list");
+        click(&mut visual, "pdf-mark-0");
+        wait(&mut visual, |r| r.page == 0 && r.visible.is_some());
+        handle
+            .update(&mut visual, |r, w, cx| {
+                r.comment
+                    .update(cx, |input, cx| input.set_value("重读", w, cx));
+            })
+            .unwrap();
+        click(&mut visual, "underline");
+        let saved = Store::new(&dir.path().join("test.pdf")).read().unwrap();
+        assert_eq!(saved[0].style, Style::Underline);
+        assert_eq!(saved[0].comment, "重读");
+        handle
+            .update(&mut visual, |r, _, cx| {
+                r.zoom = 1.25;
+                cx.notify();
+            })
+            .unwrap();
+        wait(&mut visual, |r| {
+            r.visible.as_ref().is_some_and(|p| {
+                r.pending
+                    .is_some_and(|req| i32::from(p.image.size(0).width) == req.width)
+                    && p.text.text.get(r.annotations[0].bytes.clone()) == Some("Inkstone")
+            })
+        });
+        let (requests, _rx) = std::sync::mpsc::channel();
+        let (_tx, results) = async_channel::bounded(1);
+        let reopened = cx.add_window(|w, cx| {
+            Reader::with_worker(
+                Store::new(&dir.path().join("test.pdf")),
+                requests,
+                results,
+                w,
+                cx,
+            )
+        });
+        reopened
+            .update(cx, |r, _, _| assert_eq!(r.annotations, saved))
+            .unwrap();
+        click(&mut visual, "pdf-mark-0");
+        click(&mut visual, "delete-mark");
+        assert!(
+            Store::new(&dir.path().join("test.pdf"))
+                .read()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

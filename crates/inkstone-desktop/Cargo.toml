@@ -19,7 +19,9 @@ gpui.workspace = true
 gpui-component.workspace = true
 gpui-base.workspace = true
 gpui-kit.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 notify.workspace = true
 markdown-parser.workspace = true
 anyhow.workspace = true
@@ -38,7 +40,6 @@ objc2-app-kit.workspace = true
 objc2-foundation.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 gpui-base = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 ropey.workspace = true
