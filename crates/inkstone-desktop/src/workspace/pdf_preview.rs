@@ -1,5 +1,7 @@
 //! On-demand PDF page rendering, text search and annotations.
 mod annotations;
+mod area;
+use area::Area;
 mod excerpt;
 pub(super) use excerpt::{Excerpt, SourceAnchor};
 mod layout;
@@ -226,6 +228,13 @@ fn worker(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MarkTool {
+    Select,
+    Continuous(Style),
+    Area,
+}
+
 pub(super) struct Reader {
     pub(super) focus: FocusHandle,
     jump: Entity<InputState>,
@@ -239,7 +248,10 @@ pub(super) struct Reader {
     editing: Option<usize>,
     comment: Entity<InputState>,
     color: Color,
-    continuous: Option<Style>,
+    tool: MarkTool,
+    area_dragging: bool,
+    area_preview: Option<Area>,
+    focused_area: Option<Area>,
     popup: Option<Point<f32>>,
     press: Point<Pixels>,
     sidebar: Sidebar,
@@ -419,7 +431,10 @@ impl Reader {
             store,
             annotations,
             mark_error,
-            continuous: None,
+            tool: MarkTool::Select,
+            area_dragging: false,
+            area_preview: None,
+            focused_area: None,
             popup: None,
             press: Default::default(),
             color: Color::Yellow,
@@ -472,6 +487,7 @@ impl Reader {
         let hit_bounds = bounds.clone();
         let drag_bounds = bounds.clone();
         let release_bounds = bounds.clone();
+        let outside_bounds = bounds.clone();
         let selection = (index == self.selected_page)
             .then(|| self.selection.clone())
             .flatten();
@@ -486,17 +502,38 @@ impl Reader {
             .annotations
             .iter()
             .filter(|m| {
-                m.page == index && page.text.text.get(m.bytes.clone()) == Some(m.quote.as_str())
+                m.page == index
+                    && !matches!(m.style, Style::Area(_))
+                    && page.text.text.get(m.bytes.clone()) == Some(m.quote.as_str())
             })
             .map(|m| (m.bytes.clone(), m.style, m.color))
             .collect();
+        let mut areas: Vec<_> = self
+            .annotations
+            .iter()
+            .filter_map(|m| match m.style {
+                Style::Area(region) if m.page == index => Some((region, m.color.rgb())),
+                _ => None,
+            })
+            .collect();
+        if self.selected_page == index {
+            if let Some(area) = self.focused_area {
+                areas.push((area, 0x1684ff));
+            }
+            if let Some(area) = self.area_preview {
+                areas.push((area, self.color.rgb()));
+            }
+        }
         let shown = page.clone();
         div()
             .debug_selector(move || format!("pdf-page-{index}").into())
             .relative()
             .w(px(logical))
             .h(px(logical / page.aspect))
-            .cursor_text()
+            .when(self.tool == MarkTool::Area, |el| {
+                el.cursor(CursorStyle::Crosshair)
+            })
+            .when(self.tool != MarkTool::Area, |el| el.cursor_text())
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
@@ -504,6 +541,13 @@ impl Reader {
                     this.reset_editor(window, cx);
                     this.press = event.position;
                     this.selected_page = index;
+                    if this.tool == MarkTool::Area {
+                        this.area_dragging = true;
+                        this.anchor = None;
+                        this.selection = None;
+                        cx.notify();
+                        return;
+                    }
                     this.anchor = this
                         .active_page()
                         .and_then(|p| p.text.hit(event.position, hit_bounds.get(), false));
@@ -519,6 +563,12 @@ impl Reader {
                     this.anchor = None;
                     return;
                 }
+                if this.area_dragging {
+                    this.area_preview =
+                        Area::between(this.press, event.position, drag_bounds.get());
+                    cx.notify();
+                    return;
+                }
                 if let (Some(anchor), Some(hit)) = (
                     &this.anchor,
                     this.active_page()
@@ -531,7 +581,15 @@ impl Reader {
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseUpEvent, window, cx| {
-                    if index != this.selected_page || this.anchor.take().is_none() {
+                    if index != this.selected_page {
+                        return;
+                    }
+                    if this.area_dragging {
+                        this.finish_area(event.position, release_bounds.get(), window, cx);
+                        return;
+                    }
+                    let text_press = this.anchor.take().is_some();
+                    if !text_press && this.area_at(event.position, release_bounds.get()).is_none() {
                         return;
                     }
                     let click = (this.press.x - event.position.x)
@@ -550,6 +608,10 @@ impl Reader {
                     }) {
                         this.selection = Some(this.annotations[i].bytes.clone());
                         this.edit_mark(i, window, cx);
+                    } else if click
+                        && let Some(i) = this.area_at(event.position, release_bounds.get())
+                    {
+                        this.edit_mark(i, window, cx);
                     } else if !click
                         && this
                             .selection
@@ -557,7 +619,7 @@ impl Reader {
                             .and_then(|r| this.active_page()?.text.text.get(r))
                             .is_some_and(|s| !s.trim().is_empty())
                     {
-                        if let Some(style) = this.continuous {
+                        if let MarkTool::Continuous(style) = this.tool {
                             this.save_mark(Some(style), window, cx);
                         } else {
                             let rect = release_bounds.get();
@@ -570,14 +632,28 @@ impl Reader {
                     }
                 }),
             )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(move |this, event: &MouseUpEvent, w, cx| {
+                    if this.selected_page == index && this.area_dragging {
+                        this.finish_area(event.position, outside_bounds.get(), w, cx);
+                    }
+                }),
+            )
             .child(img(page.image.clone()).size_full())
             .child(
                 canvas(
                     move |rect, _, _| bounds.set(rect),
                     move |rect, _, window, _| {
+                        for (area, color) in &areas {
+                            let region = area.bounds(rect);
+                            window.paint_quad(fill(region, rgba(color << 8 | 0x25)));
+                            window.paint_quad(outline(region, rgb(*color), Default::default()));
+                        }
                         for (range, style, color) in &annotations {
                             for mut region in shown.text.boxes(range.clone(), rect) {
                                 let alpha = match style {
+                                    Style::Area(_) => continue,
                                     Style::Highlight => 0x66,
                                     Style::Underline => {
                                         let height = region.size.height.min(px(2.));
@@ -711,7 +787,9 @@ impl Render for Reader {
                 if this.find_open {
                     this.close_find(window, cx);
                 } else {
-                    this.continuous = None;
+                    this.tool = MarkTool::Select;
+                    this.area_dragging = false;
+                    this.area_preview = None;
                     this.popup = None;
                     cx.notify();
                 }
@@ -936,7 +1014,7 @@ mod tests {
             .update(&mut visual, |r, _, _| {
                 assert_eq!(r.annotations[1].quote, "reader");
                 assert_eq!(r.annotations[1].style, Style::Underline);
-                assert_eq!(r.continuous, Some(Style::Underline));
+                assert_eq!(r.tool, MarkTool::Continuous(Style::Underline));
                 assert!(r.popup.is_none());
             })
             .unwrap();

@@ -2,6 +2,9 @@ use super::*;
 
 impl Reader {
     pub(super) fn reset_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focused_area = None;
+        self.area_preview = None;
+        self.area_dragging = false;
         self.popup = None;
         self.editing = None;
         self.comment
@@ -11,6 +14,9 @@ impl Reader {
     pub(super) fn edit_mark(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let mark = &self.annotations[index];
         self.editing = Some(index);
+        if let Style::Area(area) = mark.style {
+            self.focused_area = Some(area);
+        }
         self.color = mark.color;
         self.comment.update(cx, |input, cx| {
             input.set_value(mark.comment.clone(), window, cx)
@@ -25,7 +31,16 @@ impl Reader {
         cx: &mut Context<Self>,
     ) {
         let old = self.editing.map(|i| &self.annotations[i]);
-        let replacement = if let Some(style) = style {
+        let replacement = if let Some(Style::Area(area)) = style {
+            Some(Mark {
+                page: self.selected_page,
+                bytes: 0..0,
+                quote: String::new(),
+                style: Style::Area(area),
+                color: self.color,
+                comment: self.comment.read(cx).value().to_string(),
+            })
+        } else if let Some(style) = style {
             let Some(range) = old
                 .map(|m| m.bytes.clone())
                 .or_else(|| self.selection.clone())
@@ -61,6 +76,14 @@ impl Reader {
                 self.annotations = marks;
                 self.selection = None;
                 self.reset_editor(window, cx);
+                if let Some(Style::Area(area)) = style
+                    && let Some(index) = self
+                        .annotations
+                        .iter()
+                        .position(|m| m.page == self.selected_page && m.style == Style::Area(area))
+                {
+                    self.edit_mark(index, window, cx);
+                }
                 self.mark_error = None;
             }
             Err(e) => self.mark_error = Some(format!("保存标记失败：{e}")),
@@ -127,7 +150,8 @@ impl Reader {
             if let Some(index) = self.editing {
                 let m = &self.annotations[index];
                 m.page == self.selected_page
-                    && page.text.text.get(m.bytes.clone()) == Some(&m.quote)
+                    && (matches!(m.style, Style::Area(_))
+                        || page.text.text.get(m.bytes.clone()) == Some(&m.quote))
             } else {
                 self.selection
                     .clone()
@@ -143,22 +167,36 @@ impl Reader {
             .px_3()
             .py_1()
             .flex_shrink_0();
-        for (id, label, style) in [
-            ("lock-highlight", "连续高亮", Style::Highlight),
-            ("lock-underline", "连续下划线", Style::Underline),
+        for (id, label, tool) in [
+            (
+                "lock-highlight",
+                "连续高亮",
+                MarkTool::Continuous(Style::Highlight),
+            ),
+            (
+                "lock-underline",
+                "连续下划线",
+                MarkTool::Continuous(Style::Underline),
+            ),
+            ("pdf-area-tool", "框选图表", MarkTool::Area),
         ] {
             bar = bar.child(
                 div()
                     .id(id)
                     .debug_selector(move || id.into())
                     .cursor_pointer()
-                    .when(self.continuous == Some(style), |el| {
+                    .when(self.tool == tool, |el| {
                         el.underline().font_weight(FontWeight::BOLD)
                     })
                     .child(label)
                     .on_click(cx.listener(move |this, _, w, cx| {
-                        this.continuous = (this.continuous != Some(style)).then_some(style);
-                        this.popup = None;
+                        this.tool = if this.tool == tool {
+                            MarkTool::Select
+                        } else {
+                            tool
+                        };
+                        this.reset_editor(w, cx);
+                        this.selection = None;
                         w.focus(&this.focus, cx);
                         cx.notify();
                     })),
@@ -189,28 +227,49 @@ impl Reader {
         }
         if can_save {
             bar = bar.child(Input::new(&self.comment).w(px(150.)));
-            for (id, label, style) in [
-                ("highlight", "高亮", Style::Highlight),
-                ("underline", "下划线", Style::Underline),
-            ] {
-                let label = match self.editing {
-                    Some(i) if self.annotations[i].style == style => format!("保存{label}"),
-                    Some(_) => format!("改为{label}"),
-                    None => label.to_owned(),
-                };
+            let area = self.editing.and_then(|i| match self.annotations[i].style {
+                Style::Area(area) => Some(area),
+                _ => None,
+            });
+            if let Some(area) = area {
                 bar = bar.child(
                     div()
-                        .id(id)
-                        .debug_selector(move || id.into())
+                        .id("save-area")
+                        .debug_selector(|| "save-area".into())
                         .cursor_pointer()
-                        .child(label)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.save_mark(Some(style), window, cx)
+                        .child("保存区域批注")
+                        .on_click(cx.listener(move |this, _, w, cx| {
+                            this.save_mark(Some(Style::Area(area)), w, cx)
                         })),
                 );
+            } else {
+                for (id, label, style) in [
+                    ("highlight", "高亮", Style::Highlight),
+                    ("underline", "下划线", Style::Underline),
+                ] {
+                    let label = match self.editing {
+                        Some(i) if self.annotations[i].style == style => format!("保存{label}"),
+                        Some(_) => format!("改为{label}"),
+                        None => label.to_owned(),
+                    };
+                    bar = bar.child(
+                        div()
+                            .id(id)
+                            .debug_selector(move || id.into())
+                            .cursor_pointer()
+                            .child(label)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.save_mark(Some(style), window, cx)
+                            })),
+                    );
+                }
             }
         } else if self.editing.is_none() {
-            bar = bar.child("选中文字以添加标记");
+            bar = bar.child(if self.tool == MarkTool::Area {
+                "拖动以框选图表"
+            } else {
+                "选中文字以添加标记"
+            });
         } else if self.active_page().is_some() {
             bar = bar.child("原文已变化");
         }
@@ -225,7 +284,13 @@ impl Reader {
                         .child(format!("插入到 {}", path.display()))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let mark = &this.annotations[index];
-                            cx.emit(Excerpt::new(target, mark));
+                            match Excerpt::new(target, mark, this.active_page()) {
+                                Ok(excerpt) => cx.emit(excerpt),
+                                Err(e) => {
+                                    this.mark_error = Some(format!("准备摘录失败：{e}"));
+                                    cx.notify();
+                                }
+                            }
                         })),
                 );
             } else {
@@ -255,6 +320,7 @@ impl Reader {
                 let style = match m.style {
                     Style::Highlight => "高亮",
                     Style::Underline => "下划线",
+                    Style::Area(_) => "区域",
                 };
                 div()
                     .id(("pdf-mark", i))
@@ -277,7 +343,13 @@ impl Reader {
                         if (0..this.count).contains(&this.annotations[i].page) {
                             this.navigate(this.annotations[i].page);
                             this.selected_page = this.annotations[i].page;
-                            this.reveal = Some(this.annotations[i].bytes.clone());
+                            match this.annotations[i].style {
+                                Style::Area(area) => {
+                                    this.source_anchor =
+                                        Some(SourceAnchor::area(this.selected_page, area))
+                                }
+                                _ => this.reveal = Some(this.annotations[i].bytes.clone()),
+                            }
                         }
                         this.selection = None;
                         this.edit_mark(i, w, cx);

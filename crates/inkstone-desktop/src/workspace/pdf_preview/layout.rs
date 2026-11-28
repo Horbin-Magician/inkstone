@@ -102,6 +102,9 @@ impl Reader {
         self.position.page = page;
         self.position.y = 0.;
         self.source_anchor = None;
+        self.focused_area = None;
+        self.area_dragging = false;
+        self.area_preview = None;
         self.popup = None;
         self.reveal = None;
         self.selection = None;
@@ -196,14 +199,26 @@ impl Reader {
                 }));
             }
         }
+        let mut destination = None;
         if let Some(anchor) = self.source_anchor.as_ref()
             && let Some(result) = self.pages.get(&self.page)
         {
             if let Ok(page) = result {
                 if anchor.matches(self.page, &page.text.text) {
                     self.selected_page = self.page;
-                    self.selection = Some(anchor.bytes.clone());
-                    self.reveal = self.selection.clone();
+                    match &anchor.target {
+                        excerpt::AnchorTarget::Text { bytes, .. } => {
+                            self.selection = Some(bytes.clone());
+                            self.reveal = self.selection.clone();
+                        }
+                        excerpt::AnchorTarget::Area(area) => {
+                            self.focused_area = Some(*area);
+                            destination = Some(area.bounds(Bounds::new(
+                                Point::default(),
+                                size(px(width), px(width / page.aspect)),
+                            )));
+                        }
+                    }
                 } else {
                     self.mark_error = Some("原文已变化，已打开摘录所在页。".into());
                 }
@@ -215,16 +230,15 @@ impl Reader {
             && let Ok(page) = result
         {
             let page_size = size(px(width), px(width / page.aspect));
-            if let Some(region) = page
+            destination = page
                 .text
                 .boxes(range, Bounds::new(Point::default(), page_size))
-                .next()
-            {
-                let x = (viewport.width * 0.5 - region.center().x).min(px(0.));
-                let y =
-                    viewport.height * 0.5 - region.center().y - px(layout.top(self.page, width));
-                self.scroll.set_offset(point(x, y.min(px(0.))));
-            }
+                .next();
+        }
+        if let Some(region) = destination {
+            let x = (viewport.width * 0.5 - region.center().x).min(px(0.));
+            let y = viewport.height * 0.5 - region.center().y - px(layout.top(self.page, width));
+            self.scroll.set_offset(point(x, y.min(px(0.))));
         }
     }
 }

@@ -13,6 +13,7 @@ use std::{
 pub(super) enum Style {
     Highlight,
     Underline,
+    Area(super::Area),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +41,17 @@ pub(super) struct Mark {
     pub style: Style,
     pub color: Color,
     pub comment: String,
+}
+
+impl Mark {
+    pub(super) fn same_target(&self, other: &Mark) -> bool {
+        self.page == other.page
+            && match (self.style, other.style) {
+                (Style::Area(a), Style::Area(b)) => a == b,
+                (Style::Area(_), _) | (_, Style::Area(_)) => false,
+                _ => self.bytes == other.bytes && self.quote == other.quote,
+            }
+    }
 }
 
 pub(super) struct Store(PathBuf);
@@ -95,9 +107,7 @@ impl Store {
         }
         if let Some(mark) = replacement {
             ensure!(
-                !marks
-                    .iter()
-                    .any(|m| m.page == mark.page && m.bytes == mark.bytes && m.quote == mark.quote),
+                !marks.iter().any(|m| m.same_target(&mark)),
                 "该选区已有标记，请从标记列表打开"
             );
             marks.push(mark);
