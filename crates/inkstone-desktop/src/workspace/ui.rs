@@ -2482,6 +2482,23 @@ impl Render for Workspace {
                                     })),
                             )
                         })
+                        .when(self.background_tasks.active_count() > 0, |bar| {
+                            bar.child(
+                                Button::new("status-background-tasks")
+                                    .ghost()
+                                    .compact()
+                                    .icon(icon("list-checks").size(px(15.)))
+                                    .label(format!(
+                                        "后台任务 {}",
+                                        self.background_tasks.active_count()
+                                    ))
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            this.show_background_tasks(cx)
+                                        }),
+                                    ),
+                            )
+                        })
                         .child(div().flex_shrink_0().px_1().child(count))
                         .when(self.settings_save.error().is_some(), |bar| {
                             bar.child(

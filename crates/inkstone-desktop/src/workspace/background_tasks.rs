@@ -13,9 +13,22 @@ const HISTORY: usize = 100;
 type Start = Box<dyn FnOnce(usize, &mut Context<Workspace>)>;
 type Retry = Rc<dyn Fn(&mut Workspace, &mut Window, &mut Context<Workspace>)>;
 
+pub(super) struct Progress {
+    cancelled: Arc<AtomicBool>,
+    stages: async_channel::Sender<&'static str>,
+}
+impl Progress {
+    pub fn stage(&self, label: &'static str) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.cancelled.load(Ordering::Acquire), "已取消");
+        self.stages
+            .try_send(label)
+            .map_err(|_| anyhow::anyhow!("工作区已关闭"))
+    }
+}
+
 enum State {
     Queued,
-    Running,
+    Running(&'static str),
     Cancelling,
     Cancelled,
     Finished,
@@ -39,6 +52,10 @@ pub(super) struct Queue {
     history: VecDeque<usize>,
 }
 impl Queue {
+    pub fn active_count(&self) -> usize {
+        self.active_keys.len()
+    }
+
     pub fn reset(&mut self) {
         for job in self.jobs.values() {
             job.cancelled.store(true, Ordering::Release);
@@ -71,7 +88,7 @@ impl Queue {
                 self.active_keys.remove(&job.key);
                 self.remember(id);
             }
-            State::Running => job.state = State::Cancelling,
+            State::Running(_) => job.state = State::Cancelling,
             _ => {}
         }
     }
@@ -82,7 +99,7 @@ impl Workspace {
         &mut self,
         key: String,
         label: String,
-        work: impl FnOnce(Arc<AtomicBool>) -> anyhow::Result<T> + Send + 'static,
+        work: impl FnOnce(Progress) -> anyhow::Result<T> + Send + 'static,
         apply: impl FnOnce(
             &mut Workspace,
             anyhow::Result<T>,
@@ -98,8 +115,25 @@ impl Workspace {
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = cancelled.clone();
         let start: Start = Box::new(move |id, cx| {
-            let task = cx.background_executor().spawn(async move { work(flag) });
+            let (stages, updates) = async_channel::unbounded();
+            let task = cx.background_executor().spawn(async move {
+                anyhow::ensure!(!flag.load(Ordering::Acquire), "已取消");
+                work(Progress {
+                    cancelled: flag,
+                    stages,
+                })
+            });
             cx.spawn(async move |this, cx| {
+                while let Ok(label) = updates.recv().await {
+                    let _ = this.update(cx, |this, cx| {
+                        if let Some(job) = this.background_tasks.jobs.get_mut(&id)
+                            && matches!(job.state, State::Running(_))
+                        {
+                            job.state = State::Running(label);
+                            cx.notify();
+                        }
+                    });
+                }
                 let result = task.await;
                 let _ = this.update(cx, |this, cx| {
                     this.background_tasks.running -= 1;
@@ -111,7 +145,7 @@ impl Workspace {
                         } else {
                             match apply(this, result, cx) {
                                 Ok(()) => State::Finished,
-                                Err(error) => State::Failed(error.to_string()),
+                                Err(error) => State::Failed(format!("失败：{error}")),
                             }
                         };
                         this.background_tasks.jobs.get_mut(&id).unwrap().state = state;
@@ -153,15 +187,38 @@ impl Workspace {
                 continue;
             };
             if let Some(start) = job.start.take() {
-                job.state = State::Running;
+                job.state = State::Running("运行中");
                 queue.running += 1;
                 start(id, cx);
             }
         }
     }
 
+    pub(super) fn show_background_tasks(&mut self, cx: &mut Context<Self>) {
+        self.ui.focus_mode = false;
+        self.ui.prefs.right_open = true;
+        self.ui.right_mode = 6;
+        self.persist_workspace(cx);
+        cx.notify();
+    }
+
     pub(super) fn background_task_panel(&self, cx: &mut Context<Self>) -> AnyElement {
-        let ids: Vec<_> = self.background_tasks.jobs.keys().rev().copied().collect();
+        let queue = &self.background_tasks;
+        let mut ids = Vec::with_capacity(queue.jobs.len());
+        ids.extend(
+            queue
+                .jobs
+                .iter()
+                .filter(|(_, j)| matches!(j.state, State::Running(_) | State::Cancelling))
+                .map(|(id, _)| *id),
+        );
+        ids.extend(queue.waiting.iter().copied().filter(|id| {
+            queue
+                .jobs
+                .get(id)
+                .is_some_and(|j| matches!(j.state, State::Queued))
+        }));
+        ids.extend(queue.history.iter().rev().copied());
         div()
             .flex()
             .flex_col()
@@ -172,7 +229,24 @@ impl Workspace {
                 div()
                     .p_2()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("后台任务"),
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child("后台任务")
+                    .when(!queue.history.is_empty(), |s| {
+                        s.child(
+                            Button::new("clear-task-history")
+                                .ghost()
+                                .label("清除记录")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let queue = &mut this.background_tasks;
+                                    for id in queue.history.drain(..) {
+                                        queue.jobs.remove(&id);
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                    }),
             )
             .when(ids.is_empty(), |s| {
                 s.child(div().p_2().child("暂无后台任务"))
@@ -188,7 +262,7 @@ impl Workspace {
                                 let job = this.background_tasks.jobs.get(&id)?;
                                 let status = match &job.state {
                                     State::Queued => "排队中",
-                                    State::Running => "运行中",
+                                    State::Running(label) => *label,
                                     State::Cancelling => "正在取消",
                                     State::Cancelled => "已取消",
                                     State::Finished => "已完成",
@@ -219,7 +293,7 @@ impl Workspace {
                                                 ),
                                         )
                                         .when(
-                                            matches!(job.state, State::Running | State::Queued),
+                                            matches!(job.state, State::Running(_) | State::Queued),
                                             |s| {
                                                 s.child(
                                                     Button::new(("cancel-task", id))
@@ -268,6 +342,47 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn cancelled_jobs_never_publish_and_release_their_keys(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let window = cx.add_window(Workspace::new);
+        window
+            .update(cx, |w, _, cx| {
+                for key in ["running", "failed", "queued"] {
+                    w.enqueue_task(
+                        key.into(),
+                        key.into(),
+                        move |progress| {
+                            progress.stage("检查")?;
+                            anyhow::bail!("测试错误")
+                        },
+                        move |_, result: anyhow::Result<()>, _| {
+                            assert_eq!(key, "failed", "cancelled result was published");
+                            result
+                        },
+                        |_, _, _| {},
+                        cx,
+                    );
+                }
+                w.background_tasks.cancel(0);
+                w.background_tasks.cancel(2);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |w, _, _| {
+                let queue = &w.background_tasks;
+                assert!(matches!(queue.jobs[&0].state, State::Cancelled));
+                assert!(
+                    matches!(queue.jobs[&1].state, State::Failed(ref e) if e.contains("测试错误"))
+                );
+                assert!(matches!(queue.jobs[&2].state, State::Cancelled));
+                assert!(queue.active_keys.is_empty());
+                assert_eq!(queue.history.len(), 3);
+            })
+            .unwrap();
+    }
 
     #[gpui::test]
     fn background_queue_bounds_deduplicates_cancels_and_isolates_vaults(cx: &mut TestAppContext) {

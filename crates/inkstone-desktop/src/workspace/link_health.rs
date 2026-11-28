@@ -39,13 +39,15 @@ impl Workspace {
         self.enqueue_task(
             format!("link-audit-{request}"),
             "检查笔记库链接".into(),
-            move |_| {
+            move |progress| {
+                progress.stage("读取笔记库索引")?;
                 let mut index = previous_index.refresh_from_disk(&vault)?;
                 index.update_many(
                     drafts
                         .into_iter()
                         .map(|(path, text)| (path, text.to_string())),
                 );
+                progress.stage("检查链接目标")?;
                 Ok(inkstone_core::link_audit::scan(&vault.root, &index))
             },
             move |this, result, _| {

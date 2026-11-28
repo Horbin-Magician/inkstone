@@ -94,7 +94,10 @@ impl Workspace {
         self.enqueue_task(
             format!("attachment-scan-{request}"),
             "扫描笔记库附件".into(),
-            move |_| Ok(attachments::scan(&vault, &document::owned_drafts(drafts))?),
+            move |progress| {
+                progress.stage("扫描附件与引用")?;
+                Ok(attachments::scan(&vault, &document::owned_drafts(drafts))?)
+            },
             move |this, result, _| {
                 if this.ui.recovery_refresh == request
                     && let Some(m) = &mut this.ui.attachment_manager

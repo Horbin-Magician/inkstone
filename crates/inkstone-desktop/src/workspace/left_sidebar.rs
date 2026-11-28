@@ -476,9 +476,7 @@ impl Workspace {
                     menu = menu.item(PopupMenuItem::new("识别论文属性").on_click(
                         move |_, _, cx| {
                             let _ = weak.update(cx, |this, cx| {
-                                this.ui.focus_mode = false;
-                                this.ui.prefs.right_open = true;
-                                this.ui.right_mode = 6;
+                                this.show_background_tasks(cx);
                                 this.queue_paper(&path, true, cx);
                                 cx.notify();
                             });

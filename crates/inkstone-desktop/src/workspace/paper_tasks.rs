@@ -1,6 +1,6 @@
 //! Recognize an attachment independently of any reader tab.
 use super::{attachment_properties::AttachmentProperties, pdf_preview::Paper, *};
-use std::{path::Path, sync::atomic::Ordering};
+use std::path::Path;
 
 struct Recognition {
     properties: AttachmentProperties,
@@ -27,7 +27,8 @@ impl Workspace {
         self.enqueue_task(
             format!("paper-{relative:?}"),
             format!("识别论文 · {}", relative.display()),
-            move |cancelled| {
+            move |progress| {
+                progress.stage("读取 PDF 元数据")?;
                 let full = vault.file_path(&relative)?;
                 let properties = AttachmentProperties::open(&full);
                 let existing = properties
@@ -40,7 +41,7 @@ impl Workspace {
                 let mut paper = pdf_preview::read_paper(&full).map_err(anyhow::Error::msg)?;
                 let mut lookup_error = None;
                 if let Some(doi) = paper.0.get("doi").and_then(|v| v.as_str()) {
-                    anyhow::ensure!(!cancelled.load(Ordering::Acquire), "已取消");
+                    progress.stage("通过 DOI 查询 Crossref")?;
                     match paper.clone().lookup(doi) {
                         Ok(record) => paper = record,
                         Err(error) => lookup_error = Some(format!("Crossref 查询失败：{error}")),
