@@ -338,6 +338,15 @@ impl Workspace {
                                     } else {
                                         new.clone()
                                     };
+                                    if tab.attachment_properties.is_some()
+                                        && let Some(vault) = &this.vault
+                                    {
+                                        tab.attachment_properties = Some(
+                                            attachment_properties::AttachmentProperties::open(
+                                                &vault.root.join(&tab.path),
+                                            ),
+                                        );
+                                    }
                                     tab.save.path.replace(tab.path.clone());
                                 } else if tab.save.persistence.is_dirty() {
                                     tab.save.persistence.preserve_external_change();

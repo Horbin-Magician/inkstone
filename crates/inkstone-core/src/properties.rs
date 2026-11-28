@@ -1,6 +1,14 @@
 //! Small, source-preserving frontmatter editor. Unknown YAML stays verbatim.
 use std::ops::Range;
 
+/// Adjacent metadata for a binary attachment, including trash payloads.
+pub fn sidecar(file: &std::path::Path) -> std::path::PathBuf {
+    let mut name = std::ffi::OsString::from(".inkstone-");
+    name.push(file.file_name().unwrap_or_default());
+    name.push(".properties.yaml");
+    file.with_file_name(name)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Kind {
     #[default]

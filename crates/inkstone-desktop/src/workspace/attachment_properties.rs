@@ -1,24 +1,22 @@
 //! Editable metadata for local preview tabs, stored beside the attachment.
 use std::{
-    ffi::OsString,
     fs,
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
 };
 
 pub(super) struct AttachmentProperties {
-    path: PathBuf,
+    file: PathBuf,
     pub source: Result<Option<String>, String>,
 }
 
 impl AttachmentProperties {
     pub fn open(file: &Path) -> Self {
-        let mut name = OsString::from(".inkstone-");
-        name.push(file.file_name().unwrap_or_default());
-        name.push(".properties.yaml");
-        let path = file.with_file_name(name);
-        let source = Self::read(&path);
-        Self { path, source }
+        let source = Self::read(&inkstone_core::properties::sidecar(file));
+        Self {
+            file: file.to_owned(),
+            source,
+        }
     }
 
     fn read(path: &Path) -> Result<Option<String>, String> {
@@ -31,14 +29,11 @@ impl AttachmentProperties {
     }
 
     pub fn save(&mut self, source: String) -> anyhow::Result<()> {
-        let lock = fs::File::options()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.path.with_extension("lock"))?;
+        let lock = fs::File::open(&self.file)?;
         lock.try_lock()?;
+        let path = inkstone_core::properties::sidecar(&self.file);
         let previous = self.source.clone();
-        self.source = Self::read(&self.path);
+        self.source = Self::read(&path);
         self.source.as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
         anyhow::ensure!(
             self.source == previous,
@@ -46,10 +41,10 @@ impl AttachmentProperties {
         );
         let mut temp = tempfile::Builder::new()
             .prefix(".inkstone-")
-            .tempfile_in(self.path.parent().unwrap())?;
+            .tempfile_in(path.parent().unwrap())?;
         temp.write_all(source.as_bytes())?;
         temp.as_file().sync_all()?;
-        temp.persist(&self.path)?;
+        temp.persist(&path)?;
         self.source = Ok(Some(source));
         Ok(())
     }

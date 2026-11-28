@@ -226,7 +226,7 @@ fn move_unused(vault: &Vault, expected: &Attachment) -> Result<PathBuf, VaultErr
     let entry = vault.create_trash_entry(&expected.path)?;
     write_new_synced(&entry.join("payload-name.json"), b"\"content\"")?;
     let dest = entry.join("content");
-    move_no_replace(&source, &dest)?;
+    move_with_properties(&source, &dest)?;
     Ok(dest)
 }
 

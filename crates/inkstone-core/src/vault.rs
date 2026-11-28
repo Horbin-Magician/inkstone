@@ -245,7 +245,7 @@ impl Vault {
         let source = self.file_path(old)?;
         let dest = self.regular_file_path(new)?;
         fs::create_dir_all(dest.parent().ok_or(VaultError::InvalidPath)?)?;
-        move_no_replace(&source, &dest)?;
+        move_with_properties(&source, &dest)?;
         Ok(())
     }
     pub fn trash_file(&self, relative: &Path) -> Result<PathBuf, VaultError> {
@@ -253,7 +253,7 @@ impl Vault {
         let entry = self.create_trash_entry(relative)?;
         write_new_synced(&entry.join("payload-name.json"), b"\"content\"")?;
         let dest = entry.join("content");
-        move_no_replace(&source, &dest)?;
+        move_with_properties(&source, &dest)?;
         Ok(dest)
     }
     pub fn rename_folder(&self, old: &Path, new: &Path) -> Result<(), VaultError> {
@@ -457,7 +457,11 @@ impl Vault {
             self.regular_file_path(&entry.original)?
         };
         fs::create_dir_all(dest.parent().ok_or(VaultError::InvalidPath)?)?;
-        move_no_replace(&entry.stored, &dest)?;
+        if entry.directory {
+            move_no_replace(&entry.stored, &dest)?;
+        } else {
+            move_with_properties(&entry.stored, &dest)?;
+        }
         Ok(())
     }
     pub fn recoveries(&self) -> Result<Vec<RecoveryEntry>, VaultError> {
@@ -975,6 +979,36 @@ impl SaveGuard {
     }
 }
 
+fn move_with_properties(source: &Path, dest: &Path) -> io::Result<()> {
+    let file = fs::File::open(source)?;
+    file.try_lock().map_err(io::Error::other)?;
+    let before = crate::properties::sidecar(source);
+    let after = crate::properties::sidecar(dest);
+    if after.try_exists()? {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "目标附件属性文件已存在",
+        ));
+    }
+    match fs::symlink_metadata(&before) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return move_no_replace(source, dest),
+        Err(e) => return Err(e),
+        Ok(meta) if !meta.is_file() || is_reparse(&meta) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "无效的附件属性文件",
+            ));
+        }
+        Ok(_) => {}
+    }
+    move_no_replace(&before, &after)?;
+    if let Err(error) = move_no_replace(source, dest) {
+        move_no_replace(&after, &before)?;
+        return Err(error);
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 fn move_no_replace(source: &Path, dest: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -1219,6 +1253,7 @@ mod tests {
             let old = Path::new(name);
             let new = Path::new("nested").join(name);
             fs::write(s.1.root.join(old), bytes).unwrap();
+            fs::write(crate::properties::sidecar(&s.1.root.join(old)), b"fields").unwrap();
             s.1.rename_file(old, &new).unwrap();
             assert!(!s.1.root.join(old).exists());
             assert_eq!(fs::read(s.1.file_path(&new).unwrap()).unwrap(), bytes);
@@ -1234,6 +1269,10 @@ mod tests {
                     .find(|e| e.original == new)
                     .unwrap();
             s.1.restore_trash(&entry).unwrap();
+            assert_eq!(
+                fs::read(crate::properties::sidecar(&s.1.root.join(&new))).unwrap(),
+                b"fields"
+            );
             assert_eq!(fs::read(s.1.root.join(&new)).unwrap(), bytes);
         }
         assert!(s.1.file_path(Path::new("nested")).is_err());
