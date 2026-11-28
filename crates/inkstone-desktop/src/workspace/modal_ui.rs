@@ -143,7 +143,7 @@ impl Workspace {
             })
             .when(diagram.is_some(), |s| {
                 let viewport = window.viewport_size();
-                let margin = px(28.);
+                let margin = px(40.);
                 s.w((viewport.width - margin * 2.).max(px(1.)))
                     .h((viewport.height - margin * 2.).max(px(1.)))
                     .max_h(available_height)
