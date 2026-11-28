@@ -635,6 +635,17 @@ fn element(
             });
         })
         .when_some(sprite_element, |view, image| view.child(image))
+        .when_some(
+            sprite.filter(|g| g.kind == inkstone_core::graphics::Kind::Mermaid),
+            |view, g| {
+                view.relative()
+                    .child(crate::native_graphics::diagram_zoom_button(
+                        g,
+                        pane.clone(),
+                        start,
+                    ))
+            },
+        )
         .when(sprite.is_none(), |view| {
             view.child(
                 TextView::new(&widget.view)

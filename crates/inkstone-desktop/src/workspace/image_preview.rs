@@ -186,6 +186,47 @@ impl Render for Preview {
 }
 
 impl Workspace {
+    pub(super) fn preview_diagram(
+        &mut self,
+        diagram: &crate::native_graphics::Prepared,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_overlays(window, cx);
+        let preview = cx.new(|cx| Preview::new(diagram.image.clone().into(), cx));
+        // Show the inline raster immediately and sharpen the enlarged view from
+        // its SVG. Limit the long edge to 4096 device pixels (64 MiB square).
+        let viewport = window.viewport_size();
+        let target = (f32::from(viewport.width.max(viewport.height)) * window.scale_factor() * 2.)
+            .min(4096.);
+        let current = diagram.image.size(0);
+        if (i32::from(current.width.max(current.height)) as f32) < target {
+            let svg = diagram.asset.svg.clone();
+            let scale = target
+                / diagram.asset.width.max(diagram.asset.height)
+                / gpui::SMOOTH_SVG_SCALE_FACTOR;
+            let renderer = cx.svg_renderer();
+            preview.update(cx, |_, cx| {
+                cx.spawn(async move |preview, cx| {
+                    let image = cx
+                        .background_executor()
+                        .spawn(async move { renderer.render_single_frame(&svg, scale) })
+                        .await;
+                    if let Ok(image) = image {
+                        let _ = preview.update(cx, |preview, cx| {
+                            preview.source = image.into();
+                            cx.notify();
+                        });
+                    }
+                })
+                .detach();
+            });
+        }
+        self.ui.diagram_preview = Some(preview);
+        window.focus(&self.ui.modal_focus, cx);
+        cx.notify();
+    }
+
     pub(super) fn open_image_tab(
         &mut self,
         path: PathBuf,
@@ -254,6 +295,7 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
 
     #[gpui::test]
@@ -319,6 +361,73 @@ mod tests {
             })
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[gpui::test]
+    fn diagram_zoom_opens_from_reading_and_live_without_moving_the_caret(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            cx.bind_keys([KeyBinding::new("escape", ClosePalette, None)]);
+        });
+        let source = "```mermaid\nflowchart LR\nA --> B\n```\n\ntail";
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.add_tab("diagram.md".into(), Some(source.into()), false, window, cx);
+                w.current_pane().unwrap().update(cx, |pane, cx| {
+                    pane.live = true;
+                    pane.editor.update(cx, |s, cx| {
+                        s.set_selected_range(source.len()..source.len(), cx)
+                    });
+                });
+            })
+            .unwrap();
+        let mut visual = VisualTestContext::from_window(handle.into(), cx);
+        visual.simulate_resize(size(px(1000.), px(700.)));
+        for reading in [true, false] {
+            handle
+                .update(&mut visual, |w, _, cx| {
+                    w.current_pane().unwrap().update(cx, |pane, cx| {
+                        pane.reading = reading;
+                        cx.notify();
+                    });
+                })
+                .unwrap();
+            for _ in 0..8 {
+                visual.run_until_parked();
+                visual.update(|window, cx| window.draw(cx).clear(cx));
+            }
+            let button = visual
+                .debug_bounds("diagram-zoom-0")
+                .unwrap_or_else(|| panic!("missing zoom control, reading={reading}"));
+            visual.simulate_click(button.center(), Modifiers::default());
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let viewport = visual
+                .debug_bounds("image-viewport")
+                .expect("diagram preview");
+            assert!(viewport.size.width > px(800.) && viewport.size.height > px(400.));
+            visual.simulate_event(ScrollWheelEvent {
+                position: viewport.center(),
+                delta: ScrollDelta::Pixels(point(px(0.), px(100.))),
+                ..Default::default()
+            });
+            handle
+                .update(&mut visual, |w, _, cx| {
+                    assert!(w.ui.diagram_preview.as_ref().unwrap().read(cx).zoom > 1.);
+                })
+                .unwrap();
+            visual.simulate_platform_keystrokes("escape");
+            handle
+                .update(&mut visual, |w, _, cx| {
+                    assert!(!w.modal_is_open());
+                    let pane = w.current_pane().unwrap();
+                    let editor = pane.read(cx).editor.read(cx);
+                    assert_eq!(editor.value().as_ref(), source);
+                    assert_eq!(editor.selected_range(), source.len()..source.len());
+                })
+                .unwrap();
+        }
     }
 
     #[gpui::test]

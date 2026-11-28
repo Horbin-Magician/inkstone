@@ -210,6 +210,7 @@ pub(super) struct UiState {
     pub backup: super::backups::State,
     pub cloud_sync: super::cloud_sync::State,
     pub exporting: bool,
+    pub diagram_preview: Option<Entity<super::image_preview::Preview>>,
     pub attachment_manager: Option<super::attachments::Manager>,
     pub link_health: Option<super::link_health::Review>,
     pub bulk_edit: Option<super::bulk_edit::Review>,
@@ -571,6 +572,7 @@ impl UiState {
             backup: Default::default(),
             cloud_sync: super::cloud_sync::State::new(window, cx),
             exporting: false,
+            diagram_preview: None,
             attachment_manager: None,
             link_health: None,
             bulk_edit: None,
@@ -1345,6 +1347,7 @@ impl Workspace {
     }
 
     pub(super) fn close_review_panels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.ui.diagram_preview = None;
         self.agent.review = None;
         self.ui.trash_open = false;
         self.ui.history = None;

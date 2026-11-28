@@ -187,6 +187,7 @@ impl EditorPane {
             }));
         }
         let key = PresentationSnapshot {
+            reading: self.reading,
             text: text.clone(),
             selections: selections.clone(),
             live: self.live,

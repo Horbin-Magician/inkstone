@@ -285,6 +285,36 @@ impl Service {
     }
 }
 
+pub(crate) fn diagram_zoom_button(
+    graphic: &Prepared,
+    pane: WeakEntity<crate::editor::EditorPane>,
+    offset: usize,
+) -> impl IntoElement {
+    use gpui_component::{Sizable, button::Button};
+    let graphic = graphic.clone();
+    div()
+        .id(("diagram-zoom-control", offset))
+        .debug_selector(move || format!("diagram-zoom-{offset}"))
+        .absolute()
+        .top_0()
+        .right_0()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(
+            Button::new(("diagram-zoom", offset))
+                .small()
+                .label("放大")
+                .accessibility_label("放大查看 Mermaid 图表")
+                .tooltip("放大查看 Mermaid 图表")
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    window.prevent_default();
+                    let _ = pane.update(cx, |_, cx| {
+                        cx.emit(crate::editor::EditorEvent::PreviewDiagram(graphic.clone()));
+                    });
+                }),
+        )
+}
+
 #[derive(Clone)]
 struct FormulaNode {
     kind: Kind,
@@ -407,6 +437,7 @@ impl MarkdownPlugin for Plugin {
                     .max_w(px(prepared.width))
                     .aspect_ratio(prepared.width / prepared.height)
                     .child(img(prepared.image.clone()).absolute().inset_0().size_full())
+                    .child(diagram_zoom_button(prepared, self.pane.clone(), offset))
                     .into_any_element()
             } else {
                 img(prepared.image.clone())

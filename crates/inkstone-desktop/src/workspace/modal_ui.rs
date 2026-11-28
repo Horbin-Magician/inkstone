@@ -9,6 +9,10 @@ use gpui_component::{Disableable, button::*};
 
 impl Workspace {
     pub(super) fn modal_is_open(&self) -> bool {
+        self.ui.diagram_preview.is_some() || self.panel_is_open()
+    }
+
+    fn panel_is_open(&self) -> bool {
         self.command_open
             || self.ui.quick_open
             || self.ui.property_open
@@ -53,7 +57,12 @@ impl Workspace {
         let recovery = self.recovery_hub_is_open() || self.ui.history.is_some();
         let picker = self.command_open || self.ui.quick_open;
         let review = self.agent.review.is_some();
-        let centered = self.ui.settings || review;
+        let diagram = self
+            .ui
+            .diagram_preview
+            .as_ref()
+            .filter(|_| !self.panel_is_open());
+        let centered = self.ui.settings || review || diagram.is_some();
         let top = px(if recovery { 48. } else { 100. })
             .min(window.viewport_size().height * if picker { 0.12 } else { 0.15 })
             .max(px(16.));
@@ -131,6 +140,11 @@ impl Workspace {
             .when(centered, |s| s.h(px(700.).min(available_height)))
             .when(recovery, |s| {
                 s.h(px(700.).min(available_height)).max_h(available_height)
+            })
+            .when(diagram.is_some(), |s| {
+                s.w((window.viewport_size().width - px(32.)).max(px(1.)))
+                    .h(available_height)
+                    .max_h(available_height)
             })
             .p_5()
             .gap_3()
@@ -223,6 +237,8 @@ impl Workspace {
                                 "编辑属性"
                             } else if self.ui.settings {
                                 "设置"
+                            } else if diagram.is_some() {
+                                "Mermaid 图表"
                             } else if review {
                                 "审阅完整修改"
                             } else if self.ui.conflict_review.is_some() {
@@ -405,6 +421,7 @@ impl Workspace {
                         )
                     })
             })
+            .children(diagram.cloned())
             .when(self.ui.settings, |s| s.child(self.settings_panel(cx)))
             .when(self.ui.bulk_edit.is_some(), |s| {
                 s.child(self.bulk_edit_panel(cx))

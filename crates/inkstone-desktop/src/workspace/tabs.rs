@@ -76,10 +76,14 @@ impl Workspace {
                         | EditorEvent::FollowLinkInNewTab(_)
                         | EditorEvent::FollowMarkdownLinkInNewTab(_)
                         | EditorEvent::FollowReferenceInNewTab(_)
+                        | EditorEvent::PreviewDiagram(_)
                 ) {
                     this.focus_primary(index, window, cx);
                 }
                 match event {
+                    EditorEvent::PreviewDiagram(graphic) => {
+                        this.preview_diagram(graphic, window, cx)
+                    }
                     EditorEvent::PreviewImage(reference) => {
                         this.preview_image_reference(reference, window, cx)
                     }

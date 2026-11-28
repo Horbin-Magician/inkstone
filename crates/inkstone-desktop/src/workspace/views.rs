@@ -584,6 +584,7 @@ impl Workspace {
                 }
             }
             match event {
+                EditorEvent::PreviewDiagram(graphic) => this.preview_diagram(graphic, w, cx),
                 EditorEvent::PreviewImage(reference) => {
                     this.preview_image_reference(reference, w, cx)
                 }

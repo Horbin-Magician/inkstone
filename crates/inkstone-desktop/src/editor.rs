@@ -30,6 +30,7 @@ mod live_rules;
 mod live_tasks;
 
 pub enum EditorEvent {
+    PreviewDiagram(crate::native_graphics::Prepared),
     PreviewImage(inkstone_core::rendering::Reference),
     CountsChanged,
     FontSizeDelta(i8),
@@ -48,6 +49,7 @@ impl EventEmitter<EditorEvent> for EditorPane {}
 
 #[derive(PartialEq)]
 struct PresentationSnapshot {
+    reading: bool,
     text: SharedString,
     selections: Vec<std::ops::Range<usize>>,
     live: bool,
