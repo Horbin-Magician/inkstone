@@ -36,6 +36,10 @@ version="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'im
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$bundle/Contents/Info.plist"
 cp "target/$profile/inkstone" "$bundle/Contents/MacOS/inkstone"
+python3 packaging/pdfium.py mac-arm64 "$bundle/Contents/MacOS"
+mv "$bundle/Contents/MacOS/pdfium-licenses"/* "$bundle/Contents/Resources/"
+rmdir "$bundle/Contents/MacOS/pdfium-licenses"
+codesign --force --sign - "$bundle/Contents/MacOS/libpdfium.dylib"
 if [[ "$profile" == release ]]; then
     strip "$bundle/Contents/MacOS/inkstone"
 fi
