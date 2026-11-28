@@ -541,11 +541,11 @@ mod tests {
     #[test]
     fn property_queries_match_yaml_types_lists_and_comparisons() {
         let path = Path::new("note.md");
-        let source = "---\nstatus: done\ntags: [work, personal]\ndone: true\ntextbool: 'true'\nempty:\nblank: ''\npriority: 5\n'created at': 2026-09-29\nreference: '[[Note]]'\n---\nbody";
+        let source = "---\nstatus: done\nprojects: [work, personal]\ndone: true\ntextbool: 'true'\nempty:\nblank: ''\npriority: 5\n'created at': 2026-09-29\nreference: '[[Note]]'\n---\nbody";
         for input in [
             "[status]",
             "[status: done]",
-            "[tags: work OR personal]",
+            "[projects: work OR personal]",
             "[done: TRUE OR FALSE]",
             "[textbool: \"true\"]",
             "[empty: EMPTY]",
@@ -563,7 +563,7 @@ mod tests {
         }
         for input in [
             "[missing]",
-            "[tags: work personal]",
+            "[projects: work personal]",
             "[textbool: TRUE OR FALSE]",
             "[blank: EMPTY]",
             "[priority: <3]",

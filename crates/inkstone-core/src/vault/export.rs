@@ -965,7 +965,7 @@ mod tests {
         fs::write(vault.root.join("附件/中 文.png"), [0, 1, 2, 255]).unwrap();
         fs::write(vault.root.join("目录/a.md"), "disk").unwrap();
         fs::write(vault.root.join("b.md"), "# 标题\n[[目录/a]]\n").unwrap();
-        let draft = "---\ntags: [test]\n---\n# 草稿 😀\r\n[[draft-target#标题|别名]] ![[附件/中 文.png]]\r\n`[[not-a-link]]`\n";
+        let draft = "---\nprojects: [test]\n---\n# 草稿 😀\r\n[[draft-target#标题|别名]] ![[附件/中 文.png]]\r\n`[[not-a-link]]`\n";
         let report = create(
             &vault,
             Path::new("目录/a.md"),
@@ -987,7 +987,7 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("`[[not-a-link]]`"));
-        assert!(text.contains("tags: [test]"));
+        assert!(text.contains("projects: [test]"));
         assert_eq!(
             fs::read(root.join("md/assets/附件/中 文.png")).unwrap(),
             [0, 1, 2, 255]
@@ -1013,7 +1013,7 @@ mod tests {
         let text = fs::read_to_string(report.entry).unwrap();
         assert!(text.contains("#heading-0"));
         assert!(text.contains("id=\"heading-0\""));
-        assert!(!text.contains("tags: [test]"));
+        assert!(!text.contains("projects: [test]"));
         assert!(
             create(
                 &vault,

@@ -684,7 +684,7 @@ fn metadata_only_search_uses_a_bounded_first_line_preview() {
         String::new(),
         "\nsecond line".into(),
         "first line\r\nsecond line".into(),
-        format!("{}\n#work second line", "前😀e\u{301}".repeat(10_000)),
+        format!("{}\nsecond line", "前😀e\u{301}".repeat(10_000)),
     ] {
         index.update("folder/note.md".into(), text.clone());
         let queries = [
@@ -760,7 +760,7 @@ fn yaml_aliases_with_punctuation_participate_in_search_and_backlinks() {
     let mut index = Index::default();
     index.update(
         "target.md".into(),
-        "---\naliases: [\"Smith, John\", 'ÉTUDE']\ntags: ['工作/项目']\n---\n正文".into(),
+        "---\naliases: [\"Smith, John\", 'ÉTUDE']\n---\n正文".into(),
     );
     index.update("entry.md".into(), "[[Smith, John]] [[étude]]".into());
     assert_eq!(
@@ -957,7 +957,7 @@ fn reference_style_links_participate_in_backlinks() {
 }
 #[test]
 fn aliases_and_standard_backlinks_ignore_code() {
-    let source = "---\naliases: [别名, 'Second']\ntags:\n  - 工作/项目\n---\n# 标题\n\n#中文 #123 #work/sub `#code` \\#escaped\n\n[目标](目标.md#章节)\n\n```md\n#not-a-tag [[目标]]\n```\n";
+    let source = "---\naliases: [别名, 'Second']\n---\n# 标题\n\n[目标](目标.md#章节)\n\n```md\n[[目标]]\n```\n";
     let note = parse(source);
     assert_eq!(note.aliases, vec!["别名", "Second"]);
     let mut index = Index::default();

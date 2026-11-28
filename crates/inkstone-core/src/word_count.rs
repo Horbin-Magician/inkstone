@@ -66,7 +66,7 @@ mod tests {
     }
     #[test]
     fn full_document_excludes_only_complete_frontmatter() {
-        assert_eq!(document_body("---\r\ntags: [a]\r\n---\r\n正文"), "正文");
+        assert_eq!(document_body("---\r\nprojects: [a]\r\n---\r\n正文"), "正文");
         assert_eq!(document_body("---\ninvalid: [\n---\ntext"), "text");
         assert_eq!(document_body("---\nunfinished"), "---\nunfinished");
         assert_eq!(document_body("---\n---"), "");

@@ -180,10 +180,10 @@ mod tests {
 
     #[test]
     fn cached_matches_refresh_with_frontmatter_and_preserve_highlights() {
-        let property = Property::parse("[tags: work]", false).unwrap();
-        let source = "---\ntags: [work, personal]\n---\nbody";
+        let property = Property::parse("[projects: work]", false).unwrap();
+        let source = "---\nprojects: [work, personal]\n---\nbody";
         let keys = property.matching_keys(source).unwrap();
-        assert_eq!(keys.as_ref(), &["tags"]);
+        assert_eq!(keys.as_ref(), &["projects"]);
         assert!(Arc::ptr_eq(
             &keys,
             &property
@@ -194,11 +194,11 @@ mod tests {
         assert_eq!(patterns.len(), 1);
         assert_eq!(
             source[patterns[0].range.clone()].trim(),
-            "tags: [work, personal]"
+            "projects: [work, personal]"
         );
         for changed in [
-            "---\ntags: [personal]\n---\nbody",
-            "---\ntags: [\n---\nbody",
+            "---\nprojects: [personal]\n---\nbody",
+            "---\nprojects: [\n---\nbody",
             "---\nother: work\n---\nbody",
             "body",
         ] {

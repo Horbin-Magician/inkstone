@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn cache_matches_fresh_after_edits_renames_deletes_and_read_errors() {
         let s = Sandbox::new();
-        s.write("a.md", "---\ntags: [test]\naliases: [alias]\n---\n# Title\n[[b]] #tag\n- [ ] Task\n\n%% comment %%\n^[footnote]\n");
+        s.write("a.md", "---\nprojects: [test]\naliases: [alias]\n---\n# Title\n[[b]]\n- [ ] Task\n\n%% comment %%\n^[footnote]\n");
         s.write("b.md", "# Before\n");
         s.assert_fresh();
         s.cached().save_cache(&s.vault, &s.cache).unwrap();
@@ -253,8 +253,8 @@ mod tests {
     #[ignore = "manual startup index timing"]
     fn startup_cache_timing() {
         let s = Sandbox::new();
-        let body = "## Heading\n\nParagraph with **bold**, #tag and [[other]].\n\n- [ ] Task\n\n"
-            .repeat(30);
+        let body =
+            "## Heading\n\nParagraph with **bold** and [[other]].\n\n- [ ] Task\n\n".repeat(30);
         for i in 0..300 {
             s.write(&format!("note-{i}.md"), &body);
         }
