@@ -1,5 +1,7 @@
 //! On-demand PDF page rendering, text search and annotations.
 mod annotations;
+mod excerpt;
+pub(super) use excerpt::{Excerpt, SourceAnchor};
 mod layout;
 use layout::{Layout, Position};
 use std::collections::BTreeMap;
@@ -251,6 +253,8 @@ pub(super) struct Reader {
     save_position: Option<Task<()>>,
     seek: bool,
     selected_page: i32,
+    source_anchor: Option<SourceAnchor>,
+    pub(super) note_target: Option<(usize, PathBuf)>,
     selection: Option<Range<usize>>,
     anchor: Option<Range<usize>>,
     requests: std::sync::mpsc::Sender<Command>,
@@ -386,6 +390,8 @@ impl Reader {
             save_position: None,
             seek: true,
             selected_page: -1,
+            source_anchor: None,
+            note_target: None,
             store,
             annotations,
             mark_error,
@@ -953,6 +959,32 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        handle
+            .update(&mut visual, |r, _, cx| {
+                let href = format!(
+                    "paper.pdf#page=2&inkstone=0-8-{}",
+                    inkstone_agent::tools::hash("INKSTONE")
+                );
+                r.show_excerpt(SourceAnchor::parse(&href).unwrap());
+                cx.notify();
+            })
+            .unwrap();
+        wait(&mut visual, |r| {
+            r.selected_page == 1 && r.selection == Some(0..8) && r.reveal.is_none()
+        });
+        let bounds = visual.debug_bounds("pdf-page-1").unwrap();
+        handle
+            .update(&mut visual, |r, _, _| {
+                let glyph = r
+                    .active_page()
+                    .unwrap()
+                    .text
+                    .boxes(0..8, bounds)
+                    .next()
+                    .unwrap();
+                assert!(r.scroll.bounds().contains(&glyph.center()));
+            })
+            .unwrap();
     }
 
     #[test]

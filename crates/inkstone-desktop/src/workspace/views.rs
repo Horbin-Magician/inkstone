@@ -11,6 +11,7 @@ pub(super) struct SplitPane {
 }
 #[derive(Default)]
 pub(super) struct Views {
+    pub last_note: Option<usize>,
     pub split: Option<SplitPane>,
     pub main: Option<usize>,
     pub secondary_focused: bool,

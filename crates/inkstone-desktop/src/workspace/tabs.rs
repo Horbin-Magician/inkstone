@@ -183,14 +183,28 @@ impl Workspace {
                 .vault
                 .as_ref()
                 .map_or_else(|| path.clone(), |v| v.root.join(&path));
-            Some(TabPreview::Pdf(
-                cx.new(|cx| pdf_preview::Reader::new(full, window, cx)),
-            ))
+            let reader = cx.new(|cx| pdf_preview::Reader::new(full, window, cx));
+            cx.subscribe_in(
+                &reader,
+                window,
+                move |this, _, excerpt: &pdf_preview::Excerpt, window, cx| {
+                    this.insert_pdf_excerpt(id, excerpt, window, cx);
+                },
+            )
+            .detach();
+            Some(TabPreview::Pdf(reader))
         } else {
             image_preview::source(self.vault.as_ref(), &path).map(|source| {
                 TabPreview::Image(cx.new(|cx| image_preview::Preview::new(source, cx)))
             })
         };
+        if preview.is_none()
+            && path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
+            self.views.last_note = Some(id);
+        }
         self.tabs.push(Tab {
             preview,
             id,
@@ -244,6 +258,13 @@ impl Workspace {
             self.pending_navigation = None;
         }
         let id = self.tabs[index].id;
+        if self.tabs[index]
+            .path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
+            self.views.last_note = Some(id);
+        }
         if self.tabs[index].preview.is_some() {
             self.views.secondary_focused = false;
         }

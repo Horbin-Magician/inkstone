@@ -1880,7 +1880,16 @@ impl Workspace {
                     }
                     image.into_any_element()
                 }
-                TabPreview::Pdf(pdf) => pdf.into_any_element(),
+                TabPreview::Pdf(pdf) => {
+                    let target = self.pdf_note_target().map(|t| (t.id, t.path.clone()));
+                    if pdf.read(cx).note_target != target {
+                        pdf.update(cx, |reader, cx| {
+                            reader.note_target = target;
+                            cx.notify();
+                        });
+                    }
+                    pdf.into_any_element()
+                }
             };
             return div()
                 .size_full()

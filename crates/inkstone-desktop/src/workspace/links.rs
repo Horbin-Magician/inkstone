@@ -91,7 +91,19 @@ impl Workspace {
                     &self.index.files,
                 ) {
                     Some(path) => {
+                        let anchor = pdf_preview::is_pdf(&path)
+                            .then(|| pdf_preview::SourceAnchor::parse(href))
+                            .flatten();
                         self.open_attachment(path, window, cx);
+                        if let Some(anchor) = anchor
+                            && let Some(TabPreview::Pdf(reader)) =
+                                self.active.and_then(|i| self.tabs[i].preview.as_ref())
+                        {
+                            reader.update(cx, |reader, cx| {
+                                reader.show_excerpt(anchor);
+                                cx.notify();
+                            });
+                        }
                         return;
                     }
                     _ => {

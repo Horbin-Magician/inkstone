@@ -133,7 +133,23 @@ impl Reader {
         } else if self.active_page().is_some() {
             bar = bar.child("原文已变化");
         }
-        if self.editing.is_some() {
+        if let Some(index) = self.editing {
+            if let Some((target, path)) = &self.note_target {
+                let target = *target;
+                bar = bar.child(
+                    div()
+                        .id("pdf-insert-excerpt")
+                        .debug_selector(|| "pdf-insert-excerpt".into())
+                        .cursor_pointer()
+                        .child(format!("插入到 {}", path.display()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let mark = &this.annotations[index];
+                            cx.emit(Excerpt::new(target, mark));
+                        })),
+                );
+            } else {
+                bar = bar.child("打开 Markdown 笔记后可插入摘录");
+            }
             bar = bar.child(
                 div()
                     .id("delete-mark")

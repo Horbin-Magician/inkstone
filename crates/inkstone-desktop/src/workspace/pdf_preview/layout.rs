@@ -90,6 +90,7 @@ impl Reader {
         self.page = page;
         self.position.page = page;
         self.position.y = 0.;
+        self.source_anchor = None;
         self.reveal = None;
         self.selection = None;
         self.anchor = None;
@@ -110,7 +111,7 @@ impl Reader {
     pub(super) fn observe_position(&mut self, cx: &mut Context<Self>) {
         let Some(layout) = &self.layout else { return };
         let width = self.width * self.zoom;
-        if self.seek || self.reveal.is_some() || width <= 0. {
+        if self.seek || self.source_anchor.is_some() || self.reveal.is_some() || width <= 0. {
             return;
         }
         let offset = self.scroll.offset();
@@ -160,7 +161,7 @@ impl Reader {
         }
         let y = -f32::from(self.scroll.offset().y);
         let mut visible = layout.at(y, width)..layout.at(y + f32::from(viewport.height), width) + 1;
-        if self.reveal.is_some() {
+        if self.source_anchor.is_some() || self.reveal.is_some() {
             visible.start = visible.start.min(self.page);
             visible.end = visible.end.max(self.page + 1);
         }
@@ -182,6 +183,20 @@ impl Reader {
                     width: raster,
                 }));
             }
+        }
+        if let Some(anchor) = self.source_anchor.as_ref()
+            && let Some(result) = self.pages.get(&self.page)
+        {
+            if let Ok(page) = result {
+                if anchor.matches(self.page, &page.text.text) {
+                    self.selected_page = self.page;
+                    self.selection = Some(anchor.bytes.clone());
+                    self.reveal = self.selection.clone();
+                } else {
+                    self.mark_error = Some("原文已变化，已打开摘录所在页。".into());
+                }
+            }
+            self.source_anchor = None;
         }
         if let Some(result) = self.pages.get(&self.page)
             && let Some(range) = self.reveal.take()
