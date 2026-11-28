@@ -241,7 +241,7 @@ impl Workspace {
             .into_any_element()
     }
     pub(super) fn right_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        if matches!(self.ui.right_mode, 5 | 6) {
+        if self.ui.right_mode == 5 {
             return div()
                 .id("workspace-right-panel")
                 .flex()
@@ -249,11 +249,7 @@ impl Workspace {
                 .size_full()
                 .bg(self.bg())
                 .child(self.right_header(cx))
-                .child(if self.ui.right_mode == 6 {
-                    self.background_task_panel(cx)
-                } else {
-                    self.agent_panel(cx)
-                })
+                .child(self.agent_panel(cx))
                 .into_any_element();
         }
         let pane = self.current_pane();

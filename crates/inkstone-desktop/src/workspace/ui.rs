@@ -848,7 +848,7 @@ impl Workspace {
     pub(super) fn side(&self) -> Rgba {
         crate::theme::palette(self.ui.prefs.light).sidebar
     }
-    fn fg(&self) -> Rgba {
+    pub(super) fn fg(&self) -> Rgba {
         crate::theme::palette(self.ui.prefs.light).foreground
     }
     pub(super) fn border(&self) -> Rgba {
@@ -2597,7 +2597,7 @@ impl Render for Workspace {
                                     )
                                 })
                                 .on_click(
-                                    cx.listener(|this, _, _, cx| this.show_background_tasks(cx)),
+                                    cx.listener(|this, _, w, cx| this.show_background_tasks(w, cx)),
                                 )
                         })
                         .child(

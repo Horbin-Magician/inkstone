@@ -474,9 +474,9 @@ impl Workspace {
                     let path = path.clone();
                     let weak = menu_weak.clone();
                     menu = menu.item(PopupMenuItem::new("识别论文属性").on_click(
-                        move |_, _, cx| {
+                        move |_, window, cx| {
                             let _ = weak.update(cx, |this, cx| {
-                                this.show_background_tasks(cx);
+                                this.show_background_tasks(window, cx);
                                 this.queue_paper(&path, true, cx);
                                 cx.notify();
                             });
