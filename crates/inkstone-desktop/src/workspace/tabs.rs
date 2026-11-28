@@ -178,10 +178,21 @@ impl Workspace {
                 cx.notify();
             }
         });
-        let image = image_preview::source(self.vault.as_ref(), &path)
-            .map(|source| cx.new(|cx| image_preview::Preview::new(source, cx)));
+        let preview = if pdf_preview::is_pdf(&path) {
+            let full = self
+                .vault
+                .as_ref()
+                .map_or_else(|| path.clone(), |v| v.root.join(&path));
+            Some(TabPreview::Pdf(
+                cx.new(|cx| pdf_preview::Reader::new(full, window, cx)),
+            ))
+        } else {
+            image_preview::source(self.vault.as_ref(), &path).map(|source| {
+                TabPreview::Image(cx.new(|cx| image_preview::Preview::new(source, cx)))
+            })
+        };
         self.tabs.push(Tab {
-            image,
+            preview,
             id,
             pinned: self.loading && self.ui.prefs.pinned_paths.contains(&path),
             path,
@@ -233,7 +244,7 @@ impl Workspace {
             self.pending_navigation = None;
         }
         let id = self.tabs[index].id;
-        if self.tabs[index].image.is_some() {
+        if self.tabs[index].preview.is_some() {
             self.views.secondary_focused = false;
         }
         if !self.views.secondary_focused
@@ -268,8 +279,12 @@ impl Workspace {
             }
         } else {
             self.views.main = Some(self.tabs[index].id);
-            if let Some(image) = &self.tabs[index].image {
-                let focus = image.read(cx).focus.clone();
+            if let Some(image) = &self.tabs[index].preview {
+                let focus = match image {
+                    TabPreview::Image(v) => &v.read(cx).focus,
+                    TabPreview::Pdf(v) => &v.read(cx).focus,
+                }
+                .clone();
                 window.focus(&focus, cx);
             } else {
                 self.tabs[index]
@@ -362,7 +377,7 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if tab.image.is_some() {
+        if tab.preview.is_some() {
             self.remove_tab_view(index, window, cx);
             return;
         }

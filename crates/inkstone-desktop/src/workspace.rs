@@ -46,6 +46,7 @@ mod image_preview;
 mod link_health;
 mod link_updates;
 mod navigation;
+mod pdf_preview;
 mod recent_vault;
 mod recovery;
 mod recovery_metadata;
@@ -108,8 +109,14 @@ actions!(
     ]
 );
 
+#[derive(Clone)]
+enum TabPreview {
+    Image(Entity<image_preview::Preview>),
+    Pdf(Entity<pdf_preview::Reader>),
+}
+
 struct Tab {
-    image: Option<Entity<image_preview::Preview>>,
+    preview: Option<TabPreview>,
     id: usize,
     pinned: bool,
     path: PathBuf,

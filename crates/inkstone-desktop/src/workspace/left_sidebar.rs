@@ -482,7 +482,13 @@ impl Workspace {
                     let weak = menu_weak.clone();
                     menu = menu.item(PopupMenuItem::new(label).on_click(move |_, w, cx| {
                         let _ = weak.update(cx, |this, cx| match action {
-                            0 => this.open_tree_file(path.clone(), w, cx),
+                            0 => {
+                                if let Some(full) =
+                                    this.vault.as_ref().and_then(|v| v.file_path(&path).ok())
+                                {
+                                    cx.open_with_system(&full);
+                                }
+                            }
                             1 => this.begin_tree_name(NameMode::Rename, path.clone(), w, cx),
                             5 => {
                                 if let Some(vault) = &this.vault {

@@ -11,6 +11,8 @@ name = "inkstone"
 path = "src/main.rs"
 
 [dependencies]
+async-channel = "=2.5.0"
+pdfium-render = { version = "=0.9.6", default-features = false, features = ["pdfium_8125", "thread_safe"] }
 inkstone-agent.workspace = true
 inkstone-core = { workspace = true, features = ["graphics"] }
 gpui.workspace = true

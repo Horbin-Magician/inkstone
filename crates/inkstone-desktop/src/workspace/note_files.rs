@@ -59,7 +59,7 @@ impl Workspace {
         if let Some(path) = self
             .tabs
             .iter()
-            .find(|tab| tab.id == id && tab.image.is_some())
+            .find(|tab| tab.id == id && tab.preview.is_some())
             .map(|tab| tab.path.clone())
         {
             self.manage_tree_path(

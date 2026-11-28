@@ -40,7 +40,7 @@ impl Workspace {
         for tab in self
             .tabs
             .iter_mut()
-            .filter(|tab| tab.image.is_none() && only.is_none_or(|id| tab.id == id))
+            .filter(|tab| tab.preview.is_none() && only.is_none_or(|id| tab.id == id))
         {
             let editor = tab.save.editor.clone();
             if editor.update(cx, |state, cx| {
@@ -163,7 +163,7 @@ impl Workspace {
         if self
             .active
             .and_then(|i| self.tabs.get(i))
-            .is_some_and(|t| t.image.is_some())
+            .is_some_and(|t| t.preview.is_some())
         {
             return;
         }

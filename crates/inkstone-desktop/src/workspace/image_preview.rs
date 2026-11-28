@@ -227,7 +227,7 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn open_image_tab(
+    pub(super) fn open_preview_tab(
         &mut self,
         path: PathBuf,
         window: &mut Window,
@@ -240,7 +240,7 @@ impl Workspace {
         if let Some(index) = self
             .tabs
             .iter()
-            .position(|t| t.path == path && t.image.is_some())
+            .position(|t| t.path == path && t.preview.is_some())
         {
             self.focus_primary(index, window, cx);
         } else {
@@ -258,13 +258,13 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if source(None, &path).is_some() {
+        if pdf_preview::is_pdf(&path) || source(None, &path).is_some() {
             let path = self
                 .vault
                 .as_ref()
                 .and_then(|v| path.strip_prefix(&v.root).ok())
                 .map_or_else(|| path.clone(), |p| p.to_path_buf());
-            self.open_image_tab(path, window, cx);
+            self.open_preview_tab(path, window, cx);
         } else {
             cx.open_with_system(&path);
         }
@@ -277,7 +277,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if !reference.wiki && inkstone_core::rendering::is_remote_image(&reference.target) {
-            self.open_image_tab(PathBuf::from(&reference.target), window, cx);
+            self.open_preview_tab(PathBuf::from(&reference.target), window, cx);
         } else if let Some(vault) = &self.vault {
             if let Some(path) =
                 inkstone_core::rendering::asset_path(&vault.root, reference, &self.index.files)
@@ -297,6 +297,33 @@ mod tests {
     use super::*;
     use crate::test_support::PlatformKeys;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn pdf_tabs_reuse_and_preserve_source_bytes(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("vault")).unwrap();
+        let vault = Vault::open(root.path().join("vault"), root.path().join("recovery")).unwrap();
+        let path = PathBuf::from("paper.PDF");
+        let bytes = include_bytes!("../../tests/fixtures/two-pages.pdf");
+        std::fs::write(vault.root.join(&path), bytes).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        handle
+            .update(cx, |w, window, cx| {
+                w.vault = Some(vault.clone());
+                w.open_tree_file(path.clone(), window, cx);
+                w.open_note(path.clone(), window, cx);
+                assert_eq!(w.tabs.len(), 1);
+                assert!(matches!(w.tabs[0].preview, Some(TabPreview::Pdf(_))));
+                assert!(w.current_pane().is_none());
+                assert!(!w.file_draft_snapshots(cx).contains_key(&path));
+                w.save_all(window, cx);
+                w.close_tab(window, cx);
+            })
+            .unwrap();
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(vault.root.join(path)).unwrap(), bytes);
+    }
 
     #[gpui::test]
     fn image_tabs_reuse_close_reopen_and_never_save_binary_as_text(cx: &mut TestAppContext) {
@@ -323,7 +350,9 @@ mod tests {
                 assert_eq!(w.tabs.len(), 2);
                 assert!(w.current_pane().is_none());
                 assert!(!w.modal_is_open());
-                let image = w.tabs[1].image.clone().unwrap();
+                let Some(TabPreview::Image(image)) = w.tabs[1].preview.clone() else {
+                    panic!("expected image preview")
+                };
                 image.update(cx, |p, _| p.zoom = 2.);
                 w.focus_primary(0, window, cx);
                 w.open_attachment(vault.root.join("image.png"), window, cx);
@@ -339,7 +368,7 @@ mod tests {
                 assert_eq!(w.tabs.len(), 1);
                 assert_eq!(w.current_pane(), Some(note));
                 w.open_note("image.png".into(), window, cx);
-                assert!(w.tabs[1].image.is_some());
+                assert!(w.tabs[1].preview.is_some());
             })
             .unwrap();
         cx.run_until_parked();
@@ -356,7 +385,7 @@ mod tests {
                 assert!(
                     w.tabs
                         .iter()
-                        .any(|t| t.path == std::path::Path::new("image.png") && t.image.is_some())
+                        .any(|t| t.path == std::path::Path::new("image.png") && t.preview.is_some())
                 );
             })
             .unwrap();

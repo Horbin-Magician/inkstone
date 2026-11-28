@@ -114,8 +114,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if image_preview::source(self.vault.as_ref(), &path).is_some() {
-            self.open_image_tab(path, window, cx);
+        if pdf_preview::is_pdf(&path) || image_preview::source(self.vault.as_ref(), &path).is_some()
+        {
+            self.open_preview_tab(path, window, cx);
             return;
         }
         if self

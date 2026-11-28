@@ -97,7 +97,7 @@ impl Workspace {
             .iter()
             .filter(|t| {
                 !t.path.as_os_str().is_empty()
-                    && t.image.is_none()
+                    && t.preview.is_none()
                     && owners.insert(t.save.editor.entity_id())
             })
             .map(|t| {

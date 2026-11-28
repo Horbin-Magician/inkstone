@@ -170,7 +170,7 @@ impl Workspace {
         let mut drafts: std::collections::BTreeMap<_, _> = self
             .tabs
             .iter()
-            .filter(|t| t.image.is_none() && !t.path.as_os_str().is_empty())
+            .filter(|t| t.preview.is_none() && !t.path.as_os_str().is_empty())
             .filter(|t| seen.insert(t.save.editor.entity_id()))
             .filter(|t| !t.save.editor.read(cx).is_composing())
             .map(|t| (t.path.clone(), t.save.text_snapshot(cx)))

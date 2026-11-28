@@ -1661,7 +1661,7 @@ impl Workspace {
                             .child({
                                 let title = if t.path.as_os_str().is_empty() {
                                     "新标签页".to_string()
-                                } else if t.image.is_some() {
+                                } else if t.preview.is_some() {
                                     t.path
                                         .file_name()
                                         .unwrap_or_default()
@@ -1869,13 +1869,19 @@ impl Workspace {
     ) -> AnyElement {
         if let Some(image) = index
             .and_then(|i| self.tabs.get(i))
-            .and_then(|t| t.image.clone())
+            .and_then(|t| t.preview.clone())
         {
-            if let Some(source) =
-                index.and_then(|i| image_preview::source(self.vault.as_ref(), &self.tabs[i].path))
-            {
-                image.update(cx, |preview, _| preview.source = source);
-            }
+            let content = match image {
+                TabPreview::Image(image) => {
+                    if let Some(source) = index.and_then(|i| {
+                        image_preview::source(self.vault.as_ref(), &self.tabs[i].path)
+                    }) {
+                        image.update(cx, |preview, _| preview.source = source);
+                    }
+                    image.into_any_element()
+                }
+                TabPreview::Pdf(pdf) => pdf.into_any_element(),
+            };
             return div()
                 .size_full()
                 .bg(self.bg())
@@ -1891,7 +1897,7 @@ impl Workspace {
                         }
                     }),
                 )
-                .child(image)
+                .child(content)
                 .into_any_element();
         }
         let colors = crate::theme::palette(self.ui.prefs.light);

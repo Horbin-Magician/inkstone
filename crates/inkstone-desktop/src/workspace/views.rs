@@ -78,7 +78,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> bool {
         self.flush_document_views(window, cx);
-        for tab in self.tabs.iter_mut().filter(|tab| tab.image.is_none()) {
+        for tab in self.tabs.iter_mut().filter(|tab| tab.preview.is_none()) {
             tab.save
                 .persistence
                 .edited(tab.save.editor.read(cx).value().as_ref());
@@ -358,7 +358,7 @@ impl Workspace {
         }
         self.active
             .and_then(|i| self.tabs.get(i))
-            .filter(|t| t.image.is_none())
+            .filter(|t| t.preview.is_none())
             .map(|t| t.pane.clone())
     }
     pub(super) fn main_tab(&self) -> Option<usize> {
@@ -405,7 +405,7 @@ impl Workspace {
         let Some(index) = self.active else {
             return;
         };
-        if self.tabs[index].image.is_some() {
+        if self.tabs[index].preview.is_some() {
             return;
         }
         let source = self.tabs[index].id;
@@ -442,7 +442,7 @@ impl Workspace {
         let Some(tab) = self.tabs.get(index) else {
             return;
         };
-        if tab.image.is_some() {
+        if tab.preview.is_some() {
             return;
         }
         let id = tab.id;

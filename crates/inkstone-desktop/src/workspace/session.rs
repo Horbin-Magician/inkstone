@@ -305,7 +305,12 @@ impl Workspace {
                     if path.as_os_str().is_empty() {
                         return Some((saved_index, path.clone(), String::new()));
                     }
-                    if image_preview::source(Some(&vault), path).is_some() {
+                    if pdf_preview::is_pdf(path) && vault.file_path(path).is_err() {
+                        return None;
+                    }
+                    if pdf_preview::is_pdf(path)
+                        || image_preview::source(Some(&vault), path).is_some()
+                    {
                         return Some((saved_index, path.clone(), String::new()));
                     }
                     vault

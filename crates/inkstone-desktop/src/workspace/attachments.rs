@@ -187,7 +187,7 @@ impl Workspace {
         self.flush_document_views(window, cx);
         // Unnamed notes have no stable base directory for relative references.
         if self.tabs.iter().any(|tab| {
-            tab.image.is_none()
+            tab.preview.is_none()
                 && tab.path.as_os_str().is_empty()
                 && !tab.save.text_snapshot(cx).trim().is_empty()
         }) {
