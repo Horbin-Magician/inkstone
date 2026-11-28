@@ -46,7 +46,7 @@ mod image_preview;
 mod link_health;
 mod link_updates;
 mod navigation;
-mod pdf_preview;
+pub(crate) mod pdf_preview;
 mod recent_vault;
 mod recovery;
 mod recovery_metadata;

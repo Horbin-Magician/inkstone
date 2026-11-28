@@ -27,6 +27,7 @@ fn main() {
         .run(|cx| {
             inkstone_core::startup_trace::mark("application_ready");
             gpui_kit::init(cx);
+            workspace::pdf_preview::init(cx);
             #[cfg(target_os = "macos")]
             app_icon::init();
             gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
