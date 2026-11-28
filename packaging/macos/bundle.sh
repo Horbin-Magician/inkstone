@@ -36,6 +36,9 @@ version="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'im
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $version" "$bundle/Contents/Info.plist"
 cp "target/$profile/inkstone" "$bundle/Contents/MacOS/inkstone"
+if [[ "$profile" == release ]]; then
+    strip "$bundle/Contents/MacOS/inkstone"
+fi
 codesign --force --sign - "$bundle"
 codesign --verify --deep --strict "$bundle"
 printf 'Built %s\n' "$bundle"
