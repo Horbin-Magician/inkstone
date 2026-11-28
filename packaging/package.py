@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 import tarfile
 import zipfile
 
@@ -128,6 +129,7 @@ def package(output, signed=False):
             **os.environ,
             "CARGO_ENCODED_RUSTFLAGS": "-C\x1ftarget-feature=+crt-static",
         })
+        run(sys.executable, ROOT / "packaging/pdfium.py", "win-x64", stage)
         shutil.copy2(ROOT / "target" / host / "release/inkstone.exe", stage)
     else:
         subprocess.run(["bash", str(ROOT / "packaging/macos/bundle.sh"), "--release"],
