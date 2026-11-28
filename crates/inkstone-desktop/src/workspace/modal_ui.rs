@@ -142,8 +142,10 @@ impl Workspace {
                 s.h(px(700.).min(available_height)).max_h(available_height)
             })
             .when(diagram.is_some(), |s| {
-                s.w((window.viewport_size().width - px(32.)).max(px(1.)))
-                    .h(available_height)
+                let viewport = window.viewport_size();
+                let margin = px(28.);
+                s.w((viewport.width - margin * 2.).max(px(1.)))
+                    .h((viewport.height - margin * 2.).max(px(1.)))
                     .max_h(available_height)
             })
             .p_5()
