@@ -7,6 +7,8 @@ use std::{
 
 pub(super) struct AttachmentProperties {
     file: PathBuf,
+    extracted: String,
+    pub status: Option<String>,
     pub source: Result<Option<String>, String>,
 }
 
@@ -15,8 +17,17 @@ impl AttachmentProperties {
         let source = Self::read(&inkstone_core::properties::sidecar(file));
         Self {
             file: file.to_owned(),
+            extracted: String::new(),
+            status: None,
             source,
         }
+    }
+
+    pub fn text(&self) -> Option<&str> {
+        self.source
+            .as_ref()
+            .ok()
+            .map(|v| v.as_deref().unwrap_or(&self.extracted))
     }
 
     fn read(path: &Path) -> Result<Option<String>, String> {
@@ -46,6 +57,69 @@ impl AttachmentProperties {
         temp.as_file().sync_all()?;
         temp.persist(&path)?;
         self.source = Ok(Some(source));
+        self.status = None;
         Ok(())
+    }
+}
+
+use super::{Workspace, pdf_preview::Paper};
+use gpui::Context;
+
+impl Workspace {
+    pub(super) fn receive_paper_properties(
+        &mut self,
+        id: usize,
+        paper: &Paper,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(properties) = self.unsaved_attachment_properties(id) else {
+            return;
+        };
+        properties.extracted = paper.source();
+        let Some(doi) = paper
+            .0
+            .get("doi")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+        else {
+            cx.notify();
+            return;
+        };
+        properties.status = Some("正在通过 DOI 从 Crossref 获取文献信息…".into());
+        let paper = paper.clone();
+        let task = cx
+            .background_executor()
+            .spawn(async move { paper.lookup(&doi) });
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(properties) = this.unsaved_attachment_properties(id) else {
+                    return;
+                };
+                match result {
+                    Ok(paper) => {
+                        properties.extracted = paper.source();
+                        if let Err(e) = properties.save(properties.extracted.clone()) {
+                            properties.status = Some(format!("文献信息已提取，保存失败：{e}"));
+                        }
+                    }
+                    Err(_) => {
+                        properties.status = Some("未能从 Crossref 补全，已显示本地属性。".into())
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn unsaved_attachment_properties(&mut self, id: usize) -> Option<&mut AttachmentProperties> {
+        self.tabs
+            .iter_mut()
+            .find(|t| t.id == id)?
+            .attachment_properties
+            .as_mut()
+            .filter(|p| matches!(p.source, Ok(None)))
     }
 }

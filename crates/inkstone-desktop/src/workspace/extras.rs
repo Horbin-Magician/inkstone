@@ -435,8 +435,8 @@ impl Workspace {
         };
         let text = if let Some(pane) = self.current_pane() {
             pane.read(cx).editor.read(cx).value().to_string()
-        } else if let Some(Ok(text)) = tab.attachment_properties.as_ref().map(|p| &p.source) {
-            text.clone().unwrap_or_default()
+        } else if let Some(text) = tab.attachment_properties.as_ref().and_then(|p| p.text()) {
+            text.to_owned()
         } else {
             return;
         };
@@ -665,15 +665,10 @@ impl Workspace {
         let Some((id, text)) = &self.ui.property_baseline else {
             return;
         };
-        let attachment_changed = tab.attachment_properties.as_ref().is_some_and(|p| {
-            p.source.as_ref().is_err()
-                || p.source
-                    .as_ref()
-                    .ok()
-                    .and_then(|s| s.as_deref())
-                    .unwrap_or_default()
-                    != text
-        });
+        let attachment_changed = tab
+            .attachment_properties
+            .as_ref()
+            .is_some_and(|p| p.text() != Some(text));
         if tab.id != *id
             || attachment_changed
             || pane

@@ -215,6 +215,17 @@ impl Workspace {
                     .map_or_else(|| path.clone(), |v| v.root.join(&path));
                 attachment_properties::AttachmentProperties::open(&full)
             });
+        if let Some(TabPreview::Pdf(reader)) = &preview
+            && attachment_properties
+                .as_ref()
+                .is_some_and(|a| matches!(a.source, Ok(None)))
+        {
+            cx.subscribe(reader, move |this, _, paper: &pdf_preview::Paper, cx| {
+                this.receive_paper_properties(id, paper, cx);
+            })
+            .detach();
+            reader.read(cx).request_metadata();
+        }
         self.tabs.push(Tab {
             attachment_properties,
             preview,

@@ -6986,3 +6986,73 @@ fn attachment_property_edits_persist_and_reject_stale_retries(cx: &mut TestAppCo
         })
         .unwrap();
 }
+
+#[gpui::test]
+#[ignore = "requires packaged PDFium and Crossref network access"]
+fn paper_properties_resolve_and_remain_editable_offline(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("paper.pdf");
+    // Add an Info dictionary as a PDF incremental update to the local two-page fixture.
+    let mut pdf = include_str!("../../tests/fixtures/two-pages.pdf").to_owned();
+    let previous = pdf
+        .split("startxref\n")
+        .last()
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    let info = pdf.len();
+    pdf.push_str(
+        "8 0 obj\n<< /Title (Local title) /Subject (doi:10.1038/nature12373) >>\nendobj\n",
+    );
+    let xref = pdf.len();
+    pdf.push_str(&format!("xref\n8 1\n{info:010} 00000 n \ntrailer\n<< /Size 9 /Root 1 0 R /Prev {previous} /Info 8 0 R >>\nstartxref\n{xref}\n%%EOF\n"));
+    std::fs::write(&path, &pdf).unwrap();
+    let handle = cx.add_window(Workspace::new);
+    handle
+        .update(cx, |w, window, cx| {
+            w.open_preview_tab(path.clone(), window, cx)
+        })
+        .unwrap();
+    let mut visual = VisualTestContext::from_window(handle.into(), cx);
+    for _ in 0..400 {
+        visual.executor().advance_clock(Duration::from_millis(15));
+        visual.run_until_parked();
+        if inkstone_core::properties::sidecar(&path).exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    handle
+        .update(&mut visual, |w, window, cx| {
+            let source = attachment_properties::AttachmentProperties::open(&path)
+                .source
+                .unwrap()
+                .unwrap();
+            let fields = inkstone_core::properties::parse(&source);
+            assert!(
+                fields
+                    .iter()
+                    .any(|p| p.name == "publication" && p.value == "\"Nature\"")
+            );
+            assert!(
+                fields
+                    .iter()
+                    .any(|p| p.name == "page_count" && p.value == "2")
+            );
+            let title = fields.iter().find(|p| p.name == "title").unwrap();
+            w.edit_property("title", &title.value, window, cx);
+            w.ui.property_value
+                .update(cx, |s, cx| s.set_value("校订标题", window, cx));
+            w.save_property(window, cx);
+            let saved = attachment_properties::AttachmentProperties::open(&path)
+                .source
+                .unwrap()
+                .unwrap();
+            assert!(saved.contains("校订标题"));
+            assert_eq!(std::fs::read(&path).unwrap(), pdf.as_bytes());
+        })
+        .unwrap();
+}

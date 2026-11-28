@@ -286,6 +286,7 @@ impl Workspace {
             .active
             .and_then(|i| self.tabs.get(i))
             .and_then(|t| t.attachment_properties.as_ref());
+        let metadata_status = attachment.and_then(|a| a.status.clone());
         let property_error = attachment.and_then(|a| a.source.as_ref().err()).cloned();
         let can_edit_properties =
             pane.is_some() || attachment.is_some() && property_error.is_none();
@@ -296,10 +297,7 @@ impl Workspace {
             .or_else(|| {
                 attachment
                     .filter(|_| self.ui.right_mode == 4)?
-                    .source
-                    .as_ref()
-                    .ok()?
-                    .as_deref()
+                    .text()
                     .map(inkstone_core::properties::parse)
             })
             .unwrap_or_default();
@@ -608,6 +606,7 @@ impl Workspace {
                     })
                     .when(self.ui.right_mode == 4, |s| {
                         s.children(property_error)
+                            .children(metadata_status)
                             .children(properties.iter().enumerate().map(|(i, p)| {
                                 let name = p.name.clone();
                                 let value = p.value.clone();

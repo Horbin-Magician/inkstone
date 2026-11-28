@@ -1,5 +1,7 @@
 //! On-demand PDF page rendering, text search and annotations.
 mod annotations;
+mod bibliography;
+pub(super) use bibliography::Paper;
 mod area;
 mod page_text;
 mod pen;
@@ -95,12 +97,14 @@ fn bitmap(
 }
 
 enum Command {
+    Metadata,
     Layout,
     Render(Request),
     Thumbnail(i32),
     Search(u64, String),
 }
 enum Response {
+    Metadata(Paper),
     Layout(Result<Layout, String>),
     Page(Request, Result<Arc<Page>, String>),
     Matches(u64, Result<Vec<Hit>, String>),
@@ -142,6 +146,12 @@ fn worker(
         let mut render = Vec::new();
         for command in first.into_iter().chain(requests.try_iter()) {
             match command {
+                Command::Metadata => {
+                    let paper = document.as_ref().ok().map(Paper::read).unwrap_or_default();
+                    if results.send_blocking(Response::Metadata(paper)).is_err() {
+                        return;
+                    }
+                }
                 Command::Layout => {
                     let layout = document
                         .as_ref()
@@ -292,7 +302,13 @@ pub(super) struct Reader {
     error: Option<String>,
 }
 
+impl EventEmitter<Paper> for Reader {}
+
 impl Reader {
+    pub(super) fn request_metadata(&self) {
+        let _ = self.requests.send(Command::Metadata);
+    }
+
     pub(super) fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (requests, rx) = std::sync::mpsc::channel();
         let (tx, results) = async_channel::bounded(1);
@@ -333,6 +349,7 @@ impl Reader {
                 if this
                     .update(cx, |reader: &mut Self, cx| {
                         match response {
+                            Response::Metadata(paper) => cx.emit(paper),
                             Response::Layout(result) => match result {
                                 Ok(layout) => {
                                     reader.count = layout.count();
@@ -542,7 +559,7 @@ impl Reader {
         let reader = cx.entity();
         let shown = page.clone();
         div()
-            .debug_selector(move || format!("pdf-page-{index}").into())
+            .debug_selector(move || format!("pdf-page-{index}"))
             .relative()
             .w(px(logical))
             .h(px(logical / page.aspect))
@@ -1299,6 +1316,11 @@ mod tests {
             };
             result.unwrap()
         };
+        send.send(Command::Metadata).unwrap();
+        let Response::Metadata(paper) = recv.recv_blocking().unwrap() else {
+            panic!("expected PDF metadata");
+        };
+        assert_eq!(paper.0["page_count"], 2);
         let first = get(0, 300);
 
         assert_eq!(first.text.text, "Inkstone reader");
