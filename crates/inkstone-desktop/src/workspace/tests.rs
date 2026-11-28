@@ -6983,6 +6983,14 @@ fn attachment_property_edits_persist_and_reject_stale_retries(cx: &mut TestAppCo
                 );
             }
             assert_eq!(std::fs::read(&path).unwrap(), b"original bytes");
+            std::fs::write(&path, b"replacement").unwrap();
+            assert!(other.save("replacement fields".into()).is_err());
+            assert_eq!(
+                attachment_properties::AttachmentProperties::open(&path)
+                    .source
+                    .unwrap(),
+                Some(newer)
+            );
         })
         .unwrap();
 }

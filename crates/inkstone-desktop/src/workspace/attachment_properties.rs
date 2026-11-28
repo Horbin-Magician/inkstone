@@ -1,12 +1,16 @@
 //! Editable metadata for local preview tabs, stored beside the attachment.
+use super::{Workspace, pdf_preview::Paper};
+use gpui::Context;
 use std::{
     fs,
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 pub(super) struct AttachmentProperties {
     file: PathBuf,
+    original: Option<(u64, SystemTime)>,
     extracted: String,
     pub status: Option<String>,
     pub source: Result<Option<String>, String>,
@@ -17,6 +21,9 @@ impl AttachmentProperties {
         let source = Self::read(&inkstone_core::properties::sidecar(file));
         Self {
             file: file.to_owned(),
+            original: fs::metadata(file)
+                .ok()
+                .and_then(|m| Some((m.len(), m.modified().ok()?))),
             extracted: String::new(),
             status: None,
             source,
@@ -31,6 +38,12 @@ impl AttachmentProperties {
     }
 
     fn read(path: &Path) -> Result<Option<String>, String> {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_file() => {}
+            Ok(_) => return Err("附件属性路径必须是普通文件。".into()),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.to_string()),
+        }
         match fs::read_to_string(path) {
             Ok(text) if inkstone_core::properties::block(&text).is_some() => Ok(Some(text)),
             Ok(_) => Err("附件属性文件格式无效。".into()),
@@ -42,6 +55,11 @@ impl AttachmentProperties {
     pub fn save(&mut self, source: String) -> anyhow::Result<()> {
         let lock = fs::File::open(&self.file)?;
         lock.try_lock()?;
+        let meta = lock.metadata()?;
+        anyhow::ensure!(
+            self.original == Some((meta.len(), meta.modified()?)),
+            "附件已变更，请重新打开文件。"
+        );
         let path = inkstone_core::properties::sidecar(&self.file);
         let previous = self.source.clone();
         self.source = Self::read(&path);
@@ -61,9 +79,6 @@ impl AttachmentProperties {
         Ok(())
     }
 }
-
-use super::{Workspace, pdf_preview::Paper};
-use gpui::Context;
 
 impl Workspace {
     pub(super) fn receive_paper_properties(

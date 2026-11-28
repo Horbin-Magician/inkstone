@@ -208,12 +208,14 @@ impl Workspace {
         let attachment_properties = preview
             .as_ref()
             .filter(|_| !inkstone_core::rendering::is_remote_image(&path.to_string_lossy()))
-            .map(|_| {
-                let full = self
-                    .vault
-                    .as_ref()
-                    .map_or_else(|| path.clone(), |v| v.root.join(&path));
-                attachment_properties::AttachmentProperties::open(&full)
+            .and_then(|_| {
+                let full = match self.vault.as_ref() {
+                    Some(vault) => vault
+                        .file_path(path.strip_prefix(&vault.root).unwrap_or(&path))
+                        .ok()?,
+                    None => path.clone(),
+                };
+                Some(attachment_properties::AttachmentProperties::open(&full))
             });
         if let Some(TabPreview::Pdf(reader)) = &preview
             && attachment_properties
