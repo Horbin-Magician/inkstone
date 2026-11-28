@@ -1,7 +1,10 @@
 //! Read-only, on-demand PDF page rendering.
+mod text;
 use super::*;
 use pdfium_render::prelude::{PdfDocument, PdfRenderConfig, Pdfium};
+use std::{cell::Cell, ops::Range, rc::Rc};
 use std::{collections::VecDeque, path::Path, sync::OnceLock};
+use text::TextLayer;
 
 pub(super) fn is_pdf(path: &Path) -> bool {
     path.extension()
@@ -15,6 +18,7 @@ struct Request {
 }
 
 struct Page {
+    text: TextLayer,
     image: Arc<RenderImage>,
     aspect: f32,
     count: i32,
@@ -37,6 +41,7 @@ fn render_page(doc: &PdfDocument<'_>, request: Request) -> anyhow::Result<Page> 
     let buffer = image::RgbaImage::from_raw(bitmap.width() as u32, bitmap.height() as u32, bytes)
         .ok_or_else(|| anyhow::anyhow!("无效的页面位图"))?;
     Ok(Page {
+        text: TextLayer::read(&page, &config, bitmap.width(), bitmap.height()),
         image: Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])),
         aspect,
         count: doc.pages().len(),
@@ -87,6 +92,9 @@ fn worker(
 pub(super) struct Reader {
     pub(super) focus: FocusHandle,
     jump: Entity<InputState>,
+    bounds: Rc<Cell<Bounds<Pixels>>>,
+    selection: Option<Range<usize>>,
+    anchor: Option<Range<usize>>,
     requests: std::sync::mpsc::Sender<Request>,
     pending: Option<Request>,
     page: i32,
@@ -140,6 +148,9 @@ impl Reader {
             focus: cx.focus_handle(),
             jump: cx.new(|cx| InputState::new(window, cx).placeholder("页码")),
             requests,
+            bounds: Default::default(),
+            selection: None,
+            anchor: None,
             pending: None,
             page: 0,
             count: 0,
@@ -161,6 +172,8 @@ impl Render for Reader {
         };
         if self.width > 0. && self.pending != Some(request) {
             if self.pending.is_some_and(|old| old.page != request.page) {
+                self.selection = None;
+                self.anchor = None;
                 self.scroll.set_offset(Point::default());
                 if let Some(old) = self.visible.take() {
                     cx.drop_image(old.image.clone(), Some(window));
@@ -218,16 +231,79 @@ impl Render for Reader {
         let content = if let Some(error) = &self.error {
             div().child(error.clone())
         } else if let Some(page) = &self.visible {
-            div().child(
-                img(page.image.clone())
-                    .w(px(logical))
-                    .h(px(logical / page.aspect)),
-            )
+            let bounds = self.bounds.clone();
+            let selection = self.selection.clone();
+            let shown = page.clone();
+            div()
+                .relative()
+                .w(px(logical))
+                .h(px(logical / page.aspect))
+                .cursor_text()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                        window.focus(&this.focus, cx);
+                        this.anchor = this
+                            .visible
+                            .as_ref()
+                            .and_then(|p| p.text.hit(event.position, this.bounds.get(), false));
+                        this.selection = this.anchor.clone();
+                        cx.notify();
+                    }),
+                )
+                .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                    if event.pressed_button != Some(MouseButton::Left) {
+                        this.anchor = None;
+                        return;
+                    }
+                    if let (Some(anchor), Some(hit)) = (
+                        &this.anchor,
+                        this.visible
+                            .as_ref()
+                            .and_then(|p| p.text.hit(event.position, this.bounds.get(), true)),
+                    ) {
+                        this.selection = Some(anchor.start.min(hit.start)..anchor.end.max(hit.end));
+                        cx.notify();
+                    }
+                }))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| this.anchor = None),
+                )
+                .child(img(page.image.clone()).size_full())
+                .child(
+                    canvas(
+                        move |rect, _, _| bounds.set(rect),
+                        move |rect, _, window, _| {
+                            if let Some(range) = &selection {
+                                for region in shown.text.boxes(range.clone(), rect) {
+                                    window.paint_quad(fill(region, rgba(0x4097ff70)));
+                                }
+                            }
+                        },
+                    )
+                    .absolute()
+                    .inset_0(),
+                )
         } else {
             div().child("正在加载 PDF…")
         };
         div()
             .track_focus(&self.focus)
+            .on_action(
+                cx.listener(|this, _: &gpui_component::input::Copy, window, cx| {
+                    if this.focus.is_focused(window)
+                        && let Some(text) = this
+                            .visible
+                            .as_ref()
+                            .and_then(|p| p.text.text.get(this.selection.clone()?))
+                    {
+                        cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+                    } else {
+                        cx.propagate();
+                    }
+                }),
+            )
             .size_full()
             .flex()
             .flex_col()
@@ -283,6 +359,11 @@ mod tests {
         };
         let first = get(0, 300);
         assert_eq!(first.count, 2);
+        assert_eq!(first.text.text, "Inkstone reader");
+        let screen = Bounds::new(point(px(-17.), px(44.)), size(px(600.), px(800.)));
+        let glyph = first.text.boxes(0..1, screen).next().unwrap();
+        assert_eq!(first.text.hit(glyph.center(), screen, false), Some(0..1));
+        assert!(glyph.origin.y > px(180.) && glyph.origin.y < px(260.));
         assert_eq!(first.aspect, 0.75);
         assert_eq!(&first.image.as_bytes(0).unwrap()[..4], &[0, 0, 255, 255]);
         assert_eq!(i32::from(get(1, 600).image.size(0).width), 600);
