@@ -97,25 +97,19 @@ fn bitmap(
 }
 
 enum Command {
-    Metadata,
     Layout,
     Render(Request),
     Thumbnail(i32),
     Search(u64, String),
 }
 enum Response {
-    Metadata(Paper),
     Layout(Result<Layout, String>),
     Page(Request, Result<Arc<Page>, String>),
     Matches(u64, Result<Vec<Hit>, String>),
     Thumbnail(i32, Result<Arc<RenderImage>, String>),
 }
 
-fn worker(
-    path: PathBuf,
-    requests: std::sync::mpsc::Receiver<Command>,
-    results: async_channel::Sender<Response>,
-) {
+fn open_pdf(path: &Path) -> Result<PdfDocument<'static>, String> {
     static ENGINE: OnceLock<Result<Pdfium, String>> = OnceLock::new();
     let engine = ENGINE.get_or_init(|| {
         let library = std::env::current_exe()
@@ -125,10 +119,22 @@ fn worker(
             .map(Pdfium::new)
             .map_err(|e| format!("无法加载 PDF 阅读引擎：{e}"))
     });
-    let document = engine.as_ref().map_err(Clone::clone).and_then(|pdf| {
-        pdf.load_pdf_from_file(&path, None)
+    engine.as_ref().map_err(Clone::clone).and_then(|pdf| {
+        pdf.load_pdf_from_file(path, None)
             .map_err(|e| format!("无法打开 PDF：{e}"))
-    });
+    })
+}
+
+pub(super) fn read_paper(path: &Path) -> Result<Paper, String> {
+    open_pdf(path).map(|doc| Paper::read(&doc))
+}
+
+fn worker(
+    path: PathBuf,
+    requests: std::sync::mpsc::Receiver<Command>,
+    results: async_channel::Sender<Response>,
+) {
+    let document = open_pdf(&path);
     let mut cache: VecDeque<(Request, Arc<Page>)> = VecDeque::new();
     let mut scan: Option<Scan> = None;
     loop {
@@ -146,12 +152,6 @@ fn worker(
         let mut render = Vec::new();
         for command in first.into_iter().chain(requests.try_iter()) {
             match command {
-                Command::Metadata => {
-                    let paper = document.as_ref().ok().map(Paper::read).unwrap_or_default();
-                    if results.send_blocking(Response::Metadata(paper)).is_err() {
-                        return;
-                    }
-                }
                 Command::Layout => {
                     let layout = document
                         .as_ref()
@@ -302,13 +302,7 @@ pub(super) struct Reader {
     error: Option<String>,
 }
 
-impl EventEmitter<Paper> for Reader {}
-
 impl Reader {
-    pub(super) fn request_metadata(&self) {
-        let _ = self.requests.send(Command::Metadata);
-    }
-
     pub(super) fn new(path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (requests, rx) = std::sync::mpsc::channel();
         let (tx, results) = async_channel::bounded(1);
@@ -349,7 +343,6 @@ impl Reader {
                 if this
                     .update(cx, |reader: &mut Self, cx| {
                         match response {
-                            Response::Metadata(paper) => cx.emit(paper),
                             Response::Layout(result) => match result {
                                 Ok(layout) => {
                                     reader.count = layout.count();
@@ -1316,11 +1309,6 @@ mod tests {
             };
             result.unwrap()
         };
-        send.send(Command::Metadata).unwrap();
-        let Response::Metadata(paper) = recv.recv_blocking().unwrap() else {
-            panic!("expected PDF metadata");
-        };
-        assert_eq!(paper.0["page_count"], 2);
         let first = get(0, 300);
 
         assert_eq!(first.text.text, "Inkstone reader");

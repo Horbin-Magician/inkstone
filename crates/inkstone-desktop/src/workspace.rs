@@ -12,6 +12,7 @@ mod modal_ui;
 mod note_files;
 mod note_open;
 mod notifications;
+mod paper_tasks;
 mod right_sidebar;
 mod save_coordinator;
 mod save_state;

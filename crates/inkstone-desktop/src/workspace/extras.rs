@@ -910,6 +910,7 @@ impl Workspace {
                 }
                 let catalog_error = files.as_ref().err().map(ToString::to_string);
                 if let Ok(files) = files {
+                    this.queue_new_papers(&files, cx);
                     Arc::make_mut(&mut this.index).files = files;
                 }
                 let Some(tab) = this.tabs.iter().find(|t| t.id == id) else {

@@ -470,6 +470,21 @@ impl Workspace {
                 .extension()
                 .is_none_or(|ext| !ext.eq_ignore_ascii_case("md"))
             {
+                if pdf_preview::is_pdf(&path) {
+                    let path = path.clone();
+                    let weak = menu_weak.clone();
+                    menu = menu.item(PopupMenuItem::new("识别论文属性").on_click(
+                        move |_, _, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.ui.focus_mode = false;
+                                this.ui.prefs.right_open = true;
+                                this.ui.right_mode = 6;
+                                this.queue_paper(&path, true, cx);
+                                cx.notify();
+                            });
+                        },
+                    ));
+                }
                 for (action, label) in [
                     (0, "使用默认应用打开"),
                     (1, "重命名文件"),

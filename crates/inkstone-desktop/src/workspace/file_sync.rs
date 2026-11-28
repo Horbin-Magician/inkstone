@@ -188,6 +188,9 @@ impl Workspace {
                         this.files = files;
                         let index_changed = !Arc::ptr_eq(&this.index, &index);
                         if index_changed {
+                            if rescan || structure_changed {
+                                this.queue_new_papers(&index.files, cx);
+                            }
                             this.index = index;
                         } else if this.ui.tree_folders != this.ui.folders {
                             this.ui.tree_folders = this.ui.folders.clone();

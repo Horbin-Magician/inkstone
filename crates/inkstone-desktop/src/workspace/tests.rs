@@ -7018,12 +7018,18 @@ fn paper_properties_resolve_and_remain_editable_offline(cx: &mut TestAppContext)
     let xref = pdf.len();
     pdf.push_str(&format!("xref\n8 1\n{info:010} 00000 n \ntrailer\n<< /Size 9 /Root 1 0 R /Prev {previous} /Info 8 0 R >>\nstartxref\n{xref}\n%%EOF\n"));
     std::fs::write(&path, &pdf).unwrap();
+    let root = dir.path().join("vault");
+    std::fs::create_dir(&root).unwrap();
+    let vault = Vault::open(&root, dir.path().join("recovery")).unwrap();
     let handle = cx.add_window(Workspace::new);
     handle
         .update(cx, |w, window, cx| {
-            w.open_preview_tab(path.clone(), window, cx)
+            w.vault = Some(vault);
+            w.startup_pending = false;
+            w.import_tree_files(vec![path.clone()], PathBuf::new(), window, cx);
         })
         .unwrap();
+    let path = root.join("paper.pdf");
     let mut visual = VisualTestContext::from_window(handle.into(), cx);
     for _ in 0..400 {
         visual.executor().advance_clock(Duration::from_millis(15));
@@ -7035,6 +7041,8 @@ fn paper_properties_resolve_and_remain_editable_offline(cx: &mut TestAppContext)
     }
     handle
         .update(&mut visual, |w, window, cx| {
+            assert!(!w.tabs.iter().any(|t| t.path.ends_with("paper.pdf")));
+            w.open_preview_tab(PathBuf::from("paper.pdf"), window, cx);
             let source = attachment_properties::AttachmentProperties::open(&path)
                 .source
                 .unwrap()
