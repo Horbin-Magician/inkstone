@@ -888,6 +888,26 @@ impl Workspace {
         });
         cx.spawn_in(window, async move |this, cx| {
             let (results, files) = task.await;
+            let catalog_error = files.as_ref().err().map(ToString::to_string);
+            // Recognition follows the completed import, even while composing
+            // text delays inserting the attachment link into the editor.
+            let _ = this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                if let Ok(files) = files {
+                    this.queue_new_papers(&files, cx);
+                    Arc::make_mut(&mut this.index).files = files;
+                } else {
+                    for path in results
+                        .iter()
+                        .filter_map(|r| r.as_ref().ok())
+                        .filter(|p| pdf_preview::is_pdf(p))
+                    {
+                        this.queue_paper(path, false, cx);
+                    }
+                }
+            });
             loop {
                 let pending = this
                     .update_in(cx, |this, w, cx| {
@@ -907,11 +927,6 @@ impl Workspace {
                 this.file_writes.finish(write_ticket);
                 if this.generation != generation {
                     return;
-                }
-                let catalog_error = files.as_ref().err().map(ToString::to_string);
-                if let Ok(files) = files {
-                    this.queue_new_papers(&files, cx);
-                    Arc::make_mut(&mut this.index).files = files;
                 }
                 let Some(tab) = this.tabs.iter().find(|t| t.id == id) else {
                     this.notifications
@@ -989,6 +1004,51 @@ impl Workspace {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    #[ignore = "requires packaged PDFium beside the test executable"]
+    fn imported_paper_is_recognized_while_attachment_link_waits_for_composition(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("vault");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("note.md"), "").unwrap();
+        let pdf = dir.path().join("paper.pdf");
+        std::fs::write(&pdf, include_bytes!("../../tests/fixtures/two-pages.pdf")).unwrap();
+        let vault = Vault::open(&root, dir.path().join("recovery")).unwrap();
+        let handle = cx.add_window(Workspace::new);
+        let editor = handle
+            .update(cx, |w, win, cx| {
+                w.vault = Some(vault);
+                w.startup_pending = false;
+                w.add_tab("note.md".into(), Some(String::new()), false, win, cx);
+                w.import_files(vec![pdf], win, cx);
+                let editor = w.current_pane().unwrap().read(cx).editor.clone();
+                editor.update(cx, |s, cx| {
+                    s.replace_and_mark_text_in_range(None, "ni", Some(2..2), win, cx)
+                });
+                editor
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let sidecar = inkstone_core::properties::sidecar(&root.join("附件/paper.pdf"));
+        assert!(
+            std::fs::read_to_string(sidecar)
+                .unwrap()
+                .contains("page_count: 2")
+        );
+        handle
+            .update(cx, |_, win, cx| {
+                assert!(!editor.read(cx).value().contains("paper.pdf"));
+                editor.update(cx, |s, cx| s.unmark_text(win, cx));
+            })
+            .unwrap();
+        cx.executor().advance_clock(Duration::from_millis(60));
+        cx.run_until_parked();
+        editor.read_with(cx, |s, _| assert!(s.value().contains("paper.pdf")));
+    }
 
     #[gpui::test]
     fn attachment_dialog_does_not_import_into_a_different_note(cx: &mut TestAppContext) {
