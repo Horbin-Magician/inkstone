@@ -70,6 +70,17 @@ pub(super) struct Position {
     pub(super) zoom: f32,
 }
 
+#[cfg(test)]
+impl Position {
+    pub(super) fn near(self, saved: Self) -> bool {
+        saved.y > 0.
+            && self.page == saved.page
+            && self.zoom == saved.zoom
+            && (self.y - saved.y).abs() < 0.002
+            && (self.x - saved.x).abs() < 0.002
+    }
+}
+
 impl Default for Position {
     fn default() -> Self {
         Self {

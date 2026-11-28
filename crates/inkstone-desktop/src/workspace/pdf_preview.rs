@@ -274,6 +274,26 @@ impl Reader {
         let (tx, results) = async_channel::bounded(1);
         let store = Store::new(&path);
         std::thread::spawn(move || worker(path, rx, tx));
+        // Native PDFium threads may not wake GPUI's single-threaded test scheduler.
+        // Relay responses during simulated time, as in the reader interaction tests.
+        #[cfg(test)]
+        let results = {
+            let (dispatch, local) = async_channel::unbounded();
+            cx.spawn(async move |reader, cx| {
+                while reader.upgrade().is_some() && !results.is_closed() {
+                    while let Ok(response) = results.try_recv() {
+                        if dispatch.try_send(response).is_err() {
+                            return;
+                        }
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(10))
+                        .await;
+                }
+            })
+            .detach();
+            local
+        };
         Self::with_worker(store, requests, results, window, cx)
     }
 
@@ -985,6 +1005,51 @@ mod tests {
                 assert!(r.scroll.bounds().contains(&glyph.center()));
             })
             .unwrap();
+        // Save a nonzero offset on the second page and reopen at a different viewport width.
+        handle
+            .update(&mut visual, |r, _, cx| {
+                r.navigate(1);
+                r.zoom = 2.;
+                cx.notify();
+            })
+            .unwrap();
+        wait(&mut visual, |r| r.page == 1 && r.pages.contains_key(&1));
+        visual.simulate_event(ScrollWheelEvent {
+            position: viewport.center(),
+            delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-80.))),
+            modifiers: Default::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        visual.run_until_parked();
+        visual.update(|w, cx| w.draw(cx).clear(cx));
+        visual.executor().advance_clock(Duration::from_millis(400));
+        visual.run_until_parked();
+        let pdf = dir.path().join("test.pdf");
+        let saved = Store::new(&pdf).position();
+        assert_eq!((saved.page, saved.zoom), (1, 2.));
+        let reopened = cx.add_window(|w, cx| Reader::new(pdf, w, cx));
+        let mut restored = VisualTestContext::from_window(reopened.into(), cx);
+        restored.simulate_resize(size(px(700.), px(600.)));
+        for _ in 0..300 {
+            restored.executor().advance_clock(Duration::from_millis(15));
+            restored.run_until_parked();
+            restored.update(|w, cx| w.draw(cx).clear(cx));
+            let ready = reopened
+                .update(&mut restored, |r, _, _| {
+                    if !r.pages.contains_key(&1) {
+                        return false;
+                    }
+                    assert_eq!(r.page, 1);
+                    assert!(r.position.near(saved));
+                    true
+                })
+                .unwrap();
+            if ready {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("reopened PDF did not render the saved page");
     }
 
     #[test]
