@@ -1,17 +1,12 @@
 //! Reviewed bulk edits. Planning never writes; applying checks every baseline first.
 use crate::{index::Index, vault::Vault};
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
     pub find: String,
     pub replacement: String,
     pub regex: bool,
     pub case_sensitive: bool,
-    pub tags: bool,
-    pub descendants: bool,
     pub folder: String,
 }
 #[derive(Clone, Debug)]
@@ -31,142 +26,6 @@ pub struct Applied {
     pub written: Vec<Edit>,
     pub errors: Vec<String>,
 }
-fn rename_tag(value: &str, old_lower: &str, new: &str, descendants: bool) -> Option<String> {
-    let trimmed = value.trim();
-    let tag = trimmed.strip_prefix('#').unwrap_or(trimmed);
-    let lower = tag.to_lowercase();
-    let replacement = if lower == old_lower {
-        new.to_owned()
-    } else if descendants
-        && lower
-            .strip_prefix(old_lower)
-            .is_some_and(|suffix| suffix.starts_with('/'))
-    {
-        // Find component boundary in the original UTF-8 spelling (case folding changes byte sizes).
-        let n = old_lower.split('/').count();
-        let suffix = tag.splitn(n + 1, '/').nth(n).unwrap_or_default();
-        format!("{new}/{suffix}")
-    } else {
-        return None;
-    };
-    Some(if trimmed.starts_with('#') {
-        format!("#{replacement}")
-    } else {
-        replacement
-    })
-}
-fn tag_edit<'a>(
-    note: &'a crate::index::IndexedNote,
-    spec: &Spec,
-    old_lower: &str,
-) -> Result<(Cow<'a, str>, usize), String> {
-    let source = note.text.as_str();
-    let old = spec.find.trim().trim_start_matches('#');
-    let new = spec.replacement.trim().trim_start_matches('#');
-    let valid = |s: &str| {
-        !s.is_empty()
-            && s.chars()
-                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '/'))
-            && s.chars().any(|c| !c.is_numeric())
-            && s.split('/').all(|s| !s.is_empty())
-    };
-    if !valid(old) || !valid(new) {
-        return Err("标签需包含有效文字，不能有空层级；目标标签不能为空。".into());
-    }
-    let mut edits = vec![];
-    let mut count = 0;
-    for (range, tag) in &note.parsed.inline_tags {
-        if let Some(new) = rename_tag(tag, old_lower, new, spec.descendants)
-            && new != *tag
-        {
-            edits.push((range.clone(), new));
-            count += 1;
-        }
-    }
-    if let Some(block) = crate::properties::block(source) {
-        let start = source.find('\n').unwrap() + 1;
-        let end = source[..block.end]
-            .trim_end_matches(['\r', '\n'])
-            .rfind('\n')
-            .unwrap()
-            + 1;
-        let yaml = &source[start..end];
-        let (_, _, entries) = crate::yaml_source::entries(yaml)?;
-        for entry in entries
-            .into_iter()
-            .filter(|e| e.key.eq_ignore_ascii_case("tags") || e.key.eq_ignore_ascii_case("tag"))
-        {
-            if yaml[entry.start..entry.value.start].contains('&') {
-                return Err(
-                    "标签属性使用 YAML 锚点，请先在源码中处理，避免影响其他属性引用。".into(),
-                );
-            }
-            let raw = &yaml[entry.value.clone()];
-            let mut value: serde_json::Value =
-                serde_saphyr::from_str(raw).map_err(|e| format!("标签属性无法安全处理：{e}"))?;
-            let mut changed = 0;
-            let mut replace = |v: &mut serde_json::Value| {
-                if let Some(s) = v.as_str()
-                    && let Some(new) = rename_tag(s, old_lower, new, spec.descendants)
-                    && new != s
-                {
-                    *v = serde_json::Value::String(new);
-                    changed += 1;
-                }
-            };
-            if let Some(array) = value.as_array_mut() {
-                for v in array {
-                    replace(v);
-                }
-            } else {
-                replace(&mut value);
-            }
-            if changed > 0 {
-                if let Some(array) = value.as_array_mut() {
-                    let target = new.to_lowercase();
-                    let mut seen = std::collections::BTreeSet::new();
-                    array.retain(|v| {
-                        let Some(s) = v.as_str() else {
-                            return true;
-                        };
-                        let trimmed = s.trim();
-                        let lower = trimmed.strip_prefix('#').unwrap_or(trimmed).to_lowercase();
-                        let matches = lower == target
-                            || (spec.descendants
-                                && lower
-                                    .strip_prefix(&target)
-                                    .is_some_and(|suffix| suffix.starts_with('/')));
-                        if !matches {
-                            return true;
-                        }
-                        seen.insert(lower)
-                    });
-                }
-                edits.push((
-                    start + entry.value.start..start + entry.value.end,
-                    value.to_string(),
-                ));
-                count += changed;
-            }
-        }
-    }
-    edits.sort_by_key(|(r, _)| r.start);
-    let mut out = Cow::Borrowed(source);
-    for (r, value) in edits.into_iter().rev() {
-        out.to_mut().replace_range(r, &value);
-    }
-    if let Some(block) = crate::properties::block(&out) {
-        let start = out.find('\n').unwrap() + 1;
-        let end = out[..block.end]
-            .trim_end_matches(['\r', '\n'])
-            .rfind('\n')
-            .unwrap()
-            + 1;
-        serde_saphyr::from_str::<serde_json::Value>(&out[start..end])
-            .map_err(|_| "修改会破坏 YAML，请先在源码中处理属性引用。".to_string())?;
-    }
-    Ok((out, count))
-}
 pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
     if spec.find.is_empty() {
         return Err("查找内容不能为空。".into());
@@ -180,34 +39,23 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
     {
         return Err("范围应为库内相对文件夹路径。".into());
     }
-    let regex = if spec.tags {
-        None
+
+    let pattern = if spec.regex {
+        spec.find.clone()
     } else {
-        let pattern = if spec.regex {
-            spec.find.clone()
-        } else {
-            regex::escape(&spec.find)
-        };
-        Some(
-            regex::RegexBuilder::new(&pattern)
-                .case_insensitive(!spec.case_sensitive)
-                .size_limit(crate::search::REGEX_SIZE_LIMIT)
-                .build()
-                .map_err(|e| e.to_string())?,
-        )
+        regex::escape(&spec.find)
     };
-    let tag_query = spec
-        .tags
-        .then(|| spec.find.trim().trim_start_matches('#').to_lowercase());
+    let regex = regex::RegexBuilder::new(&pattern)
+        .case_insensitive(!spec.case_sensitive)
+        .size_limit(crate::search::REGEX_SIZE_LIMIT)
+        .build()
+        .map_err(|e| e.to_string())?;
     let mut result = Plan::default();
     for (path, note) in &index.notes {
         if !folder.is_empty() && !path.starts_with(folder_path) {
             continue;
         }
-        let transformed = if let Some(old_lower) = &tag_query {
-            tag_edit(note, spec, old_lower)
-        } else {
-            let regex = regex.as_ref().unwrap();
+        let transformed = {
             let count = regex
                 .find_iter(&note.text)
                 .try_fold(0usize, |count, found| {
@@ -224,7 +72,7 @@ pub fn plan(index: &Index, spec: &Spec) -> Result<Plan, String> {
                 };
                 Ok((after, count))
             } else {
-                Err("不支持零宽匹配，请使用匹配具体字符的表达式。".into())
+                Err("不支持零宽匹配，请使用匹配具体字符的表达式。")
             }
         };
         match transformed {
@@ -278,8 +126,6 @@ mod tests {
             replacement: "新😀$1".into(),
             regex: false,
             case_sensitive: false,
-            tags: false,
-            descendants: true,
             folder: String::new(),
         }
     }
@@ -293,40 +139,6 @@ mod tests {
         s.find = pattern.into();
         assert!(plan(&Index::default(), &s).is_err());
         assert!(crate::search::Query::parse(&format!("/{pattern}/")).is_err());
-    }
-    #[test]
-    fn tag_renaming_preserves_unicode_hierarchy_boundaries() {
-        for (value, old, descendants, expected) in [
-            (" #WORK ", "work", false, Some("#项目")),
-            ("#Work/Sub/Deep", "work", true, Some("#项目/Sub/Deep")),
-            ("#Work/Sub", "work", false, None),
-            ("#Worker/Sub", "work", true, None),
-            ("#İ/主题/Child", "İ/主题", true, Some("#项目/Child")),
-            ("#İ/主题外/Child", "İ/主题", true, None),
-            ("İ/主题/😀", "İ", true, Some("项目/主题/😀")),
-        ] {
-            assert_eq!(
-                rename_tag(value, &old.to_lowercase(), "项目", descendants).as_deref(),
-                expected,
-                "{value}"
-            );
-        }
-    }
-    #[test]
-    fn tag_plan_normalizes_one_query_for_inline_and_property_tags() {
-        let mut index = Index::default();
-        index.update("a.md".into(), "#İ/主题\n".into());
-        index.update("b.md".into(), "---\ntags: ['İ/主题']\n---\n".into());
-        let mut s = spec();
-        s.tags = true;
-        s.find = " #İ ".into();
-        s.replacement = "项目".into();
-        let result = plan(&index, &s).unwrap();
-        assert!(result.warnings.is_empty());
-        assert_eq!(result.edits.len(), 2);
-        assert_eq!(result.edits[0].after, "#项目/主题\n");
-        assert_eq!(result.edits[1].after, "---\ntags: [\"项目/主题\"]\n---\n");
-        assert!(result.edits.iter().all(|edit| edit.count == 1));
     }
     #[test]
     fn dense_replacements_count_every_match_and_reject_late_empty_matches() {
@@ -346,7 +158,7 @@ mod tests {
         assert!(result.warnings[0].contains("零宽"));
     }
     #[test]
-    fn literal_regex_scope_and_tag_renaming_preserve_source_boundaries() {
+    fn literal_regex_scope_preserve_source_boundaries() {
         let mut i = Index::default();
         i.update("folder/a.md".into(), "OLD\r\nold".into());
         i.update("outside.md".into(), "old".into());
@@ -362,71 +174,6 @@ mod tests {
         s.find = "^".into();
         let p = plan(&i, &s).unwrap();
         assert!(p.edits.is_empty() && !p.warnings.is_empty());
-        i = Index::default();
-        let text = "---\r\nTags: ['Work', 'work/sub'] # keep\r\nother: yes\r\n---\r\n#work #work/sub #worker `#work` \\#work\r\n```md\r\n#work\r\n```\r\n";
-        i.update("a.md".into(), text.into());
-        s = spec();
-        s.tags = true;
-        s.find = "work".into();
-        s.replacement = "项目".into();
-        let p = plan(&i, &s).unwrap();
-        assert_eq!(p.edits[0].count, 4);
-        let after = &p.edits[0].after;
-        assert!(after.contains("#项目 #项目/sub #worker `#work` \\#work"));
-        assert!(after.contains("# keep\r\nother: yes"));
-        assert!(after.contains("```md\r\n#work\r\n```"));
-        assert_eq!(
-            crate::index::parse(after).tags,
-            vec!["worker", "项目", "项目/sub"]
-        );
-    }
-    #[test]
-    fn tag_merge_deduplicates_targets_and_rejects_broken_yaml_aliases() {
-        let mut index = Index::default();
-        index.update(
-            "a.md".into(),
-            "---\ntags: [old, done, other, other]\n---\n#old\n".into(),
-        );
-        let mut s = spec();
-        s.tags = true;
-        s.replacement = "done".into();
-        let p = plan(&index, &s).unwrap();
-        assert!(p.edits[0].after.contains("[\"done\",\"other\",\"other\"]"));
-        index.update(
-            "a.md".into(),
-            "---\ntags: &shared [old]\nother: *shared\n---\n#old\n".into(),
-        );
-        let p = plan(&index, &s).unwrap();
-        assert!(p.edits.is_empty());
-        assert!(!p.warnings.is_empty());
-    }
-    #[test]
-    fn tag_merge_keeps_unrelated_duplicates_and_matches_unicode_descendants() {
-        let mut index = Index::default();
-        index.update(
-            "a.md".into(),
-            "---\ntags: [old, old/Sub, ' #İ ', İ/sub, İx, İx, '##İ']\n---\n".into(),
-        );
-        let mut s = spec();
-        s.tags = true;
-        s.replacement = "İ".into();
-        let result = plan(&index, &s).unwrap();
-        assert!(result.warnings.is_empty());
-        assert_eq!(result.edits[0].count, 2);
-        assert!(
-            result.edits[0]
-                .after
-                .contains("[\"İ\",\"İ/Sub\",\"İx\",\"İx\",\"##İ\"]")
-        );
-
-        s.descendants = false;
-        let result = plan(&index, &s).unwrap();
-        assert_eq!(result.edits[0].count, 1);
-        assert!(
-            result.edits[0]
-                .after
-                .contains("[\"İ\",\"old/Sub\",\"İ/sub\",\"İx\",\"İx\",\"##İ\"]")
-        );
     }
     #[test]
     fn apply_checks_all_baselines_before_writing_and_keeps_history() {

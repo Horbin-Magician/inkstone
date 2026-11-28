@@ -13,10 +13,10 @@ pub(super) struct Review {
     replacement: Entity<InputState>,
     folder: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
-    tags: bool,
+
     regex: bool,
     case_sensitive: bool,
-    descendants: bool,
+
     plan: Option<Arc<Plan>>,
     selected: BTreeSet<usize>,
     loading: bool,
@@ -31,36 +31,17 @@ impl Review {
             folder: self.folder.read(cx).value().to_string(),
             regex: self.regex,
             case_sensitive: self.case_sensitive,
-            tags: self.tags,
-            descendants: self.descendants,
         }
     }
 }
 impl Workspace {
-    pub(super) fn open_bulk_edit(
-        &mut self,
-        tags: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn open_bulk_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.vault.is_none() {
             return;
         }
         self.close_overlays(window, cx);
-        let find = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(if tags {
-                "旧标签（不含 #）"
-            } else {
-                "查找内容"
-            })
-        });
-        let replacement = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(if tags {
-                "新标签 / 合并到标签"
-            } else {
-                "替换为（可为空）"
-            })
-        });
+        let find = cx.new(|cx| InputState::new(window, cx).placeholder("查找内容"));
+        let replacement = cx.new(|cx| InputState::new(window, cx).placeholder("替换为（可为空）"));
         let folder =
             cx.new(|cx| InputState::new(window, cx).placeholder("范围：库内文件夹，留空为全库"));
         let subscriptions = [&find, &replacement, &folder]
@@ -83,10 +64,10 @@ impl Workspace {
             replacement,
             folder,
             _subscriptions: subscriptions,
-            tags,
+
             regex: false,
             case_sensitive: false,
-            descendants: true,
+
             plan: None,
             selected: Default::default(),
             loading: false,
@@ -349,12 +330,11 @@ impl Workspace {
         };
         let count = r.plan.as_ref().map_or(0, |p| p.edits.len());
         div().id("bulk-edit-panel").flex().flex_col().gap_2().min_h_0().overflow_y_scroll()
-            .child(label("bulk-description", if r.tags{"标签重命名 / 合并：同时处理正文标签和 YAML 标签属性，忽略代码；标签匹配不区分大小写。"}else{"全库文本替换：包含正文、代码和属性。先预览差异，可逐篇取消选择，再应用。正则替换支持 $1 等捕获组。"}))
+            .child(label("bulk-description", "全库文本替换：包含正文、代码和属性。先预览差异，可逐篇取消选择，再应用。正则替换支持 $1 等捕获组。"))
             .child(Input::new(&r.find)).child(Input::new(&r.replacement)).child(Input::new(&r.folder))
             .child(div().flex().gap_2()
-                .when(!r.tags,|s|s.child(Button::new("bulk-case").label("区分大小写").when(r.case_sensitive,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.case_sensitive = !r.case_sensitive;}this.invalidate_bulk_preview(w,cx);})))
-                    .child(Button::new("bulk-regex").label("正则表达式").when(r.regex,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.regex = !r.regex;}this.invalidate_bulk_preview(w,cx); }))))
-                .when(r.tags,|s|s.child(Button::new("bulk-descendants").label("包含子标签").when(r.descendants,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.descendants = !r.descendants;}this.invalidate_bulk_preview(w,cx);}))))
+                .child(Button::new("bulk-case").label("区分大小写").when(r.case_sensitive,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.case_sensitive = !r.case_sensitive;}this.invalidate_bulk_preview(w,cx);})))
+                    .child(Button::new("bulk-regex").label("正则表达式").when(r.regex,|b|b.primary()).on_click(cx.listener(|this,_,w,cx|{if let Some(r)=&mut this.ui.bulk_edit{r.regex = !r.regex;}this.invalidate_bulk_preview(w,cx); })))
                 .child(Button::new("bulk-preview").label("生成预览").disabled(r.loading||self.file_writes.operation_active()).on_click(cx.listener(|this,_,w,cx|this.preview_bulk_edit(w,cx))))
                 .child(Button::new("bulk-apply").primary().label(format!("应用选中 {} 篇",r.selected.len())).disabled(r.loading||r.selected.is_empty()||self.file_writes.operation_active()).on_click(cx.listener(|this,_,w,cx|this.apply_bulk_edit(w,cx)))))
             .when(!r.message.is_empty(), |s| s.child(label("bulk-message", r.message.clone())))
@@ -389,7 +369,7 @@ mod tests {
                 let vault = Vault::open(&root, app_dir().join("recovery")).unwrap();
                 w.index = Arc::new(Index::build(&vault).unwrap());
                 w.vault = Some(vault);
-                w.open_bulk_edit(false, window, cx);
+                w.open_bulk_edit(window, cx);
                 let review = w.ui.bulk_edit.as_ref().unwrap();
                 review
                     .find
@@ -443,7 +423,7 @@ mod tests {
                 let vault = Vault::open(&root, root.with_extension("recovery")).unwrap();
                 w.index = Arc::new(Index::build(&vault).unwrap());
                 w.vault = Some(vault);
-                w.open_bulk_edit(false, window, cx);
+                w.open_bulk_edit(window, cx);
                 let r = w.ui.bulk_edit.as_ref().unwrap();
                 r.find.update(cx, |s, cx| s.set_value("old", window, cx));
                 r.replacement
@@ -461,7 +441,7 @@ mod tests {
                 w.apply_bulk_edit(window, cx);
                 assert!(w.file_writes.operation_active());
                 w.close_overlays(window, cx);
-                w.open_bulk_edit(true, window, cx);
+                w.open_bulk_edit(window, cx);
                 assert!(w.ui.bulk_edit.as_ref().unwrap().message.is_empty());
             })
             .unwrap();
@@ -472,7 +452,6 @@ mod tests {
                 assert!(!w.file_writes.operation_active());
                 assert!(w.notifications.text().contains("已修改 1 篇"));
                 let r = w.ui.bulk_edit.as_ref().unwrap();
-                assert!(r.tags);
                 assert!(!r.loading);
                 assert!(r.message.is_empty(), "{}", r.message);
                 assert!(r.plan.is_none());
@@ -509,7 +488,7 @@ mod tests {
         cx.run_until_parked();
         handle
             .update(cx, |w, window, cx| {
-                w.open_bulk_edit(false, window, cx);
+                w.open_bulk_edit(window, cx);
                 let r = w.ui.bulk_edit.as_ref().unwrap();
                 r.find.update(cx, |s, cx| s.set_value("old", window, cx));
                 r.replacement
