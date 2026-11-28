@@ -2,6 +2,8 @@
 
 > 历史记录：反映各条目当时的实现与验收情况，不代表当前支持范围。当前进度和限制见 [项目状态](../STATUS.md)，检查方法见 [验证指南](../TESTING.md)。
 
+笔记标签已于 2026-11-28 移除。与该功能有关的验收记录对应当时的版本。
+
 ## Core / Desktop workspace 拆分（2026-10-04）
 
 - 原 library 与 binary 分别迁入 `crates/inkstone-core` 和 `crates/inkstone-desktop`；可执行文件名保持 `inkstone`。103 个原源码、示例与测试文件均有唯一迁移目标，第三方依赖版本未变化。
