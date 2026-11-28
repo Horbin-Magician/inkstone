@@ -27,3 +27,5 @@ Completion placement uses window coordinates with an 8px edge margin. It chooses
 `src/input/input.rs` marks the fold-icon renderer as presentational. The Base editor owns the fold control's accessible name, expanded state and activation, avoiding a second unnamed button inside that control.
 
 `src/title_bar.rs` renders Windows window controls with 46px-wide hit targets and 18px icons, making minimize, maximize/restore, and close easier to see and click in the integrated workspace toolbar. Other platforms retain their existing sizes.
+
+The Windows native menu uses resvg 0.46 with GPUI to share the SVG parser and rasterizer for menu icons.
